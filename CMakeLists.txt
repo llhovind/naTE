@@ -25,6 +25,9 @@ endif()
 target_link_libraries(naTE PRIVATE ${wxWidgets_LIBRARIES})
 target_include_directories(naTE PRIVATE src)
 
+enable_testing()
+add_subdirectory(tests)
+
 add_custom_command(TARGET naTE POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_SOURCE_DIR}/config.ini $<TARGET_FILE_DIR:naTE>/config.ini
