@@ -1,0 +1,72 @@
+# Build directories (CMakePresets.json binaryDir pattern)
+build/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+CPackConfig.cmake
+CPackSourceConfig.cmake
+compile_commands.json
+
+# Ninja / Make artifacts
+*.ninja
+*.ninja_deps
+*.ninja_log
+Makefile
+
+# Compiled object files and libraries
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+
+# Executables
+naTE
+nate
+
+# Test binaries and output
+tests/CMakeFiles/
+CTestTestfile.cmake
+Testing/
+
+# clangd / IDE tooling (compile_commands.json is generated per preset in build/)
+.cache/
+.clangd/
+
+# VSCode
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json.example
+
+# CLion / JetBrains
+.idea/
+cmake-build-*/
+
+# Catch2 FetchContent download cache (lives inside build/, but be explicit)
+_deps/
+
+# User runtime data (created at runtime, not source)
+~/.nate/
+
+# Core dumps and sanitizer logs
+core
+core.*
+*.asan
+*.ubsan
+vgcore.*
+
+# Editor temporaries
+*.swp
+*.swo
+*~
+\#*\#
+.#*
+
+# macOS
+.DS_Store
+
+# Generated dependency files
+*.d
