@@ -9,7 +9,7 @@ FetchContent_MakeAvailable(Catch2)
 add_executable(naTE_tests
     main.cpp
     test_config.cpp
-    ${CMAKE_SOURCE_DIR}/src/Config.cpp
+    ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
 )
 
 target_link_libraries(naTE_tests PRIVATE

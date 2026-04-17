@@ -1,7 +1,7 @@
 #pragma once
 #include <wx/app.h>
 #include <vector>
-#include "Config.h"
+#include "config/Config.h"
 
 class TerminalPanel;
 

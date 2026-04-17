@@ -1,4 +1,4 @@
-#include "Config.h"
+#include "config/Config.h"
 #include <wx/fileconf.h>
 #include <wx/wfstream.h>
 

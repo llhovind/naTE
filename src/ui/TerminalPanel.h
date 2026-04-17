@@ -1,8 +1,8 @@
 #pragma once
 #include <wx/panel.h>
 #include <wx/scrolbar.h>
-#include "Buffer.h"
-#include "Config.h"
+#include "document/Buffer.h"
+#include "config/Config.h"
 
 class TerminalPanel : public wxPanel {
 public:

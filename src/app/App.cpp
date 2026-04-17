@@ -1,6 +1,6 @@
-#include "App.h"
-#include "MainFrame.h"
-#include "TerminalPanel.h"
+#include "app/App.h"
+#include "ui/MainFrame.h"
+#include "ui/TerminalPanel.h"
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
 

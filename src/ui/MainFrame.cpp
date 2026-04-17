@@ -1,5 +1,5 @@
-#include "MainFrame.h"
-#include "TerminalPanel.h"
+#include "ui/MainFrame.h"
+#include "ui/TerminalPanel.h"
 #include <wx/menu.h>
 #include <wx/sizer.h>
 

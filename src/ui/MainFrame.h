@@ -1,6 +1,6 @@
 #pragma once
 #include <wx/frame.h>
-#include "Config.h"
+#include "config/Config.h"
 
 class TerminalPanel;
 

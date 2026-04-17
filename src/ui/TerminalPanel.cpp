@@ -1,4 +1,4 @@
-#include "TerminalPanel.h"
+#include "ui/TerminalPanel.h"
 #include <wx/dcbuffer.h>
 #include <wx/dcmemory.h>
 #include <wx/settings.h>

@@ -10,11 +10,11 @@ include(${wxWidgets_USE_FILE})
 
 set(SOURCES
     src/main.cpp
-    src/App.cpp
-    src/MainFrame.cpp
-    src/TerminalPanel.cpp
-    src/Buffer.cpp
-    src/Config.cpp
+    src/app/App.cpp
+    src/ui/MainFrame.cpp
+    src/ui/TerminalPanel.cpp
+    src/document/Buffer.cpp
+    src/config/Config.cpp
 )
 
 if(APPLE)

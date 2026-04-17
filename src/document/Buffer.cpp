@@ -1,4 +1,4 @@
-#include "Buffer.h"
+#include "document/Buffer.h"
 
 Buffer::Buffer(int cols, int rows, wxColour defaultFg, wxColour defaultBg)
     : m_cols(cols)
