@@ -3,13 +3,13 @@
 #include <vector>
 #include "Config.h"
 
-class TextPanel;
+class TerminalPanel;
 
 class App : public wxApp {
 public:
     bool OnInit() override;
 
 private:
-    AppConfig               m_cfg;
-    std::vector<TextPanel*> m_panels;  // non-owning; lifetime managed by parent frames
+    AppConfig                   m_cfg;
+    std::vector<TerminalPanel*> m_panels;  // non-owning; lifetime managed by parent frames
 };

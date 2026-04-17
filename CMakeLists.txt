@@ -12,7 +12,8 @@ set(SOURCES
     src/main.cpp
     src/App.cpp
     src/MainFrame.cpp
-    src/TextPanel.cpp
+    src/TerminalPanel.cpp
+    src/Buffer.cpp
     src/Config.cpp
 )
 

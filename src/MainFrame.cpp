@@ -1,5 +1,5 @@
 #include "MainFrame.h"
-#include "TextPanel.h"
+#include "TerminalPanel.h"
 #include <wx/menu.h>
 #include <wx/sizer.h>
 
@@ -17,7 +17,7 @@ MainFrame::MainFrame(const AppConfig& cfg)
     CreateStatusBar();
     SetStatusText("Ready");
 
-    m_panel = new TextPanel(this, cfg);
+    m_panel = new TerminalPanel(this, cfg);
 
     auto* sizer = new wxBoxSizer(wxVERTICAL);
     sizer->Add(m_panel, 1, wxEXPAND);

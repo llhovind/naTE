@@ -2,16 +2,16 @@
 #include <wx/frame.h>
 #include "Config.h"
 
-class TextPanel;
+class TerminalPanel;
 
 class MainFrame : public wxFrame {
 public:
     explicit MainFrame(const AppConfig& cfg);
 
-    TextPanel* GetPanel() const { return m_panel; }
+    TerminalPanel* GetPanel() const { return m_panel; }
 
 private:
     void OnQuit(wxCommandEvent&);
 
-    TextPanel* m_panel;
+    TerminalPanel* m_panel;
 };
