@@ -6,8 +6,8 @@
 #include <cstdint>
 
 struct Style {
-    int fg = 37;
-    int bg = 40;
+    int fg = -1;  // -1 = use terminal default
+    int bg = -1;  // -1 = use terminal default
     bool bold = false;
 
     bool operator==(const Style& other) const {

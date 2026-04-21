@@ -141,8 +141,10 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
 
             const Style& style = run ? run->style : Style{};
 
-            // Map ANSI colour codes (30–37 fg, 40–47 bg) to RGB
-            auto ansiToColour = [](int code, bool isFg) -> wxColour {
+            // Map ANSI colour codes (30–37 fg, 40–47 bg) to RGB.
+            // Out-of-range codes mean "no colour set" — fall back to the
+            // panel's configured default colours rather than wxWHITE/wxBLACK.
+            auto ansiToColour = [this](int code, bool isFg) -> wxColour {
                 static const wxColour palette[8] = {
                     wxColour(0,0,0),       // 0 black
                     wxColour(170,0,0),     // 1 red
@@ -155,7 +157,7 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
                 };
                 int idx = isFg ? (code - 30) : (code - 40);
                 if (idx < 0 || idx > 7)
-                    return isFg ? *wxWHITE : *wxBLACK;
+                    return isFg ? m_cfg.textColour : m_cfg.bgColour;
                 return palette[idx];
             };
 

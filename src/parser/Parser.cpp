@@ -101,8 +101,8 @@ void Parser::DispatchSgr()
         style = Style{};
     } else {
         style.bold = bold;
-        if (!have_fg) style.fg = 37;
-        if (!have_bg) style.bg = 40;
+        if (!have_fg) style.fg = -1;
+        if (!have_bg) style.bg = -1;
     }
 
     target_.OnSetStyle(style);
