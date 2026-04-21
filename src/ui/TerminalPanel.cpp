@@ -10,11 +10,12 @@ static int QueryScrollbarThickness()
     return (t > 0) ? t : 16;
 }
 
-TerminalPanel::TerminalPanel(wxWindow *parent, const AppConfig &cfg)
+TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
     : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS),
-      m_cfg(cfg), m_font(cfg.fontSize, wxFONTFAMILY_TELETYPE,
-                                                    wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL),
-      m_origin(0, 0), m_sbThick(QueryScrollbarThickness())
+      m_cfg(cfg),
+      m_font(cfg.fontSize, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL),
+      m_origin(0, 0),
+      m_sbThick(QueryScrollbarThickness())
 {
     wxMemoryDC dc;
     dc.SetFont(m_font);
@@ -25,17 +26,15 @@ TerminalPanel::TerminalPanel(wxWindow *parent, const AppConfig &cfg)
     m_hScroll = new wxScrollBar(this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                 wxSB_HORIZONTAL);
 
-    // Bind every scroll action so arrows, page clicks, and dragging all update the origin.
-    auto bindScrollEvents = [this](wxScrollBar *sb)
-    {
-        sb->Bind(wxEVT_SCROLL_TOP, &TerminalPanel::OnScroll, this);
-        sb->Bind(wxEVT_SCROLL_BOTTOM, &TerminalPanel::OnScroll, this);
-        sb->Bind(wxEVT_SCROLL_LINEUP, &TerminalPanel::OnScroll, this);
-        sb->Bind(wxEVT_SCROLL_LINEDOWN, &TerminalPanel::OnScroll, this);
-        sb->Bind(wxEVT_SCROLL_PAGEUP, &TerminalPanel::OnScroll, this);
-        sb->Bind(wxEVT_SCROLL_PAGEDOWN, &TerminalPanel::OnScroll, this);
-        sb->Bind(wxEVT_SCROLL_THUMBTRACK, &TerminalPanel::OnScroll, this);
-        sb->Bind(wxEVT_SCROLL_CHANGED, &TerminalPanel::OnScroll, this);
+    auto bindScrollEvents = [this](wxScrollBar* sb) {
+        sb->Bind(wxEVT_SCROLL_TOP,       &TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_BOTTOM,    &TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_LINEUP,    &TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_LINEDOWN,  &TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_PAGEUP,    &TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_PAGEDOWN,  &TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_THUMBTRACK,&TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_CHANGED,   &TerminalPanel::OnScroll, this);
     };
     bindScrollEvents(m_hScroll);
     bindScrollEvents(m_vScroll);
@@ -43,17 +42,25 @@ TerminalPanel::TerminalPanel(wxWindow *parent, const AppConfig &cfg)
     SetBackgroundColour(cfg.bgColour);
     SetBackgroundStyle(wxBG_STYLE_PAINT);
     SetMinClientSize({cfg.columns * m_charSize.x + m_sbThick,
-                      cfg.rows * m_charSize.y + m_sbThick});
+                      cfg.rows    * m_charSize.y + m_sbThick});
 
     Bind(wxEVT_PAINT, &TerminalPanel::OnPaint, this);
-    Bind(wxEVT_SIZE, &TerminalPanel::OnSize, this);
+    Bind(wxEVT_SIZE,  &TerminalPanel::OnSize,  this);
+}
+
+void TerminalPanel::SetLayout(::Layout* layout)
+{
+    layout_ = layout;
+    if (layout_)
+        layout_->Rebuild(ViewportChars().x);
+    Refresh();
 }
 
 wxSize TerminalPanel::ViewportChars() const
 {
     const wxSize sz = GetClientSize();
-    return {(sz.x - m_sbThick) / m_charSize.x,
-            (sz.y - m_sbThick) / m_charSize.y};
+    return {std::max(1, (sz.x - m_sbThick) / m_charSize.x),
+            std::max(1, (sz.y - m_sbThick) / m_charSize.y)};
 }
 
 void TerminalPanel::LayoutScrollbars()
@@ -69,19 +76,20 @@ void TerminalPanel::LayoutScrollbars()
 void TerminalPanel::UpdateScrollbars()
 {
     const wxSize view = ViewportChars();
-    // const int hRange = std::max(m_buffer.cols(), view.x);
-    // const int vRange = std::max(m_buffer.rows(), view.y);
-    // m_hScroll->SetScrollbar(m_origin.x, view.x, hRange, view.x);
-    // m_vScroll->SetScrollbar(m_origin.y, view.y, vRange, view.y);
+    const int vRange = layout_ ? std::max(layout_->GetLineCount(), view.y) : view.y;
+    m_vScroll->SetScrollbar(m_origin.y, view.y, vRange, view.y);
+    m_hScroll->SetScrollbar(m_origin.x, view.x, view.x, view.x);
 }
 
-void TerminalPanel::OnSize(wxSizeEvent &e)
+void TerminalPanel::OnSize(wxSizeEvent& e)
 {
+    if (layout_)
+        layout_->Rebuild(ViewportChars().x);
     LayoutScrollbars();
     e.Skip();
 }
 
-void TerminalPanel::OnScroll(wxScrollEvent &e)
+void TerminalPanel::OnScroll(wxScrollEvent& e)
 {
     m_origin.x = m_hScroll->GetThumbPosition();
     m_origin.y = m_vScroll->GetThumbPosition();
@@ -89,35 +97,7 @@ void TerminalPanel::OnScroll(wxScrollEvent &e)
     e.Skip();
 }
 
-void TerminalPanel::SetDocument(const Document* document)
-{
-    doc = document;
-
-    if (doc)
-    {
-        layout.emplace(*doc, 80);
-    }
-
-    Refresh();
-}
-
-void TerminalPanel::RebuildLayout()
-{
-    if (!layout)
-        return;
-
-    int cols = GetClientSize().GetWidth() / charWidth;
-    if (cols <= 0)
-        cols = 1;
-
-    layout->Rebuild(cols);
-
-    // auto-scroll to bottom
-    int rows = GetClientSize().GetHeight() / charHeight;
-    scrollOffset = std::max(0, layout->GetLineCount() - rows);
-}
-
-void TerminalPanel::OnPaint(wxPaintEvent &)
+void TerminalPanel::OnPaint(wxPaintEvent&)
 {
     wxAutoBufferedPaintDC dc(this);
     dc.SetBackground(wxBrush(m_cfg.bgColour));
@@ -125,63 +105,72 @@ void TerminalPanel::OnPaint(wxPaintEvent &)
     dc.SetFont(m_font);
     dc.SetBackgroundMode(wxSOLID);
 
-    int rows = GetClientSize().GetHeight() / charHeight;
-
-    if (!layout)
+    if (!layout_)
         return;
 
-    for (int r = 0; r < rows; ++r)
-    {
-        int layoutRow = scrollOffset + r;
-        if (layoutRow >= layout->GetLineCount())
+    const wxSize view = ViewportChars();
+    const int    cw   = m_charSize.x;
+    const int    ch   = m_charSize.y;
+
+    for (int r = 0; r < view.y; ++r) {
+        int layoutRow = m_origin.y + r;
+        if (layoutRow >= layout_->GetLineCount())
             break;
 
-        auto line = layout->GetLine(layoutRow);
+        const LayoutLine line    = layout_->GetLine(layoutRow);
+        const DocLine&   dline   = line.line;
+        const size_t     docStart = line.startCol;
+        const size_t     docEnd   = std::min(docStart + (size_t)line.cols,
+                                             dline.text.size());
 
-        // render using same logic as before, but drawing
-        size_t docStart = line.startCol;
-        const DocLine &dline = line.line;
-        size_t docEnd = std::min(docStart + line.cols, dline.text.size());
+        size_t           runIndex = 0;
+        const StyleRun*  run      = nullptr;
 
-        size_t runIndex = 0;
-        const StyleRun *run = nullptr;
-
-        while (runIndex < dline.styles.size())
-        {
-            const auto &r = dline.styles[runIndex];
-            if (r.start + r.length > docStart)
-            {
-                run = &r;
-                break;
-            }
-            runIndex++;
+        while (runIndex < dline.styles.size()) {
+            const auto& sr = dline.styles[runIndex];
+            if (sr.start + sr.length > docStart) { run = &sr; break; }
+            ++runIndex;
         }
 
-        for (size_t docCol = docStart; docCol < docEnd; ++docCol)
-        {
-            while (run && docCol >= run->start + run->length)
-            {
-                runIndex++;
+        for (size_t docCol = docStart; docCol < docEnd; ++docCol) {
+            while (run && docCol >= run->start + run->length) {
+                ++runIndex;
                 run = (runIndex < dline.styles.size())
-                          ? &dline.styles[runIndex]
-                          : nullptr;
+                    ? &dline.styles[runIndex] : nullptr;
             }
 
-            char ch = (char)dline.text[docCol];
+            const Style& style = run ? run->style : Style{};
 
-            wxColour fg = *wxWHITE;
-            wxColour bg = *wxBLACK;
+            // Map ANSI colour codes (30–37 fg, 40–47 bg) to RGB
+            auto ansiToColour = [](int code, bool isFg) -> wxColour {
+                static const wxColour palette[8] = {
+                    wxColour(0,0,0),       // 0 black
+                    wxColour(170,0,0),     // 1 red
+                    wxColour(0,170,0),     // 2 green
+                    wxColour(170,170,0),   // 3 yellow
+                    wxColour(0,0,170),     // 4 blue
+                    wxColour(170,0,170),   // 5 magenta
+                    wxColour(0,170,170),   // 6 cyan
+                    wxColour(170,170,170), // 7 white
+                };
+                int idx = isFg ? (code - 30) : (code - 40);
+                if (idx < 0 || idx > 7)
+                    return isFg ? *wxWHITE : *wxBLACK;
+                return palette[idx];
+            };
 
-            if (run)
-            {
-                fg = wxColour(run->style.fg, run->style.fg, run->style.fg);
-            }
+            wxColour fg = ansiToColour(style.fg, true);
+            wxColour bg = ansiToColour(style.bg, false);
 
-            int x = (docCol - docStart) * charWidth;
-            int y = r * charHeight;
+            const int x = (int)(docCol - docStart) * cw;
+            const int y = r * ch;
 
             dc.SetTextForeground(fg);
-            dc.DrawText(wxString(ch), x, y);
+            dc.SetTextBackground(bg);
+
+            // DrawText with wxSOLID background paints the cell bg automatically
+            wxString glyph(static_cast<wchar_t>(dline.text[docCol]));
+            dc.DrawText(glyph, x, y);
         }
     }
 }

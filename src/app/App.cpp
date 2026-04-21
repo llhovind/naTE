@@ -1,6 +1,5 @@
 #include "app/App.h"
 #include "ui/MainFrame.h"
-#include "ui/TerminalPanel.h"
 #include "ui/wxKeyAdapter.h"
 #include "input/KeyEvent.hpp"
 #include <wx/filename.h>
@@ -24,8 +23,7 @@ bool App::OnInit() {
     m_router = std::make_unique<term::input::InputRouter>();
     gdk_event_handler_set(GdkEventHandler, this, nullptr);
 
-    auto* frame = new MainFrame(m_cfg);
-    m_panels.push_back(frame->GetPanel());
+    auto* frame = new MainFrame(m_cfg, *m_router);
     frame->Show();
     return true;
 }

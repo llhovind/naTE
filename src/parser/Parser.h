@@ -1,22 +1,32 @@
 #pragma once
 
-#include <functional>
+#include "parser/IParserTarget.h"
 #include <string>
 
-namespace term::parser
-{
+namespace term::parser {
 
-    class Parser
-    {
-    public:
-        using OutputCallback = std::function<void(const std::string &)>;
+class Parser {
+public:
+    explicit Parser(IParserTarget& target);
 
-        explicit Parser(OutputCallback cb);
+    void Process(const std::string& data);
 
-        void Process(const std::string &data);
+private:
+    enum class State { Normal, Escape, Csi };
 
-    private:
-        OutputCallback callback_;
-    };
+    void HandleNormal(unsigned char byte);
+    void HandleEscape(unsigned char byte);
+    void HandleCsi(unsigned char byte);
 
-}
+    void DispatchSgr();
+
+    IParserTarget& target_;
+    State          state_ = State::Normal;
+    std::string    params_;  // CSI parameter accumulator
+
+    // UTF-8 multi-byte decode state
+    char32_t utf8_codepoint_ = 0;
+    int      utf8_remaining_ = 0;
+};
+
+} // namespace term::parser

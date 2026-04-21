@@ -1,4 +1,9 @@
 #include "document/Document.h"
+#include <stdexcept>
+
+// ---------------------------------------------------------------------------
+// DocLine
+// ---------------------------------------------------------------------------
 
 void DocLine::AppendChar(char32_t ch)
 {
@@ -7,10 +12,7 @@ void DocLine::AppendChar(char32_t ch)
 
     if (!styles.empty()) {
         StyleRun& last = styles.back();
-
-        if (last.style == currentStyle &&
-            last.start + last.length == pos)
-        {
+        if (last.style == currentStyle && last.start + last.length == pos) {
             last.length += 1;
             return;
         }
@@ -19,23 +21,49 @@ void DocLine::AppendChar(char32_t ch)
     styles.push_back({pos, 1, currentStyle});
 }
 
-void Document::AppendChar(char32_t ch)
-{
-    if (lines.empty())
-        lines.emplace_back();
+// ---------------------------------------------------------------------------
+// MainScreenDocument
+// ---------------------------------------------------------------------------
 
-    lines.back().AppendChar(ch);
+void MainScreenDocument::AppendChar(char32_t ch)
+{
+    if (lines_.empty())
+        lines_.emplace_back();
+    lines_.back().AppendChar(ch);
 }
 
-void Document::NewLine()
+void MainScreenDocument::NewLine()
 {
-    lines.emplace_back();
+    lines_.emplace_back();
 }
 
-void Document::SetCurrentStyle(const Style& style)
+void MainScreenDocument::SetCurrentStyle(const Style& style)
 {
-    if (lines.empty())
-        lines.emplace_back();
+    if (lines_.empty())
+        lines_.emplace_back();
+    lines_.back().currentStyle = style;
+}
 
-    lines.back().currentStyle = style;
+// ---------------------------------------------------------------------------
+// AltScreenDocument — stub until PtyTransport + alt-screen are implemented
+// ---------------------------------------------------------------------------
+
+void AltScreenDocument::AppendChar(char32_t)
+{
+    throw std::logic_error("AltScreenDocument not yet implemented");
+}
+
+void AltScreenDocument::NewLine()
+{
+    throw std::logic_error("AltScreenDocument not yet implemented");
+}
+
+void AltScreenDocument::SetCurrentStyle(const Style&)
+{
+    throw std::logic_error("AltScreenDocument not yet implemented");
+}
+
+const std::deque<DocLine>& AltScreenDocument::GetLines() const
+{
+    throw std::logic_error("AltScreenDocument not yet implemented");
 }

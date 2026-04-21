@@ -7,30 +7,45 @@
 #include "session/InputEncoder.h"
 #include "transport/Transport.hpp"
 #include "parser/Parser.h"
+#include "parser/IParserTarget.h"
+#include "document/Document.h"
+#include "ui/Layout.h"
 
-namespace term::session
-{
+namespace term::session {
 
-    class Session : public input::InputTarget
-    {
-    public:
-        using OutputCallback = std::function<void(const std::string &)>;
+class Session : public input::InputTarget, public parser::IParserTarget {
+public:
+    using RefreshCallback = std::function<void()>;
 
-        explicit Session(std::unique_ptr<transport::Transport> transport);
+    explicit Session(std::unique_ptr<transport::Transport> transport);
 
-        void OnInput(const input::KeyEvent &event) override;
+    // input::InputTarget
+    void OnInput(const input::KeyEvent& event) override;
 
-        void SetOutputCallback(OutputCallback cb);
+    // parser::IParserTarget
+    void OnAppendChar(char32_t ch) override;
+    void OnNewLine() override;
+    void OnSetStyle(const Style& style) override;
 
-    private:
-        void OnTransportData(const std::string &data);
+    void SetRefreshCallback(RefreshCallback cb);
 
-    private:
-        std::unique_ptr<transport::Transport> transport_;
-        InputEncoder encoder_;
-        parser::Parser parser_;
+    Layout& GetLayout();
 
-        OutputCallback output_;
-    };
+private:
+    void OnTransportData(const std::string& data);
 
-}
+private:
+    std::unique_ptr<transport::Transport> transport_;
+    InputEncoder                          encoder_;
+    parser::Parser                        parser_;
+
+    std::unique_ptr<Document> main_doc_;
+    std::unique_ptr<Document> alt_doc_;
+    Document*                 active_doc_;
+
+    std::unique_ptr<Layout>   layout_;
+
+    RefreshCallback           refresh_callback_;
+};
+
+} // namespace term::session

@@ -6,7 +6,7 @@
 #include <cstdint>
 
 struct Style {
-    int fg = 37;   // placeholder (e.g. ANSI color)
+    int fg = 37;
     int bg = 40;
     bool bold = false;
 
@@ -35,12 +35,29 @@ struct DocLine {
 
 class Document {
 public:
-    void AppendChar(char32_t ch);
-    void NewLine();
-    void SetCurrentStyle(const Style& style);
+    virtual ~Document() = default;
 
-    const std::deque<DocLine>& GetLines() const { return lines; }
+    virtual void AppendChar(char32_t ch) = 0;
+    virtual void NewLine() = 0;
+    virtual void SetCurrentStyle(const Style& style) = 0;
+    virtual const std::deque<DocLine>& GetLines() const = 0;
+};
+
+class MainScreenDocument : public Document {
+public:
+    void AppendChar(char32_t ch) override;
+    void NewLine() override;
+    void SetCurrentStyle(const Style& style) override;
+    const std::deque<DocLine>& GetLines() const override { return lines_; }
 
 private:
-    std::deque<DocLine> lines;
+    std::deque<DocLine> lines_;
+};
+
+class AltScreenDocument : public Document {
+public:
+    void AppendChar(char32_t ch) override;
+    void NewLine() override;
+    void SetCurrentStyle(const Style& style) override;
+    const std::deque<DocLine>& GetLines() const override;
 };

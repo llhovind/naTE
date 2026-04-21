@@ -17,7 +17,6 @@ public:
     size_t startCol;
     int cols;
 
-    void Render() const;  // placeholder (console output)
 
 // private:
 //     const DocLine& line;
