@@ -30,6 +30,7 @@ public:
 
     void Rebuild(int cols);
     LayoutLine GetLine(int visualRow) const;
+    CursorPos GetCursorPos() const;
 
     int GetLineCount() const { return (int)visualLines.size(); }
 

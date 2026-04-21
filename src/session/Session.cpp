@@ -21,9 +21,9 @@ void Session::OnInput(const input::KeyEvent& event)
         transport_->Write(bytes);
 }
 
-void Session::OnAppendChar(char32_t ch)
+void Session::OnAppendInsertChar(char32_t ch)
 {
-    active_doc_->AppendChar(ch);
+    active_doc_->AppendInsertChar(ch);
 }
 
 void Session::OnNewLine()

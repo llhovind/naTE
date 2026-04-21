@@ -40,3 +40,23 @@ LayoutLine::LayoutLine(const DocLine& line, size_t startCol, int cols)
     : line(line), startCol(startCol), cols(cols)
 {
 }
+
+CursorPos Layout::GetCursorPos() const
+{
+    if (visualLines.empty())
+        return {0, 0};
+
+    const CursorPos docCursor = doc.GetCursor();
+
+    int visualRow = 0;
+    for (int i = (int)visualLines.size() - 1; i >= 0; --i) {
+        const auto& info = visualLines[i];
+        if ((size_t)info.docLine == docCursor.line && info.startCol <= docCursor.col) {
+            visualRow = i;
+            break;
+        }
+    }
+
+    const size_t visualCol = docCursor.col - visualLines[visualRow].startCol;
+    return {(size_t)visualRow, visualCol};
+}

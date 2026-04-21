@@ -5,7 +5,7 @@
 // DocLine
 // ---------------------------------------------------------------------------
 
-void DocLine::AppendChar(char32_t ch)
+void DocLine::AppendInsertChar(char32_t ch)
 {
     size_t pos = text.size();
     text.push_back(ch);
@@ -25,22 +25,27 @@ void DocLine::AppendChar(char32_t ch)
 // MainScreenDocument
 // ---------------------------------------------------------------------------
 
-void MainScreenDocument::AppendChar(char32_t ch)
+MainScreenDocument::MainScreenDocument()
 {
-    if (lines_.empty())
-        lines_.emplace_back();
-    lines_.back().AppendChar(ch);
+    lines_.emplace_back();
+    cursor_ = {0, 0};
+}
+
+void MainScreenDocument::AppendInsertChar(char32_t ch)
+{
+    lines_.back().AppendInsertChar(ch);
+    ++cursor_.col;
 }
 
 void MainScreenDocument::NewLine()
 {
     lines_.emplace_back();
+    ++cursor_.line;
+    cursor_.col = 0;
 }
 
 void MainScreenDocument::SetCurrentStyle(const Style& style)
 {
-    if (lines_.empty())
-        lines_.emplace_back();
     lines_.back().currentStyle = style;
 }
 
@@ -48,7 +53,7 @@ void MainScreenDocument::SetCurrentStyle(const Style& style)
 // AltScreenDocument — stub until PtyTransport + alt-screen are implemented
 // ---------------------------------------------------------------------------
 
-void AltScreenDocument::AppendChar(char32_t)
+void AltScreenDocument::AppendInsertChar(char32_t)
 {
     throw std::logic_error("AltScreenDocument not yet implemented");
 }

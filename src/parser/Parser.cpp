@@ -36,7 +36,7 @@ void Parser::HandleNormal(unsigned char byte)
 
     // UTF-8 multi-byte decode
     if (byte < 0x80) {
-        target_.OnAppendChar(static_cast<char32_t>(byte));
+        target_.OnAppendInsertChar(static_cast<char32_t>(byte));
     } else if ((byte & 0xE0) == 0xC0) {
         utf8_codepoint_ = byte & 0x1F;
         utf8_remaining_ = 1;
@@ -49,7 +49,7 @@ void Parser::HandleNormal(unsigned char byte)
     } else if ((byte & 0xC0) == 0x80) {
         utf8_codepoint_ = (utf8_codepoint_ << 6) | (byte & 0x3F);
         if (--utf8_remaining_ == 0) {
-            target_.OnAppendChar(utf8_codepoint_);
+            target_.OnAppendInsertChar(utf8_codepoint_);
             utf8_codepoint_ = 0;
         }
     }

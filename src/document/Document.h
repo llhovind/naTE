@@ -25,27 +25,39 @@ struct StyleRun {
     Style style;
 };
 
+struct CursorPos {
+    size_t line{0};
+    size_t col{0};
+};
+
 struct DocLine {
     std::u32string text;
     std::vector<StyleRun> styles;
     Style currentStyle;
 
-    void AppendChar(char32_t ch);
+    void AppendInsertChar(char32_t ch);
 };
 
 class Document {
 public:
     virtual ~Document() = default;
 
-    virtual void AppendChar(char32_t ch) = 0;
+    virtual void AppendInsertChar(char32_t ch) = 0;
     virtual void NewLine() = 0;
     virtual void SetCurrentStyle(const Style& style) = 0;
     virtual const std::deque<DocLine>& GetLines() const = 0;
+
+    CursorPos GetCursor() const { return cursor_; }
+
+protected:
+    CursorPos cursor_{};
 };
 
 class MainScreenDocument : public Document {
 public:
-    void AppendChar(char32_t ch) override;
+    MainScreenDocument();
+
+    void AppendInsertChar(char32_t ch) override;
     void NewLine() override;
     void SetCurrentStyle(const Style& style) override;
     const std::deque<DocLine>& GetLines() const override { return lines_; }
@@ -56,7 +68,7 @@ private:
 
 class AltScreenDocument : public Document {
 public:
-    void AppendChar(char32_t ch) override;
+    void AppendInsertChar(char32_t ch) override;
     void NewLine() override;
     void SetCurrentStyle(const Style& style) override;
     const std::deque<DocLine>& GetLines() const override;

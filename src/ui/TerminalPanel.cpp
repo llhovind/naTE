@@ -173,4 +173,30 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
             dc.DrawText(glyph, x, y);
         }
     }
+
+    // --- Cursor ---
+    const CursorPos cursorPos = layout_->GetCursorPos();
+    const int cursorScreenRow = (int)cursorPos.line - m_origin.y;
+    if (cursorScreenRow >= 0 && cursorScreenRow < view.y) {
+        const int cx = (int)cursorPos.col * cw;
+        const int cy = cursorScreenRow * ch;
+
+        dc.SetPen(*wxTRANSPARENT_PEN);
+        dc.SetBrush(wxBrush(*wxBLUE));
+        dc.DrawRectangle(cx, cy, cw, ch);
+
+        // Redraw the character under the cursor with inverted colours
+        if (cursorPos.line < (size_t)layout_->GetLineCount()) {
+            const LayoutLine cursorLine = layout_->GetLine((int)cursorPos.line);
+            const DocLine&   cursorDLine = cursorLine.line;
+            const size_t     docCol = cursorLine.startCol + cursorPos.col;
+            if (docCol < cursorDLine.text.size()) {
+                dc.SetTextForeground(*wxBLACK);
+                dc.SetTextBackground(*wxWHITE);
+                dc.SetBackgroundMode(wxSOLID);
+                wxString glyph(static_cast<wchar_t>(cursorDLine.text[docCol]));
+                dc.DrawText(glyph, cx, cy);
+            }
+        }
+    }
 }

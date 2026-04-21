@@ -23,7 +23,7 @@ public:
     void OnInput(const input::KeyEvent& event) override;
 
     // parser::IParserTarget
-    void OnAppendChar(char32_t ch) override;
+    void OnAppendInsertChar(char32_t ch) override;
     void OnNewLine() override;
     void OnSetStyle(const Style& style) override;
 
