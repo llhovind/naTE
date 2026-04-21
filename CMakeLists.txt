@@ -8,13 +8,23 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(wxWidgets REQUIRED COMPONENTS core base)
 include(${wxWidgets_USE_FILE})
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
+
 set(SOURCES
     src/main.cpp
     src/app/App.cpp
+    src/input/InputRouter.cpp
+    src/config/Config.cpp
+    src/document/Document.cpp
+    src/session/InputEncoder.cpp
+    src/session/Session.cpp
+    src/transport/LoopbackTransport.cpp
+    src/parser/Parser.cpp
+    src/ui/wxKeyAdapter.cpp
     src/ui/MainFrame.cpp
     src/ui/TerminalPanel.cpp
-    src/document/Buffer.cpp
-    src/config/Config.cpp
+    src/ui/Layout.cpp
 )
 
 if(APPLE)
@@ -23,8 +33,8 @@ else()
     add_executable(naTE ${SOURCES})
 endif()
 
-target_link_libraries(naTE PRIVATE ${wxWidgets_LIBRARIES})
-target_include_directories(naTE PRIVATE src)
+target_link_libraries(naTE PRIVATE ${wxWidgets_LIBRARIES} ${GTK3_LIBRARIES})
+target_include_directories(naTE PRIVATE src ${GTK3_INCLUDE_DIRS})
 
 enable_testing()
 add_subdirectory(tests)

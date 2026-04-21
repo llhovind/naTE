@@ -3,14 +3,14 @@
 #include <wx/menu.h>
 #include <wx/sizer.h>
 
-MainFrame::MainFrame(const AppConfig& cfg)
+MainFrame::MainFrame(const AppConfig &cfg)
     : wxFrame(nullptr, wxID_ANY, "naTE")
 {
-    auto* menu = new wxMenu;
+    auto *menu = new wxMenu;
     menu->Append(wxID_EXIT, "Quit\tCtrl+Q");
     Bind(wxEVT_MENU, &MainFrame::OnQuit, this, wxID_EXIT);
 
-    auto* menuBar = new wxMenuBar;
+    auto *menuBar = new wxMenuBar;
     menuBar->Append(menu, "&File");
     SetMenuBar(menuBar);
 
@@ -19,11 +19,12 @@ MainFrame::MainFrame(const AppConfig& cfg)
 
     m_panel = new TerminalPanel(this, cfg);
 
-    auto* sizer = new wxBoxSizer(wxVERTICAL);
+    auto *sizer = new wxBoxSizer(wxVERTICAL);
     sizer->Add(m_panel, 1, wxEXPAND);
     SetSizerAndFit(sizer);
 }
 
-void MainFrame::OnQuit(wxCommandEvent&) {
+void MainFrame::OnQuit(wxCommandEvent &)
+{
     Close(true);
 }
