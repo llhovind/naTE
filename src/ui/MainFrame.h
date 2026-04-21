@@ -22,9 +22,10 @@ private:
     void ActivateSession(term::session::Session* s);
 
     term::input::InputRouter&                           m_router;
+    AppConfig                                           m_cfg;
     std::vector<std::unique_ptr<term::session::Session>> m_sessions;
     term::session::Session*                             m_active = nullptr;
     wxMenu*                                             m_connMenu = nullptr;
 
-    TerminalPanel* m_panel;
+    TerminalPanel* m_panel = nullptr;
 };

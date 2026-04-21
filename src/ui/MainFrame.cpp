@@ -11,7 +11,8 @@ namespace {
 
 MainFrame::MainFrame(const AppConfig& cfg, term::input::InputRouter& router)
     : wxFrame(nullptr, wxID_ANY, "naTE"),
-      m_router(router)
+      m_router(router),
+      m_cfg(cfg)
 {
     // File menu
     auto* fileMenu = new wxMenu;
@@ -32,11 +33,9 @@ MainFrame::MainFrame(const AppConfig& cfg, term::input::InputRouter& router)
     CreateStatusBar();
     SetStatusText("Ready — use Connection > New Connection to start");
 
-    m_panel = new TerminalPanel(this, cfg);
-
-    auto* sizer = new wxBoxSizer(wxVERTICAL);
-    sizer->Add(m_panel, 1, wxEXPAND);
-    SetSizerAndFit(sizer);
+    SetBackgroundColour(wxColour(211, 211, 211));
+    SetSizer(new wxBoxSizer(wxVERTICAL));
+    SetClientSize(wxSize(810, 470));
 }
 
 void MainFrame::OnQuit(wxCommandEvent&)
@@ -51,6 +50,13 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
 
 void MainFrame::CreateConnection()
 {
+    if (!m_panel) {
+        m_panel = new TerminalPanel(this, m_cfg);
+        GetSizer()->Add(m_panel, 1, wxEXPAND);
+        Layout();
+        Fit();
+    }
+
     auto transport = std::make_unique<term::transport::LoopbackTransport>();
     auto session   = std::make_unique<term::session::Session>(std::move(transport));
     term::session::Session* raw = session.get();
