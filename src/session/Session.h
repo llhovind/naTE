@@ -9,7 +9,7 @@
 #include "parser/Parser.h"
 #include "parser/IParserTarget.h"
 #include "document/Document.h"
-#include "ui/Layout.h"
+#include "ui/DocLayout.h"
 
 namespace term::session {
 
@@ -29,7 +29,7 @@ public:
 
     void SetRefreshCallback(RefreshCallback cb);
 
-    Layout& GetLayout();
+    DocLayout& GetDocLayout();
 
 private:
     void OnTransportData(const std::string& data);
@@ -43,7 +43,7 @@ private:
     std::unique_ptr<Document> alt_doc_;
     Document*                 active_doc_;
 
-    std::unique_ptr<Layout>   layout_;
+    std::unique_ptr<DocLayout>   docLayout_;
 
     RefreshCallback           refresh_callback_;
 };

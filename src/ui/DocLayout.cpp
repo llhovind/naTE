@@ -1,12 +1,12 @@
-#include "ui/Layout.h"
+#include "ui/DocLayout.h"
 #include <algorithm>
 
-Layout::Layout(const Document& doc, int cols)
+DocLayout::DocLayout(const Document& doc, int cols)
     : doc(doc), cols(cols)
 {
 }
 
-void Layout::Rebuild(int cols)
+void DocLayout::Rebuild(int cols)
 {
     this->cols = cols;
     visualLines.clear();
@@ -30,18 +30,18 @@ void Layout::Rebuild(int cols)
     }
 }
 
-LayoutLine Layout::GetLine(int visualRow) const
+DocLayoutLine DocLayout::GetLine(int visualRow) const
 {
     const auto& info = visualLines[visualRow];
-    return LayoutLine(doc.GetLines()[info.docLine], info.startCol, cols);
+    return DocLayoutLine(doc.GetLines()[info.docLine], info.startCol, cols);
 }
 
-LayoutLine::LayoutLine(const DocLine& line, size_t startCol, int cols)
+DocLayoutLine::DocLayoutLine(const DocLine& line, size_t startCol, int cols)
     : line(line), startCol(startCol), cols(cols)
 {
 }
 
-CursorPos Layout::GetCursorPos() const
+CursorPos DocLayout::GetCursorPos() const
 {
     if (visualLines.empty())
         return {0, 0};

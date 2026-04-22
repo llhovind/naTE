@@ -1,7 +1,7 @@
 #pragma once
 #include <wx/panel.h>
 #include <wx/scrolbar.h>
-#include "ui/Layout.h"
+#include "ui/DocLayout.h"
 #include "config/Config.h"
 
 class TerminalPanel : public wxPanel
@@ -9,10 +9,10 @@ class TerminalPanel : public wxPanel
 public:
     TerminalPanel(wxWindow* parent, const AppConfig& cfg);
 
-    void SetLayout(::Layout* layout);
+    void SetDocLayout(::DocLayout* docLayout);
 
 private:
-    ::Layout* layout_ = nullptr;
+    ::DocLayout* docLayout_ = nullptr;
 
     void OnPaint(wxPaintEvent&);
     void OnSize(wxSizeEvent&);

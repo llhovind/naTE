@@ -8,7 +8,7 @@ Session::Session(std::unique_ptr<transport::Transport> transport)
       main_doc_(std::make_unique<MainScreenDocument>()),
       alt_doc_(std::make_unique<AltScreenDocument>()),
       active_doc_(main_doc_.get()),
-      layout_(std::make_unique<Layout>(*main_doc_, 80))
+      docLayout_(std::make_unique<DocLayout>(*main_doc_, 80))
 {
     transport_->SetReadCallback(
         [this](const std::string& data) { OnTransportData(data); });
@@ -41,9 +41,9 @@ void Session::SetRefreshCallback(RefreshCallback cb)
     refresh_callback_ = std::move(cb);
 }
 
-Layout& Session::GetLayout()
+DocLayout& Session::GetDocLayout()
 {
-    return *layout_;
+    return *docLayout_;
 }
 
 void Session::OnTransportData(const std::string& data)

@@ -48,11 +48,11 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
     Bind(wxEVT_SIZE,  &TerminalPanel::OnSize,  this);
 }
 
-void TerminalPanel::SetLayout(::Layout* layout)
+void TerminalPanel::SetDocLayout(::DocLayout* docLayout)
 {
-    layout_ = layout;
-    if (layout_)
-        layout_->Rebuild(ViewportChars().x);
+    docLayout_ = docLayout;
+    if (docLayout_)
+        docLayout_->Rebuild(ViewportChars().x);
     Refresh();
 }
 
@@ -76,15 +76,15 @@ void TerminalPanel::LayoutScrollbars()
 void TerminalPanel::UpdateScrollbars()
 {
     const wxSize view = ViewportChars();
-    const int vRange = layout_ ? std::max(layout_->GetLineCount(), view.y) : view.y;
+    const int vRange = docLayout_ ? std::max(docLayout_->GetLineCount(), view.y) : view.y;
     m_vScroll->SetScrollbar(m_origin.y, view.y, vRange, view.y);
     m_hScroll->SetScrollbar(m_origin.x, view.x, view.x, view.x);
 }
 
 void TerminalPanel::OnSize(wxSizeEvent& e)
 {
-    if (layout_)
-        layout_->Rebuild(ViewportChars().x);
+    if (docLayout_)
+        docLayout_->Rebuild(ViewportChars().x);
     LayoutScrollbars();
     e.Skip();
 }
@@ -105,7 +105,7 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
     dc.SetFont(m_font);
     dc.SetBackgroundMode(wxSOLID);
 
-    if (!layout_)
+    if (!docLayout_)
         return;
 
     const wxSize view = ViewportChars();
@@ -114,10 +114,10 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
 
     for (int r = 0; r < view.y; ++r) {
         int layoutRow = m_origin.y + r;
-        if (layoutRow >= layout_->GetLineCount())
+        if (layoutRow >= docLayout_->GetLineCount())
             break;
 
-        const LayoutLine line    = layout_->GetLine(layoutRow);
+        const DocLayoutLine line    = docLayout_->GetLine(layoutRow);
         const DocLine&   dline   = line.line;
         const size_t     docStart = line.startCol;
         const size_t     docEnd   = std::min(docStart + (size_t)line.cols,
@@ -177,7 +177,7 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
     }
 
     // --- Cursor ---
-    const CursorPos cursorPos = layout_->GetCursorPos();
+    const CursorPos cursorPos = docLayout_->GetCursorPos();
     const int cursorScreenRow = (int)cursorPos.line - m_origin.y;
     if (cursorScreenRow >= 0 && cursorScreenRow < view.y) {
         const int cx = (int)cursorPos.col * cw;
@@ -188,8 +188,8 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
         dc.DrawRectangle(cx, cy, cw, ch);
 
         // Redraw the character under the cursor with inverted colours
-        if (cursorPos.line < (size_t)layout_->GetLineCount()) {
-            const LayoutLine cursorLine = layout_->GetLine((int)cursorPos.line);
+        if (cursorPos.line < (size_t)docLayout_->GetLineCount()) {
+            const DocLayoutLine cursorLine = docLayout_->GetLine((int)cursorPos.line);
             const DocLine&   cursorDLine = cursorLine.line;
             const size_t     docCol = cursorLine.startCol + cursorPos.col;
             if (docCol < cursorDLine.text.size()) {

@@ -8,28 +8,21 @@ struct VisualLineInfo {
     size_t startCol;
 };
 
-// class LayoutLine;
-class LayoutLine {
+class DocLayoutLine {
 public:
-    LayoutLine(const DocLine& line, size_t startCol, int cols);
+    DocLayoutLine(const DocLine& line, size_t startCol, int cols);
 
     const DocLine& line;
     size_t startCol;
     int cols;
-
-
-// private:
-//     const DocLine& line;
-//     size_t startCol;
-//     int cols;
 };
 
-class Layout {
+class DocLayout {
 public:
-    Layout(const Document& doc, int cols);
+    DocLayout(const Document& doc, int cols);
 
     void Rebuild(int cols);
-    LayoutLine GetLine(int visualRow) const;
+    DocLayoutLine GetLine(int visualRow) const;
     CursorPos GetCursorPos() const;
 
     int GetLineCount() const { return (int)visualLines.size(); }
@@ -40,4 +33,3 @@ private:
 
     std::vector<VisualLineInfo> visualLines;
 };
-

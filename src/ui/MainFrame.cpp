@@ -78,7 +78,7 @@ void MainFrame::ActivateSession(term::session::Session* s)
         m_router.RemoveTarget(m_active);
 
     m_active = s;
-    m_panel->SetLayout(&s->GetLayout());
+    m_panel->SetDocLayout(&s->GetDocLayout());
     s->SetRefreshCallback([this] { m_panel->Refresh(); });
     m_router.AddTarget(s);
     m_router.SetFocused(s);
