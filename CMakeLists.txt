@@ -24,7 +24,7 @@ set(SOURCES
     src/ui/wxKeyAdapter.cpp
     src/ui/MainFrame.cpp
     src/ui/TerminalPanel.cpp
-    src/ui/Layout.cpp
+    src/ui/DocLayout.cpp
 )
 
 if(APPLE)
