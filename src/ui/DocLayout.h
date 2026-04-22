@@ -1,6 +1,7 @@
 #pragma once
 
 #include "document/Document.h"
+#include "document/IDocumentListener.h"
 #include <vector>
 
 struct VisualLineInfo {
@@ -17,9 +18,10 @@ public:
     int cols;
 };
 
-class DocLayout {
+class DocLayout : public IDocumentListener {
 public:
-    DocLayout(const Document& doc, int cols);
+    DocLayout(Document& doc, int cols);
+    ~DocLayout() override;
 
     void Rebuild(int cols);
     DocLayoutLine GetLine(int visualRow) const;
@@ -27,8 +29,12 @@ public:
 
     int GetLineCount() const { return (int)visualLines.size(); }
 
+    void OnDocumentChanged(DocChangeType type, size_t lineIndex) override;
+
 private:
-    const Document& doc;
+    void RebuildLine(int lineIndex);
+
+    Document& doc;
     int cols;
 
     std::vector<VisualLineInfo> visualLines;

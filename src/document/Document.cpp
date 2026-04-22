@@ -1,4 +1,5 @@
 #include "document/Document.h"
+#include <algorithm>
 #include <stdexcept>
 
 // ---------------------------------------------------------------------------
@@ -22,6 +23,26 @@ void DocLine::AppendInsertChar(char32_t ch)
 }
 
 // ---------------------------------------------------------------------------
+// Document — listener management
+// ---------------------------------------------------------------------------
+
+void Document::AddListener(IDocumentListener* l)
+{
+    listeners_.push_back(l);
+}
+
+void Document::RemoveListener(IDocumentListener* l)
+{
+    listeners_.erase(std::remove(listeners_.begin(), listeners_.end(), l), listeners_.end());
+}
+
+void Document::NotifyListeners(DocChangeType type, size_t lineIndex)
+{
+    for (auto* l : listeners_)
+        l->OnDocumentChanged(type, lineIndex);
+}
+
+// ---------------------------------------------------------------------------
 // MainScreenDocument
 // ---------------------------------------------------------------------------
 
@@ -35,6 +56,7 @@ void MainScreenDocument::AppendInsertChar(char32_t ch)
 {
     lines_.back().AppendInsertChar(ch);
     ++cursor_.col;
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 
 void MainScreenDocument::NewLine()
@@ -42,11 +64,13 @@ void MainScreenDocument::NewLine()
     lines_.emplace_back();
     ++cursor_.line;
     cursor_.col = 0;
+    NotifyListeners(DocChangeType::InsertLine, cursor_.line);
 }
 
 void MainScreenDocument::SetCurrentStyle(const Style& style)
 {
     lines_.back().currentStyle = style;
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 
 // ---------------------------------------------------------------------------

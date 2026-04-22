@@ -1,9 +1,15 @@
 #include "ui/DocLayout.h"
 #include <algorithm>
 
-DocLayout::DocLayout(const Document& doc, int cols)
+DocLayout::DocLayout(Document& doc, int cols)
     : doc(doc), cols(cols)
 {
+    doc.AddListener(this);
+}
+
+DocLayout::~DocLayout()
+{
+    doc.RemoveListener(this);
 }
 
 void DocLayout::Rebuild(int cols)
@@ -12,21 +18,55 @@ void DocLayout::Rebuild(int cols)
     visualLines.clear();
 
     const auto& lines = doc.GetLines();
-
     for (int i = 0; i < (int)lines.size(); ++i)
-    {
-        const auto& line = lines[i];
-        size_t len = line.text.size();
+        RebuildLine(i);
+}
 
-        if (len == 0) {
-            visualLines.push_back({i, 0});
-            continue;
-        }
+void DocLayout::RebuildLine(int lineIndex)
+{
+    auto first = std::lower_bound(visualLines.begin(), visualLines.end(), lineIndex,
+        [](const VisualLineInfo& v, int idx) { return v.docLine < idx; });
+    auto last = first;
+    while (last != visualLines.end() && last->docLine == lineIndex) ++last;
 
+    const auto& line = doc.GetLines()[lineIndex];
+    const size_t len = line.text.size();
+    std::vector<VisualLineInfo> fresh;
+    if (len == 0) {
+        fresh.push_back({lineIndex, 0});
+    } else {
         for (size_t start = 0; start < len; start += cols)
-        {
-            visualLines.push_back({i, start});
-        }
+            fresh.push_back({lineIndex, start});
+    }
+
+    auto pos = visualLines.erase(first, last);
+    visualLines.insert(pos, fresh.begin(), fresh.end());
+}
+
+void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)
+{
+    switch (type) {
+    case DocChangeType::CursorMove:
+        return;
+
+    case DocChangeType::InsertLine:
+        visualLines.push_back({static_cast<int>(lineIndex), 0});
+        break;
+
+    case DocChangeType::UpdateLine:
+        RebuildLine(static_cast<int>(lineIndex));
+        break;
+
+    case DocChangeType::DeleteLine: {
+        const int idx = static_cast<int>(lineIndex);
+        auto first = std::lower_bound(visualLines.begin(), visualLines.end(), idx,
+            [](const VisualLineInfo& v, int i) { return v.docLine < i; });
+        auto last = first;
+        while (last != visualLines.end() && last->docLine == idx) ++last;
+        auto after = visualLines.erase(first, last);
+        for (auto it = after; it != visualLines.end(); ++it) --it->docLine;
+        break;
+    }
     }
 }
 

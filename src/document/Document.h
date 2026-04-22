@@ -4,6 +4,7 @@
 #include <vector>
 #include <deque>
 #include <cstdint>
+#include "document/IDocumentListener.h"
 
 struct Style {
     int fg = -1;  // -1 = use terminal default
@@ -49,8 +50,16 @@ public:
 
     CursorPos GetCursor() const { return cursor_; }
 
+    void AddListener(IDocumentListener* listener);
+    void RemoveListener(IDocumentListener* listener);
+
 protected:
+    void NotifyListeners(DocChangeType type, size_t lineIndex);
+
     CursorPos cursor_{};
+
+private:
+    std::vector<IDocumentListener*> listeners_;
 };
 
 class MainScreenDocument : public Document {
