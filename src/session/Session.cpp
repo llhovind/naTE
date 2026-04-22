@@ -26,6 +26,11 @@ void Session::OnAppendInsertChar(char32_t ch)
     active_doc_->AppendInsertChar(ch);
 }
 
+void Session::OnBackspace()
+{
+    active_doc_->Backspace();
+}
+
 void Session::OnNewLine()
 {
     active_doc_->NewLine();

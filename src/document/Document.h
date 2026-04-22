@@ -37,6 +37,7 @@ struct DocLine {
     Style currentStyle;
 
     void AppendInsertChar(char32_t ch);
+    void DeletePreviousChar(size_t cursorCol);
 };
 
 class Document {
@@ -44,6 +45,7 @@ public:
     virtual ~Document() = default;
 
     virtual void AppendInsertChar(char32_t ch) = 0;
+    virtual void Backspace() = 0;
     virtual void NewLine() = 0;
     virtual void SetCurrentStyle(const Style& style) = 0;
     virtual const std::deque<DocLine>& GetLines() const = 0;
@@ -67,6 +69,7 @@ public:
     MainScreenDocument();
 
     void AppendInsertChar(char32_t ch) override;
+    void Backspace() override;
     void NewLine() override;
     void SetCurrentStyle(const Style& style) override;
     const std::deque<DocLine>& GetLines() const override { return lines_; }
@@ -78,6 +81,7 @@ private:
 class AltScreenDocument : public Document {
 public:
     void AppendInsertChar(char32_t ch) override;
+    void Backspace() override;
     void NewLine() override;
     void SetCurrentStyle(const Style& style) override;
     const std::deque<DocLine>& GetLines() const override;

@@ -25,6 +25,11 @@ void Parser::HandleNormal(unsigned char byte)
         return;
     }
 
+    if (byte == '\b' || byte == '\x7f') {
+        target_.OnBackspace();
+        return;
+    }
+
     if (byte == '\n') {
         target_.OnNewLine();
         return;

@@ -24,6 +24,7 @@ public:
 
     // parser::IParserTarget
     void OnAppendInsertChar(char32_t ch) override;
+    void OnBackspace() override;
     void OnNewLine() override;
     void OnSetStyle(const Style& style) override;
 

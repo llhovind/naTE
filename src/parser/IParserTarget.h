@@ -9,6 +9,7 @@ public:
     virtual ~IParserTarget() = default;
 
     virtual void OnAppendInsertChar(char32_t ch) = 0;
+    virtual void OnBackspace() = 0;
     virtual void OnNewLine() = 0;
     virtual void OnSetStyle(const Style& style) = 0;
 };
