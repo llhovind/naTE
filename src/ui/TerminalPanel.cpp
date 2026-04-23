@@ -139,92 +139,49 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
     const int    ch      = m_charSize.y;
     const int    topRow  = docLayout_->GetTopRow();
 
+    // Map ANSI colour codes (30–37 fg, 40–47 bg) to RGB.
+    // Out-of-range codes mean "no colour set" — fall back to the panel's
+    // configured default colours rather than wxWHITE/wxBLACK.
+    auto ansiToColour = [this](int code, bool isFg) -> wxColour {
+        static const wxColour palette[8] = {
+            wxColour(0,0,0),       // 0 black
+            wxColour(170,0,0),     // 1 red
+            wxColour(0,170,0),     // 2 green
+            wxColour(170,170,0),   // 3 yellow
+            wxColour(0,0,170),     // 4 blue
+            wxColour(170,0,170),   // 5 magenta
+            wxColour(0,170,170),   // 6 cyan
+            wxColour(170,170,170), // 7 white
+        };
+        const int idx = isFg ? (code - 30) : (code - 40);
+        if (idx < 0 || idx > 7)
+            return isFg ? m_cfg.textColour : m_cfg.bgColour;
+        return palette[idx];
+    };
+
     for (int r = 0; r < view.y; ++r) {
         const int layoutRow = topRow + r;
         if (layoutRow >= docLayout_->GetLineCount())
             break;
 
-        const DocLayoutLine line     = docLayout_->GetLine(layoutRow);
-        const DocLine&      dline    = line.line;
-        const size_t        docStart = line.startCol;
-        const size_t        docEnd   = std::min(docStart + (size_t)line.cols,
-                                                dline.text.size());
+        const RenderedLine row = docLayout_->GetRenderedLine(layoutRow);
 
-        size_t          runIndex = 0;
-        const StyleRun* run      = nullptr;
-
-        while (runIndex < dline.styles.size()) {
-            const auto& sr = dline.styles[runIndex];
-            if (sr.start + sr.length > docStart) { run = &sr; break; }
-            ++runIndex;
+        for (int col = 0; col < (int)row.text.size(); ++col) {
+            dc.SetTextForeground(ansiToColour(row.attrs[col].fg, true));
+            dc.SetTextBackground(ansiToColour(row.attrs[col].bg, false));
+            dc.DrawText(wxString(static_cast<wchar_t>(row.text[col])), col * cw, r * ch);
         }
 
-        for (size_t docCol = docStart; docCol < docEnd; ++docCol) {
-            while (run && docCol >= run->start + run->length) {
-                ++runIndex;
-                run = (runIndex < dline.styles.size())
-                    ? &dline.styles[runIndex] : nullptr;
-            }
-
-            const Style& style = run ? run->style : Style{};
-
-            // Map ANSI colour codes (30–37 fg, 40–47 bg) to RGB.
-            // Out-of-range codes mean "no colour set" — fall back to the
-            // panel's configured default colours rather than wxWHITE/wxBLACK.
-            auto ansiToColour = [this](int code, bool isFg) -> wxColour {
-                static const wxColour palette[8] = {
-                    wxColour(0,0,0),       // 0 black
-                    wxColour(170,0,0),     // 1 red
-                    wxColour(0,170,0),     // 2 green
-                    wxColour(170,170,0),   // 3 yellow
-                    wxColour(0,0,170),     // 4 blue
-                    wxColour(170,0,170),   // 5 magenta
-                    wxColour(0,170,170),   // 6 cyan
-                    wxColour(170,170,170), // 7 white
-                };
-                const int idx = isFg ? (code - 30) : (code - 40);
-                if (idx < 0 || idx > 7)
-                    return isFg ? m_cfg.textColour : m_cfg.bgColour;
-                return palette[idx];
-            };
-
-            const wxColour fg = ansiToColour(style.fg, true);
-            const wxColour bg = ansiToColour(style.bg, false);
-
-            const int x = (int)(docCol - docStart) * cw;
-            const int y = r * ch;
-
-            dc.SetTextForeground(fg);
-            dc.SetTextBackground(bg);
-
-            // DrawText with wxSOLID background paints the cell bg automatically.
-            wxString glyph(static_cast<wchar_t>(dline.text[docCol]));
-            dc.DrawText(glyph, x, y);
-        }
-    }
-
-    // --- Cursor ---
-    const CursorPos cursorPos      = docLayout_->GetCursorPos();
-    const int       cursorScreenRow = (int)cursorPos.line - topRow;
-    if (cursorScreenRow >= 0 && cursorScreenRow < view.y) {
-        const int cx = (int)cursorPos.col * cw;
-        const int cy = cursorScreenRow * ch;
-
-        dc.SetPen(*wxTRANSPARENT_PEN);
-        dc.SetBrush(wxBrush(*wxBLUE));
-        dc.DrawRectangle(cx, cy, cw, ch);
-
-        // Redraw the character under the cursor with inverted colours.
-        if (cursorPos.line < (size_t)docLayout_->GetLineCount()) {
-            const DocLayoutLine cursorLine  = docLayout_->GetLine((int)cursorPos.line);
-            const DocLine&      cursorDLine = cursorLine.line;
-            const size_t        docCol      = cursorLine.startCol + cursorPos.col;
-            if (docCol < cursorDLine.text.size()) {
+        if (row.hasCursor) {
+            const int cx = row.cursorCol * cw;
+            const int cy = r * ch;
+            dc.SetPen(*wxTRANSPARENT_PEN);
+            dc.SetBrush(wxBrush(*wxBLUE));
+            dc.DrawRectangle(cx, cy, cw, ch);
+            if (row.cursorCol < (int)row.text.size()) {
                 dc.SetTextForeground(*wxBLACK);
                 dc.SetTextBackground(*wxWHITE);
-                dc.SetBackgroundMode(wxSOLID);
-                wxString glyph(static_cast<wchar_t>(cursorDLine.text[docCol]));
-                dc.DrawText(glyph, cx, cy);
+                dc.DrawText(wxString(static_cast<wchar_t>(row.text[row.cursorCol])), cx, cy);
             }
         }
     }

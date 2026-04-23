@@ -106,7 +106,7 @@ void DocLayout::LoadWindow(int anchorVisualRow)
     }
 }
 
-DocLayoutLine DocLayout::GetLine(int visualRow)
+RenderedLine DocLayout::GetRenderedLine(int visualRow)
 {
     if (visualLines_.empty() ||
         visualRow < loadedWindowStart_ ||
@@ -115,13 +115,38 @@ DocLayoutLine DocLayout::GetLine(int visualRow)
         LoadWindow(visualRow);
     }
 
-    const auto& info = visualLines_[visualRow - loadedWindowStart_];
-    return DocLayoutLine(doc.GetLines()[info.docLine], info.startCol, cols);
-}
+    const auto&    info  = visualLines_[visualRow - loadedWindowStart_];
+    const DocLine& dline = doc.GetLines()[info.docLine];
+    const size_t   start = info.startCol;
+    const size_t   len   = (dline.text.size() > start)
+                         ? std::min(static_cast<size_t>(cols), dline.text.size() - start)
+                         : 0;
 
-DocLayoutLine::DocLayoutLine(const DocLine& line, size_t startCol, int cols)
-    : line(line), startCol(startCol), cols(cols)
-{
+    RenderedLine result;
+    result.text  = dline.text.substr(start, len);
+    result.attrs.assign(len, Style{});
+
+    // Expand StyleRuns into a flat per-character array for the visible window
+    // [start, start+len) only.  This is O(visible_cols + runs_in_slice),
+    // regardless of how long the underlying document line is.
+    for (const auto& sr : dline.styles) {
+        const size_t srEnd    = sr.start + sr.length;
+        const size_t sliceEnd = start + len;
+        if (sr.start >= sliceEnd || srEnd <= start)
+            continue;
+        const size_t overlapStart = std::max(sr.start, start);
+        const size_t overlapEnd   = std::min(srEnd, sliceEnd);
+        for (size_t dc = overlapStart; dc < overlapEnd; ++dc)
+            result.attrs[dc - start] = sr.style;
+    }
+
+    const CursorPos cursor = GetCursorPos();
+    if (static_cast<int>(cursor.line) == visualRow) {
+        result.hasCursor = true;
+        result.cursorCol = static_cast<int>(cursor.col);
+    }
+
+    return result;
 }
 
 // Cursor position derived from docLineMeta_ without touching visualLines_.
