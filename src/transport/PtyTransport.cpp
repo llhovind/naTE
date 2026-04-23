@@ -67,6 +67,11 @@ void PtyTransport::SetReadCallback(DataCallback cb)
     callback_ = std::move(cb);
 }
 
+void PtyTransport::SetDisconnectCallback(DisconnectCallback cb)
+{
+    disconnect_callback_ = std::move(cb);
+}
+
 void PtyTransport::ReadLoop()
 {
     constexpr int kBufSize = 4096;
@@ -99,6 +104,8 @@ void PtyTransport::ReadLoop()
     }
 
     running_ = false;
+    if (disconnect_callback_)
+        disconnect_callback_();
 }
 
 } // namespace term::transport

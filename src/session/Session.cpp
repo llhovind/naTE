@@ -51,6 +51,12 @@ void Session::SetTitleCallback(TitleCallback cb)
     title_callback_ = std::move(cb);
 }
 
+void Session::SetDisconnectCallback(DisconnectCallback cb)
+{
+    disconnect_callback_ = std::move(cb);
+    transport_->SetDisconnectCallback(disconnect_callback_);
+}
+
 void Session::OnSetTitle(const std::string& title)
 {
     title_ = title;

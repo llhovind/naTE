@@ -10,6 +10,7 @@ namespace term::transport
     public:
         void Write(const std::string &data) override;
         void SetReadCallback(DataCallback cb) override;
+        void SetDisconnectCallback(DisconnectCallback cb) override {};
 
     private:
         DataCallback callback_;

@@ -27,6 +27,7 @@ private:
 
     void CreateConnection();
     void ActivateSession(ConnectionRecord& rec);
+    void CloseConnection(ConnectionRecord& rec);
 
     term::input::InputRouter&        m_router;
     AppConfig                        m_cfg;

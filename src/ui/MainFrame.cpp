@@ -4,6 +4,7 @@
 #include "transport/PtyTransport.h"
 #include <wx/menu.h>
 #include <wx/sizer.h>
+#include <algorithm>
 #include <cstdlib>
 
 namespace {
@@ -111,10 +112,42 @@ void MainFrame::CreateConnection()
             SetStatusText(wxString::Format("Active: %s", rec.label));
     });
 
+    rec.session->SetDisconnectCallback([this, &rec]() {
+        CallAfter([this, &rec]() { CloseConnection(rec); });
+    });
+
     m_connMenu->Append(id, label);
     Bind(wxEVT_MENU, [this, &rec](wxCommandEvent&) { ActivateSession(rec); }, id);
 
     ActivateSession(rec);
+}
+
+void MainFrame::CloseConnection(ConnectionRecord& rec)
+{
+    if (m_active == &rec) {
+        m_router.RemoveTarget(rec.session.get());
+        m_active = nullptr;
+        if (m_panel)
+            m_panel->SetDocLayout(nullptr);
+    }
+
+    m_connMenu->Delete(rec.menuId);
+
+    m_sessions.erase(
+        std::remove_if(m_sessions.begin(), m_sessions.end(),
+            [&rec](const ConnectionRecord& r) { return &r == &rec; }),
+        m_sessions.end());
+
+    if (m_sessions.empty()) {
+        SetStatusText("No active connections");
+        if (m_panel) {
+            m_panel->Destroy();
+            m_panel = nullptr;
+        }
+        Layout();
+    } else if (!m_active) {
+        ActivateSession(m_sessions.back());
+    }
 }
 
 void MainFrame::ActivateSession(ConnectionRecord& rec)

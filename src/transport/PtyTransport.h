@@ -20,6 +20,7 @@ public:
 
     void Write(const std::string& data) override;
     void SetReadCallback(DataCallback cb) override;
+    void SetDisconnectCallback(DisconnectCallback cb) override;
 
 private:
     void ReadLoop();
@@ -27,8 +28,9 @@ private:
     std::string       shell_;
     int               master_fd_ = -1;
     pid_t             child_pid_ = -1;
-    DataCallback      callback_;
-    std::atomic<bool> running_{false};
+    DataCallback       callback_;
+    DisconnectCallback disconnect_callback_;
+    std::atomic<bool>  running_{false};
     std::thread       reader_;
 };
 
