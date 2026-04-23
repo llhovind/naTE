@@ -11,9 +11,11 @@ void Parser::Process(const std::string& data)
 {
     for (unsigned char byte : data) {
         switch (state_) {
-        case State::Normal: HandleNormal(byte); break;
-        case State::Escape: HandleEscape(byte); break;
-        case State::Csi:    HandleCsi(byte);    break;
+        case State::Normal:  HandleNormal(byte);  break;
+        case State::Escape:  HandleEscape(byte);  break;
+        case State::Csi:     HandleCsi(byte);     break;
+        case State::Osc:     HandleOsc(byte);     break;
+        case State::OscEsc:  HandleOscEsc(byte);  break;
         }
     }
 }
@@ -66,9 +68,47 @@ void Parser::HandleEscape(unsigned char byte)
     if (byte == '[') {
         params_.clear();
         state_ = State::Csi;
+    } else if (byte == ']') {
+        osc_payload_.clear();
+        state_ = State::Osc;
     } else {
         state_ = State::Normal;
     }
+}
+
+void Parser::HandleOsc(unsigned char byte)
+{
+    if (byte == '\x07') {
+        DispatchOsc();
+        state_ = State::Normal;
+    } else if (byte == '\x1b') {
+        state_ = State::OscEsc;
+    } else {
+        osc_payload_.push_back(static_cast<char>(byte));
+    }
+}
+
+void Parser::HandleOscEsc(unsigned char byte)
+{
+    if (byte == '\\')
+        DispatchOsc();
+    state_ = State::Normal;
+}
+
+void Parser::DispatchOsc()
+{
+    const auto sep = osc_payload_.find(';');
+    if (sep == std::string::npos)
+        return;
+
+    int code = 0;
+    for (size_t i = 0; i < sep; ++i) {
+        if (osc_payload_[i] < '0' || osc_payload_[i] > '9') return;
+        code = code * 10 + (osc_payload_[i] - '0');
+    }
+
+    if (code == 0 || code == 1 || code == 2)
+        target_.OnSetTitle(osc_payload_.substr(sep + 1));
 }
 
 void Parser::HandleCsi(unsigned char byte)

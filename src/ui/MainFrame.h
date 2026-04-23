@@ -16,17 +16,23 @@ public:
     TerminalPanel* GetPanel() const { return m_panel; }
 
 private:
+    struct ConnectionRecord {
+        std::unique_ptr<term::session::Session> session;
+        wxString label;
+        int      menuId;
+    };
+
     void OnQuit(wxCommandEvent&);
     void OnNewConnection(wxCommandEvent&);
 
     void CreateConnection();
-    void ActivateSession(term::session::Session* s);
+    void ActivateSession(ConnectionRecord& rec);
 
-    term::input::InputRouter&                           m_router;
-    AppConfig                                           m_cfg;
-    std::vector<std::unique_ptr<term::session::Session>> m_sessions;
-    term::session::Session*                             m_active = nullptr;
-    wxMenu*                                             m_connMenu = nullptr;
+    term::input::InputRouter&        m_router;
+    AppConfig                        m_cfg;
+    std::vector<ConnectionRecord>    m_sessions;
+    ConnectionRecord*                m_active = nullptr;
+    wxMenu*                          m_connMenu = nullptr;
 
     TerminalPanel* m_panel = nullptr;
 };

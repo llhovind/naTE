@@ -46,6 +46,18 @@ void Session::SetRefreshCallback(RefreshCallback cb)
     refresh_callback_ = std::move(cb);
 }
 
+void Session::SetTitleCallback(TitleCallback cb)
+{
+    title_callback_ = std::move(cb);
+}
+
+void Session::OnSetTitle(const std::string& title)
+{
+    title_ = title;
+    if (title_callback_)
+        title_callback_(title_);
+}
+
 DocLayout& Session::GetDocLayout()
 {
     return *docLayout_;

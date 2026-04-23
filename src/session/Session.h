@@ -16,6 +16,7 @@ namespace term::session {
 class Session : public input::InputTarget, public parser::IParserTarget {
 public:
     using RefreshCallback = std::function<void()>;
+    using TitleCallback   = std::function<void(const std::string&)>;
 
     explicit Session(std::unique_ptr<transport::Transport> transport,
                      int scrollbackLines = 100'000);
@@ -28,9 +29,12 @@ public:
     void OnBackspace() override;
     void OnNewLine() override;
     void OnSetStyle(const Style& style) override;
+    void OnSetTitle(const std::string& title) override;
 
     void SetRefreshCallback(RefreshCallback cb);
+    void SetTitleCallback(TitleCallback cb);
 
+    const std::string& GetTitle() const { return title_; }
     DocLayout& GetDocLayout();
 
 private:
@@ -47,7 +51,9 @@ private:
 
     std::unique_ptr<DocLayout>   docLayout_;
 
-    RefreshCallback           refresh_callback_;
+    RefreshCallback  refresh_callback_;
+    TitleCallback    title_callback_;
+    std::string      title_;
 };
 
 } // namespace term::session

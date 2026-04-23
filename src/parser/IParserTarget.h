@@ -1,6 +1,7 @@
 #pragma once
 
 #include "document/Document.h"
+#include <string>
 
 namespace term::parser {
 
@@ -12,6 +13,7 @@ public:
     virtual void OnBackspace() = 0;
     virtual void OnNewLine() = 0;
     virtual void OnSetStyle(const Style& style) = 0;
+    virtual void OnSetTitle(const std::string& /*title*/) {}
 };
 
 } // namespace term::parser

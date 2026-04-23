@@ -12,17 +12,21 @@ public:
     void Process(const std::string& data);
 
 private:
-    enum class State { Normal, Escape, Csi };
+    enum class State { Normal, Escape, Csi, Osc, OscEsc };
 
     void HandleNormal(unsigned char byte);
     void HandleEscape(unsigned char byte);
     void HandleCsi(unsigned char byte);
+    void HandleOsc(unsigned char byte);
+    void HandleOscEsc(unsigned char byte);
 
     void DispatchSgr();
+    void DispatchOsc();
 
     IParserTarget& target_;
     State          state_ = State::Normal;
-    std::string    params_;  // CSI parameter accumulator
+    std::string    params_;       // CSI parameter accumulator
+    std::string    osc_payload_;  // OSC payload accumulator
 
     // UTF-8 multi-byte decode state
     char32_t utf8_codepoint_ = 0;

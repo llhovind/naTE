@@ -95,27 +95,37 @@ void MainFrame::CreateConnection()
         Fit();
     }
 
-    auto session = std::make_unique<term::session::Session>(std::move(transport),
-                                                             m_cfg.scrollbackLines);
-    term::session::Session* raw = session.get();
-    m_sessions.push_back(std::move(session));
-
     const int id = ID_SESSION_BASE + idx;
-    m_connMenu->Append(id, label);
-    Bind(wxEVT_MENU, [this, raw](wxCommandEvent&) { ActivateSession(raw); }, id);
 
-    ActivateSession(raw);
-    SetStatusText(wxString::Format("Active: %s", label));
+    m_sessions.emplace_back();
+    ConnectionRecord& rec = m_sessions.back();
+    rec.session = std::make_unique<term::session::Session>(std::move(transport),
+                                                           m_cfg.scrollbackLines);
+    rec.label  = label;
+    rec.menuId = id;
+
+    rec.session->SetTitleCallback([this, &rec](const std::string& title) {
+        rec.label = wxString::FromUTF8(title);
+        m_connMenu->SetLabel(rec.menuId, rec.label);
+        if (m_active == &rec)
+            SetStatusText(wxString::Format("Active: %s", rec.label));
+    });
+
+    m_connMenu->Append(id, label);
+    Bind(wxEVT_MENU, [this, &rec](wxCommandEvent&) { ActivateSession(rec); }, id);
+
+    ActivateSession(rec);
 }
 
-void MainFrame::ActivateSession(term::session::Session* s)
+void MainFrame::ActivateSession(ConnectionRecord& rec)
 {
     if (m_active)
-        m_router.RemoveTarget(m_active);
+        m_router.RemoveTarget(m_active->session.get());
 
-    m_active = s;
-    m_panel->SetDocLayout(&s->GetDocLayout());
-    s->SetRefreshCallback([this] { m_panel->OnDocumentUpdate(); });
-    m_router.AddTarget(s);
-    m_router.SetFocused(s);
+    m_active = &rec;
+    m_panel->SetDocLayout(&rec.session->GetDocLayout());
+    rec.session->SetRefreshCallback([this] { m_panel->OnDocumentUpdate(); });
+    m_router.AddTarget(rec.session.get());
+    m_router.SetFocused(rec.session.get());
+    SetStatusText(wxString::Format("Active: %s", rec.label));
 }
