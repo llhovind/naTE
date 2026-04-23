@@ -17,7 +17,8 @@ class Session : public input::InputTarget, public parser::IParserTarget {
 public:
     using RefreshCallback = std::function<void()>;
 
-    explicit Session(std::unique_ptr<transport::Transport> transport);
+    explicit Session(std::unique_ptr<transport::Transport> transport,
+                     int scrollbackLines = 100'000);
 
     // input::InputTarget
     void OnInput(const input::KeyEvent& event) override;

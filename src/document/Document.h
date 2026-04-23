@@ -66,7 +66,7 @@ private:
 
 class MainScreenDocument : public Document {
 public:
-    MainScreenDocument();
+    explicit MainScreenDocument(int maxLines = 100'000);
 
     void AppendInsertChar(char32_t ch) override;
     void Backspace() override;
@@ -76,6 +76,7 @@ public:
 
 private:
     std::deque<DocLine> lines_;
+    int maxLines_;
 };
 
 class AltScreenDocument : public Document {

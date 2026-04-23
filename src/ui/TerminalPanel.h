@@ -11,22 +11,26 @@ public:
 
     void SetDocLayout(::DocLayout* docLayout);
 
+    // Called by the session refresh callback. DocLayout has already adjusted
+    // topRow_ (via autoScroll_); this method updates scrollbars and repaints.
+    void OnDocumentUpdate();
+
 private:
     ::DocLayout* docLayout_ = nullptr;
 
     void OnPaint(wxPaintEvent&);
     void OnSize(wxSizeEvent&);
     void OnScroll(wxScrollEvent&);
+    void OnMouseWheel(wxMouseEvent&);
 
     void LayoutScrollbars();
     void UpdateScrollbars();
     wxSize ViewportChars() const;
 
-    AppConfig   m_cfg;
-    wxFont      m_font;
-    wxSize      m_charSize;
+    AppConfig    m_cfg;
+    wxFont       m_font;
+    wxSize       m_charSize;
     wxScrollBar* m_hScroll;
     wxScrollBar* m_vScroll;
-    wxPoint     m_origin;
-    int         m_sbThick;
+    int          m_sbThick;
 };

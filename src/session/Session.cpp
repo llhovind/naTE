@@ -2,13 +2,13 @@
 
 namespace term::session {
 
-Session::Session(std::unique_ptr<transport::Transport> transport)
+Session::Session(std::unique_ptr<transport::Transport> transport, int scrollbackLines)
     : transport_(std::move(transport)),
       parser_(*this),
-      main_doc_(std::make_unique<MainScreenDocument>()),
+      main_doc_(std::make_unique<MainScreenDocument>(scrollbackLines)),
       alt_doc_(std::make_unique<AltScreenDocument>()),
       active_doc_(main_doc_.get()),
-      docLayout_(std::make_unique<DocLayout>(*main_doc_, 80))
+      docLayout_(std::make_unique<DocLayout>(*main_doc_))
 {
     transport_->SetReadCallback(
         [this](const std::string& data) { OnTransportData(data); });

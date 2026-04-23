@@ -71,7 +71,8 @@ void Document::NotifyListeners(DocChangeType type, size_t lineIndex)
 // MainScreenDocument
 // ---------------------------------------------------------------------------
 
-MainScreenDocument::MainScreenDocument()
+MainScreenDocument::MainScreenDocument(int maxLines)
+    : maxLines_(maxLines)
 {
     lines_.emplace_back();
     cursor_ = {0, 0};
@@ -101,6 +102,12 @@ void MainScreenDocument::NewLine()
     ++cursor_.line;
     cursor_.col = 0;
     NotifyListeners(DocChangeType::InsertLine, cursor_.line);
+
+    if ((int)lines_.size() > maxLines_) {
+        lines_.pop_front();
+        --cursor_.line;
+        NotifyListeners(DocChangeType::DeleteLine, 0);
+    }
 }
 
 void MainScreenDocument::SetCurrentStyle(const Style& style)

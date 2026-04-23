@@ -14,7 +14,6 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
     : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS),
       m_cfg(cfg),
       m_font(cfg.fontSize, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL),
-      m_origin(0, 0),
       m_sbThick(QueryScrollbarThickness())
 {
     wxMemoryDC dc;
@@ -27,14 +26,14 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
                                 wxSB_HORIZONTAL);
 
     auto bindScrollEvents = [this](wxScrollBar* sb) {
-        sb->Bind(wxEVT_SCROLL_TOP,       &TerminalPanel::OnScroll, this);
-        sb->Bind(wxEVT_SCROLL_BOTTOM,    &TerminalPanel::OnScroll, this);
-        sb->Bind(wxEVT_SCROLL_LINEUP,    &TerminalPanel::OnScroll, this);
-        sb->Bind(wxEVT_SCROLL_LINEDOWN,  &TerminalPanel::OnScroll, this);
-        sb->Bind(wxEVT_SCROLL_PAGEUP,    &TerminalPanel::OnScroll, this);
-        sb->Bind(wxEVT_SCROLL_PAGEDOWN,  &TerminalPanel::OnScroll, this);
-        sb->Bind(wxEVT_SCROLL_THUMBTRACK,&TerminalPanel::OnScroll, this);
-        sb->Bind(wxEVT_SCROLL_CHANGED,   &TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_TOP,        &TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_BOTTOM,     &TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_LINEUP,     &TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_LINEDOWN,   &TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_PAGEUP,     &TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_PAGEDOWN,   &TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_THUMBTRACK, &TerminalPanel::OnScroll, this);
+        sb->Bind(wxEVT_SCROLL_CHANGED,    &TerminalPanel::OnScroll, this);
     };
     bindScrollEvents(m_hScroll);
     bindScrollEvents(m_vScroll);
@@ -44,15 +43,20 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
     SetMinClientSize({cfg.columns * m_charSize.x + m_sbThick,
                       cfg.rows    * m_charSize.y + m_sbThick});
 
-    Bind(wxEVT_PAINT, &TerminalPanel::OnPaint, this);
-    Bind(wxEVT_SIZE,  &TerminalPanel::OnSize,  this);
+    Bind(wxEVT_PAINT,      &TerminalPanel::OnPaint,      this);
+    Bind(wxEVT_SIZE,       &TerminalPanel::OnSize,       this);
+    Bind(wxEVT_MOUSEWHEEL, &TerminalPanel::OnMouseWheel, this);
 }
 
 void TerminalPanel::SetDocLayout(::DocLayout* docLayout)
 {
     docLayout_ = docLayout;
-    if (docLayout_)
-        docLayout_->Rebuild(ViewportChars().x);
+    if (docLayout_) {
+        const wxSize v = ViewportChars();
+        docLayout_->SetViewportSize(v.x, v.y);
+        docLayout_->ScrollToEnd();
+    }
+    UpdateScrollbars();
     Refresh();
 }
 
@@ -75,26 +79,48 @@ void TerminalPanel::LayoutScrollbars()
 
 void TerminalPanel::UpdateScrollbars()
 {
-    const wxSize view = ViewportChars();
-    const int vRange = docLayout_ ? std::max(docLayout_->GetLineCount(), view.y) : view.y;
-    m_vScroll->SetScrollbar(m_origin.y, view.y, vRange, view.y);
-    m_hScroll->SetScrollbar(m_origin.x, view.x, view.x, view.x);
+    const wxSize view   = ViewportChars();
+    const int    vTop   = docLayout_ ? docLayout_->GetTopRow() : 0;
+    const int    vTotal = docLayout_
+        ? std::max(docLayout_->GetLineCount(), view.y)
+        : view.y;
+    m_vScroll->SetScrollbar(vTop, view.y, vTotal, view.y);
+    m_hScroll->SetScrollbar(0, view.x, view.x, view.x); // H stub
+}
+
+void TerminalPanel::OnDocumentUpdate()
+{
+    // DocLayout has already adjusted topRow_ internally (autoScroll_ policy).
+    UpdateScrollbars();
+    Refresh();
 }
 
 void TerminalPanel::OnSize(wxSizeEvent& e)
 {
-    if (docLayout_)
-        docLayout_->Rebuild(ViewportChars().x);
+    if (docLayout_) {
+        const wxSize v = ViewportChars();
+        docLayout_->SetViewportSize(v.x, v.y);
+    }
     LayoutScrollbars();
     e.Skip();
 }
 
 void TerminalPanel::OnScroll(wxScrollEvent& e)
 {
-    m_origin.x = m_hScroll->GetThumbPosition();
-    m_origin.y = m_vScroll->GetThumbPosition();
+    if (docLayout_)
+        docLayout_->SetTopRow(m_vScroll->GetThumbPosition());
+    UpdateScrollbars();
     Refresh();
     e.Skip();
+}
+
+void TerminalPanel::OnMouseWheel(wxMouseEvent& e)
+{
+    if (!docLayout_) return;
+    const int delta = (e.GetWheelRotation() > 0) ? -3 : 3;
+    docLayout_->SetTopRow(docLayout_->GetTopRow() + delta);
+    UpdateScrollbars();
+    Refresh();
 }
 
 void TerminalPanel::OnPaint(wxPaintEvent&)
@@ -108,23 +134,24 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
     if (!docLayout_)
         return;
 
-    const wxSize view = ViewportChars();
-    const int    cw   = m_charSize.x;
-    const int    ch   = m_charSize.y;
+    const wxSize view    = ViewportChars();
+    const int    cw      = m_charSize.x;
+    const int    ch      = m_charSize.y;
+    const int    topRow  = docLayout_->GetTopRow();
 
     for (int r = 0; r < view.y; ++r) {
-        int layoutRow = m_origin.y + r;
+        const int layoutRow = topRow + r;
         if (layoutRow >= docLayout_->GetLineCount())
             break;
 
-        const DocLayoutLine line    = docLayout_->GetLine(layoutRow);
-        const DocLine&   dline   = line.line;
-        const size_t     docStart = line.startCol;
-        const size_t     docEnd   = std::min(docStart + (size_t)line.cols,
-                                             dline.text.size());
+        const DocLayoutLine line     = docLayout_->GetLine(layoutRow);
+        const DocLine&      dline    = line.line;
+        const size_t        docStart = line.startCol;
+        const size_t        docEnd   = std::min(docStart + (size_t)line.cols,
+                                                dline.text.size());
 
-        size_t           runIndex = 0;
-        const StyleRun*  run      = nullptr;
+        size_t          runIndex = 0;
+        const StyleRun* run      = nullptr;
 
         while (runIndex < dline.styles.size()) {
             const auto& sr = dline.styles[runIndex];
@@ -155,14 +182,14 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
                     wxColour(0,170,170),   // 6 cyan
                     wxColour(170,170,170), // 7 white
                 };
-                int idx = isFg ? (code - 30) : (code - 40);
+                const int idx = isFg ? (code - 30) : (code - 40);
                 if (idx < 0 || idx > 7)
                     return isFg ? m_cfg.textColour : m_cfg.bgColour;
                 return palette[idx];
             };
 
-            wxColour fg = ansiToColour(style.fg, true);
-            wxColour bg = ansiToColour(style.bg, false);
+            const wxColour fg = ansiToColour(style.fg, true);
+            const wxColour bg = ansiToColour(style.bg, false);
 
             const int x = (int)(docCol - docStart) * cw;
             const int y = r * ch;
@@ -170,15 +197,15 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
             dc.SetTextForeground(fg);
             dc.SetTextBackground(bg);
 
-            // DrawText with wxSOLID background paints the cell bg automatically
+            // DrawText with wxSOLID background paints the cell bg automatically.
             wxString glyph(static_cast<wchar_t>(dline.text[docCol]));
             dc.DrawText(glyph, x, y);
         }
     }
 
     // --- Cursor ---
-    const CursorPos cursorPos = docLayout_->GetCursorPos();
-    const int cursorScreenRow = (int)cursorPos.line - m_origin.y;
+    const CursorPos cursorPos      = docLayout_->GetCursorPos();
+    const int       cursorScreenRow = (int)cursorPos.line - topRow;
     if (cursorScreenRow >= 0 && cursorScreenRow < view.y) {
         const int cx = (int)cursorPos.col * cw;
         const int cy = cursorScreenRow * ch;
@@ -187,11 +214,11 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
         dc.SetBrush(wxBrush(*wxBLUE));
         dc.DrawRectangle(cx, cy, cw, ch);
 
-        // Redraw the character under the cursor with inverted colours
+        // Redraw the character under the cursor with inverted colours.
         if (cursorPos.line < (size_t)docLayout_->GetLineCount()) {
-            const DocLayoutLine cursorLine = docLayout_->GetLine((int)cursorPos.line);
-            const DocLine&   cursorDLine = cursorLine.line;
-            const size_t     docCol = cursorLine.startCol + cursorPos.col;
+            const DocLayoutLine cursorLine  = docLayout_->GetLine((int)cursorPos.line);
+            const DocLine&      cursorDLine = cursorLine.line;
+            const size_t        docCol      = cursorLine.startCol + cursorPos.col;
             if (docCol < cursorDLine.text.size()) {
                 dc.SetTextForeground(*wxBLACK);
                 dc.SetTextBackground(*wxWHITE);

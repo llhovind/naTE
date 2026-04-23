@@ -95,7 +95,8 @@ void MainFrame::CreateConnection()
         Fit();
     }
 
-    auto session = std::make_unique<term::session::Session>(std::move(transport));
+    auto session = std::make_unique<term::session::Session>(std::move(transport),
+                                                             m_cfg.scrollbackLines);
     term::session::Session* raw = session.get();
     m_sessions.push_back(std::move(session));
 
@@ -114,7 +115,7 @@ void MainFrame::ActivateSession(term::session::Session* s)
 
     m_active = s;
     m_panel->SetDocLayout(&s->GetDocLayout());
-    s->SetRefreshCallback([this] { m_panel->Refresh(); });
+    s->SetRefreshCallback([this] { m_panel->OnDocumentUpdate(); });
     m_router.AddTarget(s);
     m_router.SetFocused(s);
 }
