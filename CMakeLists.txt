@@ -20,9 +20,11 @@ set(SOURCES
     src/session/InputEncoder.cpp
     src/session/Session.cpp
     src/transport/LoopbackTransport.cpp
+    src/transport/PtyTransport.cpp
     src/parser/Parser.cpp
     src/ui/wxKeyAdapter.cpp
     src/ui/MainFrame.cpp
+    src/ui/NewConnectionDialog.cpp
     src/ui/TerminalPanel.cpp
     src/ui/DocLayout.cpp
 )
@@ -34,6 +36,10 @@ else()
 endif()
 
 target_link_libraries(naTE PRIVATE ${wxWidgets_LIBRARIES} ${GTK3_LIBRARIES})
+
+if(UNIX AND NOT APPLE)
+    target_link_libraries(naTE PRIVATE util)
+endif()
 target_include_directories(naTE PRIVATE src ${GTK3_INCLUDE_DIRS})
 
 enable_testing()

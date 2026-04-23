@@ -5,6 +5,7 @@
 #include "config/Config.h"
 #include "input/InputRouter.h"
 #include "session/Session.h"
+#include "ui/NewConnectionDialog.h"
 
 class TerminalPanel;
 

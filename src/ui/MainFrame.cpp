@@ -1,8 +1,10 @@
 #include "ui/MainFrame.h"
 #include "ui/TerminalPanel.h"
 #include "transport/LoopbackTransport.h"
+#include "transport/PtyTransport.h"
 #include <wx/menu.h>
 #include <wx/sizer.h>
+#include <cstdlib>
 
 namespace {
     constexpr int ID_NEW_CONNECTION   = wxID_HIGHEST + 1;
@@ -48,8 +50,44 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
     CreateConnection();
 }
 
+namespace
+{
+    // Overload helper for std::visit
+    template<class... Ts>
+    struct overloaded : Ts... { using Ts::operator()...; };
+    template<class... Ts>
+    overloaded(Ts...) -> overloaded<Ts...>;
+}
+
 void MainFrame::CreateConnection()
 {
+    const std::string defaultShell = [] {
+        const char* s = std::getenv("SHELL");
+        return s ? std::string(s) : std::string("/bin/bash");
+    }();
+
+    ui::NewConnectionDialog dlg(this, defaultShell);
+    if (dlg.ShowModal() != wxID_OK)
+        return;
+
+    std::unique_ptr<term::transport::Transport> transport;
+    wxString label;
+    const int idx = (int)m_sessions.size() + 1;
+
+    std::visit(overloaded{
+        [&](const ui::LoopbackParams&) {
+            transport = std::make_unique<term::transport::LoopbackTransport>();
+            label = wxString::Format("Loopback %d", idx);
+        },
+        [&](const ui::PtyParams& p) {
+            transport = std::make_unique<term::transport::PtyTransport>(
+                p.shell,
+                static_cast<unsigned short>(m_cfg.columns),
+                static_cast<unsigned short>(m_cfg.rows));
+            label = wxString::Format("Local Shell %d", idx);
+        }
+    }, dlg.GetParams());
+
     if (!m_panel) {
         m_panel = new TerminalPanel(this, m_cfg);
         GetSizer()->Add(m_panel, 1, wxEXPAND);
@@ -57,19 +95,16 @@ void MainFrame::CreateConnection()
         Fit();
     }
 
-    auto transport = std::make_unique<term::transport::LoopbackTransport>();
-    auto session   = std::make_unique<term::session::Session>(std::move(transport));
+    auto session = std::make_unique<term::session::Session>(std::move(transport));
     term::session::Session* raw = session.get();
     m_sessions.push_back(std::move(session));
 
-    const int    idx = (int)m_sessions.size();
-    const int    id  = ID_SESSION_BASE + idx;
-    const wxString label = wxString::Format("Connection %d", idx);
+    const int id = ID_SESSION_BASE + idx;
     m_connMenu->Append(id, label);
     Bind(wxEVT_MENU, [this, raw](wxCommandEvent&) { ActivateSession(raw); }, id);
 
     ActivateSession(raw);
-    SetStatusText(wxString::Format("Active: Connection %d", idx));
+    SetStatusText(wxString::Format("Active: %s", label));
 }
 
 void MainFrame::ActivateSession(term::session::Session* s)
