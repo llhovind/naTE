@@ -45,6 +45,7 @@ public:
     void OnCursorDown(int count)  override;
     void OnCursorRight(int count) override;
     void OnCursorLeft(int count)  override;
+    void OnEraseInLine(int mode)  override;
 
     // transport::ITransportTarget
     void OnData(const std::string& data) override;

@@ -57,6 +57,7 @@ public:
     virtual void MoveCursorRight(int n) = 0;
     virtual void MoveCursorUp(int n)    = 0;
     virtual void MoveCursorDown(int n)  = 0;
+    virtual void EraseInLine(int mode)  = 0;
 
     CursorPos GetCursor() const { return cursor_; }
 
@@ -91,6 +92,7 @@ public:
     void MoveCursorRight(int n) override;
     void MoveCursorUp(int n)    override;
     void MoveCursorDown(int n)  override;
+    void EraseInLine(int mode)  override;
 
 private:
     std::deque<DocLine> lines_;
@@ -110,4 +112,5 @@ public:
     void MoveCursorRight(int n) override;
     void MoveCursorUp(int n)    override;
     void MoveCursorDown(int n)  override;
+    void EraseInLine(int mode)  override;
 };

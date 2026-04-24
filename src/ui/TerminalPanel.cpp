@@ -220,8 +220,8 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
             dc.SetBrush(wxBrush(*wxBLUE));
             dc.DrawRectangle(cx, cy, cw, ch);
             if (row.cursorCol < (int)row.text.size()) {
-                dc.SetTextForeground(*wxBLACK);
-                dc.SetTextBackground(*wxWHITE);
+                dc.SetTextForeground(wxColour(m_cfg.bgColour.r,   m_cfg.bgColour.g,   m_cfg.bgColour.b));
+                dc.SetTextBackground(wxColour(m_cfg.textColour.r, m_cfg.textColour.g, m_cfg.textColour.b));
                 dc.DrawText(wxString(static_cast<wchar_t>(row.text[row.cursorCol])), cx, cy);
             }
         }

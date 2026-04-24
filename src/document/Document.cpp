@@ -197,6 +197,36 @@ void MainScreenDocument::MoveCursorDown(int n)
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
+void MainScreenDocument::EraseInLine(int mode)
+{
+    DocLine& line = lines_.back();
+    switch (mode) {
+    case 0: // cursor to end of line
+        if (cursor_.col < line.text.size()) {
+            line.text.erase(cursor_.col);
+            for (auto it = line.styles.begin(); it != line.styles.end(); ) {
+                if (it->start >= cursor_.col) {
+                    it = line.styles.erase(it);
+                } else if (it->start + it->length > cursor_.col) {
+                    it->length = cursor_.col - it->start;
+                    ++it;
+                } else {
+                    ++it;
+                }
+            }
+        }
+        break;
+    case 1: // beginning of line to cursor (inclusive) — fill with spaces
+        for (size_t i = 0; i <= cursor_.col && i < line.text.size(); ++i)
+            line.text[i] = U' ';
+        break;
+    case 2: // entire line
+        line.Clear();
+        break;
+    }
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+}
+
 // ---------------------------------------------------------------------------
 // AltScreenDocument — stub until PtyTransport + alt-screen are implemented
 // ---------------------------------------------------------------------------
@@ -235,3 +265,4 @@ void AltScreenDocument::MoveCursorLeft(int)  { throw std::logic_error("AltScreen
 void AltScreenDocument::MoveCursorRight(int) { throw std::logic_error("AltScreenDocument not yet implemented"); }
 void AltScreenDocument::MoveCursorUp(int)    { throw std::logic_error("AltScreenDocument not yet implemented"); }
 void AltScreenDocument::MoveCursorDown(int)  { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::EraseInLine(int)     { throw std::logic_error("AltScreenDocument not yet implemented"); }

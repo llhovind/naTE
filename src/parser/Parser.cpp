@@ -31,7 +31,7 @@ void Parser::HandleNormal(unsigned char byte)
         return; // BEL — discard
 
     if (byte == '\b' || byte == '\x7f') {
-        target_.OnBackspace();
+        target_.OnCursorLeft(1);
         return;
     }
 
@@ -126,6 +126,7 @@ void Parser::HandleCsi(unsigned char byte)
         case 'B': target_.OnCursorDown(ParseFirstParam(1));        break;
         case 'C': target_.OnCursorRight(ParseFirstParam(1));       break;
         case 'D': target_.OnCursorLeft(ParseFirstParam(1));        break;
+        case 'K': target_.OnEraseInLine(ParseFirstParam(0));       break;
         default:  break;
         }
         params_.clear();
