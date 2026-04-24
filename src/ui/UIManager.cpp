@@ -127,6 +127,13 @@ void UIManager::OnViewportResize(term::session::SessionId id,
     sm_.OnResize(id, cols, rows);
 }
 
+void UIManager::EnsureCursorVisibleForActive()
+{
+    SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
+    if (ui && ui->panel)
+        ui->panel->EnsureCursorVisible();
+}
+
 // ---------------------------------------------------------------------------
 // Internal
 // ---------------------------------------------------------------------------

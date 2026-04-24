@@ -77,4 +77,5 @@ void App::OnGdkKeyPress(GdkEvent* event)
     }
 
     m_router->Send(evt);
+    m_uiManager->EnsureCursorVisibleForActive();
 }

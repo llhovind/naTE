@@ -36,6 +36,7 @@ set(CORE_SOURCES
 )
 
 add_executable(naTE_core_tests
+    test_document.cpp
     test_session_manager.cpp
     ${CORE_SOURCES}
 )

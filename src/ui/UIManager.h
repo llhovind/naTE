@@ -34,6 +34,9 @@ public:
     void OnScroll(term::session::SessionId id, int topRow);
     void OnViewportResize(term::session::SessionId id, unsigned short cols, unsigned short rows);
 
+    // Called on keyboard input to snap the active session's viewport to the cursor.
+    void EnsureCursorVisibleForActive();
+
 private:
     static constexpr int kMenuIdBase = wxID_HIGHEST + 200;
 

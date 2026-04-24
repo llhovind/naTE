@@ -6,20 +6,54 @@
 // DocLine
 // ---------------------------------------------------------------------------
 
-void DocLine::AppendInsertChar(char32_t ch)
+void DocLine::WriteAt(size_t col, char32_t ch)
 {
-    size_t pos = text.size();
-    text.push_back(ch);
-
-    if (!styles.empty()) {
-        StyleRun& last = styles.back();
-        if (last.style == currentStyle && last.start + last.length == pos) {
-            last.length += 1;
-            return;
-        }
+    // --- pad: cursor jumped past end of line ---
+    if (col > text.size()) {
+        const size_t padStart = text.size();
+        const size_t padCount = col - padStart;
+        text.append(padCount, U' ');
+        if (!styles.empty() && styles.back().style == Style{} &&
+            styles.back().start + styles.back().length == padStart)
+            styles.back().length += padCount;
+        else
+            styles.push_back({padStart, padCount, Style{}});
     }
 
-    styles.push_back({pos, 1, currentStyle});
+    // --- append: cursor is at end of line ---
+    if (col == text.size()) {
+        text.push_back(ch);
+        if (!styles.empty() && styles.back().style == currentStyle &&
+            styles.back().start + styles.back().length == col)
+            ++styles.back().length;
+        else
+            styles.push_back({col, 1, currentStyle});
+        return;
+    }
+
+    // --- overwrite: cursor is within existing text ---
+    text[col] = ch;
+    for (size_t i = 0; i < styles.size(); ++i) {
+        const size_t rStart = styles[i].start;
+        const size_t rEnd   = rStart + styles[i].length;
+        if (rStart > col || rEnd <= col) continue;
+
+        if (styles[i].style == currentStyle) return;
+
+        const Style  old       = styles[i].style;
+        const size_t beforeLen = col - rStart;
+        const size_t afterLen  = rEnd - col - 1;
+
+        styles.erase(styles.begin() + i);
+
+        size_t at = i;
+        if (beforeLen > 0) styles.insert(styles.begin() + at++, {rStart,     beforeLen, old});
+        styles.insert(styles.begin() + at++,                    {col,         1,         currentStyle});
+        if (afterLen  > 0) styles.insert(styles.begin() + at,   {col + 1,   afterLen,  old});
+        return;
+    }
+    // col not covered by any run (gap in style tracking)
+    styles.push_back({col, 1, currentStyle});
 }
 
 void DocLine::Clear()
@@ -92,7 +126,7 @@ MainScreenDocument::MainScreenDocument(int maxLines)
 
 void MainScreenDocument::AppendInsertChar(char32_t ch)
 {
-    lines_.back().AppendInsertChar(ch);
+    lines_.back().WriteAt(cursor_.col, ch);
     ++cursor_.col;
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
@@ -124,7 +158,6 @@ void MainScreenDocument::NewLine()
 
 void MainScreenDocument::CarriageReturn()
 {
-    lines_.back().Clear();
     cursor_.col = 0;
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }

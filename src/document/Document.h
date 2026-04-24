@@ -37,7 +37,7 @@ struct DocLine {
     std::vector<StyleRun> styles;
     Style currentStyle;
 
-    void AppendInsertChar(char32_t ch);
+    void WriteAt(size_t col, char32_t ch);
     void DeletePreviousChar(size_t cursorCol);
     void Clear();
 };

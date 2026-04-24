@@ -100,6 +100,14 @@ void TerminalPanel::OnDocumentUpdate()
     Refresh();
 }
 
+void TerminalPanel::EnsureCursorVisible()
+{
+    if (!docLayout_) return;
+    docLayout_->EnsureCursorVisible();
+    UpdateScrollbars();
+    Refresh();
+}
+
 void TerminalPanel::OnSize(wxSizeEvent& e)
 {
     if (docLayout_) {

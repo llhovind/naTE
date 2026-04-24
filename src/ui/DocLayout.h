@@ -2,6 +2,7 @@
 
 #include "document/Document.h"
 #include "document/IDocumentListener.h"
+#include <mutex>
 #include <vector>
 
 // Rendered representation of one visual row — the only line-level type that
@@ -28,10 +29,10 @@ public:
     // window lazily if the row is outside the current loaded range.
     RenderedLine GetRenderedLine(int visualRow);
 
-    int  GetLineCount() const { return totalVisualLines_; }
+    int  GetLineCount() const;
 
     // Viewport state — DocLayout is the single source of truth.
-    int  GetTopRow() const { return topRow_; }
+    int  GetTopRow() const;
     void SetTopRow(int row);
     void ScrollToEnd();
     bool IsAtEnd() const;
@@ -45,11 +46,17 @@ private:
         size_t startCol;
     };
 
+    // All *Locked methods assume mtx_ is already held by the caller.
     void      Rebuild();
     void      LoadWindow(int anchorVisualRow);
+    void      SetTopRowLocked(int row);
+    void      ScrollToEndLocked();
+    bool      IsAtEndLocked() const;
     void      EnsureCursorVisibleVertically();
     void      EnsureCursorVisibleHorizontally();
     CursorPos GetCursorPos() const;
+
+    mutable std::mutex mtx_;
 
     Document& doc;
     int cols;

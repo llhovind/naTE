@@ -25,6 +25,10 @@ public:
     // Called by the document-refresh chain after DocLayout has updated topRow_.
     void OnDocumentUpdate();
 
+    // Scroll the viewport to make the cursor visible and re-enable follow-tail.
+    // Called on keyboard input so that typing while scrolled up snaps back.
+    void EnsureCursorVisible();
+
 private:
     ::DocLayout* docLayout_ = nullptr;
 

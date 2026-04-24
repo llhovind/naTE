@@ -13,14 +13,104 @@ DocLayout::~DocLayout()
     doc.RemoveListener(this);
 }
 
+// ---------------------------------------------------------------------------
+// Public API — each acquires mtx_ then delegates to the *Locked internals.
+// ---------------------------------------------------------------------------
+
 void DocLayout::SetViewportSize(int newCols, int newRows)
 {
+    std::lock_guard<std::mutex> lk(mtx_);
     cols  = newCols;
     rows_ = newRows;
     Rebuild();
     topRow_ = std::clamp(topRow_, 0, std::max(0, totalVisualLines_ - rows_));
     LoadWindow(topRow_);
 }
+
+RenderedLine DocLayout::GetRenderedLine(int visualRow)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (visualLines_.empty() ||
+        visualRow < loadedWindowStart_ ||
+        visualRow >= loadedWindowStart_ + (int)visualLines_.size())
+    {
+        LoadWindow(visualRow);
+    }
+
+    const auto&    info  = visualLines_[visualRow - loadedWindowStart_];
+    const DocLine& dline = doc.GetLines()[info.docLine];
+    const size_t   start = info.startCol;
+    const size_t   len   = (dline.text.size() > start)
+                         ? std::min(static_cast<size_t>(cols), dline.text.size() - start)
+                         : 0;
+
+    RenderedLine result;
+    result.text  = dline.text.substr(start, len);
+    result.attrs.assign(len, Style{});
+
+    // Expand StyleRuns into a flat per-character array for the visible window
+    // [start, start+len) only.  This is O(visible_cols + runs_in_slice),
+    // regardless of how long the underlying document line is.
+    for (const auto& sr : dline.styles) {
+        const size_t srEnd    = sr.start + sr.length;
+        const size_t sliceEnd = start + len;
+        if (sr.start >= sliceEnd || srEnd <= start)
+            continue;
+        const size_t overlapStart = std::max(sr.start, start);
+        const size_t overlapEnd   = std::min(srEnd, sliceEnd);
+        for (size_t dc = overlapStart; dc < overlapEnd; ++dc)
+            result.attrs[dc - start] = sr.style;
+    }
+
+    const CursorPos cursor = GetCursorPos();
+    if (static_cast<int>(cursor.line) == visualRow) {
+        result.hasCursor = true;
+        result.cursorCol = static_cast<int>(cursor.col);
+    }
+
+    return result;
+}
+
+int DocLayout::GetLineCount() const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    return totalVisualLines_;
+}
+
+int DocLayout::GetTopRow() const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    return topRow_;
+}
+
+void DocLayout::SetTopRow(int row)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    SetTopRowLocked(row);
+}
+
+void DocLayout::ScrollToEnd()
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    ScrollToEndLocked();
+}
+
+bool DocLayout::IsAtEnd() const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    return IsAtEndLocked();
+}
+
+void DocLayout::EnsureCursorVisible()
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    EnsureCursorVisibleVertically();
+    EnsureCursorVisibleHorizontally();
+}
+
+// ---------------------------------------------------------------------------
+// Private *Locked helpers — called with mtx_ already held.
+// ---------------------------------------------------------------------------
 
 // Rebuilds per-doc-line metadata (visual row counts) for all document lines.
 // Cheap: one integer division per line. Does NOT expand VisualLineInfo for
@@ -106,47 +196,23 @@ void DocLayout::LoadWindow(int anchorVisualRow)
     }
 }
 
-RenderedLine DocLayout::GetRenderedLine(int visualRow)
+void DocLayout::SetTopRowLocked(int row)
 {
-    if (visualLines_.empty() ||
-        visualRow < loadedWindowStart_ ||
-        visualRow >= loadedWindowStart_ + (int)visualLines_.size())
-    {
-        LoadWindow(visualRow);
-    }
+    topRow_     = std::clamp(row, 0, std::max(0, totalVisualLines_ - rows_));
+    autoScroll_ = IsAtEndLocked();
+    LoadWindow(topRow_);
+}
 
-    const auto&    info  = visualLines_[visualRow - loadedWindowStart_];
-    const DocLine& dline = doc.GetLines()[info.docLine];
-    const size_t   start = info.startCol;
-    const size_t   len   = (dline.text.size() > start)
-                         ? std::min(static_cast<size_t>(cols), dline.text.size() - start)
-                         : 0;
+void DocLayout::ScrollToEndLocked()
+{
+    topRow_     = std::max(0, totalVisualLines_ - rows_);
+    autoScroll_ = true;
+    LoadWindow(topRow_);
+}
 
-    RenderedLine result;
-    result.text  = dline.text.substr(start, len);
-    result.attrs.assign(len, Style{});
-
-    // Expand StyleRuns into a flat per-character array for the visible window
-    // [start, start+len) only.  This is O(visible_cols + runs_in_slice),
-    // regardless of how long the underlying document line is.
-    for (const auto& sr : dline.styles) {
-        const size_t srEnd    = sr.start + sr.length;
-        const size_t sliceEnd = start + len;
-        if (sr.start >= sliceEnd || srEnd <= start)
-            continue;
-        const size_t overlapStart = std::max(sr.start, start);
-        const size_t overlapEnd   = std::min(srEnd, sliceEnd);
-        for (size_t dc = overlapStart; dc < overlapEnd; ++dc)
-            result.attrs[dc - start] = sr.style;
-    }
-
-    const CursorPos cursor = GetCursorPos();
-    if (static_cast<int>(cursor.line) == visualRow) {
-        result.hasCursor = true;
-        result.cursorCol = static_cast<int>(cursor.col);
-    }
-
-    return result;
+bool DocLayout::IsAtEndLocked() const
+{
+    return topRow_ >= std::max(0, totalVisualLines_ - rows_);
 }
 
 // Cursor position derived from docLineMeta_ without touching visualLines_.
@@ -156,7 +222,7 @@ CursorPos DocLayout::GetCursorPos() const
     if (docLineMeta_.empty())
         return {0, 0};
 
-    const CursorPos docCursor   = doc.GetCursor();
+    const CursorPos docCursor    = doc.GetCursor();
     const int       cursorDocLine = static_cast<int>(docCursor.line);
 
     int cumVRow = totalVisualLines_;
@@ -170,32 +236,13 @@ CursorPos DocLayout::GetCursorPos() const
     return {(size_t)(cumVRow + subRow), visualCol};
 }
 
-void DocLayout::SetTopRow(int row)
-{
-    topRow_     = std::clamp(row, 0, std::max(0, totalVisualLines_ - rows_));
-    autoScroll_ = IsAtEnd();
-    LoadWindow(topRow_);
-}
-
-void DocLayout::ScrollToEnd()
-{
-    topRow_     = std::max(0, totalVisualLines_ - rows_);
-    autoScroll_ = true;
-    LoadWindow(topRow_);
-}
-
-bool DocLayout::IsAtEnd() const
-{
-    return topRow_ >= std::max(0, totalVisualLines_ - rows_);
-}
-
 void DocLayout::EnsureCursorVisibleVertically()
 {
     const int row = static_cast<int>(GetCursorPos().line);
     if (row < topRow_)
-        SetTopRow(row);
+        SetTopRowLocked(row);
     else if (row >= topRow_ + rows_)
-        SetTopRow(row - rows_ + 1);
+        SetTopRowLocked(row - rows_ + 1);
 }
 
 void DocLayout::EnsureCursorVisibleHorizontally()
@@ -204,18 +251,15 @@ void DocLayout::EnsureCursorVisibleHorizontally()
     // Will adjust a leftCol_ offset to bring the cursor column into view.
 }
 
-void DocLayout::EnsureCursorVisible()
-{
-    EnsureCursorVisibleVertically();
-    EnsureCursorVisibleHorizontally();
-}
-
 void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)
 {
+    std::lock_guard<std::mutex> lk(mtx_);
     switch (type) {
     case DocChangeType::CursorMove:
-        if (autoScroll_)
-            EnsureCursorVisible();
+        if (autoScroll_) {
+            EnsureCursorVisibleVertically();
+            EnsureCursorVisibleHorizontally();
+        }
         return;
 
     case DocChangeType::InsertLine: {
@@ -226,7 +270,7 @@ void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)
             docLineMeta_.insert(docLineMeta_.begin() + idx, {1});
         totalVisualLines_ += 1;
         if (autoScroll_)
-            ScrollToEnd();
+            ScrollToEndLocked();
         // When not auto-scrolling, the new line is appended after the window,
         // so the loaded window's docLine indices remain valid.
         break;
@@ -247,8 +291,10 @@ void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)
                 visualLines_.clear();
             }
         }
-        if (autoScroll_)
-            EnsureCursorVisible();
+        if (autoScroll_) {
+            EnsureCursorVisibleVertically();
+            EnsureCursorVisibleHorizontally();
+        }
         break;
     }
 
