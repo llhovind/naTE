@@ -41,6 +41,10 @@ public:
     void OnCarriageReturn() override;
     void OnSetStyle(const Style& style) override;
     void OnSetTitle(const std::string& title) override;
+    void OnCursorUp(int count)    override;
+    void OnCursorDown(int count)  override;
+    void OnCursorRight(int count) override;
+    void OnCursorLeft(int count)  override;
 
     // transport::ITransportTarget
     void OnData(const std::string& data) override;

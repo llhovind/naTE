@@ -53,6 +53,11 @@ public:
     virtual void SetCurrentStyle(const Style& style) = 0;
     virtual const std::deque<DocLine>& GetLines() const = 0;
 
+    virtual void MoveCursorLeft(int n)  = 0;
+    virtual void MoveCursorRight(int n) = 0;
+    virtual void MoveCursorUp(int n)    = 0;
+    virtual void MoveCursorDown(int n)  = 0;
+
     CursorPos GetCursor() const { return cursor_; }
 
     const std::string& GetTitle() const { return title_; }
@@ -82,6 +87,11 @@ public:
     void SetCurrentStyle(const Style& style) override;
     const std::deque<DocLine>& GetLines() const override { return lines_; }
 
+    void MoveCursorLeft(int n)  override;
+    void MoveCursorRight(int n) override;
+    void MoveCursorUp(int n)    override;
+    void MoveCursorDown(int n)  override;
+
 private:
     std::deque<DocLine> lines_;
     int maxLines_;
@@ -95,4 +105,9 @@ public:
     void CarriageReturn() override;
     void SetCurrentStyle(const Style& style) override;
     const std::deque<DocLine>& GetLines() const override;
+
+    void MoveCursorLeft(int n)  override;
+    void MoveCursorRight(int n) override;
+    void MoveCursorUp(int n)    override;
+    void MoveCursorDown(int n)  override;
 };

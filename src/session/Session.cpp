@@ -96,6 +96,11 @@ void Session::OnSetTitle(const std::string& title)
     active_doc_->SetTitle(title);
 }
 
+void Session::OnCursorUp(int count)    { active_doc_->MoveCursorUp(count);    }
+void Session::OnCursorDown(int count)  { active_doc_->MoveCursorDown(count);  }
+void Session::OnCursorRight(int count) { active_doc_->MoveCursorRight(count); }
+void Session::OnCursorLeft(int count)  { active_doc_->MoveCursorLeft(count);  }
+
 void Session::AddDocumentListener(IDocumentListener* listener)
 {
     main_doc_->AddListener(listener);

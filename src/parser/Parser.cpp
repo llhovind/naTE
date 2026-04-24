@@ -27,6 +27,9 @@ void Parser::HandleNormal(unsigned char byte)
         return;
     }
 
+    if (byte == '\x07')
+        return; // BEL — discard
+
     if (byte == '\b' || byte == '\x7f') {
         target_.OnBackspace();
         return;
@@ -117,11 +120,29 @@ void Parser::HandleCsi(unsigned char byte)
     if ((byte >= '0' && byte <= '9') || byte == ';') {
         params_.push_back(static_cast<char>(byte));
     } else if (byte >= 0x40 && byte <= 0x7E) {
-        if (byte == 'm')
-            DispatchSgr();
+        switch (byte) {
+        case 'm': DispatchSgr();                                   break;
+        case 'A': target_.OnCursorUp(ParseFirstParam(1));          break;
+        case 'B': target_.OnCursorDown(ParseFirstParam(1));        break;
+        case 'C': target_.OnCursorRight(ParseFirstParam(1));       break;
+        case 'D': target_.OnCursorLeft(ParseFirstParam(1));        break;
+        default:  break;
+        }
         params_.clear();
         state_ = State::Normal;
     }
+}
+
+int Parser::ParseFirstParam(int defaultVal) const
+{
+    if (params_.empty())
+        return defaultVal;
+    const auto sep = params_.find(';');
+    const std::string first = (sep == std::string::npos) ? params_ : params_.substr(0, sep);
+    if (first.empty())
+        return defaultVal;
+    const int val = std::stoi(first);
+    return (val <= 0) ? defaultVal : val;
 }
 
 void Parser::DispatchSgr()

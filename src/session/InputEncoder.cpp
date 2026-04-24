@@ -16,6 +16,14 @@ namespace term::session
             return "\r";
         case term::input::Key::Backspace:
             return "\x7f";
+        case term::input::Key::ArrowUp:
+            return "\x1b[A";
+        case term::input::Key::ArrowDown:
+            return "\x1b[B";
+        case term::input::Key::ArrowRight:
+            return "\x1b[C";
+        case term::input::Key::ArrowLeft:
+            return "\x1b[D";
         default:
             return "";
         }

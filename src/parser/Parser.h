@@ -22,6 +22,7 @@ private:
 
     void DispatchSgr();
     void DispatchOsc();
+    int  ParseFirstParam(int defaultVal) const;
 
     IParserTarget& target_;
     State          state_ = State::Normal;

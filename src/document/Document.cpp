@@ -168,6 +168,35 @@ void MainScreenDocument::SetCurrentStyle(const Style& style)
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 
+void MainScreenDocument::MoveCursorLeft(int n)
+{
+    cursor_.col = (cursor_.col >= static_cast<size_t>(n))
+                    ? cursor_.col - static_cast<size_t>(n)
+                    : 0;
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void MainScreenDocument::MoveCursorRight(int n)
+{
+    cursor_.col += static_cast<size_t>(n);
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void MainScreenDocument::MoveCursorUp(int n)
+{
+    cursor_.line = (cursor_.line >= static_cast<size_t>(n))
+                    ? cursor_.line - static_cast<size_t>(n)
+                    : 0;
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void MainScreenDocument::MoveCursorDown(int n)
+{
+    const size_t lastLine = lines_.empty() ? 0 : lines_.size() - 1;
+    cursor_.line = std::min(cursor_.line + static_cast<size_t>(n), lastLine);
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
 // ---------------------------------------------------------------------------
 // AltScreenDocument — stub until PtyTransport + alt-screen are implemented
 // ---------------------------------------------------------------------------
@@ -201,3 +230,8 @@ const std::deque<DocLine>& AltScreenDocument::GetLines() const
 {
     throw std::logic_error("AltScreenDocument not yet implemented");
 }
+
+void AltScreenDocument::MoveCursorLeft(int)  { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::MoveCursorRight(int) { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::MoveCursorUp(int)    { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::MoveCursorDown(int)  { throw std::logic_error("AltScreenDocument not yet implemented"); }
