@@ -20,6 +20,7 @@ public:
 
     void Write(const std::string& data) override;
     void Start() override;
+    void Stop() override;
     void Resize(unsigned short cols, unsigned short rows) override;
 
 private:

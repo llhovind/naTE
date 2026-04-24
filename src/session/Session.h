@@ -24,6 +24,12 @@ public:
             unsigned short cols,
             unsigned short rows,
             std::function<void()> onDisconnect);
+    ~Session();
+
+    // Stops the transport I/O thread synchronously. Safe to call multiple
+    // times. SessionManager calls this before erasing the SessionRecord so
+    // that no DocumentObserver callbacks are in-flight during destruction.
+    void Stop();
 
     // input::InputTarget
     void OnInput(const input::KeyEvent& event) override;

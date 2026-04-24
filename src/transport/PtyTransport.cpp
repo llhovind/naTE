@@ -4,6 +4,7 @@
 #include <csignal>
 #include <cstring>
 #include <stdexcept>
+#include <utility>
 #include <unistd.h>
 #include <poll.h>
 #include <sys/ioctl.h>
@@ -39,17 +40,23 @@ PtyTransport::PtyTransport(ITransportTarget& target, std::string shell,
 
 PtyTransport::~PtyTransport()
 {
+    Stop();
+}
+
+void PtyTransport::Stop()
+{
     running_ = false;
-    if (child_pid_ > 0)
-        kill(child_pid_, SIGHUP);
+    const pid_t pid = std::exchange(child_pid_, -1);
+    if (pid > 0)
+        kill(pid, SIGHUP);
     if (master_fd_ >= 0) {
         close(master_fd_);
         master_fd_ = -1;
     }
     if (reader_.joinable())
         reader_.join();
-    if (child_pid_ > 0)
-        waitpid(child_pid_, nullptr, WNOHANG);
+    if (pid > 0)
+        waitpid(pid, nullptr, WNOHANG);
 }
 
 void PtyTransport::Write(const std::string& data)

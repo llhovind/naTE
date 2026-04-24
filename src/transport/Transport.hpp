@@ -9,6 +9,7 @@ public:
 
     virtual void Write(const std::string& data) = 0;
     virtual void Start() = 0;
+    virtual void Stop() {}
     virtual void Resize(unsigned short cols, unsigned short rows) = 0;
 };
 

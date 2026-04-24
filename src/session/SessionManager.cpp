@@ -26,8 +26,10 @@ SessionManager::SessionManager(term::input::InputRouter& router)
 
 SessionManager::~SessionManager()
 {
-    // Deregister observers and router targets before sessions are destroyed.
+    // Stop transport threads first so no callbacks are in-flight when we
+    // deregister observers and destroy session records.
     for (auto& [id, rec] : sessions_) {
+        rec.session->Stop();
         rec.session->RemoveDocumentListener(rec.docObserver.get());
         router_.RemoveTarget(rec.session.get());
     }
@@ -94,9 +96,10 @@ void SessionManager::CloseSession(SessionId id)
 
     pendingClose_.push_back(id);
 
-    // Deregister the observer first so no further DocumentObserver callbacks
-    // arrive on the Session thread after this point.
+    // Stop the transport thread first so no DocumentObserver callbacks are
+    // in-flight when we deregister and destroy the session record.
     if (SessionRecord* rec = FindRecord(id)) {
+        rec->session->Stop();
         rec->session->RemoveDocumentListener(rec->docObserver.get());
         router_.RemoveTarget(rec->session.get());
         if (activeId_ == id)

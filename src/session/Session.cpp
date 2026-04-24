@@ -36,6 +36,16 @@ Session::Session(const Connection& conn,
     transport_->Start();
 }
 
+Session::~Session()
+{
+    transport_->Stop();
+}
+
+void Session::Stop()
+{
+    transport_->Stop();
+}
+
 void Session::OnInput(const input::KeyEvent& event)
 {
     auto bytes = encoder_.Encode(event);
