@@ -10,11 +10,14 @@ static int QueryScrollbarThickness()
     return (t > 0) ? t : 16;
 }
 
+static constexpr int kResizeDebounceMs = 80;
+
 TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
     : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS),
       m_cfg(cfg),
       m_font(cfg.fontSize, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL),
-      m_sbThick(QueryScrollbarThickness())
+      m_sbThick(QueryScrollbarThickness()),
+      resizeTimer_(this)
 {
     wxMemoryDC dc;
     dc.SetFont(m_font);
@@ -43,10 +46,11 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
     SetMinClientSize({cfg.columns * m_charSize.x + m_sbThick,
                       cfg.rows    * m_charSize.y + m_sbThick});
 
-    Bind(wxEVT_PAINT,      &TerminalPanel::OnPaint,      this);
-    Bind(wxEVT_SIZE,       &TerminalPanel::OnSize,       this);
-    Bind(wxEVT_MOUSEWHEEL, &TerminalPanel::OnMouseWheel, this);
-    Bind(wxEVT_SET_FOCUS,  &TerminalPanel::OnFocus,      this);
+    Bind(wxEVT_PAINT,      &TerminalPanel::OnPaint,       this);
+    Bind(wxEVT_SIZE,       &TerminalPanel::OnSize,        this);
+    Bind(wxEVT_TIMER,      &TerminalPanel::OnResizeTimer, this);
+    Bind(wxEVT_MOUSEWHEEL, &TerminalPanel::OnMouseWheel,  this);
+    Bind(wxEVT_SET_FOCUS,  &TerminalPanel::OnFocus,       this);
 }
 
 void TerminalPanel::SetDocLayout(::DocLayout* docLayout)
@@ -100,13 +104,21 @@ void TerminalPanel::OnSize(wxSizeEvent& e)
 {
     if (docLayout_) {
         const wxSize v = ViewportChars();
-        if (resizeCb_)
-            resizeCb_(static_cast<unsigned short>(v.x), static_cast<unsigned short>(v.y));
-        else
-            docLayout_->SetViewportSize(v.x, v.y);
+        docLayout_->SetViewportSize(v.x, v.y);
+        if (resizeCb_) {
+            pendingResize_ = v;
+            resizeTimer_.StartOnce(kResizeDebounceMs);
+        }
     }
     LayoutScrollbars();
     e.Skip();
+}
+
+void TerminalPanel::OnResizeTimer(wxTimerEvent&)
+{
+    if (resizeCb_ && pendingResize_.x > 0 && pendingResize_.y > 0)
+        resizeCb_(static_cast<unsigned short>(pendingResize_.x),
+                  static_cast<unsigned short>(pendingResize_.y));
 }
 
 void TerminalPanel::OnScroll(wxScrollEvent& e)

@@ -2,6 +2,7 @@
 #include <functional>
 #include <wx/panel.h>
 #include <wx/scrolbar.h>
+#include <wx/timer.h>
 #include "ui/DocLayout.h"
 #include "config/Config.h"
 
@@ -29,6 +30,7 @@ private:
 
     void OnPaint(wxPaintEvent&);
     void OnSize(wxSizeEvent&);
+    void OnResizeTimer(wxTimerEvent&);
     void OnScroll(wxScrollEvent&);
     void OnMouseWheel(wxMouseEvent&);
     void OnFocus(wxFocusEvent&);
@@ -47,4 +49,7 @@ private:
     ScrollCallback scrollCb_;
     ResizeCallback resizeCb_;
     FocusCallback  focusCb_;
+
+    wxTimer resizeTimer_;
+    wxSize  pendingResize_{0, 0};
 };
