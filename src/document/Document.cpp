@@ -22,6 +22,12 @@ void DocLine::AppendInsertChar(char32_t ch)
     styles.push_back({pos, 1, currentStyle});
 }
 
+void DocLine::Clear()
+{
+    text.clear();
+    styles.clear();
+}
+
 void DocLine::DeletePreviousChar(size_t cursorCol)
 {
     if (cursorCol == 0 || text.empty())
@@ -116,6 +122,13 @@ void MainScreenDocument::NewLine()
     }
 }
 
+void MainScreenDocument::CarriageReturn()
+{
+    lines_.back().Clear();
+    cursor_.col = 0;
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+}
+
 void MainScreenDocument::SetCurrentStyle(const Style& style)
 {
     lines_.back().currentStyle = style;
@@ -125,6 +138,11 @@ void MainScreenDocument::SetCurrentStyle(const Style& style)
 // ---------------------------------------------------------------------------
 // AltScreenDocument — stub until PtyTransport + alt-screen are implemented
 // ---------------------------------------------------------------------------
+
+void AltScreenDocument::CarriageReturn()
+{
+    throw std::logic_error("AltScreenDocument not yet implemented");
+}
 
 void AltScreenDocument::Backspace()
 {

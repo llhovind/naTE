@@ -38,6 +38,7 @@ public:
     void OnAppendInsertChar(char32_t ch) override;
     void OnBackspace() override;
     void OnNewLine() override;
+    void OnCarriageReturn() override;
     void OnSetStyle(const Style& style) override;
     void OnSetTitle(const std::string& title) override;
 
@@ -75,6 +76,9 @@ private:
     std::unique_ptr<DocLayout> docLayout_;
 
     std::function<void()> onDisconnect_;
+
+    unsigned short lastCols_{0};
+    unsigned short lastRows_{0};
 };
 
 } // namespace term::session

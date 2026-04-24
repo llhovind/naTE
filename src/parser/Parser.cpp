@@ -38,6 +38,7 @@ void Parser::HandleNormal(unsigned char byte)
     }
 
     if (byte == '\r') {
+        target_.OnCarriageReturn();
         return;
     }
 

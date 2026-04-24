@@ -31,7 +31,9 @@ Session::Session(const Connection& conn,
       alt_doc_(std::make_unique<AltScreenDocument>()),
       active_doc_(main_doc_.get()),
       docLayout_(std::make_unique<DocLayout>(*main_doc_)),
-      onDisconnect_(std::move(onDisconnect))
+      onDisconnect_(std::move(onDisconnect)),
+      lastCols_(cols),
+      lastRows_(rows)
 {
     transport_->Start();
 }
@@ -79,6 +81,11 @@ void Session::OnNewLine()
     active_doc_->NewLine();
 }
 
+void Session::OnCarriageReturn()
+{
+    active_doc_->CarriageReturn();
+}
+
 void Session::OnSetStyle(const Style& style)
 {
     active_doc_->SetCurrentStyle(style);
@@ -112,6 +119,9 @@ void Session::SetTopRow(int row)
 void Session::SetViewportSize(unsigned short cols, unsigned short rows)
 {
     docLayout_->SetViewportSize(static_cast<int>(cols), static_cast<int>(rows));
+    if (cols == lastCols_ && rows == lastRows_) return;
+    lastCols_ = cols;
+    lastRows_ = rows;
     transport_->Resize(cols, rows);
 }
 
