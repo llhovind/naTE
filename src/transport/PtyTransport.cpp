@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <unistd.h>
 #include <poll.h>
+#include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <termios.h>
 
@@ -15,11 +16,11 @@
 #  include <pty.h>
 #endif
 
-namespace term::transport
-{
+namespace term::transport {
 
-PtyTransport::PtyTransport(std::string shell, unsigned short cols, unsigned short rows)
-    : shell_(std::move(shell))
+PtyTransport::PtyTransport(ITransportTarget& target, std::string shell,
+                           unsigned short cols, unsigned short rows)
+    : target_(target), shell_(std::move(shell))
 {
     struct winsize ws{};
     ws.ws_col = cols;
@@ -30,14 +31,10 @@ PtyTransport::PtyTransport(std::string shell, unsigned short cols, unsigned shor
         throw std::runtime_error(std::string("forkpty failed: ") + std::strerror(errno));
 
     if (child_pid_ == 0) {
-        // Child: exec the shell; _exit on failure so destructors don't run
         execl(shell_.c_str(), shell_.c_str(), nullptr);
         _exit(1);
     }
-
-    // Parent
-    running_ = true;
-    reader_ = std::thread(&PtyTransport::ReadLoop, this);
+    // Parent: read thread starts in Start(), called by Session after full construction.
 }
 
 PtyTransport::~PtyTransport()
@@ -62,14 +59,20 @@ void PtyTransport::Write(const std::string& data)
     ::write(master_fd_, data.data(), data.size());
 }
 
-void PtyTransport::SetReadCallback(DataCallback cb)
+void PtyTransport::Start()
 {
-    callback_ = std::move(cb);
+    running_ = true;
+    reader_ = std::thread(&PtyTransport::ReadLoop, this);
 }
 
-void PtyTransport::SetDisconnectCallback(DisconnectCallback cb)
+void PtyTransport::Resize(unsigned short cols, unsigned short rows)
 {
-    disconnect_callback_ = std::move(cb);
+    if (master_fd_ < 0)
+        return;
+    struct winsize ws{};
+    ws.ws_col = cols;
+    ws.ws_row = rows;
+    ioctl(master_fd_, TIOCSWINSZ, &ws);
 }
 
 void PtyTransport::ReadLoop()
@@ -82,14 +85,14 @@ void PtyTransport::ReadLoop()
         pfd.fd     = master_fd_;
         pfd.events = POLLIN;
 
-        const int ret = poll(&pfd, 1, 100 /*ms timeout*/);
+        const int ret = poll(&pfd, 1, 100);
         if (ret < 0) {
             if (errno == EINTR)
                 continue;
-            break; // unrecoverable
+            break;
         }
         if (ret == 0)
-            continue; // timeout — loop to check running_
+            continue;
 
         if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))
             break;
@@ -97,15 +100,13 @@ void PtyTransport::ReadLoop()
         if (pfd.revents & POLLIN) {
             const ssize_t n = ::read(master_fd_, buf, kBufSize);
             if (n <= 0)
-                break; // EIO when shell exits, or real error
-            if (callback_)
-                callback_(std::string(buf, static_cast<size_t>(n)));
+                break;
+            target_.OnData(std::string(buf, static_cast<size_t>(n)));
         }
     }
 
     running_ = false;
-    if (disconnect_callback_)
-        disconnect_callback_();
+    target_.OnDisconnect();
 }
 
 } // namespace term::transport

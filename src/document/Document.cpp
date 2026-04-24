@@ -51,6 +51,12 @@ void DocLine::DeletePreviousChar(size_t cursorCol)
 // Document — listener management
 // ---------------------------------------------------------------------------
 
+void Document::SetTitle(const std::string& title)
+{
+    title_ = title;
+    NotifyListeners(DocChangeType::TitleChanged, 0);
+}
+
 void Document::AddListener(IDocumentListener* l)
 {
     listeners_.push_back(l);

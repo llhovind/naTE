@@ -1,19 +1,20 @@
 #pragma once
 
-#include "Transport.hpp"
+#include "transport/Transport.hpp"
+#include "transport/ITransportTarget.h"
 
-namespace term::transport
-{
+namespace term::transport {
 
-    class LoopbackTransport : public Transport
-    {
-    public:
-        void Write(const std::string &data) override;
-        void SetReadCallback(DataCallback cb) override;
-        void SetDisconnectCallback(DisconnectCallback cb) override {};
+class LoopbackTransport : public Transport {
+public:
+    explicit LoopbackTransport(ITransportTarget& target);
 
-    private:
-        DataCallback callback_;
-    };
+    void Write(const std::string& data) override;
+    void Start() override {}
+    void Resize(unsigned short /*cols*/, unsigned short /*rows*/) override {}
 
-}
+private:
+    ITransportTarget& target_;
+};
+
+} // namespace term::transport

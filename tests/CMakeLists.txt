@@ -6,18 +6,48 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Catch2)
 
+# ---------------------------------------------------------------------------
+# naTE_tests — UI-independent unit tests (no wx)
+# ---------------------------------------------------------------------------
 add_executable(naTE_tests
     main.cpp
     test_config.cpp
     ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
 )
-
-target_link_libraries(naTE_tests PRIVATE
-    Catch2::Catch2
-    ${wxWidgets_LIBRARIES}
-)
+target_link_libraries(naTE_tests PRIVATE Catch2::Catch2)
 target_include_directories(naTE_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# ---------------------------------------------------------------------------
+# naTE_core_tests — headless integration tests: SessionManager + mock observer
+#                   No wx dependency; exercises the full core stack.
+# ---------------------------------------------------------------------------
+set(CORE_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
+    ${CMAKE_SOURCE_DIR}/src/document/Document.cpp
+    ${CMAKE_SOURCE_DIR}/src/input/InputRouter.cpp
+    ${CMAKE_SOURCE_DIR}/src/parser/Parser.cpp
+    ${CMAKE_SOURCE_DIR}/src/session/Connection.cpp
+    ${CMAKE_SOURCE_DIR}/src/session/InputEncoder.cpp
+    ${CMAKE_SOURCE_DIR}/src/session/Session.cpp
+    ${CMAKE_SOURCE_DIR}/src/session/SessionManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/LoopbackTransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/PtyTransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/DocLayout.cpp
+)
+
+add_executable(naTE_core_tests
+    test_session_manager.cpp
+    ${CORE_SOURCES}
+)
+target_link_libraries(naTE_core_tests PRIVATE Catch2::Catch2WithMain)
+target_include_directories(naTE_core_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+if(UNIX AND NOT APPLE)
+    target_link_libraries(naTE_core_tests PRIVATE util)
+endif()
+
+# ---------------------------------------------------------------------------
 include(CTest)
 include(Catch)
 catch_discover_tests(naTE_tests)
+catch_discover_tests(naTE_core_tests)

@@ -14,7 +14,7 @@ struct TempIni {
     }
     ~TempIni() { std::filesystem::remove(path); }
 
-    wxString wxPath() const { return wxString(path.string()); }
+    std::string stdPath() const { return path.string(); }
 };
 
 const AppConfig kDefaults;
@@ -40,19 +40,19 @@ TEST_CASE("given valid ini when AppConfig loaded then all values are read") {
         "BgR=20\nBgG=30\nBgB=40\n"
     };
 
-    const auto cfg = AppConfig::load(ini.wxPath());
+    const auto cfg = AppConfig::load(ini.stdPath());
 
     REQUIRE(cfg.columns   == 100);
     REQUIRE(cfg.rows      == 40);
     REQUIRE(cfg.fontSize  == 14);
-    REQUIRE(cfg.textColour == wxColour(255, 128, 0));
-    REQUIRE(cfg.bgColour   == wxColour(20, 30, 40));
+    REQUIRE(cfg.textColour == (Rgb{255, 128, 0}));
+    REQUIRE(cfg.bgColour   == (Rgb{20, 30, 40}));
 }
 
 TEST_CASE("given partial ini when AppConfig loaded then unspecified values remain defaults") {
     const TempIni ini{"[Panel]\nColumns=132\n"};
 
-    const auto cfg = AppConfig::load(ini.wxPath());
+    const auto cfg = AppConfig::load(ini.stdPath());
 
     REQUIRE(cfg.columns  == 132);
     REQUIRE(cfg.rows     == kDefaults.rows);
@@ -63,7 +63,7 @@ TEST_CASE("given partial ini when AppConfig loaded then unspecified values remai
 TEST_CASE("given empty ini when AppConfig loaded then returns defaults") {
     const TempIni ini{""};
 
-    const auto cfg = AppConfig::load(ini.wxPath());
+    const auto cfg = AppConfig::load(ini.stdPath());
 
     REQUIRE(cfg.columns   == kDefaults.columns);
     REQUIRE(cfg.rows      == kDefaults.rows);

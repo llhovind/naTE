@@ -17,8 +17,10 @@ set(SOURCES
     src/input/InputRouter.cpp
     src/config/Config.cpp
     src/document/Document.cpp
+    src/session/Connection.cpp
     src/session/InputEncoder.cpp
     src/session/Session.cpp
+    src/session/SessionManager.cpp
     src/transport/LoopbackTransport.cpp
     src/transport/PtyTransport.cpp
     src/parser/Parser.cpp
@@ -27,6 +29,7 @@ set(SOURCES
     src/ui/NewConnectionDialog.cpp
     src/ui/TerminalPanel.cpp
     src/ui/DocLayout.cpp
+    src/ui/UIManager.cpp
 )
 
 if(APPLE)

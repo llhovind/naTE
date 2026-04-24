@@ -18,12 +18,19 @@ static void GdkEventHandler(GdkEvent* event, gpointer data)
 bool App::OnInit() {
     const wxString exeDir =
         wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath();
-    m_cfg = AppConfig::load(exeDir + wxFileName::GetPathSeparator() + "config.ini");
+    m_cfg = AppConfig::load((exeDir + wxFileName::GetPathSeparator() + "config.ini").ToStdString());
 
-    m_router = std::make_unique<term::input::InputRouter>();
+    m_router         = std::make_unique<term::input::InputRouter>();
+    m_sessionManager = std::make_unique<term::session::SessionManager>(*m_router);
+
     gdk_event_handler_set(GdkEventHandler, this, nullptr);
 
-    auto* frame = new MainFrame(m_cfg, *m_router);
+    auto* frame = new MainFrame(m_cfg, *m_router, *m_sessionManager);
+
+    m_uiManager = std::make_unique<ui::UIManager>(
+        *m_sessionManager, frame->GetConnMenu(), frame, m_cfg);
+    m_sessionManager->SetObserver(m_uiManager.get());
+
     frame->Show();
     return true;
 }

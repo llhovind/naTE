@@ -5,7 +5,8 @@ enum class DocChangeType {
     InsertLine,
     DeleteLine,
     UpdateLine,  // text or styles changed
-    CursorMove
+    CursorMove,
+    TitleChanged
 };
 
 class IDocumentListener {

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include "document/IDocumentListener.h"
 
+
 struct Style {
     int fg = -1;  // -1 = use terminal default
     int bg = -1;  // -1 = use terminal default
@@ -52,13 +53,17 @@ public:
 
     CursorPos GetCursor() const { return cursor_; }
 
+    const std::string& GetTitle() const { return title_; }
+    void SetTitle(const std::string& title);
+
     void AddListener(IDocumentListener* listener);
     void RemoveListener(IDocumentListener* listener);
 
 protected:
     void NotifyListeners(DocChangeType type, size_t lineIndex);
 
-    CursorPos cursor_{};
+    CursorPos  cursor_{};
+    std::string title_;
 
 private:
     std::vector<IDocumentListener*> listeners_;

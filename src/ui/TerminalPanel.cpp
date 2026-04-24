@@ -38,7 +38,7 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
     bindScrollEvents(m_hScroll);
     bindScrollEvents(m_vScroll);
 
-    SetBackgroundColour(cfg.bgColour);
+    SetBackgroundColour(wxColour(cfg.bgColour.r, cfg.bgColour.g, cfg.bgColour.b));
     SetBackgroundStyle(wxBG_STYLE_PAINT);
     SetMinClientSize({cfg.columns * m_charSize.x + m_sbThick,
                       cfg.rows    * m_charSize.y + m_sbThick});
@@ -46,6 +46,7 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
     Bind(wxEVT_PAINT,      &TerminalPanel::OnPaint,      this);
     Bind(wxEVT_SIZE,       &TerminalPanel::OnSize,       this);
     Bind(wxEVT_MOUSEWHEEL, &TerminalPanel::OnMouseWheel, this);
+    Bind(wxEVT_SET_FOCUS,  &TerminalPanel::OnFocus,      this);
 }
 
 void TerminalPanel::SetDocLayout(::DocLayout* docLayout)
@@ -99,7 +100,10 @@ void TerminalPanel::OnSize(wxSizeEvent& e)
 {
     if (docLayout_) {
         const wxSize v = ViewportChars();
-        docLayout_->SetViewportSize(v.x, v.y);
+        if (resizeCb_)
+            resizeCb_(static_cast<unsigned short>(v.x), static_cast<unsigned short>(v.y));
+        else
+            docLayout_->SetViewportSize(v.x, v.y);
     }
     LayoutScrollbars();
     e.Skip();
@@ -107,8 +111,13 @@ void TerminalPanel::OnSize(wxSizeEvent& e)
 
 void TerminalPanel::OnScroll(wxScrollEvent& e)
 {
-    if (docLayout_)
-        docLayout_->SetTopRow(m_vScroll->GetThumbPosition());
+    if (docLayout_) {
+        const int topRow = m_vScroll->GetThumbPosition();
+        if (scrollCb_)
+            scrollCb_(topRow);
+        else
+            docLayout_->SetTopRow(topRow);
+    }
     UpdateScrollbars();
     Refresh();
     e.Skip();
@@ -117,16 +126,26 @@ void TerminalPanel::OnScroll(wxScrollEvent& e)
 void TerminalPanel::OnMouseWheel(wxMouseEvent& e)
 {
     if (!docLayout_) return;
-    const int delta = (e.GetWheelRotation() > 0) ? -3 : 3;
-    docLayout_->SetTopRow(docLayout_->GetTopRow() + delta);
+    const int delta  = (e.GetWheelRotation() > 0) ? -3 : 3;
+    const int topRow = docLayout_->GetTopRow() + delta;
+    if (scrollCb_)
+        scrollCb_(topRow);
+    else
+        docLayout_->SetTopRow(topRow);
     UpdateScrollbars();
     Refresh();
+}
+
+void TerminalPanel::OnFocus(wxFocusEvent& e)
+{
+    if (focusCb_) focusCb_();
+    e.Skip();
 }
 
 void TerminalPanel::OnPaint(wxPaintEvent&)
 {
     wxAutoBufferedPaintDC dc(this);
-    dc.SetBackground(wxBrush(m_cfg.bgColour));
+    dc.SetBackground(wxBrush(wxColour(m_cfg.bgColour.r, m_cfg.bgColour.g, m_cfg.bgColour.b)));
     dc.Clear();
     dc.SetFont(m_font);
     dc.SetBackgroundMode(wxSOLID);
@@ -154,8 +173,10 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
             wxColour(170,170,170), // 7 white
         };
         const int idx = isFg ? (code - 30) : (code - 40);
-        if (idx < 0 || idx > 7)
-            return isFg ? m_cfg.textColour : m_cfg.bgColour;
+        if (idx < 0 || idx > 7) {
+            const Rgb& c = isFg ? m_cfg.textColour : m_cfg.bgColour;
+            return wxColour(c.r, c.g, c.b);
+        }
         return palette[idx];
     };
 

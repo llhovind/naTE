@@ -3,6 +3,8 @@
 #include <memory>
 #include "config/Config.h"
 #include "input/InputRouter.h"
+#include "session/SessionManager.h"
+#include "ui/UIManager.h"
 
 #include <gdk/gdk.h>
 
@@ -12,6 +14,8 @@ public:
     void OnGdkKeyPress(GdkEvent* event);
 
 private:
-    AppConfig                                 m_cfg;
-    std::unique_ptr<term::input::InputRouter> m_router;
+    AppConfig                                   m_cfg;
+    std::unique_ptr<term::input::InputRouter>   m_router;
+    std::unique_ptr<term::session::SessionManager> m_sessionManager;
+    std::unique_ptr<ui::UIManager>              m_uiManager;
 };

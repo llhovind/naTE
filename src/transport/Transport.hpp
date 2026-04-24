@@ -1,22 +1,15 @@
 #pragma once
-
-#include <functional>
 #include <string>
 
-namespace term::transport
-{
+namespace term::transport {
 
-    class Transport
-    {
-    public:
-        using DataCallback       = std::function<void(const std::string &)>;
-        using DisconnectCallback = std::function<void()>;
+class Transport {
+public:
+    virtual ~Transport() = default;
 
-        virtual ~Transport() = default;
+    virtual void Write(const std::string& data) = 0;
+    virtual void Start() = 0;
+    virtual void Resize(unsigned short cols, unsigned short rows) = 0;
+};
 
-        virtual void Write(const std::string &data) = 0;
-        virtual void SetReadCallback(DataCallback cb) = 0;
-        virtual void SetDisconnectCallback(DisconnectCallback cb) = 0;
-    };
-
-} // namespace
+} // namespace term::transport
