@@ -6,6 +6,7 @@
 #include "input/KeyEvent.hpp"
 #include "session/Connection.h"
 #include "session/ISessionObserver.h"
+#include "session/Session.h"
 #include "session/SessionManager.h"
 
 using namespace term::session;
@@ -137,6 +138,52 @@ TEST_CASE("given loopback session when character input sent then OnSessionRefres
     router.Send(evt);
 
     REQUIRE_FALSE(obs.ofType(RecordedEvent::Type::Refresh).empty());
+}
+
+// ---------------------------------------------------------------------------
+// Parser → Session → Document integration: mid-line delete sequences
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given bash readline backspace sequence with ESC[K when processed then last char cleared") {
+    // Simulates the PTY data stream for backward-delete-char at position 5 in
+    // "abcdefghijk":
+    //   initial text written: "abcdefghijk"
+    //   cursor navigated left 6:  ESC[D × 6
+    //   bash response:         \b  + "fghijk" + ESC[K + ESC[6D
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {});
+
+    // Write the initial text directly into the document via OnData
+    session.OnData("abcdefghijk");
+    // Navigate cursor to position 5 (between 'e' and 'f')
+    session.OnData("\033[D\033[D\033[D\033[D\033[D\033[D");
+    // Bash readline backward-delete-char response:
+    //   \b          → cursor 5 → 4 (on 'e')
+    //   fghijk      → overwrite positions 4–9, cursor → 10  (text: "abcdfghijkk")
+    //   ESC[K       → EraseInLine(0): erase from col 10 to end  (text: "abcdfghijk")
+    //   ESC[6D      → cursor back to 4
+    session.OnData("\bfghijk\033[K\033[6D");
+
+    const RenderedLine line = session.GetDocLayout().GetRenderedLine(
+        session.GetDocLayout().GetLineCount() - 1);
+    REQUIRE(line.text == U"abcdfghijk");
+}
+
+TEST_CASE("given bash readline backspace sequence with space-overwrite when processed then last char cleared") {
+    // Same scenario but bash uses a trailing space (dumb-terminal style) instead of ESC[K.
+    //   bash response:  \b + "fghijk" + " " + \b × 7
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {});
+
+    session.OnData("abcdefghijk");
+    session.OnData("\033[D\033[D\033[D\033[D\033[D\033[D");
+    session.OnData("\bfghijk \b\b\b\b\b\b\b");
+
+    const RenderedLine line = session.GetDocLayout().GetRenderedLine(
+        session.GetDocLayout().GetLineCount() - 1);
+    // The trailing space replaces the old 'k'; line ends with a space.
+    // Visual display will show "abcdfghijk" (space is invisible vs background).
+    REQUIRE(line.text == U"abcdfghijk ");
 }
 
 TEST_CASE("given session when closed twice then second call is a no-op") {

@@ -172,3 +172,42 @@ TEST_CASE("given progress bar pattern when shorter line redrawn then tail of old
     // First two chars overwritten; "CDE" tail survives
     REQUIRE(doc.GetLines().back().text == U"XYCDE");
 }
+
+// ---------------------------------------------------------------------------
+// Mid-line delete via bash readline sequence:
+//   \b  +  rewrite-shifted-chars  +  ESC[K  +  cursor-reposition
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given readline mid-line delete sequence when EraseInLine sent then last char cleared") {
+    // Simulates bash readline backward-delete-char at position 5 in "abcdefghijk":
+    //   \b              → MoveCursorLeft(1)
+    //   "fghijk"        → 6 AppendInsertChar calls (shift overwrite)
+    //   ESC[K (mode 0)  → EraseInLine(0)
+    //   cursor back     → MoveCursorLeft(6)
+    MainScreenDocument doc;
+    for (char32_t ch : std::u32string(U"abcdefghijk")) doc.AppendInsertChar(ch);
+    // cursor at 11; navigate to position 5 (just after 'e') then \b moves to 4
+    doc.MoveCursorLeft(6);   // cursor = 5
+    doc.MoveCursorLeft(1);   // cursor = 4  (\b)
+    for (char32_t ch : std::u32string(U"fghijk")) doc.AppendInsertChar(ch);
+    doc.EraseInLine(0);       // ESC[K — clear from cursor to end
+    doc.MoveCursorLeft(6);   // cursor back to 4
+
+    REQUIRE(doc.GetLines().back().text == U"abcdfghijk");
+    REQUIRE(doc.GetCursor().col == 4);
+}
+
+TEST_CASE("given readline mid-line delete sequence when space-overwrite used then last char cleared") {
+    // Same scenario but bash uses a trailing space instead of ESC[K
+    MainScreenDocument doc;
+    for (char32_t ch : std::u32string(U"abcdefghijk")) doc.AppendInsertChar(ch);
+    doc.MoveCursorLeft(6);   // cursor = 5
+    doc.MoveCursorLeft(1);   // cursor = 4  (\b)
+    for (char32_t ch : std::u32string(U"fghijk")) doc.AppendInsertChar(ch);
+    // cursor is now at 10; 'k' still at 10 — overwrite with space
+    doc.AppendInsertChar(U' ');
+    doc.MoveCursorLeft(7);   // cursor back to 4
+
+    REQUIRE(doc.GetLines().back().text == U"abcdfghijk ");
+    REQUIRE(doc.GetCursor().col == 4);
+}
