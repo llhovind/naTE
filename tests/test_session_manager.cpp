@@ -6,6 +6,7 @@
 #include "input/KeyEvent.hpp"
 #include "session/Connection.h"
 #include "session/ISessionObserver.h"
+#include "session/InputEncoder.h"
 #include "session/Session.h"
 #include "session/SessionManager.h"
 
@@ -184,6 +185,256 @@ TEST_CASE("given bash readline backspace sequence with space-overwrite when proc
     // The trailing space replaces the old 'k'; line ends with a space.
     // Visual display will show "abcdfghijk" (space is invisible vs background).
     REQUIRE(line.text == U"abcdfghijk ");
+}
+
+// ---------------------------------------------------------------------------
+// InputEncoder: new key encodings
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given Home key when encoded then produces ESC[H") {
+    term::session::InputEncoder enc;
+    term::input::KeyEvent evt;
+    evt.key = term::input::Key::Home;
+    REQUIRE(enc.Encode(evt) == "\x1b[H");
+}
+
+TEST_CASE("given End key when encoded then produces ESC[F") {
+    term::session::InputEncoder enc;
+    term::input::KeyEvent evt;
+    evt.key = term::input::Key::End;
+    REQUIRE(enc.Encode(evt) == "\x1b[F");
+}
+
+TEST_CASE("given Delete key when encoded then produces ESC[3~") {
+    term::session::InputEncoder enc;
+    term::input::KeyEvent evt;
+    evt.key = term::input::Key::Delete;
+    REQUIRE(enc.Encode(evt) == "\x1b[3~");
+}
+
+TEST_CASE("given Insert key when encoded then produces ESC[2~") {
+    term::session::InputEncoder enc;
+    term::input::KeyEvent evt;
+    evt.key = term::input::Key::Insert;
+    REQUIRE(enc.Encode(evt) == "\x1b[2~");
+}
+
+TEST_CASE("given PageUp key when encoded then produces ESC[5~") {
+    term::session::InputEncoder enc;
+    term::input::KeyEvent evt;
+    evt.key = term::input::Key::PageUp;
+    REQUIRE(enc.Encode(evt) == "\x1b[5~");
+}
+
+TEST_CASE("given PageDown key when encoded then produces ESC[6~") {
+    term::session::InputEncoder enc;
+    term::input::KeyEvent evt;
+    evt.key = term::input::Key::PageDown;
+    REQUIRE(enc.Encode(evt) == "\x1b[6~");
+}
+
+TEST_CASE("given Escape key when encoded then produces ESC") {
+    term::session::InputEncoder enc;
+    term::input::KeyEvent evt;
+    evt.key = term::input::Key::Escape;
+    REQUIRE(enc.Encode(evt) == "\x1b");
+}
+
+TEST_CASE("given F1 key when encoded then produces SS3 P sequence") {
+    term::session::InputEncoder enc;
+    term::input::KeyEvent evt;
+    evt.key  = term::input::Key::FunctionKey;
+    evt.code = 1;
+    REQUIRE(enc.Encode(evt) == "\x1bOP");
+}
+
+TEST_CASE("given F4 key when encoded then produces SS3 S sequence") {
+    term::session::InputEncoder enc;
+    term::input::KeyEvent evt;
+    evt.key  = term::input::Key::FunctionKey;
+    evt.code = 4;
+    REQUIRE(enc.Encode(evt) == "\x1bOS");
+}
+
+TEST_CASE("given F5 key when encoded then produces ESC[15~") {
+    term::session::InputEncoder enc;
+    term::input::KeyEvent evt;
+    evt.key  = term::input::Key::FunctionKey;
+    evt.code = 5;
+    REQUIRE(enc.Encode(evt) == "\x1b[15~");
+}
+
+TEST_CASE("given F12 key when encoded then produces ESC[24~") {
+    term::session::InputEncoder enc;
+    term::input::KeyEvent evt;
+    evt.key  = term::input::Key::FunctionKey;
+    evt.code = 12;
+    REQUIRE(enc.Encode(evt) == "\x1b[24~");
+}
+
+// ---------------------------------------------------------------------------
+// Parser: new CSI sequences → Document state
+// Cursor position is verified indirectly through content effects, since
+// AppendInsertChar always writes to the active (last) doc line at cursor_.col.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given ESC[H when processed then cursor column resets to 0") {
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {});
+
+    // "hello" leaves cursor at col 5; ESC[H moves it to (1,1) → col 0; 'X' overwrites col 0
+    session.OnData("hello\033[HX");
+
+    const RenderedLine line = session.GetDocLayout().GetRenderedLine(
+        session.GetDocLayout().GetLineCount() - 1);
+    REQUIRE(line.text[0] == U'X');
+}
+
+TEST_CASE("given ESC[3~ when processed then character at cursor is deleted") {
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {});
+
+    session.OnData("abcde");
+    session.OnData("\033[D\033[D\033[D"); // cursor at col 2 (on 'c')
+    session.OnData("\033[3~");            // tilde Delete → DeleteChar(1)
+
+    const RenderedLine line = session.GetDocLayout().GetRenderedLine(
+        session.GetDocLayout().GetLineCount() - 1);
+    REQUIRE(line.text == U"abde");
+}
+
+TEST_CASE("given ESC[P when processed then character at cursor is deleted") {
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {});
+
+    session.OnData("abcde");
+    session.OnData("\033[D\033[D\033[D"); // cursor at col 2
+    session.OnData("\033[P");             // DCH → DeleteChar(1)
+
+    const RenderedLine line = session.GetDocLayout().GetRenderedLine(
+        session.GetDocLayout().GetLineCount() - 1);
+    REQUIRE(line.text == U"abde");
+}
+
+TEST_CASE("given ESC[2P when processed then two characters at cursor are deleted") {
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {});
+
+    session.OnData("abcde");
+    session.OnData("\033[D\033[D\033[D"); // cursor at col 2
+    session.OnData("\033[2P");            // delete 2 chars → removes 'c' and 'd'
+
+    const RenderedLine line = session.GetDocLayout().GetRenderedLine(
+        session.GetDocLayout().GetLineCount() - 1);
+    REQUIRE(line.text == U"abe");
+}
+
+TEST_CASE("given ESC[2J when processed then all lines cleared") {
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {});
+
+    session.OnData("line one\n");
+    session.OnData("line two\n");
+    session.OnData("line three");
+    session.OnData("\033[2J");
+
+    REQUIRE(session.GetDocLayout().GetLineCount() == 1);
+    REQUIRE(session.GetDocLayout().GetRenderedLine(0).text.empty());
+    REQUIRE(session.GetDocLayout().GetCursorDocPos().line == 0);
+    REQUIRE(session.GetDocLayout().GetCursorDocPos().col  == 0);
+}
+
+TEST_CASE("given ESC[J when processed then content from cursor to end is erased") {
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {});
+
+    session.OnData("abcde");
+    session.OnData("\033[D\033[D\033[D"); // cursor at col 2
+    session.OnData("\033[J");             // erase from cursor to end of display
+
+    const RenderedLine line = session.GetDocLayout().GetRenderedLine(
+        session.GetDocLayout().GetLineCount() - 1);
+    REQUIRE(line.text == U"ab");
+}
+
+TEST_CASE("given ESC[1~ when processed then cursor moves to line start") {
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {});
+
+    // "abcde" puts cursor at col 5; ESC[1~ (Home tilde) moves it to col 0;
+    // 'X' overwrites position 0 → line starts with 'X'
+    session.OnData("abcde\033[1~X");
+
+    const RenderedLine line = session.GetDocLayout().GetRenderedLine(
+        session.GetDocLayout().GetLineCount() - 1);
+    REQUIRE(line.text[0] == U'X');
+    REQUIRE(line.text == U"Xbcde");
+}
+
+TEST_CASE("given ESC[4~ when processed then cursor moves to line end") {
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {});
+
+    // Move back to col 2, then End tilde moves to col 5, 'X' appends
+    session.OnData("abcde");
+    session.OnData("\033[D\033[D\033[D"); // cursor at col 2
+    session.OnData("\033[4~X");           // End tilde → col 5 → append 'X'
+
+    const RenderedLine line = session.GetDocLayout().GetRenderedLine(
+        session.GetDocLayout().GetLineCount() - 1);
+    REQUIRE(line.text == U"abcdeX");
+}
+
+TEST_CASE("given ESC[F when processed then cursor moves to line end") {
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {});
+
+    session.OnData("abcde");
+    session.OnData("\033[D\033[D\033[D"); // cursor at col 2
+    session.OnData("\033[FX");            // ESC[F → end → append 'X'
+
+    const RenderedLine line = session.GetDocLayout().GetRenderedLine(
+        session.GetDocLayout().GetLineCount() - 1);
+    REQUIRE(line.text == U"abcdeX");
+}
+
+TEST_CASE("given ESC[?25h and ESC[?25l when processed then no crash") {
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {});
+
+    // Cursor visibility sequences are no-ops at Session level but must parse cleanly.
+    REQUIRE_NOTHROW(session.OnData("\033[?25h"));
+    REQUIRE_NOTHROW(session.OnData("\033[?25l"));
+}
+
+TEST_CASE("given SS3 and tilde F-key sequences when processed then no crash") {
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {});
+
+    // F-key sequences from PTY output are no-ops at Session level but must
+    // parse without crashing.
+    REQUIRE_NOTHROW(session.OnData("\033OP"));   // F1 SS3
+    REQUIRE_NOTHROW(session.OnData("\033OQ"));   // F2 SS3
+    REQUIRE_NOTHROW(session.OnData("\033[15~")); // F5 tilde
+    REQUIRE_NOTHROW(session.OnData("\033[24~")); // F12 tilde
+}
+
+TEST_CASE("given Delete key loopback when processed then char at cursor removed") {
+    // Full round-trip: KeyEvent → InputEncoder → LoopbackTransport → Parser → Document.
+    // Uses Session directly so we can pre-feed document state via OnData.
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {});
+
+    session.OnData("abcde");
+    session.OnData("\033[D\033[D\033[D"); // cursor at col 2
+
+    term::input::KeyEvent evt;
+    evt.key = term::input::Key::Delete;
+    session.OnInput(evt); // encoder → ESC[3~ → loopback → parser → DeleteChar(1)
+
+    const RenderedLine line = session.GetDocLayout().GetRenderedLine(
+        session.GetDocLayout().GetLineCount() - 1);
+    REQUIRE(line.text == U"abde");
 }
 
 TEST_CASE("given session when closed twice then second call is a no-op") {

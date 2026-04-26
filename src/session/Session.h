@@ -41,11 +41,18 @@ public:
     void OnCarriageReturn() override;
     void OnSetStyle(const Style& style) override;
     void OnSetTitle(const std::string& title) override;
-    void OnCursorUp(int count)    override;
-    void OnCursorDown(int count)  override;
-    void OnCursorRight(int count) override;
-    void OnCursorLeft(int count)  override;
-    void OnEraseInLine(int mode)  override;
+    void OnCursorUp(int count)              override;
+    void OnCursorDown(int count)            override;
+    void OnCursorRight(int count)           override;
+    void OnCursorLeft(int count)            override;
+    void OnEraseInLine(int mode)            override;
+    void OnCursorPosition(int row, int col) override;
+    void OnCursorToLineStart()              override;
+    void OnCursorEnd()                      override;
+    void OnEraseInDisplay(int mode)         override;
+    void OnDeleteChar(int count)            override;
+    void OnEnterAltScreen()                 override;
+    void OnExitAltScreen()                  override;
 
     // transport::ITransportTarget
     void OnData(const std::string& data) override;

@@ -47,9 +47,9 @@ void DocLine::WriteAt(size_t col, char32_t ch)
         styles.erase(styles.begin() + i);
 
         size_t at = i;
-        if (beforeLen > 0) styles.insert(styles.begin() + at++, {rStart,     beforeLen, old});
-        styles.insert(styles.begin() + at++,                    {col,         1,         currentStyle});
-        if (afterLen  > 0) styles.insert(styles.begin() + at,   {col + 1,   afterLen,  old});
+        if (beforeLen > 0) styles.insert(styles.begin() + at++, {rStart,   beforeLen, old});
+        styles.insert(styles.begin() + at++,                    {col,       1,         currentStyle});
+        if (afterLen  > 0) styles.insert(styles.begin() + at,   {col + 1,  afterLen,  old});
         return;
     }
     // col not covered by any run (gap in style tracking)
@@ -83,6 +83,37 @@ void DocLine::DeletePreviousChar(size_t cursorCol)
             it = (it->length == 0) ? styles.erase(it) : ++it;
         } else {
             ++it;
+        }
+    }
+}
+
+// Erase `count` characters starting at `col`, shifting the rest of the line
+// left. Adjusts style runs accordingly. Clamps to the available text.
+void DocLine::DeleteAt(size_t col, size_t count)
+{
+    if (col >= text.size() || count == 0)
+        return;
+    count = std::min(count, text.size() - col);
+    text.erase(col, count);
+
+    for (auto it = styles.begin(); it != styles.end(); ) {
+        const size_t runEnd = it->start + it->length;
+
+        if (it->start >= col + count) {
+            // Run is entirely after the deleted range — shift left.
+            it->start -= count;
+            ++it;
+        } else if (runEnd <= col) {
+            // Run is entirely before the deleted range — unchanged.
+            ++it;
+        } else {
+            // Run overlaps the deleted range; shrink it.
+            const size_t overlapStart  = std::max(it->start, col);
+            const size_t overlapEnd    = std::min(runEnd, col + count);
+            const size_t deleted       = overlapEnd - overlapStart;
+            it->start = std::min(it->start, col);
+            it->length -= deleted;
+            it = (it->length == 0) ? styles.erase(it) : ++it;
         }
     }
 }
@@ -227,42 +258,113 @@ void MainScreenDocument::EraseInLine(int mode)
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 
+void MainScreenDocument::MoveCursorToLineStart()
+{
+    cursor_.col = 0;
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void MainScreenDocument::MoveCursorToLineEnd()
+{
+    cursor_.col = lines_[cursor_.line].text.size();
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+// row and col are 1-indexed (VT100 convention).
+// Positions relative to line 0 of the scrollback buffer; col can exceed line
+// length (cursor past end). Full viewport-relative positioning requires the
+// Document to know the viewport size — deferred.
+void MainScreenDocument::MoveCursorToPosition(int row, int col)
+{
+    const size_t r = static_cast<size_t>(std::max(1, row) - 1);
+    const size_t c = static_cast<size_t>(std::max(1, col) - 1);
+    cursor_.line = lines_.empty() ? 0 : std::min(r, lines_.size() - 1);
+    cursor_.col  = c;
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void MainScreenDocument::DeleteChar(int count)
+{
+    lines_[cursor_.line].DeleteAt(cursor_.col, static_cast<size_t>(count));
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+}
+
+void MainScreenDocument::EraseInDisplay(int mode)
+{
+    switch (mode) {
+    case 0: { // erase from cursor to end of display
+        DocLine& cur = lines_[cursor_.line];
+        if (cursor_.col < cur.text.size()) {
+            cur.text.erase(cursor_.col);
+            for (auto it = cur.styles.begin(); it != cur.styles.end(); ) {
+                if (it->start >= cursor_.col)
+                    it = cur.styles.erase(it);
+                else if (it->start + it->length > cursor_.col) {
+                    it->length = cursor_.col - it->start;
+                    ++it;
+                } else {
+                    ++it;
+                }
+            }
+        }
+        // Notify deletions from end down to the line after cursor
+        const size_t oldSize = lines_.size();
+        while (lines_.size() > cursor_.line + 1)
+            lines_.pop_back();
+        for (size_t i = oldSize - 1; i > cursor_.line; --i)
+            NotifyListeners(DocChangeType::DeleteLine, i);
+        NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+        break;
+    }
+    case 1: { // erase from beginning of display to cursor
+        for (size_t i = 0; i < cursor_.line; ++i) {
+            lines_[i].Clear();
+            NotifyListeners(DocChangeType::UpdateLine, i);
+        }
+        DocLine& cur = lines_[cursor_.line];
+        for (size_t i = 0; i <= cursor_.col && i < cur.text.size(); ++i)
+            cur.text[i] = U' ';
+        NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+        break;
+    }
+    case 2: // fall-through
+    case 3: { // erase entire display (+ scrollback for mode 3)
+        const size_t oldSize = lines_.size();
+        lines_.clear();
+        lines_.emplace_back();
+        cursor_ = {0, 0};
+        // Notify removals from end down to line 1; then update line 0.
+        for (size_t i = oldSize - 1; i >= 1; --i)
+            NotifyListeners(DocChangeType::DeleteLine, i);
+        NotifyListeners(DocChangeType::UpdateLine, 0);
+        NotifyListeners(DocChangeType::CursorMove, 0);
+        break;
+    }
+    }
+}
+
 // ---------------------------------------------------------------------------
-// AltScreenDocument — stub until PtyTransport + alt-screen are implemented
+// AltScreenDocument — stub until alt-screen is fully implemented
 // ---------------------------------------------------------------------------
 
-void AltScreenDocument::CarriageReturn()
-{
-    throw std::logic_error("AltScreenDocument not yet implemented");
-}
-
-void AltScreenDocument::Backspace()
-{
-    throw std::logic_error("AltScreenDocument not yet implemented");
-}
-
-void AltScreenDocument::AppendInsertChar(char32_t)
-{
-    throw std::logic_error("AltScreenDocument not yet implemented");
-}
-
-void AltScreenDocument::NewLine()
-{
-    throw std::logic_error("AltScreenDocument not yet implemented");
-}
-
-void AltScreenDocument::SetCurrentStyle(const Style&)
-{
-    throw std::logic_error("AltScreenDocument not yet implemented");
-}
+void AltScreenDocument::CarriageReturn()          { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::Backspace()               { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::AppendInsertChar(char32_t){ throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::NewLine()                 { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::SetCurrentStyle(const Style&) { throw std::logic_error("AltScreenDocument not yet implemented"); }
 
 const std::deque<DocLine>& AltScreenDocument::GetLines() const
 {
     throw std::logic_error("AltScreenDocument not yet implemented");
 }
 
-void AltScreenDocument::MoveCursorLeft(int)  { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::MoveCursorRight(int) { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::MoveCursorUp(int)    { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::MoveCursorDown(int)  { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::EraseInLine(int)     { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::MoveCursorLeft(int)           { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::MoveCursorRight(int)          { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::MoveCursorUp(int)             { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::MoveCursorDown(int)           { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::EraseInLine(int)              { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::MoveCursorToLineStart()       { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::MoveCursorToLineEnd()         { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::MoveCursorToPosition(int, int){ throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::DeleteChar(int)               { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::EraseInDisplay(int)           { throw std::logic_error("AltScreenDocument not yet implemented"); }

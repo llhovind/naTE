@@ -39,6 +39,7 @@ struct DocLine {
 
     void WriteAt(size_t col, char32_t ch);
     void DeletePreviousChar(size_t cursorCol);
+    void DeleteAt(size_t col, size_t count);
     void Clear();
 };
 
@@ -58,6 +59,12 @@ public:
     virtual void MoveCursorUp(int n)    = 0;
     virtual void MoveCursorDown(int n)  = 0;
     virtual void EraseInLine(int mode)  = 0;
+
+    virtual void MoveCursorToLineStart()               = 0;
+    virtual void MoveCursorToLineEnd()                 = 0;
+    virtual void MoveCursorToPosition(int row, int col) = 0;  // 1-indexed
+    virtual void DeleteChar(int count)                 = 0;
+    virtual void EraseInDisplay(int mode)              = 0;
 
     CursorPos GetCursor() const { return cursor_; }
 
@@ -94,6 +101,12 @@ public:
     void MoveCursorDown(int n)  override;
     void EraseInLine(int mode)  override;
 
+    void MoveCursorToLineStart()               override;
+    void MoveCursorToLineEnd()                 override;
+    void MoveCursorToPosition(int row, int col) override;
+    void DeleteChar(int count)                 override;
+    void EraseInDisplay(int mode)              override;
+
 private:
     std::deque<DocLine> lines_;
     int maxLines_;
@@ -113,4 +126,10 @@ public:
     void MoveCursorUp(int n)    override;
     void MoveCursorDown(int n)  override;
     void EraseInLine(int mode)  override;
+
+    void MoveCursorToLineStart()               override;
+    void MoveCursorToLineEnd()                 override;
+    void MoveCursorToPosition(int row, int col) override;
+    void DeleteChar(int count)                 override;
+    void EraseInDisplay(int mode)              override;
 };

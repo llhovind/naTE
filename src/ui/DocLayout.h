@@ -30,6 +30,7 @@ public:
     RenderedLine GetRenderedLine(int visualRow);
 
     int  GetLineCount() const;
+    CursorPos GetCursorDocPos() const { return doc.GetCursor(); }
 
     // Viewport state — DocLayout is the single source of truth.
     int  GetTopRow() const;

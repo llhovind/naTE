@@ -96,11 +96,18 @@ void Session::OnSetTitle(const std::string& title)
     active_doc_->SetTitle(title);
 }
 
-void Session::OnCursorUp(int count)    { active_doc_->MoveCursorUp(count);    }
-void Session::OnCursorDown(int count)  { active_doc_->MoveCursorDown(count);  }
-void Session::OnCursorRight(int count) { active_doc_->MoveCursorRight(count); }
-void Session::OnCursorLeft(int count)  { active_doc_->MoveCursorLeft(count);  }
-void Session::OnEraseInLine(int mode)  { active_doc_->EraseInLine(mode);      }
+void Session::OnCursorUp(int count)              { active_doc_->MoveCursorUp(count);              }
+void Session::OnCursorDown(int count)            { active_doc_->MoveCursorDown(count);            }
+void Session::OnCursorRight(int count)           { active_doc_->MoveCursorRight(count);           }
+void Session::OnCursorLeft(int count)            { active_doc_->MoveCursorLeft(count);            }
+void Session::OnEraseInLine(int mode)            { active_doc_->EraseInLine(mode);                }
+void Session::OnCursorPosition(int row, int col) { active_doc_->MoveCursorToPosition(row, col);   }
+void Session::OnCursorToLineStart()              { active_doc_->MoveCursorToLineStart();          }
+void Session::OnCursorEnd()                      { active_doc_->MoveCursorToLineEnd();            }
+void Session::OnEraseInDisplay(int mode)         { active_doc_->EraseInDisplay(mode);             }
+void Session::OnDeleteChar(int count)            { active_doc_->DeleteChar(count);                }
+void Session::OnEnterAltScreen()                 { active_doc_ = alt_doc_.get();                  }
+void Session::OnExitAltScreen()                  { active_doc_ = main_doc_.get();                 }
 
 void Session::AddDocumentListener(IDocumentListener* listener)
 {
