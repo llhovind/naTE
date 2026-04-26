@@ -1,5 +1,5 @@
 #include "parser/Parser.h"
-#include <sstream>
+#include <vector>
 
 namespace term::parser {
 
@@ -251,21 +251,65 @@ int Parser::ParseFirstParam(int defaultVal) const
 
 void Parser::DispatchSgr()
 {
+    // Parse ';'-delimited parameter string into a flat integer list.
+    // An empty or absent segment is treated as 0 (VT100 convention).
+    std::vector<int> params;
+    {
+        int  current  = 0;
+        bool hasDigit = false;
+        for (char c : params_) {
+            if (c == ';') {
+                params.push_back(hasDigit ? current : 0);
+                current  = 0;
+                hasDigit = false;
+            } else {
+                current  = current * 10 + (c - '0');
+                hasDigit = true;
+            }
+        }
+        params.push_back(hasDigit ? current : 0);
+    }
+
     Style style;
     bool  reset   = false;
     bool  have_fg = false;
     bool  have_bg = false;
     bool  bold    = false;
 
-    std::istringstream ss(params_.empty() ? "0" : params_);
-    std::string token;
-    while (std::getline(ss, token, ';')) {
-        int p = token.empty() ? 0 : std::stoi(token);
-        if      (p == 0)               { reset = true; }
-        else if (p == 1)               { bold = true; }
-        else if (p == 22)              { bold = false; }
-        else if (p >= 30 && p <= 37)   { style.fg = p; have_fg = true; }
-        else if (p >= 40 && p <= 47)   { style.bg = p; have_bg = true; }
+    for (size_t i = 0; i < params.size(); ++i) {
+        const int p = params[i];
+        if (p == 0) {
+            reset = true;
+        } else if (p == 1) {
+            bold = true;
+        } else if (p == 22) {
+            bold = false;
+        } else if (p >= 30 && p <= 37) {
+            style.fg = p - 30;   // palette indices 0–7
+            have_fg  = true;
+        } else if (p == 39) {
+            style.fg = -1;       // default fg
+            have_fg  = true;
+        } else if (p >= 40 && p <= 47) {
+            style.bg = p - 40;   // palette indices 0–7
+            have_bg  = true;
+        } else if (p == 49) {
+            style.bg = -1;       // default bg
+            have_bg  = true;
+        } else if (p >= 90 && p <= 97) {
+            style.fg = p - 90 + 8;   // bright palette indices 8–15
+            have_fg  = true;
+        } else if (p >= 100 && p <= 107) {
+            style.bg = p - 100 + 8;  // bright palette indices 8–15
+            have_bg  = true;
+        } else if ((p == 38 || p == 48) && i + 2 < params.size() && params[i + 1] == 5) {
+            const int index = params[i + 2];
+            if (index >= 0 && index <= 255) {
+                if (p == 38) { style.fg = index; have_fg = true; }
+                else         { style.bg = index; have_bg = true; }
+            }
+            i += 2;
+        }
     }
 
     if (reset) {

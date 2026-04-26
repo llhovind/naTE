@@ -178,26 +178,49 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
     const int    ch      = m_charSize.y;
     const int    topRow  = docLayout_->GetTopRow();
 
-    // Map ANSI colour codes (30–37 fg, 40–47 bg) to RGB.
-    // Out-of-range codes mean "no colour set" — fall back to the panel's
-    // configured default colours rather than wxWHITE/wxBLACK.
-    auto ansiToColour = [this](int code, bool isFg) -> wxColour {
-        static const wxColour palette[8] = {
-            wxColour(0,0,0),       // 0 black
-            wxColour(170,0,0),     // 1 red
-            wxColour(0,170,0),     // 2 green
-            wxColour(170,170,0),   // 3 yellow
-            wxColour(0,0,170),     // 4 blue
-            wxColour(170,0,170),   // 5 magenta
-            wxColour(0,170,170),   // 6 cyan
-            wxColour(170,170,170), // 7 white
+    // Resolve a palette index (0–255, or -1 for terminal default) to RGB.
+    // Indices 0–15: standard 16-colour ANSI palette.
+    // Indices 16–231: 6×6×6 colour cube (xterm-256 formula).
+    // Indices 232–255: 24-step greyscale ramp.
+    auto resolveColour = [this](int index, bool isFg) -> wxColour {
+        static const wxColour kAnsi16[16] = {
+            {  0,   0,   0},  //  0 black
+            {170,   0,   0},  //  1 red
+            {  0, 170,   0},  //  2 green
+            {170, 170,   0},  //  3 yellow
+            {  0,   0, 170},  //  4 blue
+            {170,   0, 170},  //  5 magenta
+            {  0, 170, 170},  //  6 cyan
+            {170, 170, 170},  //  7 white
+            { 85,  85,  85},  //  8 bright black
+            {255,  85,  85},  //  9 bright red
+            { 85, 255,  85},  // 10 bright green
+            {255, 255,  85},  // 11 bright yellow
+            { 85,  85, 255},  // 12 bright blue
+            {255,  85, 255},  // 13 bright magenta
+            { 85, 255, 255},  // 14 bright cyan
+            {255, 255, 255},  // 15 bright white
         };
-        const int idx = isFg ? (code - 30) : (code - 40);
-        if (idx < 0 || idx > 7) {
+        if (index < 0) {
             const Rgb& c = isFg ? m_cfg.textColour : m_cfg.bgColour;
             return wxColour(c.r, c.g, c.b);
         }
-        return palette[idx];
+        if (index < 16) {
+            return kAnsi16[index];
+        }
+        if (index < 232) {
+            const int n = index - 16;
+            const int b = n % 6;
+            const int g = (n / 6) % 6;
+            const int r = n / 36;
+            auto level = [](int v) -> unsigned char {
+                return v == 0 ? 0 : static_cast<unsigned char>(55 + v * 40);
+            };
+            return wxColour(level(r), level(g), level(b));
+        }
+        // Greyscale ramp: 232 → 8, 255 → 238 (step 10)
+        const auto v = static_cast<unsigned char>(8 + (index - 232) * 10);
+        return wxColour(v, v, v);
     };
 
     for (int r = 0; r < view.y; ++r) {
@@ -208,8 +231,8 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
         const RenderedLine row = docLayout_->GetRenderedLine(layoutRow);
 
         for (int col = 0; col < (int)row.text.size(); ++col) {
-            dc.SetTextForeground(ansiToColour(row.attrs[col].fg, true));
-            dc.SetTextBackground(ansiToColour(row.attrs[col].bg, false));
+            dc.SetTextForeground(resolveColour(row.attrs[col].fg, true));
+            dc.SetTextBackground(resolveColour(row.attrs[col].bg, false));
             dc.DrawText(wxString(static_cast<wchar_t>(row.text[col])), col * cw, r * ch);
         }
 
