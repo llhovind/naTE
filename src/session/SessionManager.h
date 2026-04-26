@@ -32,6 +32,7 @@ public:
 
     void ActivateSession(SessionId id);
     void CloseSession(SessionId id);
+    void CloseAllSessions();
 
     DocLayout&  GetDocLayout(SessionId id) const;
     SessionId   GetActiveSessionId() const { return activeId_; }

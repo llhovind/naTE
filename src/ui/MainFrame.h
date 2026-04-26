@@ -15,6 +15,7 @@ public:
     wxMenu* GetConnMenu() const { return m_connMenu; }
 
 private:
+    void OnClose(wxCloseEvent& event);
     void OnQuit(wxCommandEvent&);
     void OnNewConnection(wxCommandEvent&);
 

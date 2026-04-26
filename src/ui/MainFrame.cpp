@@ -21,7 +21,8 @@ MainFrame::MainFrame(const AppConfig& cfg,
 {
     auto* fileMenu = new wxMenu;
     fileMenu->Append(wxID_EXIT, "Quit\tCtrl+Q");
-    Bind(wxEVT_MENU, &MainFrame::OnQuit, this, wxID_EXIT);
+    Bind(wxEVT_MENU,         &MainFrame::OnQuit,  this, wxID_EXIT);
+    Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
 
     m_connMenu = new wxMenu;
     m_connMenu->Append(ID_NEW_CONNECTION, "New Connection\tCtrl+N");
@@ -39,6 +40,12 @@ MainFrame::MainFrame(const AppConfig& cfg,
     SetBackgroundColour(wxColour(211, 211, 211));
     SetSizer(new wxBoxSizer(wxVERTICAL));
     SetClientSize(wxSize(810, 470));
+}
+
+void MainFrame::OnClose(wxCloseEvent& event)
+{
+    m_sm.CloseAllSessions();
+    event.Skip();
 }
 
 void MainFrame::OnQuit(wxCommandEvent&)

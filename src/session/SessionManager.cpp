@@ -116,6 +116,17 @@ void SessionManager::CloseSession(SessionId id)
         pendingClose_.end());
 }
 
+void SessionManager::CloseAllSessions()
+{
+    // Snapshot IDs first — CloseSession erases from sessions_ while iterating.
+    std::vector<SessionId> ids;
+    ids.reserve(sessions_.size());
+    for (auto& [id, _] : sessions_)
+        ids.push_back(id);
+    for (SessionId id : ids)
+        CloseSession(id);
+}
+
 DocLayout& SessionManager::GetDocLayout(SessionId id) const
 {
     const SessionRecord* rec = FindRecord(id);
