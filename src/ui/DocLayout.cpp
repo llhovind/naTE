@@ -198,6 +198,29 @@ void DocLayout::LoadWindow(int anchorVisualRow)
             }
         }
     }
+
+    ComputeMaxVisibleWidthLocked();
+}
+
+void DocLayout::ComputeMaxVisibleWidthLocked()
+{
+    maxVisibleWidth_ = cols;
+    if (wordWrap_) return;
+    const auto& docLines = doc.GetLines();
+    const int endRow = std::min(topRow_ + rows_,
+                                loadedWindowStart_ + (int)visualLines_.size());
+    for (int vr = topRow_; vr < endRow; ++vr) {
+        const int idx = vr - loadedWindowStart_;
+        if (idx < 0 || idx >= (int)visualLines_.size()) continue;
+        maxVisibleWidth_ = std::max(maxVisibleWidth_,
+                                    (int)docLines[visualLines_[idx].docLine].text.size());
+    }
+}
+
+int DocLayout::GetMaxVisibleWidth() const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    return maxVisibleWidth_;
 }
 
 void DocLayout::SetTopRowLocked(int row)

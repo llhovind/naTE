@@ -90,7 +90,11 @@ void TerminalPanel::UpdateScrollbars()
         ? std::max(docLayout_->GetLineCount(), view.y)
         : view.y;
     m_vScroll->SetScrollbar(vTop, view.y, vTotal, view.y);
-    m_hScroll->SetScrollbar(0, view.x, view.x, view.x); // H stub
+    const bool hEnabled = docLayout_ && !docLayout_->GetWordWrap();
+    const int  hLeft    = hEnabled ? docLayout_->GetLeftCol()                               : 0;
+    const int  hTotal   = hEnabled ? std::max(docLayout_->GetMaxVisibleWidth(), view.x) : view.x;
+    m_hScroll->SetScrollbar(hLeft, view.x, hTotal, view.x);
+    m_hScroll->Enable(hEnabled);
 }
 
 void TerminalPanel::OnDocumentUpdate()
@@ -132,11 +136,15 @@ void TerminalPanel::OnResizeTimer(wxTimerEvent&)
 void TerminalPanel::OnScroll(wxScrollEvent& e)
 {
     if (docLayout_) {
-        const int topRow = m_vScroll->GetThumbPosition();
-        if (scrollCb_)
-            scrollCb_(topRow);
-        else
-            docLayout_->SetTopRow(topRow);
+        if (e.GetEventObject() == m_hScroll) {
+            docLayout_->SetLeftCol(m_hScroll->GetThumbPosition());
+        } else {
+            const int topRow = m_vScroll->GetThumbPosition();
+            if (scrollCb_)
+                scrollCb_(topRow);
+            else
+                docLayout_->SetTopRow(topRow);
+        }
     }
     UpdateScrollbars();
     Refresh();

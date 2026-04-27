@@ -43,6 +43,7 @@ public:
     bool GetWordWrap() const;
     void SetLeftCol(int col);
     int  GetLeftCol() const;
+    int  GetMaxVisibleWidth() const;
 
     void OnDocumentChanged(DocChangeType type, size_t lineIndex) override;
 
@@ -55,6 +56,7 @@ private:
     // All *Locked methods assume mtx_ is already held by the caller.
     void      Rebuild();
     void      LoadWindow(int anchorVisualRow);
+    void      ComputeMaxVisibleWidthLocked();
     void      SetTopRowLocked(int row);
     void      ScrollToEndLocked();
     bool      IsAtEndLocked() const;
@@ -67,8 +69,9 @@ private:
     Document& doc;
     int cols;
     int rows_;
-    int  topRow_     = 0;
-    int  leftCol_    = 0;
+    int  topRow_           = 0;
+    int  leftCol_          = 0;
+    int  maxVisibleWidth_  = 0;
     bool autoScroll_ = true;
     bool wordWrap_   = false;
 
