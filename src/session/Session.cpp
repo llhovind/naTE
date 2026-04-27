@@ -25,8 +25,10 @@ Session::Session(const Connection& conn,
                  unsigned short cols,
                  unsigned short rows,
                  std::function<void()> onDisconnect,
-                 unsigned short ptyLineWidth)
-    : transport_(MakeTransport(*this, conn, ptyLineWidth, rows)),
+                 unsigned short ptyLineWidth,
+                 bool widePty,
+                 bool wordWrap)
+    : transport_(MakeTransport(*this, conn, widePty ? ptyLineWidth : cols, rows)),
       parser_(*this),
       main_doc_(std::make_unique<MainScreenDocument>(scrollbackLines)),
       alt_doc_(std::make_unique<AltScreenDocument>()),
@@ -35,8 +37,10 @@ Session::Session(const Connection& conn,
       onDisconnect_(std::move(onDisconnect)),
       lastCols_(cols),
       lastRows_(rows),
-      ptyLineWidth_(ptyLineWidth)
+      ptyLineWidth_(ptyLineWidth),
+      widePty_(widePty)
 {
+    docLayout_->SetWordWrap(wordWrap);
     transport_->Start();
 }
 
@@ -137,8 +141,7 @@ void Session::SetViewportSize(unsigned short cols, unsigned short rows)
     if (cols == lastCols_ && rows == lastRows_) return;
     lastCols_ = cols;
     lastRows_ = rows;
-    const unsigned short ptyCols =
-        docLayout_->GetWordWrap() ? cols : ptyLineWidth_;
+    const unsigned short ptyCols = widePty_ ? ptyLineWidth_ : cols;
     transport_->Resize(ptyCols, rows);
 }
 

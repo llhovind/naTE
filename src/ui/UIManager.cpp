@@ -171,7 +171,9 @@ void UIManager::UpdateStatusBar()
     frame_->SetStatusText(ui ? wxString::FromUTF8(ui->label) : wxString{}, 1);
 
     const DocLayout& layout = sm_.GetDocLayout(activeId);
-    frame_->SetStatusText(layout.GetWordWrap() ? "Wrap: ON" : "Wrap: OFF", 2);
+    const bool wrap = layout.GetWordWrap();
+    frame_->SetStatusText(wrap ? "Wrap: ON" : "Wrap: OFF", 2);
+    frame_->SyncWordWrapMenuItem(wrap);
 
     const CursorPos cur = layout.GetCursorDocPos();
     frame_->SetStatusText(

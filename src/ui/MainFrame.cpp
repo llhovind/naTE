@@ -3,7 +3,8 @@
 #include <cstdlib>
 
 namespace {
-    constexpr int ID_NEW_CONNECTION = wxID_HIGHEST + 1;
+    constexpr int ID_NEW_CONNECTION  = wxID_HIGHEST + 1;
+    constexpr int ID_TOGGLE_WORDWRAP = wxID_HIGHEST + 2;
 
     template<class... Ts>
     struct overloaded : Ts... { using Ts::operator()...; };
@@ -29,9 +30,14 @@ MainFrame::MainFrame(const AppConfig& cfg,
     m_connMenu->AppendSeparator();
     Bind(wxEVT_MENU, &MainFrame::OnNewConnection, this, ID_NEW_CONNECTION);
 
+    auto* termMenu = new wxMenu;
+    m_miWordWrap = termMenu->AppendCheckItem(ID_TOGGLE_WORDWRAP, "Word Wrap\tCtrl+W");
+    Bind(wxEVT_MENU, &MainFrame::OnToggleWordWrap, this, ID_TOGGLE_WORDWRAP);
+
     auto* menuBar = new wxMenuBar;
     menuBar->Append(fileMenu,   "&File");
     menuBar->Append(m_connMenu, "&Connection");
+    menuBar->Append(termMenu,   "&Terminal");
     SetMenuBar(menuBar);
 
     CreateStatusBar(4);
@@ -73,6 +79,8 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
 
     const int idx = ++m_sessionCount;
     term::session::Connection conn;
+    bool widePty  = false;
+    bool wordWrap = false;
     std::visit(overloaded{
         [&](const ui::LoopbackParams&) {
             conn = { wxString::Format("Loopback %d", idx).ToStdString(),
@@ -81,6 +89,8 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
         [&](const ui::PtyParams& p) {
             conn = { wxString::Format("Local Shell %d", idx).ToStdString(),
                      term::session::PtyDesc{ p.shell } };
+            widePty  = p.widePty;
+            wordWrap = p.wordWrap;
         }
     }, dlg.GetParams());
 
@@ -88,5 +98,22 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
                        m_cfg.scrollbackLines,
                        static_cast<unsigned short>(m_cfg.columns),
                        static_cast<unsigned short>(m_cfg.rows),
-                       static_cast<unsigned short>(m_cfg.ptyLineWidth));
+                       static_cast<unsigned short>(m_cfg.ptyLineWidth),
+                       widePty,
+                       wordWrap);
+}
+
+void MainFrame::OnToggleWordWrap(wxCommandEvent&)
+{
+    const term::session::SessionId id = m_sm.GetActiveSessionId();
+    if (id == 0) return;
+    DocLayout& layout = m_sm.GetDocLayout(id);
+    layout.SetWordWrap(!layout.GetWordWrap());
+    m_miWordWrap->Check(layout.GetWordWrap());
+}
+
+void MainFrame::SyncWordWrapMenuItem(bool checked)
+{
+    if (m_miWordWrap)
+        m_miWordWrap->Check(checked);
 }

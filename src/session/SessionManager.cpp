@@ -44,7 +44,9 @@ SessionId SessionManager::CreateSession(const Connection& conn,
                                         int scrollbackLines,
                                         unsigned short cols,
                                         unsigned short rows,
-                                        unsigned short ptyLineWidth)
+                                        unsigned short ptyLineWidth,
+                                        bool widePty,
+                                        bool wordWrap)
 {
     const SessionId id = nextId_++;
 
@@ -60,7 +62,9 @@ SessionId SessionManager::CreateSession(const Connection& conn,
             if (observer_)
                 observer_->OnSessionDisconnected(id);
         },
-        ptyLineWidth);
+        ptyLineWidth,
+        widePty,
+        wordWrap);
 
     record.docObserver = std::make_unique<DocumentObserver>();
     record.docObserver->id       = id;

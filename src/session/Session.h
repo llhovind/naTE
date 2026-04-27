@@ -24,7 +24,9 @@ public:
             unsigned short cols,
             unsigned short rows,
             std::function<void()> onDisconnect,
-            unsigned short ptyLineWidth = 1024);
+            unsigned short ptyLineWidth = 1024,
+            bool widePty = false,
+            bool wordWrap = false);
     ~Session();
 
     // Stops the transport I/O thread synchronously. Safe to call multiple
@@ -90,9 +92,10 @@ private:
 
     std::function<void()> onDisconnect_;
 
-    unsigned short lastCols_{0};
-    unsigned short lastRows_{0};
-    unsigned short ptyLineWidth_{1024};
+    unsigned short     lastCols_{0};
+    unsigned short     lastRows_{0};
+    unsigned short     ptyLineWidth_{1024};
+    const bool         widePty_{false};
 };
 
 } // namespace term::session

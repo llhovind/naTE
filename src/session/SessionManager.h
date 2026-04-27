@@ -29,7 +29,9 @@ public:
                             int scrollbackLines,
                             unsigned short cols,
                             unsigned short rows,
-                            unsigned short ptyLineWidth = 1024);
+                            unsigned short ptyLineWidth = 1024,
+                            bool widePty = false,
+                            bool wordWrap = false);
 
     void ActivateSession(SessionId id);
     void CloseSession(SessionId id);

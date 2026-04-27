@@ -14,14 +14,19 @@ public:
 
     wxMenu* GetConnMenu() const { return m_connMenu; }
 
+    // Called by UIManager::UpdateStatusBar to keep the menu check in sync.
+    void SyncWordWrapMenuItem(bool checked);
+
 private:
     void OnClose(wxCloseEvent& event);
     void OnQuit(wxCommandEvent&);
     void OnNewConnection(wxCommandEvent&);
+    void OnToggleWordWrap(wxCommandEvent&);
 
     term::input::InputRouter&       m_router;
     term::session::SessionManager&  m_sm;
     AppConfig                       m_cfg;
-    wxMenu*                         m_connMenu = nullptr;
+    wxMenu*                         m_connMenu  = nullptr;
+    wxMenuItem*                     m_miWordWrap = nullptr;
     int                             m_sessionCount = 0;
 };
