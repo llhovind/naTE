@@ -40,6 +40,17 @@ public:
     virtual void OnFunctionKey(int /*n*/)               {}
     virtual void OnScrollUp(int /*count*/)              {}
     virtual void OnScrollDown(int /*count*/)            {}
+
+    // VT100 scroll region and reverse index
+    virtual void OnReverseIndex()                                {}  // ESC M
+    virtual void OnSetScrollRegion(int /*top*/, int /*bot*/)     {}  // CSI top;bot r
+
+    // Cursor positioning (column/row absolute) and save/restore
+    virtual void OnCursorColumnAbsolute(int /*col*/)             {}  // CSI G (1-indexed)
+    virtual void OnCursorRowAbsolute(int /*row*/)                {}  // CSI d (1-indexed)
+    virtual void OnSaveCursor()                                  {}  // ESC 7 or CSI s
+    virtual void OnRestoreCursor()                               {}  // ESC 8 or CSI u
+    virtual void OnEraseChar(int /*count*/)                      {}  // CSI X
 };
 
 } // namespace term::parser

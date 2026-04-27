@@ -11,12 +11,13 @@ void Parser::Process(const std::string& data)
 {
     for (unsigned char byte : data) {
         switch (state_) {
-        case State::Normal:  HandleNormal(byte);  break;
-        case State::Escape:  HandleEscape(byte);  break;
-        case State::Ss3:     HandleSs3(byte);     break;
-        case State::Csi:     HandleCsi(byte);     break;
-        case State::Osc:     HandleOsc(byte);     break;
-        case State::OscEsc:  HandleOscEsc(byte);  break;
+        case State::Normal:   HandleNormal(byte);   break;
+        case State::Escape:   HandleEscape(byte);   break;
+        case State::Ss3:      HandleSs3(byte);      break;
+        case State::Csi:      HandleCsi(byte);      break;
+        case State::Osc:      HandleOsc(byte);      break;
+        case State::OscEsc:   HandleOscEsc(byte);   break;
+        case State::SkipOne:  HandleSkipOne(byte);  break;
         }
     }
 }
@@ -79,9 +80,24 @@ void Parser::HandleEscape(unsigned char byte)
         state_ = State::Osc;
     } else if (byte == 'O') {
         state_ = State::Ss3;
+    } else if (byte == '(' || byte == ')') {
+        // Designate Character Set (G0/G1) — the next byte is the charset selector.
+        // We don't need to act on it in a Unicode-aware emulator; just skip it.
+        state_ = State::SkipOne;
     } else {
+        switch (byte) {
+        case 'M': target_.OnReverseIndex();  break;  // Reverse Index
+        case '7': target_.OnSaveCursor();    break;  // DECSC
+        case '8': target_.OnRestoreCursor(); break;  // DECRC
+        default:  break;
+        }
         state_ = State::Normal;
     }
+}
+
+void Parser::HandleSkipOne(unsigned char /*byte*/)
+{
+    state_ = State::Normal;
 }
 
 // SS3 sequences: ESC O <byte>
@@ -140,6 +156,12 @@ void Parser::HandleCsiFinal(unsigned char byte)
     case 'F': target_.OnCursorEnd();                                         break;
     case 'J': target_.OnEraseInDisplay(ParseParam(0, 0));                  break;
     case 'P': target_.OnDeleteChar(ParseParam(0, 1));                      break;
+    case 'r': target_.OnSetScrollRegion(ParseParam(0, 0), ParseParam(1, 0)); break;
+    case 'G': target_.OnCursorColumnAbsolute(ParseFirstParam(1));            break;
+    case 'd': target_.OnCursorRowAbsolute(ParseFirstParam(1));               break;
+    case 's': target_.OnSaveCursor();                                        break;
+    case 'u': target_.OnRestoreCursor();                                     break;
+    case 'X': target_.OnEraseChar(ParseFirstParam(1));                       break;
     case '~': {
         const int code = ParseParam(0, 0);
         switch (code) {

@@ -1,6 +1,7 @@
 #include "session/Session.h"
 #include "transport/PtyTransport.h"
 #include "transport/LoopbackTransport.h"
+#include <algorithm>
 
 namespace term::session {
 
@@ -31,7 +32,7 @@ Session::Session(const Connection& conn,
     : transport_(MakeTransport(*this, conn, widePty ? ptyLineWidth : cols, rows)),
       parser_(*this),
       main_doc_(std::make_unique<MainScreenDocument>(scrollbackLines)),
-      alt_doc_(std::make_unique<AltScreenDocument>()),
+      alt_doc_(std::make_unique<AltScreenDocument>(rows, cols)),
       active_doc_(main_doc_.get()),
       docLayout_(std::make_unique<DocLayout>(*main_doc_, cols, rows)),
       onDisconnect_(std::move(onDisconnect)),
@@ -112,17 +113,52 @@ void Session::OnCursorToLineStart()              { active_doc_->MoveCursorToLine
 void Session::OnCursorEnd()                      { active_doc_->MoveCursorToLineEnd();            }
 void Session::OnEraseInDisplay(int mode)         { active_doc_->EraseInDisplay(mode);             }
 void Session::OnDeleteChar(int count)            { active_doc_->DeleteChar(count);                }
-void Session::OnEnterAltScreen()                 { /* alt-screen not yet implemented */           }
-void Session::OnExitAltScreen()                  { /* alt-screen not yet implemented */           }
+void Session::OnReverseIndex()                   { active_doc_->ReverseIndex();                   }
+void Session::OnSetScrollRegion(int top, int bot){ active_doc_->SetScrollRegion(top, bot);        }
+void Session::OnCursorColumnAbsolute(int col)    { active_doc_->MoveCursorToColumn(col);          }
+void Session::OnCursorRowAbsolute(int row)       { active_doc_->MoveCursorToRow(row);             }
+void Session::OnSaveCursor()                     { active_doc_->SaveCursor();                     }
+void Session::OnRestoreCursor()                  { active_doc_->RestoreCursor();                  }
+void Session::OnEraseChar(int count)             { active_doc_->EraseChar(count);                 }
+void Session::OnEnterAltScreen()
+{
+    alt_doc_->Resize(lastRows_, lastCols_);
+    for (auto* l : externalListeners_)
+        main_doc_->RemoveListener(l);
+    active_doc_ = alt_doc_.get();
+    docLayout_->SetDocument(*alt_doc_);
+    for (auto* l : externalListeners_)
+        alt_doc_->AddListener(l);
+    if (widePty_)
+        transport_->Resize(lastCols_, lastRows_);
+    altScreenActive_ = true;
+}
+
+void Session::OnExitAltScreen()
+{
+    for (auto* l : externalListeners_)
+        alt_doc_->RemoveListener(l);
+    active_doc_ = main_doc_.get();
+    docLayout_->SetDocument(*main_doc_);
+    for (auto* l : externalListeners_)
+        main_doc_->AddListener(l);
+    if (widePty_)
+        transport_->Resize(ptyLineWidth_, lastRows_);
+    altScreenActive_ = false;
+}
 
 void Session::AddDocumentListener(IDocumentListener* listener)
 {
-    main_doc_->AddListener(listener);
+    active_doc_->AddListener(listener);
+    externalListeners_.push_back(listener);
 }
 
 void Session::RemoveDocumentListener(IDocumentListener* listener)
 {
-    main_doc_->RemoveListener(listener);
+    active_doc_->RemoveListener(listener);
+    externalListeners_.erase(
+        std::remove(externalListeners_.begin(), externalListeners_.end(), listener),
+        externalListeners_.end());
 }
 
 DocLayout& Session::GetDocLayout()
@@ -141,8 +177,12 @@ void Session::SetViewportSize(unsigned short cols, unsigned short rows)
     if (cols == lastCols_ && rows == lastRows_) return;
     lastCols_ = cols;
     lastRows_ = rows;
-    const unsigned short ptyCols = widePty_ ? ptyLineWidth_ : cols;
-    transport_->Resize(ptyCols, rows);
+    if (altScreenActive_) {
+        alt_doc_->Resize(rows, cols);
+        transport_->Resize(cols, rows);
+    } else {
+        transport_->Resize(widePty_ ? ptyLineWidth_ : cols, rows);
+    }
 }
 
 } // namespace term::session

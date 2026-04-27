@@ -2,15 +2,26 @@
 #include <algorithm>
 
 DocLayout::DocLayout(Document& doc, int cols, int rows)
-    : doc(doc), cols(cols), rows_(rows)
+    : doc_(&doc), cols(cols), rows_(rows)
 {
-    doc.AddListener(this);
+    doc_->AddListener(this);
     Rebuild();
 }
 
 DocLayout::~DocLayout()
 {
-    doc.RemoveListener(this);
+    doc_->RemoveListener(this);
+}
+
+void DocLayout::SetDocument(Document& newDoc)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    doc_->RemoveListener(this);
+    doc_ = &newDoc;
+    doc_->AddListener(this);
+    Rebuild();
+    topRow_ = 0;
+    LoadWindow(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -38,7 +49,7 @@ RenderedLine DocLayout::GetRenderedLine(int visualRow)
     }
 
     const auto&    info  = visualLines_[visualRow - loadedWindowStart_];
-    const DocLine& dline = doc.GetLines()[info.docLine];
+    const DocLine& dline = doc_->GetLines()[info.docLine];
     const size_t   start = wordWrap_ ? info.startCol : static_cast<size_t>(leftCol_);
     const size_t   len   = (dline.text.size() > start)
                          ? std::min(static_cast<size_t>(cols), dline.text.size() - start)
@@ -123,7 +134,7 @@ void DocLayout::Rebuild()
     visualLines_.clear();
     loadedWindowStart_ = 0;
 
-    const auto& lines = doc.GetLines();
+    const auto& lines = doc_->GetLines();
     docLineMeta_.reserve(lines.size());
     for (const auto& line : lines) {
         const size_t len  = line.text.size();
@@ -142,7 +153,7 @@ void DocLayout::LoadWindow(int anchorVisualRow)
 {
     visualLines_.clear();
 
-    const auto& docLines = doc.GetLines();
+    const auto& docLines = doc_->GetLines();
     if (docLineMeta_.empty()) {
         loadedWindowStart_ = 0;
         return;
@@ -206,7 +217,7 @@ void DocLayout::ComputeMaxVisibleWidthLocked()
 {
     maxVisibleWidth_ = cols;
     if (wordWrap_) return;
-    const auto& docLines = doc.GetLines();
+    const auto& docLines = doc_->GetLines();
     const int endRow = std::min(topRow_ + rows_,
                                 loadedWindowStart_ + (int)visualLines_.size());
     for (int vr = topRow_; vr < endRow; ++vr) {
@@ -249,7 +260,7 @@ CursorPos DocLayout::GetCursorPos() const
     if (docLineMeta_.empty())
         return {0, 0};
 
-    const CursorPos docCursor    = doc.GetCursor();
+    const CursorPos docCursor    = doc_->GetCursor();
     const int       cursorDocLine = static_cast<int>(docCursor.line);
 
     int cumVRow = totalVisualLines_;
@@ -280,7 +291,7 @@ void DocLayout::EnsureCursorVisibleVertically()
 void DocLayout::EnsureCursorVisibleHorizontally()
 {
     if (wordWrap_) return;
-    const int docCol = static_cast<int>(doc.GetCursor().col);
+    const int docCol = static_cast<int>(doc_->GetCursor().col);
     if (docCol < leftCol_)
         leftCol_ = docCol;
     else if (docCol >= leftCol_ + cols)
@@ -344,7 +355,7 @@ void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)
     case DocChangeType::UpdateLine: {
         const int idx = static_cast<int>(lineIndex);
         if (idx < (int)docLineMeta_.size()) {
-            const size_t len      = doc.GetLines()[idx].text.size();
+            const size_t len      = doc_->GetLines()[idx].text.size();
             const int    newCount = (!wordWrap_ || len == 0) ? 1
                                   : (int)((len + (size_t)cols - 1) / cols);
             const int    delta    = newCount - docLineMeta_[idx].visualCount;

@@ -211,3 +211,115 @@ TEST_CASE("given readline mid-line delete sequence when space-overwrite used the
     REQUIRE(doc.GetLines().back().text == U"abcdfghijk ");
     REQUIRE(doc.GetCursor().col == 4);
 }
+
+// ---------------------------------------------------------------------------
+// AltScreenDocument — fixed-size grid
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given 3x5 grid when MoveCursorDown at last row then cursor stays clamped") {
+    AltScreenDocument doc(3, 5);
+    doc.MoveCursorToPosition(3, 1);   // row 3 (last), col 1
+    doc.MoveCursorDown(10);
+    REQUIRE(doc.GetCursor().line == 2);
+}
+
+TEST_CASE("given 3x5 grid when MoveCursorUp at row 0 then cursor stays at row 0") {
+    AltScreenDocument doc(3, 5);
+    doc.MoveCursorUp(5);
+    REQUIRE(doc.GetCursor().line == 0);
+}
+
+TEST_CASE("given 3x5 grid when MoveCursorRight at last col then cursor stays clamped") {
+    AltScreenDocument doc(3, 5);
+    doc.MoveCursorRight(100);
+    REQUIRE(doc.GetCursor().col == 4);
+}
+
+TEST_CASE("given 3x5 grid when AppendInsertChar at col boundary then cursor wraps to next row") {
+    AltScreenDocument doc(3, 5);
+    // Fill row 0 (5 chars) — cursor should wrap to row 1 col 0
+    for (int i = 0; i < 5; ++i)
+        doc.AppendInsertChar(U'A');
+    REQUIRE(doc.GetCursor().line == 1);
+    REQUIRE(doc.GetCursor().col  == 0);
+}
+
+TEST_CASE("given 3x5 grid when AppendInsertChar at last row last col then cursor stays at bottom-right") {
+    AltScreenDocument doc(3, 5);
+    doc.MoveCursorToPosition(3, 5);   // last row, last col (1-indexed)
+    doc.AppendInsertChar(U'Z');
+    // After writing, col would overflow but clamp at rows_-1 row
+    REQUIRE(doc.GetCursor().line == 2);
+}
+
+TEST_CASE("given 3x5 grid when NewLine at last row then grid scrolls and cursor stays at bottom") {
+    AltScreenDocument doc(3, 5);
+    // Write a marker on row 0
+    doc.AppendInsertChar(U'X');
+    doc.MoveCursorToPosition(3, 1);   // move to last row
+    doc.NewLine();
+    REQUIRE(doc.GetCursor().line == 2);
+    // Row 0 marker should have scrolled — row 0 is now the old row 1 (blank)
+    REQUIRE(doc.GetLines()[0].text.empty());
+    REQUIRE(doc.GetLines().size() == 3);
+}
+
+TEST_CASE("given 3x5 grid when EraseInDisplay mode 2 then all lines blank and cursor at origin") {
+    AltScreenDocument doc(3, 5);
+    doc.AppendInsertChar(U'A');
+    doc.MoveCursorToPosition(2, 3);
+    doc.AppendInsertChar(U'B');
+    doc.EraseInDisplay(2);
+    REQUIRE(doc.GetCursor().line == 0);
+    REQUIRE(doc.GetCursor().col  == 0);
+    for (const auto& line : doc.GetLines())
+        REQUIRE(line.text.empty());
+}
+
+TEST_CASE("given 3x5 grid when MoveCursorToPosition then cursor is clamped to grid") {
+    AltScreenDocument doc(3, 5);
+    doc.MoveCursorToPosition(2, 3);   // 1-indexed → row 1, col 2 (0-indexed)
+    REQUIRE(doc.GetCursor().line == 1);
+    REQUIRE(doc.GetCursor().col  == 2);
+}
+
+TEST_CASE("given 3x5 grid when MoveCursorToPosition out of bounds then cursor clamped to grid") {
+    AltScreenDocument doc(3, 5);
+    doc.MoveCursorToPosition(99, 99);
+    REQUIRE(doc.GetCursor().line == 2);
+    REQUIRE(doc.GetCursor().col  == 4);
+}
+
+TEST_CASE("given 3x5 grid when Resize to 4x6 then grid has 4 rows and cursor clamped") {
+    AltScreenDocument doc(3, 5);
+    doc.MoveCursorToPosition(3, 5);   // last position in 3x5
+    doc.Resize(4, 6);
+    REQUIRE(doc.GetLines().size() == 4);
+    REQUIRE(doc.GetCursor().line <= 3);
+    REQUIRE(doc.GetCursor().col  <= 5);
+}
+
+TEST_CASE("given 3x5 grid when Resize to 2x4 then cursor clamped to new bounds") {
+    AltScreenDocument doc(3, 5);
+    doc.MoveCursorToPosition(3, 5);   // row=2,col=4 (0-indexed)
+    doc.Resize(2, 4);
+    REQUIRE(doc.GetLines().size() == 2);
+    REQUIRE(doc.GetCursor().line <= 1);
+    REQUIRE(doc.GetCursor().col  <= 3);
+}
+
+TEST_CASE("given 3x5 grid when EraseInLine mode 0 then content from cursor to end cleared") {
+    AltScreenDocument doc(3, 5);
+    for (char32_t ch : std::u32string(U"ABCDE")) doc.AppendInsertChar(ch);
+    // Writing 5 chars fills row 0 and wraps cursor to row 1. Go back to row 0 col 2.
+    doc.MoveCursorToPosition(1, 3);   // 1-indexed: row 1, col 3 → 0-indexed row 0, col 2
+    doc.EraseInLine(0);
+    REQUIRE(doc.GetLines()[0].text == U"AB");
+}
+
+TEST_CASE("given 3x5 grid when NewLine not at bottom then cursor moves down without scrolling") {
+    AltScreenDocument doc(3, 5);
+    doc.NewLine();
+    REQUIRE(doc.GetCursor().line == 1);
+    REQUIRE(doc.GetLines().size() == 3);
+}

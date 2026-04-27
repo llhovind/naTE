@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <vector>
 
 #include "input/InputRouter.h"
 #include "session/Connection.h"
@@ -56,6 +57,13 @@ public:
     void OnDeleteChar(int count)            override;
     void OnEnterAltScreen()                 override;
     void OnExitAltScreen()                  override;
+    void OnReverseIndex()                    override;
+    void OnSetScrollRegion(int top, int bot) override;
+    void OnCursorColumnAbsolute(int col)     override;
+    void OnCursorRowAbsolute(int row)        override;
+    void OnSaveCursor()                      override;
+    void OnRestoreCursor()                   override;
+    void OnEraseChar(int count)              override;
 
     // transport::ITransportTarget
     void OnData(const std::string& data) override;
@@ -96,6 +104,8 @@ private:
     unsigned short     lastRows_{0};
     unsigned short     ptyLineWidth_{1024};
     const bool         widePty_{false};
+    bool               altScreenActive_{false};
+    std::vector<IDocumentListener*> externalListeners_;
 };
 
 } // namespace term::session

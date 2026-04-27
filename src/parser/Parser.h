@@ -12,7 +12,7 @@ public:
     void Process(const std::string& data);
 
 private:
-    enum class State { Normal, Escape, Ss3, Csi, Osc, OscEsc };
+    enum class State { Normal, Escape, Ss3, Csi, Osc, OscEsc, SkipOne };
 
     void HandleNormal(unsigned char byte);
     void HandleEscape(unsigned char byte);
@@ -22,6 +22,7 @@ private:
     void HandleCsiPrivate(unsigned char byte);
     void HandleOsc(unsigned char byte);
     void HandleOscEsc(unsigned char byte);
+    void HandleSkipOne(unsigned char byte);
 
     void DispatchSgr();
     void DispatchOsc();

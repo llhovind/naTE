@@ -66,6 +66,15 @@ public:
     virtual void DeleteChar(int count)                 = 0;
     virtual void EraseInDisplay(int mode)              = 0;
 
+    virtual void Resize(int rows, int cols) {}           // no-op default; AltScreenDocument overrides
+    virtual void ReverseIndex() {}                       // ESC M — scroll region content down
+    virtual void SetScrollRegion(int top, int bot) {}    // CSI r — set top/bottom margins (1-indexed)
+    virtual void MoveCursorToColumn(int col) {}          // CSI G — cursor column absolute (1-indexed)
+    virtual void MoveCursorToRow(int row) {}             // CSI d — cursor row absolute (1-indexed)
+    virtual void SaveCursor() {}                         // ESC 7 / CSI s
+    virtual void RestoreCursor() {}                      // ESC 8 / CSI u
+    virtual void EraseChar(int count) {}                 // CSI X — erase chars at cursor, no cursor movement
+
     CursorPos GetCursor() const { return cursor_; }
 
     const std::string& GetTitle() const { return title_; }
@@ -104,6 +113,8 @@ public:
     void MoveCursorToLineStart()               override;
     void MoveCursorToLineEnd()                 override;
     void MoveCursorToPosition(int row, int col) override;
+    void MoveCursorToColumn(int col)           override;
+    void EraseChar(int count)                  override;
     void DeleteChar(int count)                 override;
     void EraseInDisplay(int mode)              override;
 
@@ -114,12 +125,22 @@ private:
 
 class AltScreenDocument : public Document {
 public:
+    AltScreenDocument(int rows, int cols);
+    void Resize(int rows, int cols)          override;
+    void ReverseIndex()                      override;
+    void SetScrollRegion(int top, int bot)   override;
+    void MoveCursorToColumn(int col)         override;
+    void MoveCursorToRow(int row)            override;
+    void SaveCursor()                        override;
+    void RestoreCursor()                     override;
+    void EraseChar(int count)               override;
+
     void AppendInsertChar(char32_t ch) override;
     void Backspace() override;
     void NewLine() override;
     void CarriageReturn() override;
     void SetCurrentStyle(const Style& style) override;
-    const std::deque<DocLine>& GetLines() const override;
+    const std::deque<DocLine>& GetLines() const override { return lines_; }
 
     void MoveCursorLeft(int n)  override;
     void MoveCursorRight(int n) override;
@@ -127,9 +148,17 @@ public:
     void MoveCursorDown(int n)  override;
     void EraseInLine(int mode)  override;
 
-    void MoveCursorToLineStart()               override;
-    void MoveCursorToLineEnd()                 override;
-    void MoveCursorToPosition(int row, int col) override;
-    void DeleteChar(int count)                 override;
-    void EraseInDisplay(int mode)              override;
+    void MoveCursorToLineStart()                override;
+    void MoveCursorToLineEnd()                  override;
+    void MoveCursorToPosition(int row, int col)  override;
+    void DeleteChar(int count)                  override;
+    void EraseInDisplay(int mode)               override;
+
+private:
+    int       rows_;
+    int       cols_;
+    int       scrollTop_   = 0;    // 0-indexed top margin of scroll region
+    int       scrollBot_   = 0;    // 0-indexed bottom margin of scroll region
+    CursorPos savedCursor_ = {};   // saved by ESC 7 / CSI s
+    std::deque<DocLine> lines_;    // always exactly rows_ entries
 };

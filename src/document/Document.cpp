@@ -258,6 +258,12 @@ void MainScreenDocument::EraseInLine(int mode)
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 
+void MainScreenDocument::MoveCursorToColumn(int col)
+{
+    cursor_.col = static_cast<size_t>(std::max(1, col) - 1);
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
 void MainScreenDocument::MoveCursorToLineStart()
 {
     cursor_.col = 0;
@@ -281,6 +287,15 @@ void MainScreenDocument::MoveCursorToPosition(int row, int col)
     cursor_.line = lines_.empty() ? 0 : std::min(r, lines_.size() - 1);
     cursor_.col  = c;
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void MainScreenDocument::EraseChar(int count)
+{
+    const size_t end = std::min(cursor_.col + static_cast<size_t>(count),
+                                lines_[cursor_.line].text.size());
+    for (size_t i = cursor_.col; i < end; ++i)
+        lines_[cursor_.line].WriteAt(i, U' ');
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 
 void MainScreenDocument::DeleteChar(int count)
@@ -344,27 +359,292 @@ void MainScreenDocument::EraseInDisplay(int mode)
 }
 
 // ---------------------------------------------------------------------------
-// AltScreenDocument — stub until alt-screen is fully implemented
+// AltScreenDocument — fixed-size, fully-addressable grid
 // ---------------------------------------------------------------------------
 
-void AltScreenDocument::CarriageReturn()          { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::Backspace()               { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::AppendInsertChar(char32_t){ throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::NewLine()                 { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::SetCurrentStyle(const Style&) { throw std::logic_error("AltScreenDocument not yet implemented"); }
-
-const std::deque<DocLine>& AltScreenDocument::GetLines() const
+AltScreenDocument::AltScreenDocument(int rows, int cols)
+    : rows_(rows), cols_(cols), scrollTop_(0), scrollBot_(rows - 1)
 {
-    throw std::logic_error("AltScreenDocument not yet implemented");
+    lines_.resize(static_cast<size_t>(rows));
+    cursor_ = {0, 0};
 }
 
-void AltScreenDocument::MoveCursorLeft(int)           { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::MoveCursorRight(int)          { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::MoveCursorUp(int)             { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::MoveCursorDown(int)           { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::EraseInLine(int)              { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::MoveCursorToLineStart()       { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::MoveCursorToLineEnd()         { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::MoveCursorToPosition(int, int){ throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::DeleteChar(int)               { throw std::logic_error("AltScreenDocument not yet implemented"); }
-void AltScreenDocument::EraseInDisplay(int)           { throw std::logic_error("AltScreenDocument not yet implemented"); }
+void AltScreenDocument::Resize(int rows, int cols)
+{
+    // Notify removal of all lines beyond the new row count (top-down for DocLayout).
+    const int oldRows = static_cast<int>(lines_.size());
+    for (int i = oldRows - 1; i >= rows; --i)
+        NotifyListeners(DocChangeType::DeleteLine, static_cast<size_t>(i));
+
+    lines_.clear();
+    lines_.resize(static_cast<size_t>(rows));
+    rows_ = rows;
+    cols_ = cols;
+    scrollTop_ = 0;
+    scrollBot_ = rows_ - 1;
+
+    cursor_.line = std::min(cursor_.line, static_cast<size_t>(rows_ - 1));
+    cursor_.col  = std::min(cursor_.col,  static_cast<size_t>(cols_ - 1));
+
+    // Notify all remaining lines as updated so DocLayout rebuilds metadata.
+    for (int i = 0; i < rows_; ++i)
+        NotifyListeners(DocChangeType::UpdateLine, static_cast<size_t>(i));
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void AltScreenDocument::AppendInsertChar(char32_t ch)
+{
+    lines_[cursor_.line].WriteAt(cursor_.col, ch);
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+    ++cursor_.col;
+    if (cursor_.col >= static_cast<size_t>(cols_)) {
+        cursor_.col = 0;
+        cursor_.line = std::min(cursor_.line + 1, static_cast<size_t>(rows_ - 1));
+    }
+}
+
+void AltScreenDocument::Backspace()
+{
+    if (cursor_.col == 0) return;
+    --cursor_.col;
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+}
+
+void AltScreenDocument::NewLine()
+{
+    const size_t bot = static_cast<size_t>(scrollBot_);
+    const size_t top = static_cast<size_t>(scrollTop_);
+
+    if (cursor_.line < bot) {
+        ++cursor_.line;
+        cursor_.col = 0;
+        NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+    } else if (cursor_.line == bot) {
+        // At the bottom of the scroll region: scroll up within the region.
+        lines_.erase(lines_.begin() + scrollTop_);
+        NotifyListeners(DocChangeType::DeleteLine, top);
+        lines_.insert(lines_.begin() + scrollBot_, DocLine{});
+        NotifyListeners(DocChangeType::InsertLine, bot);
+        cursor_.col = 0;
+        // cursor_.line stays at scrollBot_
+    } else {
+        // Below scroll region — just advance without scrolling.
+        cursor_.line = std::min(cursor_.line + 1, static_cast<size_t>(rows_ - 1));
+        cursor_.col = 0;
+        NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+    }
+}
+
+void AltScreenDocument::SetScrollRegion(int top, int bot)
+{
+    // top and bot are 1-indexed; 0 means "use default" (full screen).
+    scrollTop_ = (top <= 0) ? 0 : top - 1;
+    scrollBot_ = (bot <= 0 || bot > rows_) ? rows_ - 1 : bot - 1;
+    if (scrollTop_ >= rows_) scrollTop_ = 0;
+    if (scrollBot_ < scrollTop_) scrollBot_ = rows_ - 1;
+    // VT100 spec: cursor moves to home on DECSTBM.
+    cursor_ = {static_cast<size_t>(scrollTop_), 0};
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void AltScreenDocument::ReverseIndex()
+{
+    const size_t top = static_cast<size_t>(scrollTop_);
+    const size_t bot = static_cast<size_t>(scrollBot_);
+
+    if (cursor_.line > top) {
+        --cursor_.line;
+        NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+    } else {
+        // Cursor is at the top of the scroll region — scroll content DOWN.
+        // Insert a blank line at scrollTop_, remove the line below scrollBot_.
+        lines_.insert(lines_.begin() + scrollTop_, DocLine{});
+        NotifyListeners(DocChangeType::InsertLine, top);
+        lines_.erase(lines_.begin() + scrollBot_ + 1);
+        NotifyListeners(DocChangeType::DeleteLine, bot + 1);
+    }
+}
+
+void AltScreenDocument::MoveCursorToColumn(int col)
+{
+    cursor_.col = std::min(static_cast<size_t>(std::max(1, col) - 1),
+                           static_cast<size_t>(cols_ - 1));
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void AltScreenDocument::MoveCursorToRow(int row)
+{
+    cursor_.line = std::min(static_cast<size_t>(std::max(1, row) - 1),
+                            static_cast<size_t>(rows_ - 1));
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void AltScreenDocument::SaveCursor()
+{
+    savedCursor_ = cursor_;
+}
+
+void AltScreenDocument::RestoreCursor()
+{
+    cursor_.line = std::min(savedCursor_.line, static_cast<size_t>(rows_ - 1));
+    cursor_.col  = std::min(savedCursor_.col,  static_cast<size_t>(cols_ - 1));
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void AltScreenDocument::CarriageReturn()
+{
+    cursor_.col = 0;
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void AltScreenDocument::SetCurrentStyle(const Style& style)
+{
+    lines_[cursor_.line].currentStyle = style;
+}
+
+void AltScreenDocument::MoveCursorLeft(int n)
+{
+    cursor_.col = (cursor_.col >= static_cast<size_t>(n))
+                    ? cursor_.col - static_cast<size_t>(n)
+                    : 0;
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void AltScreenDocument::MoveCursorRight(int n)
+{
+    cursor_.col = std::min(cursor_.col + static_cast<size_t>(n),
+                           static_cast<size_t>(cols_ - 1));
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void AltScreenDocument::MoveCursorUp(int n)
+{
+    cursor_.line = (cursor_.line >= static_cast<size_t>(n))
+                     ? cursor_.line - static_cast<size_t>(n)
+                     : 0;
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void AltScreenDocument::MoveCursorDown(int n)
+{
+    cursor_.line = std::min(cursor_.line + static_cast<size_t>(n),
+                            static_cast<size_t>(rows_ - 1));
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void AltScreenDocument::MoveCursorToLineStart()
+{
+    cursor_.col = 0;
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void AltScreenDocument::MoveCursorToLineEnd()
+{
+    cursor_.col = static_cast<size_t>(cols_ - 1);
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void AltScreenDocument::MoveCursorToPosition(int row, int col)
+{
+    const size_t r = static_cast<size_t>(std::max(1, row) - 1);
+    const size_t c = static_cast<size_t>(std::max(1, col) - 1);
+    cursor_.line = std::min(r, static_cast<size_t>(rows_ - 1));
+    cursor_.col  = std::min(c, static_cast<size_t>(cols_ - 1));
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void AltScreenDocument::EraseInLine(int mode)
+{
+    DocLine& line = lines_[cursor_.line];
+    switch (mode) {
+    case 0: // cursor to end of line
+        if (cursor_.col < line.text.size()) {
+            line.text.erase(cursor_.col);
+            for (auto it = line.styles.begin(); it != line.styles.end(); ) {
+                if (it->start >= cursor_.col)
+                    it = line.styles.erase(it);
+                else if (it->start + it->length > cursor_.col) {
+                    it->length = cursor_.col - it->start;
+                    ++it;
+                } else {
+                    ++it;
+                }
+            }
+        }
+        break;
+    case 1: // beginning of line to cursor (inclusive) — fill with spaces
+        for (size_t i = 0; i <= cursor_.col && i < line.text.size(); ++i)
+            line.text[i] = U' ';
+        break;
+    case 2: // entire line
+        line.Clear();
+        break;
+    }
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+}
+
+void AltScreenDocument::EraseChar(int count)
+{
+    // Fill `count` cells from cursor with spaces using the current style.
+    // Cursor does not move.
+    const size_t end = std::min(cursor_.col + static_cast<size_t>(count),
+                                static_cast<size_t>(cols_));
+    for (size_t i = cursor_.col; i < end; ++i)
+        lines_[cursor_.line].WriteAt(i, U' ');
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+}
+
+void AltScreenDocument::DeleteChar(int count)
+{
+    lines_[cursor_.line].DeleteAt(cursor_.col, static_cast<size_t>(count));
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+}
+
+void AltScreenDocument::EraseInDisplay(int mode)
+{
+    switch (mode) {
+    case 0: { // cursor to end of display
+        DocLine& cur = lines_[cursor_.line];
+        if (cursor_.col < cur.text.size()) {
+            cur.text.erase(cursor_.col);
+            for (auto it = cur.styles.begin(); it != cur.styles.end(); ) {
+                if (it->start >= cursor_.col)
+                    it = cur.styles.erase(it);
+                else if (it->start + it->length > cursor_.col) {
+                    it->length = cursor_.col - it->start;
+                    ++it;
+                } else {
+                    ++it;
+                }
+            }
+        }
+        NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+        for (size_t i = cursor_.line + 1; i < lines_.size(); ++i) {
+            lines_[i].Clear();
+            NotifyListeners(DocChangeType::UpdateLine, i);
+        }
+        break;
+    }
+    case 1: { // beginning of display to cursor
+        for (size_t i = 0; i < cursor_.line; ++i) {
+            lines_[i].Clear();
+            NotifyListeners(DocChangeType::UpdateLine, i);
+        }
+        DocLine& cur = lines_[cursor_.line];
+        for (size_t i = 0; i <= cursor_.col && i < cur.text.size(); ++i)
+            cur.text[i] = U' ';
+        NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+        break;
+    }
+    case 2: // fall-through
+    case 3: { // erase entire display — grid stays fixed-size
+        for (size_t i = 0; i < lines_.size(); ++i) {
+            lines_[i].Clear();
+            NotifyListeners(DocChangeType::UpdateLine, i);
+        }
+        cursor_ = {0, 0};
+        NotifyListeners(DocChangeType::CursorMove, 0);
+        break;
+    }
+    }
+}

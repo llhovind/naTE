@@ -29,8 +29,10 @@ public:
     // window lazily if the row is outside the current loaded range.
     RenderedLine GetRenderedLine(int visualRow);
 
+    void SetDocument(Document& newDoc);
+
     int  GetLineCount() const;
-    CursorPos GetCursorDocPos() const { return doc.GetCursor(); }
+    CursorPos GetCursorDocPos() const { return doc_->GetCursor(); }
 
     // Viewport state — DocLayout is the single source of truth.
     int  GetTopRow() const;
@@ -66,7 +68,7 @@ private:
 
     mutable std::mutex mtx_;
 
-    Document& doc;
+    Document* doc_;
     int cols;
     int rows_;
     int  topRow_           = 0;
