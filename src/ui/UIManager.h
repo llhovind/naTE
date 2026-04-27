@@ -48,6 +48,7 @@ private:
     };
 
     SessionUI* FindSessionUI(term::session::SessionId id);
+    void       UpdateStatusBar();
 
     term::session::SessionManager& sm_;
     wxMenu*                        connMenu_;

@@ -1,7 +1,9 @@
 #include "ui/UIManager.h"
 #include "ui/MainFrame.h"
 #include "ui/TerminalPanel.h"
+#include "ui/DocLayout.h"
 #include <wx/sizer.h>
+#include <wx/string.h>
 
 namespace ui {
 
@@ -57,6 +59,7 @@ void UIManager::OnSessionTitleChanged(term::session::SessionId id, const std::st
         if (!ui) return;
         ui->label = title;
         connMenu_->SetLabel(ui->menuId, wxString::FromUTF8(title));
+        UpdateStatusBar();
     });
 }
 
@@ -67,6 +70,7 @@ void UIManager::OnSessionRefresh(term::session::SessionId id)
         SessionUI* ui = FindSessionUI(id);
         if (ui && ui->panel)
             ui->panel->OnDocumentUpdate();
+        UpdateStatusBar();
     });
 }
 
@@ -94,9 +98,13 @@ void UIManager::OnSessionDestroyed(term::session::SessionId id)
 
     frame_->Layout();
 
-    // If any sessions remain, activate the most recently inserted one.
+    // If any sessions remain, activate the most recently inserted one;
+    // RequestActivate calls UpdateStatusBar. Otherwise update directly to
+    // reflect the no-session state.
     if (!sessions_.empty())
         RequestActivate(sessions_.begin()->first);
+    else
+        UpdateStatusBar();
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +121,7 @@ void UIManager::RequestActivate(term::session::SessionId id)
             ui.panel->Show(sid == id);
     }
     frame_->Layout();
+    UpdateStatusBar();
 }
 
 void UIManager::OnScroll(term::session::SessionId id, int topRow)
@@ -142,6 +151,31 @@ UIManager::SessionUI* UIManager::FindSessionUI(term::session::SessionId id)
 {
     auto it = sessions_.find(id);
     return (it != sessions_.end()) ? &it->second : nullptr;
+}
+
+void UIManager::UpdateStatusBar()
+{
+    const term::session::SessionId activeId = sm_.GetActiveSessionId();
+
+    if (activeId == 0 || sessions_.find(activeId) == sessions_.end()) {
+        frame_->SetStatusText("",    0);
+        frame_->SetStatusText("Ready — use Connection > New Connection to start", 1);
+        frame_->SetStatusText("",    2);
+        frame_->SetStatusText("",    3);
+        return;
+    }
+
+    const SessionUI* ui = FindSessionUI(activeId);
+
+    frame_->SetStatusText(wxString::Format("ID: %zu", activeId), 0);
+    frame_->SetStatusText(ui ? wxString::FromUTF8(ui->label) : wxString{}, 1);
+
+    const DocLayout& layout = sm_.GetDocLayout(activeId);
+    frame_->SetStatusText(layout.GetWordWrap() ? "Wrap: ON" : "Wrap: OFF", 2);
+
+    const CursorPos cur = layout.GetCursorDocPos();
+    frame_->SetStatusText(
+        wxString::Format("Ln %zu, Col %zu", cur.line + 1, cur.col + 1), 3);
 }
 
 } // namespace ui

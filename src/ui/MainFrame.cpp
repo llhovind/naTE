@@ -34,8 +34,15 @@ MainFrame::MainFrame(const AppConfig& cfg,
     menuBar->Append(m_connMenu, "&Connection");
     SetMenuBar(menuBar);
 
-    CreateStatusBar();
-    SetStatusText("Ready — use Connection > New Connection to start");
+    CreateStatusBar(4);
+    {
+        static constexpr int kWidths[] = { 80, -1, 90, 130 };
+        SetStatusWidths(4, kWidths);
+    }
+    SetStatusText("",     0);
+    SetStatusText("Ready — use Connection > New Connection to start", 1);
+    SetStatusText("",     2);
+    SetStatusText("",     3);
 
     SetBackgroundColour(wxColour(211, 211, 211));
     SetSizer(new wxBoxSizer(wxVERTICAL));
