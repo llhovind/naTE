@@ -80,5 +80,6 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
     m_sm.CreateSession(conn,
                        m_cfg.scrollbackLines,
                        static_cast<unsigned short>(m_cfg.columns),
-                       static_cast<unsigned short>(m_cfg.rows));
+                       static_cast<unsigned short>(m_cfg.rows),
+                       static_cast<unsigned short>(m_cfg.ptyLineWidth));
 }

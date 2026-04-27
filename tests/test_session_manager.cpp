@@ -498,6 +498,34 @@ TEST_CASE("given SGR reset sequence when processed then style returns to default
     REQUIRE(line.attrs.back().bg == -1);
 }
 
+TEST_CASE("given line longer than viewport when word wrap off then horizontal scroll slices correctly") {
+    // 20-column viewport; word wrap defaults to false
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 20, 5, {});
+
+    // Feed 40 printable characters: A-Z then A-N
+    session.OnData("ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMN");
+
+    DocLayout& layout = session.GetDocLayout();
+
+    // No-wrap: entire input is one visual row
+    REQUIRE(layout.GetLineCount() == 1);
+
+    // EnsureCursorVisibleHorizontally auto-scrolled to keep the cursor (col 40)
+    // in view — verify leftCol advanced past 0.
+    REQUIRE(layout.GetLeftCol() > 0);
+
+    // Manually reset to leftCol=0 to verify viewport slicing from the start.
+    layout.SetLeftCol(0);
+    const RenderedLine row0 = layout.GetRenderedLine(0);
+    REQUIRE(row0.text == U"ABCDEFGHIJKLMNOPQRST");
+
+    // Scroll right by 10 — chars at positions 10..29 should be visible.
+    layout.SetLeftCol(10);
+    const RenderedLine row1 = layout.GetRenderedLine(0);
+    REQUIRE(row1.text == U"KLMNOPQRSTUVWXYZABCD");
+}
+
 TEST_CASE("given session when closed twice then second call is a no-op") {
     term::input::InputRouter router;
     SessionManager sm(router);

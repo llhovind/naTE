@@ -39,6 +39,11 @@ public:
     bool IsAtEnd() const;
     void EnsureCursorVisible();
 
+    void SetWordWrap(bool wrap);
+    bool GetWordWrap() const;
+    void SetLeftCol(int col);
+    int  GetLeftCol() const;
+
     void OnDocumentChanged(DocChangeType type, size_t lineIndex) override;
 
 private:
@@ -63,7 +68,9 @@ private:
     int cols;
     int rows_;
     int  topRow_     = 0;
+    int  leftCol_    = 0;
     bool autoScroll_ = true;
+    bool wordWrap_   = false;
 
     // Per-document-line metadata: how many visual rows each doc line occupies.
     // Always fully maintained; never trimmed to the viewport.

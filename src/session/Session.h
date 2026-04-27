@@ -23,7 +23,8 @@ public:
             int scrollbackLines,
             unsigned short cols,
             unsigned short rows,
-            std::function<void()> onDisconnect);
+            std::function<void()> onDisconnect,
+            unsigned short ptyLineWidth = 1024);
     ~Session();
 
     // Stops the transport I/O thread synchronously. Safe to call multiple
@@ -91,6 +92,7 @@ private:
 
     unsigned short lastCols_{0};
     unsigned short lastRows_{0};
+    unsigned short ptyLineWidth_{1024};
 };
 
 } // namespace term::session

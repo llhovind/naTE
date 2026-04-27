@@ -47,9 +47,10 @@ AppConfig AppConfig::load(const std::string& path) {
         };
 
         if (section == "Panel") {
-            if      (key == "Columns")  cfg.columns  = toInt(val, cfg.columns);
-            else if (key == "Rows")     cfg.rows     = toInt(val, cfg.rows);
-            else if (key == "FontSize") cfg.fontSize = toInt(val, cfg.fontSize);
+            if      (key == "Columns")      cfg.columns      = toInt(val, cfg.columns);
+            else if (key == "Rows")         cfg.rows         = toInt(val, cfg.rows);
+            else if (key == "FontSize")     cfg.fontSize     = toInt(val, cfg.fontSize);
+            else if (key == "PtyLineWidth") cfg.ptyLineWidth = toInt(val, cfg.ptyLineWidth);
         } else if (section == "Colors") {
             auto clamp = [](int v) -> uint8_t {
                 return static_cast<uint8_t>(std::max(0, std::min(255, v)));

@@ -28,7 +28,8 @@ public:
     SessionId CreateSession(const Connection& conn,
                             int scrollbackLines,
                             unsigned short cols,
-                            unsigned short rows);
+                            unsigned short rows,
+                            unsigned short ptyLineWidth = 1024);
 
     void ActivateSession(SessionId id);
     void CloseSession(SessionId id);

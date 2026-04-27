@@ -24,16 +24,18 @@ Session::Session(const Connection& conn,
                  int scrollbackLines,
                  unsigned short cols,
                  unsigned short rows,
-                 std::function<void()> onDisconnect)
-    : transport_(MakeTransport(*this, conn, cols, rows)),
+                 std::function<void()> onDisconnect,
+                 unsigned short ptyLineWidth)
+    : transport_(MakeTransport(*this, conn, ptyLineWidth, rows)),
       parser_(*this),
       main_doc_(std::make_unique<MainScreenDocument>(scrollbackLines)),
       alt_doc_(std::make_unique<AltScreenDocument>()),
       active_doc_(main_doc_.get()),
-      docLayout_(std::make_unique<DocLayout>(*main_doc_)),
+      docLayout_(std::make_unique<DocLayout>(*main_doc_, cols, rows)),
       onDisconnect_(std::move(onDisconnect)),
       lastCols_(cols),
-      lastRows_(rows)
+      lastRows_(rows),
+      ptyLineWidth_(ptyLineWidth)
 {
     transport_->Start();
 }
@@ -106,8 +108,8 @@ void Session::OnCursorToLineStart()              { active_doc_->MoveCursorToLine
 void Session::OnCursorEnd()                      { active_doc_->MoveCursorToLineEnd();            }
 void Session::OnEraseInDisplay(int mode)         { active_doc_->EraseInDisplay(mode);             }
 void Session::OnDeleteChar(int count)            { active_doc_->DeleteChar(count);                }
-void Session::OnEnterAltScreen()                 { active_doc_ = alt_doc_.get();                  }
-void Session::OnExitAltScreen()                  { active_doc_ = main_doc_.get();                 }
+void Session::OnEnterAltScreen()                 { /* alt-screen not yet implemented */           }
+void Session::OnExitAltScreen()                  { /* alt-screen not yet implemented */           }
 
 void Session::AddDocumentListener(IDocumentListener* listener)
 {
@@ -135,7 +137,9 @@ void Session::SetViewportSize(unsigned short cols, unsigned short rows)
     if (cols == lastCols_ && rows == lastRows_) return;
     lastCols_ = cols;
     lastRows_ = rows;
-    transport_->Resize(cols, rows);
+    const unsigned short ptyCols =
+        docLayout_->GetWordWrap() ? cols : ptyLineWidth_;
+    transport_->Resize(ptyCols, rows);
 }
 
 } // namespace term::session
