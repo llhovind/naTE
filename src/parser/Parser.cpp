@@ -155,6 +155,7 @@ void Parser::HandleCsiFinal(unsigned char byte)
     case 'f': target_.OnCursorPosition(ParseParam(0, 1), ParseParam(1, 1)); break;
     case 'F': target_.OnCursorEnd();                                         break;
     case 'J': target_.OnEraseInDisplay(ParseParam(0, 0));                  break;
+    case '@': target_.OnInsertChar(ParseFirstParam(1));                     break;
     case 'P': target_.OnDeleteChar(ParseParam(0, 1));                      break;
     case 'r': target_.OnSetScrollRegion(ParseParam(0, 0), ParseParam(1, 0)); break;
     case 'G': target_.OnCursorColumnAbsolute(ParseFirstParam(1));            break;
@@ -162,6 +163,8 @@ void Parser::HandleCsiFinal(unsigned char byte)
     case 's': target_.OnSaveCursor();                                        break;
     case 'u': target_.OnRestoreCursor();                                     break;
     case 'X': target_.OnEraseChar(ParseFirstParam(1));                       break;
+    case 'h': if (ParseFirstParam(0) == 4) target_.OnSetInsertMode(true);   break;
+    case 'l': if (ParseFirstParam(0) == 4) target_.OnSetInsertMode(false);  break;
     case '~': {
         const int code = ParseParam(0, 0);
         switch (code) {

@@ -38,6 +38,7 @@ struct DocLine {
     Style currentStyle;
 
     void WriteAt(size_t col, char32_t ch);
+    void InsertAt(size_t col, char32_t ch);
     void DeletePreviousChar(size_t cursorCol);
     void DeleteAt(size_t col, size_t count);
     void Clear();
@@ -74,6 +75,8 @@ public:
     virtual void SaveCursor() {}                         // ESC 7 / CSI s
     virtual void RestoreCursor() {}                      // ESC 8 / CSI u
     virtual void EraseChar(int count) {}                 // CSI X — erase chars at cursor, no cursor movement
+    virtual void InsertChar(int count) = 0;              // CSI @ — insert blank chars, shift right
+    virtual void SetInsertMode(bool on) { insertMode_ = on; }
 
     CursorPos GetCursor() const { return cursor_; }
 
@@ -88,6 +91,7 @@ protected:
 
     CursorPos  cursor_{};
     std::string title_;
+    bool insertMode_ = false;
 
 private:
     std::vector<IDocumentListener*> listeners_;
@@ -117,6 +121,7 @@ public:
     void EraseChar(int count)                  override;
     void DeleteChar(int count)                 override;
     void EraseInDisplay(int mode)              override;
+    void InsertChar(int count)                 override;
 
 private:
     std::deque<DocLine> lines_;
@@ -153,6 +158,7 @@ public:
     void MoveCursorToPosition(int row, int col)  override;
     void DeleteChar(int count)                  override;
     void EraseInDisplay(int mode)               override;
+    void InsertChar(int count)                  override;
 
 private:
     int       rows_;

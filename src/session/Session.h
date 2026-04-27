@@ -64,6 +64,8 @@ public:
     void OnSaveCursor()                      override;
     void OnRestoreCursor()                   override;
     void OnEraseChar(int count)              override;
+    void OnInsertChar(int count)             override;
+    void OnSetInsertMode(bool on)            override;
 
     // transport::ITransportTarget
     void OnData(const std::string& data) override;

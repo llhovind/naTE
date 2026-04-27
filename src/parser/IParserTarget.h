@@ -51,6 +51,8 @@ public:
     virtual void OnSaveCursor()                                  {}  // ESC 7 or CSI s
     virtual void OnRestoreCursor()                               {}  // ESC 8 or CSI u
     virtual void OnEraseChar(int /*count*/)                      {}  // CSI X
+    virtual void OnInsertChar(int /*count*/)                     {}  // CSI @
+    virtual void OnSetInsertMode(bool /*on*/)                    {}  // CSI 4 h/l
 };
 
 } // namespace term::parser

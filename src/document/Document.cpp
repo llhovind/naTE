@@ -118,6 +118,44 @@ void DocLine::DeleteAt(size_t col, size_t count)
     }
 }
 
+// Insert `ch` at `col`, shifting all characters from `col` rightward by one.
+// If `col` is past the end of the line it delegates to WriteAt (pad + append).
+void DocLine::InsertAt(size_t col, char32_t ch)
+{
+    if (col >= text.size()) {
+        WriteAt(col, ch);
+        return;
+    }
+
+    text.insert(col, 1, ch);
+
+    for (size_t i = 0; i < styles.size(); ++i) {
+        const size_t rStart = styles[i].start;
+        const size_t rEnd   = rStart + styles[i].length;
+
+        if (rStart >= col) {
+            // Entirely at or after insertion point — shift right.
+            ++styles[i].start;
+        } else if (rEnd > col) {
+            // Run straddles col: split into before / new-char / after.
+            const Style  old       = styles[i].style;
+            const size_t beforeLen = col - rStart;
+            const size_t afterLen  = rEnd - col;   // chars originally at [col, rEnd)
+
+            styles[i].length = beforeLen;           // shrink to "before" portion
+            // Insert new-char run and shifted "after" run after current index.
+            styles.insert(styles.begin() + static_cast<ptrdiff_t>(i) + 1,
+                          {col + 1, afterLen, old});
+            styles.insert(styles.begin() + static_cast<ptrdiff_t>(i) + 1,
+                          {col,     1,        currentStyle});
+            return;
+        }
+        // else: run is entirely before col — no change.
+    }
+    // Insertion point not covered by any run — add a new single-cell run.
+    styles.push_back({col, 1, currentStyle});
+}
+
 // ---------------------------------------------------------------------------
 // Document — listener management
 // ---------------------------------------------------------------------------
@@ -157,7 +195,10 @@ MainScreenDocument::MainScreenDocument(int maxLines)
 
 void MainScreenDocument::AppendInsertChar(char32_t ch)
 {
-    lines_.back().WriteAt(cursor_.col, ch);
+    if (insertMode_)
+        lines_.back().InsertAt(cursor_.col, ch);
+    else
+        lines_.back().WriteAt(cursor_.col, ch);
     ++cursor_.col;
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
@@ -304,6 +345,13 @@ void MainScreenDocument::DeleteChar(int count)
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 
+void MainScreenDocument::InsertChar(int count)
+{
+    for (int i = 0; i < count; ++i)
+        lines_[cursor_.line].InsertAt(cursor_.col, U' ');
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+}
+
 void MainScreenDocument::EraseInDisplay(int mode)
 {
     switch (mode) {
@@ -394,7 +442,10 @@ void AltScreenDocument::Resize(int rows, int cols)
 
 void AltScreenDocument::AppendInsertChar(char32_t ch)
 {
-    lines_[cursor_.line].WriteAt(cursor_.col, ch);
+    if (insertMode_)
+        lines_[cursor_.line].InsertAt(cursor_.col, ch);
+    else
+        lines_[cursor_.line].WriteAt(cursor_.col, ch);
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
     ++cursor_.col;
     if (cursor_.col >= static_cast<size_t>(cols_)) {
@@ -597,6 +648,19 @@ void AltScreenDocument::EraseChar(int count)
 void AltScreenDocument::DeleteChar(int count)
 {
     lines_[cursor_.line].DeleteAt(cursor_.col, static_cast<size_t>(count));
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+}
+
+void AltScreenDocument::InsertChar(int count)
+{
+    DocLine& line = lines_[cursor_.line];
+    for (int i = 0; i < count; ++i)
+        line.InsertAt(cursor_.col, U' ');
+    // Clamp line to cols_ — characters pushed past the right margin are lost.
+    if (line.text.size() > static_cast<size_t>(cols_)) {
+        line.DeleteAt(static_cast<size_t>(cols_),
+                      line.text.size() - static_cast<size_t>(cols_));
+    }
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 

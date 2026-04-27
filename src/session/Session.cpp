@@ -120,6 +120,8 @@ void Session::OnCursorRowAbsolute(int row)       { active_doc_->MoveCursorToRow(
 void Session::OnSaveCursor()                     { active_doc_->SaveCursor();                     }
 void Session::OnRestoreCursor()                  { active_doc_->RestoreCursor();                  }
 void Session::OnEraseChar(int count)             { active_doc_->EraseChar(count);                 }
+void Session::OnInsertChar(int count)            { active_doc_->InsertChar(count);                }
+void Session::OnSetInsertMode(bool on)           { active_doc_->SetInsertMode(on);                }
 void Session::OnEnterAltScreen()
 {
     alt_doc_->Resize(lastRows_, lastCols_);
