@@ -71,4 +71,4 @@ vgcore.*
 # Generated dependency files
 *.d
 
-*demo.txt
+tmp/
