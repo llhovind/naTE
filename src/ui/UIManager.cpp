@@ -48,7 +48,12 @@ void UIManager::OnSessionCreated(term::session::SessionId id, const std::string&
     // Auto-focus the new session.
     RequestActivate(id);
 
-    frame_->Layout();
+    // On the first session, resize the frame so the panel receives exactly its
+    // minimum client size — guaranteeing ViewportChars() == cfg.columns × cfg.rows.
+    if (sessions_.size() == 1) {
+        frame_->SetClientSize(panel->GetMinClientSize());
+        frame_->Layout();
+    }
 }
 
 void UIManager::OnSessionTitleChanged(term::session::SessionId id, const std::string& title)

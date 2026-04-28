@@ -11,6 +11,7 @@ static int QueryScrollbarThickness()
 }
 
 static constexpr int kResizeDebounceMs = 80;
+static constexpr int kInnerPad         = 4;   // px inset between content and panel/scrollbar edges
 
 TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
     : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS),
@@ -43,8 +44,8 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
 
     SetBackgroundColour(wxColour(cfg.bgColour.r, cfg.bgColour.g, cfg.bgColour.b));
     SetBackgroundStyle(wxBG_STYLE_PAINT);
-    SetMinClientSize({cfg.columns * m_charSize.x + m_sbThick,
-                      cfg.rows    * m_charSize.y + m_sbThick});
+    SetMinClientSize({cfg.columns * m_charSize.x + m_sbThick + 2 * kInnerPad,
+                      cfg.rows    * m_charSize.y + m_sbThick + 2 * kInnerPad});
 
     Bind(wxEVT_PAINT,      &TerminalPanel::OnPaint,       this);
     Bind(wxEVT_SIZE,       &TerminalPanel::OnSize,        this);
@@ -68,8 +69,8 @@ void TerminalPanel::SetDocLayout(::DocLayout* docLayout)
 wxSize TerminalPanel::ViewportChars() const
 {
     const wxSize sz = GetClientSize();
-    return {std::max(1, (sz.x - m_sbThick) / m_charSize.x),
-            std::max(1, (sz.y - m_sbThick) / m_charSize.y)};
+    return {std::max(1, (sz.x - m_sbThick - 2 * kInnerPad) / m_charSize.x),
+            std::max(1, (sz.y - m_sbThick - 2 * kInnerPad) / m_charSize.y)};
 }
 
 void TerminalPanel::LayoutScrollbars()
@@ -241,12 +242,12 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
         for (int col = 0; col < (int)row.text.size(); ++col) {
             dc.SetTextForeground(resolveColour(row.attrs[col].fg, true));
             dc.SetTextBackground(resolveColour(row.attrs[col].bg, false));
-            dc.DrawText(wxString(static_cast<wchar_t>(row.text[col])), col * cw, r * ch);
+            dc.DrawText(wxString(static_cast<wchar_t>(row.text[col])), col * cw + kInnerPad, r * ch + kInnerPad);
         }
 
         if (row.hasCursor) {
-            const int cx = row.cursorCol * cw;
-            const int cy = r * ch;
+            const int cx = row.cursorCol * cw + kInnerPad;
+            const int cy = r * ch + kInnerPad;
             dc.SetPen(*wxTRANSPARENT_PEN);
             dc.SetBrush(wxBrush(*wxBLUE));
             dc.DrawRectangle(cx, cy, cw, ch);
