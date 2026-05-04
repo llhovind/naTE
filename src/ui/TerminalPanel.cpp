@@ -182,10 +182,9 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
     if (!docLayout_)
         return;
 
-    const wxSize view    = ViewportChars();
-    const int    cw      = m_charSize.x;
-    const int    ch      = m_charSize.y;
-    const int    topRow  = docLayout_->GetTopRow();
+    const wxSize view = ViewportChars();
+    const int    cw   = m_charSize.x;
+    const int    ch   = m_charSize.y;
 
     // Resolve a palette index (0–255, or -1 for terminal default) to RGB.
     // Indices 0–15: standard 16-colour ANSI palette.
@@ -232,12 +231,11 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
         return wxColour(v, v, v);
     };
 
+    // GetRenderedLine(r) is viewport-relative: 0 = topmost visible line.
+    // It returns an empty RenderedLine (no text, no cursor) once past the
+    // end of the document, so we stop early when the document is short.
     for (int r = 0; r < view.y; ++r) {
-        const int layoutRow = topRow + r;
-        if (layoutRow >= docLayout_->GetLineCount())
-            break;
-
-        const RenderedLine row = docLayout_->GetRenderedLine(layoutRow);
+        const RenderedLine row = docLayout_->GetRenderedLine(r);
 
         for (int col = 0; col < (int)row.text.size(); ++col) {
             dc.SetTextForeground(resolveColour(row.attrs[col].fg, true));

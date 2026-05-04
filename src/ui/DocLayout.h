@@ -3,7 +3,6 @@
 #include "document/Document.h"
 #include "document/IDocumentListener.h"
 #include <mutex>
-#include <vector>
 
 // Rendered representation of one visual row — the only line-level type that
 // crosses the DocLayout→TerminalPanel boundary.  attrs is parallel to text:
@@ -21,22 +20,25 @@ public:
     DocLayout(Document& doc, int cols = 80, int rows = 24);
     ~DocLayout() override;
 
-    // Call when the visible terminal size changes. Rebuilds layout metadata
-    // and re-clamps the viewport.
+    // Call when the visible terminal size changes.
     void SetViewportSize(int cols, int rows);
 
-    // Returns the rendered content for one visual row.  Loads the viewport
-    // window lazily if the row is outside the current loaded range.
-    RenderedLine GetRenderedLine(int visualRow);
+    // Returns the rendered content for one visual row.
+    // r is viewport-relative: 0 = topmost visible line.
+    // Returns an empty RenderedLine (text empty, hasCursor false) when r
+    // points past the end of the document.
+    RenderedLine GetRenderedLine(int r);
 
     void SetDocument(Document& newDoc);
 
-    int  GetLineCount() const;
+    // Document line count — drives the vertical scrollbar range.
+    int GetLineCount() const;
+
     CursorPos GetCursorDocPos() const { return doc_->GetCursor(); }
 
-    // Viewport state — DocLayout is the single source of truth.
+    // Viewport state. GetTopRow/SetTopRow operate in document-line coordinates.
     int  GetTopRow() const;
-    void SetTopRow(int row);
+    void SetTopRow(int docLine);
     void ScrollToEnd();
     bool IsAtEnd() const;
     void EnsureCursorVisible();
@@ -47,44 +49,36 @@ public:
     int  GetLeftCol() const;
     int  GetMaxVisibleWidth() const;
 
+    // Translate a viewport-relative (col, row) to a document position.
+    // Forward-compatible hook for mouse-driven text selection.
+    struct DocPosition { int docLine = 0; int docCol = 0; };
+    DocPosition HitTest(int viewportRow, int viewportCol) const;
+
     void OnDocumentChanged(DocChangeType type, size_t lineIndex) override;
 
 private:
-    struct VisualLineInfo {
-        int    docLine;
-        size_t startCol;
-    };
+    // Position in document space: which doc line, and which visual sub-row
+    // within that line (always 0 when word-wrap is off).
+    struct ViewportAnchor { int docLine = 0; int subRow = 0; };
 
     // All *Locked methods assume mtx_ is already held by the caller.
-    void      Rebuild();
-    void      LoadWindow(int anchorVisualRow);
-    void      ComputeMaxVisibleWidthLocked();
-    void      SetTopRowLocked(int row);
-    void      ScrollToEndLocked();
-    bool      IsAtEndLocked() const;
-    void      EnsureCursorVisibleVertically();
-    void      EnsureCursorVisibleHorizontally();
-    CursorPos GetCursorPos() const;
+    ViewportAnchor WalkAnchorBy(ViewportAnchor a, int delta) const;
+    int            VisualCount(const DocLine& line) const;
+    void           ComputeMaxVisibleWidthLocked();
+    void           SetTopRowLocked(int docLine);
+    void           ScrollToEndLocked();
+    bool           IsAtEndLocked() const;
+    void           EnsureCursorVisibleVertically();
+    void           EnsureCursorVisibleHorizontally();
 
     mutable std::mutex mtx_;
 
-    Document* doc_;
-    int cols;
-    int rows_;
-    int  topRow_           = 0;
-    int  leftCol_          = 0;
-    int  maxVisibleWidth_  = 0;
-    bool autoScroll_ = true;
-    bool wordWrap_   = false;
-
-    // Per-document-line metadata: how many visual rows each doc line occupies.
-    // Always fully maintained; never trimmed to the viewport.
-    struct DocLineMeta { int visualCount; };
-    std::vector<DocLineMeta> docLineMeta_;
-    int totalVisualLines_ = 0;
-
-    // Lazy viewport window: VisualLineInfo only for the rows near topRow_.
-    // Reloaded on scroll or when invalidated by a document change.
-    std::vector<VisualLineInfo> visualLines_;
-    int loadedWindowStart_ = 0;
+    Document*      doc_;
+    int            cols_;
+    int            rows_;
+    ViewportAnchor topAnchor_;
+    int            leftCol_         = 0;
+    int            maxVisibleWidth_ = 0;
+    bool           autoScroll_      = true;
+    bool           wordWrap_        = false;
 };
