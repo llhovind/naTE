@@ -315,15 +315,13 @@ void MainScreenDocument::MoveCursorToLineEnd()
 }
 
 // row and col are 1-indexed (VT100 convention).
-// Positions relative to line 0 of the scrollback buffer; col can exceed line
-// length (cursor past end). Full viewport-relative positioning requires the
-// Document to know the viewport size — deferred.
-void MainScreenDocument::MoveCursorToPosition(int row, int col)
+// The row parameter is ignored: in a scrollback document cursor_.line must
+// always equal lines_.size()-1 (all writes target lines_.back()). Bash/readline
+// sends absolute row positioning (e.g. \x1b[24;1H) to redraw the prompt, but
+// that row is viewport-relative and meaningless against the scrollback index.
+void MainScreenDocument::MoveCursorToPosition(int /*row*/, int col)
 {
-    const size_t r = static_cast<size_t>(std::max(1, row) - 1);
-    const size_t c = static_cast<size_t>(std::max(1, col) - 1);
-    cursor_.line = lines_.empty() ? 0 : std::min(r, lines_.size() - 1);
-    cursor_.col  = c;
+    cursor_.col = static_cast<size_t>(std::max(1, col) - 1);
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 

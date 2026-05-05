@@ -316,8 +316,14 @@ void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)
 
     switch (type) {
     case DocChangeType::CursorMove:
+    case DocChangeType::UpdateLine:
+        // Always scroll to end when following output: placing the last visual
+        // row at the bottom is the correct invariant for a scrollback terminal.
+        // EnsureCursorVisibleVertically only moves the anchor when the cursor
+        // leaves the viewport, so it leaves a phantom empty row at the bottom
+        // when a wrapped line shrinks — ScrollToEndLocked never does that.
         if (autoScroll_) {
-            EnsureCursorVisibleVertically();
+            ScrollToEndLocked();
             EnsureCursorVisibleHorizontally();
         }
         return;
@@ -328,19 +334,6 @@ void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)
             ++topAnchor_.docLine;
         if (autoScroll_)
             ScrollToEndLocked();
-        break;
-
-    case DocChangeType::UpdateLine:
-        // In word-wrap mode the anchor line may now have fewer sub-rows.
-        if (wordWrap_ && idx == topAnchor_.docLine) {
-            const auto& lines  = doc_->GetLines();
-            const int   maxSub = VisualCount(lines[idx]) - 1;
-            topAnchor_.subRow  = std::min(topAnchor_.subRow, maxSub);
-        }
-        if (autoScroll_) {
-            EnsureCursorVisibleVertically();
-            EnsureCursorVisibleHorizontally();
-        }
         break;
 
     case DocChangeType::DeleteLine: {
