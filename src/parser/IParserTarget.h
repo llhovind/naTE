@@ -44,6 +44,8 @@ public:
     // VT100 scroll region and reverse index
     virtual void OnReverseIndex()                                {}  // ESC M
     virtual void OnSetScrollRegion(int /*top*/, int /*bot*/)     {}  // CSI top;bot r
+    virtual void OnInsertLines(int /*count*/)                    {}  // CSI Ps L
+    virtual void OnDeleteLines(int /*count*/)                    {}  // CSI Ps M
 
     // Cursor positioning (column/row absolute) and save/restore
     virtual void OnCursorColumnAbsolute(int /*col*/)             {}  // CSI G (1-indexed)

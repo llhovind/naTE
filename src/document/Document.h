@@ -70,6 +70,8 @@ public:
     virtual void Resize(int rows, int cols) {}           // no-op default; AltScreenDocument overrides
     virtual void ReverseIndex() {}                       // ESC M — scroll region content down
     virtual void SetScrollRegion(int top, int bot) {}    // CSI r — set top/bottom margins (1-indexed)
+    virtual void InsertLines(int count) {}               // CSI Ps L — insert blank lines at cursor
+    virtual void DeleteLines(int count) {}               // CSI Ps M — delete lines at cursor
     virtual void MoveCursorToColumn(int col) {}          // CSI G — cursor column absolute (1-indexed)
     virtual void MoveCursorToRow(int row) {}             // CSI d — cursor row absolute (1-indexed)
     virtual void SaveCursor() {}                         // ESC 7 / CSI s
@@ -122,6 +124,8 @@ public:
     void DeleteChar(int count)                 override;
     void EraseInDisplay(int mode)              override;
     void InsertChar(int count)                 override;
+    void InsertLines(int count)                override;
+    void DeleteLines(int count)                override;
 
 private:
     std::deque<DocLine> lines_;
@@ -159,6 +163,8 @@ public:
     void DeleteChar(int count)                  override;
     void EraseInDisplay(int mode)               override;
     void InsertChar(int count)                  override;
+    void InsertLines(int count)                 override;
+    void DeleteLines(int count)                 override;
 
 private:
     int       rows_;

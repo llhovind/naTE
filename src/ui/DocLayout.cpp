@@ -135,7 +135,7 @@ RenderedLine DocLayout::GetRenderedLine(int r)
             }
         } else {
             const int docCol = (int)cursor.col;
-            if (docCol >= leftCol_) {
+            if (docCol >= leftCol_ && docCol < leftCol_ + cols_) {
                 result.hasCursor = true;
                 result.cursorCol = docCol - leftCol_;
             }

@@ -58,8 +58,11 @@ void Session::Stop()
 void Session::OnInput(const input::KeyEvent& event)
 {
     auto bytes = encoder_.Encode(event);
-    if (!bytes.empty())
+    if (!bytes.empty()) {
+        // Any keypress re-enables auto-scroll so the viewport follows output.
+        docLayout_->ScrollToEnd();
         transport_->Write(bytes);
+    }
 }
 
 void Session::OnData(const std::string& data)
@@ -115,6 +118,8 @@ void Session::OnEraseInDisplay(int mode)         { active_doc_->EraseInDisplay(m
 void Session::OnDeleteChar(int count)            { active_doc_->DeleteChar(count);                }
 void Session::OnReverseIndex()                   { active_doc_->ReverseIndex();                   }
 void Session::OnSetScrollRegion(int top, int bot){ active_doc_->SetScrollRegion(top, bot);        }
+void Session::OnInsertLines(int count)           { active_doc_->InsertLines(count);               }
+void Session::OnDeleteLines(int count)           { active_doc_->DeleteLines(count);               }
 void Session::OnCursorColumnAbsolute(int col)    { active_doc_->MoveCursorToColumn(col);          }
 void Session::OnCursorRowAbsolute(int row)       { active_doc_->MoveCursorToRow(row);             }
 void Session::OnSaveCursor()                     { active_doc_->SaveCursor();                     }

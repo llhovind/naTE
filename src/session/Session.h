@@ -59,6 +59,8 @@ public:
     void OnExitAltScreen()                  override;
     void OnReverseIndex()                    override;
     void OnSetScrollRegion(int top, int bot) override;
+    void OnInsertLines(int count)            override;
+    void OnDeleteLines(int count)            override;
     void OnCursorColumnAbsolute(int col)     override;
     void OnCursorRowAbsolute(int row)        override;
     void OnSaveCursor()                      override;

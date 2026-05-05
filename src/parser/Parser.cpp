@@ -162,6 +162,8 @@ void Parser::HandleCsiFinal(unsigned char byte)
     case 'd': target_.OnCursorRowAbsolute(ParseFirstParam(1));               break;
     case 's': target_.OnSaveCursor();                                        break;
     case 'u': target_.OnRestoreCursor();                                     break;
+    case 'L': target_.OnInsertLines(ParseFirstParam(1));                      break;
+    case 'M': target_.OnDeleteLines(ParseFirstParam(1));                     break;
     case 'X': target_.OnEraseChar(ParseFirstParam(1));                       break;
     case 'h': if (ParseFirstParam(0) == 4) target_.OnSetInsertMode(true);   break;
     case 'l': if (ParseFirstParam(0) == 4) target_.OnSetInsertMode(false);  break;

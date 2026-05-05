@@ -352,6 +352,24 @@ void MainScreenDocument::InsertChar(int count)
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 
+void MainScreenDocument::InsertLines(int count)
+{
+    for (int i = 0; i < count; ++i) {
+        lines_.insert(lines_.begin() + cursor_.line, DocLine{});
+        NotifyListeners(DocChangeType::InsertLine, cursor_.line);
+    }
+}
+
+void MainScreenDocument::DeleteLines(int count)
+{
+    const int n = (int)lines_.size();
+    count = std::min(count, n - (int)cursor_.line);
+    for (int i = 0; i < count; ++i) {
+        lines_.erase(lines_.begin() + cursor_.line);
+        NotifyListeners(DocChangeType::DeleteLine, cursor_.line);
+    }
+}
+
 void MainScreenDocument::EraseInDisplay(int mode)
 {
     switch (mode) {
@@ -662,6 +680,46 @@ void AltScreenDocument::InsertChar(int count)
                       line.text.size() - static_cast<size_t>(cols_));
     }
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+}
+
+void AltScreenDocument::InsertLines(int count)
+{
+    // CSI Ps L — ignored when cursor is outside the scroll region.
+    if ((int)cursor_.line < scrollTop_ || (int)cursor_.line > scrollBot_) return;
+    count = std::min(count, scrollBot_ - (int)cursor_.line + 1);
+    if (count == 0) return;
+
+    const int cur = (int)cursor_.line;
+    const int bot = scrollBot_;
+
+    // Shift lines within [cur, bot] down by count; lines at the bottom are lost.
+    for (int i = bot; i >= cur + count; --i)
+        lines_[i] = lines_[i - count];
+    for (int i = cur; i < cur + count; ++i)
+        lines_[i] = DocLine{};
+
+    for (int r = cur; r <= bot; ++r)
+        NotifyListeners(DocChangeType::UpdateLine, static_cast<size_t>(r));
+}
+
+void AltScreenDocument::DeleteLines(int count)
+{
+    // CSI Ps M — ignored when cursor is outside the scroll region.
+    if ((int)cursor_.line < scrollTop_ || (int)cursor_.line > scrollBot_) return;
+    count = std::min(count, scrollBot_ - (int)cursor_.line + 1);
+    if (count == 0) return;
+
+    const int cur = (int)cursor_.line;
+    const int bot = scrollBot_;
+
+    // Shift lines within [cur, bot] up by count; blank lines fill the bottom.
+    for (int i = cur; i + count <= bot; ++i)
+        lines_[i] = lines_[i + count];
+    for (int i = std::max(cur, bot - count + 1); i <= bot; ++i)
+        lines_[i] = DocLine{};
+
+    for (int r = cur; r <= bot; ++r)
+        NotifyListeners(DocChangeType::UpdateLine, static_cast<size_t>(r));
 }
 
 void AltScreenDocument::EraseInDisplay(int mode)
