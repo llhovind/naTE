@@ -31,14 +31,21 @@ public:
 
     void SetDocument(Document& newDoc);
 
-    // Document line count — drives the vertical scrollbar range.
+    // Document line count.
     int GetLineCount() const;
 
     CursorPos GetCursorDocPos() const { return doc_->GetCursor(); }
 
-    // Viewport state. GetTopRow/SetTopRow operate in document-line coordinates.
+    // Viewport state in document-line coordinates (word-wrap unaware).
     int  GetTopRow() const;
     void SetTopRow(int docLine);
+
+    // Viewport state in visual-row coordinates. When word-wrap is off these
+    // are identical to the doc-line forms (every logical line is one visual row).
+    int  GetTotalVisualLineCount() const;
+    int  GetTopVisualRow()         const;
+    void SetTopVisualRow(int visualRow);
+    void ScrollByVisualDelta(int delta);
     void ScrollToEnd();
     bool IsAtEnd() const;
     void EnsureCursorVisible();
@@ -64,6 +71,7 @@ private:
     // All *Locked methods assume mtx_ is already held by the caller.
     ViewportAnchor WalkAnchorBy(ViewportAnchor a, int delta) const;
     int            VisualCount(const DocLine& line) const;
+    int            TotalVisualLinesLocked() const;
     void           ComputeMaxVisibleWidthLocked();
     void           SetTopRowLocked(int docLine);
     void           ScrollToEndLocked();

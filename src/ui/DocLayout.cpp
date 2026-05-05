@@ -163,6 +163,51 @@ void DocLayout::SetTopRow(int docLine)
     SetTopRowLocked(docLine);
 }
 
+int DocLayout::TotalVisualLinesLocked() const
+{
+    if (!wordWrap_) return (int)doc_->GetLines().size();
+    int total = 0;
+    for (const auto& line : doc_->GetLines())
+        total += VisualCount(line);
+    return total;
+}
+
+int DocLayout::GetTotalVisualLineCount() const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    return TotalVisualLinesLocked();
+}
+
+int DocLayout::GetTopVisualRow() const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!wordWrap_) return topAnchor_.docLine;
+    const auto& lines = doc_->GetLines();
+    int visual = 0;
+    for (int i = 0; i < topAnchor_.docLine && i < (int)lines.size(); ++i)
+        visual += VisualCount(lines[i]);
+    return visual + topAnchor_.subRow;
+}
+
+void DocLayout::SetTopVisualRow(int visualRow)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!wordWrap_) { SetTopRowLocked(visualRow); return; }
+    const int total = TotalVisualLinesLocked();
+    visualRow   = std::clamp(visualRow, 0, std::max(0, total - rows_));
+    topAnchor_  = WalkAnchorBy({0, 0}, visualRow);
+    autoScroll_ = IsAtEndLocked();
+    ComputeMaxVisibleWidthLocked();
+}
+
+void DocLayout::ScrollByVisualDelta(int delta)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    topAnchor_  = WalkAnchorBy(topAnchor_, delta);
+    autoScroll_ = IsAtEndLocked();
+    ComputeMaxVisibleWidthLocked();
+}
+
 void DocLayout::ScrollToEnd()
 {
     std::lock_guard<std::mutex> lk(mtx_);

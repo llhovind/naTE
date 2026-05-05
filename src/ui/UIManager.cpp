@@ -131,7 +131,7 @@ void UIManager::RequestActivate(term::session::SessionId id)
 
 void UIManager::OnScroll(term::session::SessionId id, int topRow)
 {
-    sm_.OnScroll(id, topRow);
+    sm_.GetDocLayout(id).SetTopVisualRow(topRow);
 }
 
 void UIManager::OnViewportResize(term::session::SessionId id,

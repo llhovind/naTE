@@ -86,9 +86,9 @@ void TerminalPanel::LayoutScrollbars()
 void TerminalPanel::UpdateScrollbars()
 {
     const wxSize view   = ViewportChars();
-    const int    vTop   = docLayout_ ? docLayout_->GetTopRow() : 0;
+    const int    vTop   = docLayout_ ? docLayout_->GetTopVisualRow()         : 0;
     const int    vTotal = docLayout_
-        ? std::max(docLayout_->GetLineCount(), view.y)
+        ? std::max(docLayout_->GetTotalVisualLineCount(), view.y)
         : view.y;
     m_vScroll->SetScrollbar(vTop, view.y, vTotal, view.y);
     const bool hEnabled = docLayout_ && !docLayout_->GetWordWrap();
@@ -144,7 +144,7 @@ void TerminalPanel::OnScroll(wxScrollEvent& e)
             if (scrollCb_)
                 scrollCb_(topRow);
             else
-                docLayout_->SetTopRow(topRow);
+                docLayout_->SetTopVisualRow(topRow);
         }
     }
     UpdateScrollbars();
@@ -156,11 +156,11 @@ void TerminalPanel::OnMouseWheel(wxMouseEvent& e)
 {
     if (!docLayout_) return;
     const int delta  = (e.GetWheelRotation() > 0) ? -3 : 3;
-    const int topRow = docLayout_->GetTopRow() + delta;
+    const int topRow = docLayout_->GetTopVisualRow() + delta;
     if (scrollCb_)
         scrollCb_(topRow);
     else
-        docLayout_->SetTopRow(topRow);
+        docLayout_->SetTopVisualRow(topRow);
     UpdateScrollbars();
     Refresh();
 }
