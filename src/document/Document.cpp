@@ -254,19 +254,16 @@ void MainScreenDocument::MoveCursorRight(int n)
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
-void MainScreenDocument::MoveCursorUp(int n)
+void MainScreenDocument::MoveCursorUp(int /*n*/)
 {
-    cursor_.line = (cursor_.line >= static_cast<size_t>(n))
-                    ? cursor_.line - static_cast<size_t>(n)
-                    : 0;
-    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+    // Cursor is always on the last doc line in a scrollback document.
+    // All writes target lines_.back(), so cursor_.line must never move backward.
+    // Visual sub-row navigation within a wrapped line is DocLayout's concern.
 }
 
-void MainScreenDocument::MoveCursorDown(int n)
+void MainScreenDocument::MoveCursorDown(int /*n*/)
 {
-    const size_t lastLine = lines_.empty() ? 0 : lines_.size() - 1;
-    cursor_.line = std::min(cursor_.line + static_cast<size_t>(n), lastLine);
-    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+    // Already on the last line — nothing to do.
 }
 
 void MainScreenDocument::EraseInLine(int mode)
