@@ -27,9 +27,8 @@ Session::Session(const Connection& conn,
                  unsigned short rows,
                  std::function<void()> onDisconnect,
                  unsigned short ptyLineWidth,
-                 bool widePty,
                  bool wordWrap)
-    : transport_(MakeTransport(*this, conn, widePty ? ptyLineWidth : cols, rows)),
+    : transport_(MakeTransport(*this, conn, wordWrap ? cols : ptyLineWidth, rows)),
       parser_(*this),
       main_doc_(std::make_unique<MainScreenDocument>(scrollbackLines)),
       alt_doc_(std::make_unique<AltScreenDocument>(rows, cols)),
@@ -38,8 +37,7 @@ Session::Session(const Connection& conn,
       onDisconnect_(std::move(onDisconnect)),
       lastCols_(cols),
       lastRows_(rows),
-      ptyLineWidth_(ptyLineWidth),
-      widePty_(widePty)
+      ptyLineWidth_(ptyLineWidth)
 {
     docLayout_->SetWordWrap(wordWrap);
     transport_->Start();
@@ -136,7 +134,7 @@ void Session::OnEnterAltScreen()
     docLayout_->SetDocument(*alt_doc_);
     for (auto* l : externalListeners_)
         alt_doc_->AddListener(l);
-    if (widePty_)
+    if (!docLayout_->GetWordWrap())
         transport_->Resize(lastCols_, lastRows_);
     altScreenActive_ = true;
 }
@@ -149,7 +147,7 @@ void Session::OnExitAltScreen()
     docLayout_->SetDocument(*main_doc_);
     for (auto* l : externalListeners_)
         main_doc_->AddListener(l);
-    if (widePty_)
+    if (!docLayout_->GetWordWrap())
         transport_->Resize(ptyLineWidth_, lastRows_);
     altScreenActive_ = false;
 }
@@ -188,7 +186,16 @@ void Session::SetViewportSize(unsigned short cols, unsigned short rows)
         alt_doc_->Resize(rows, cols);
         transport_->Resize(cols, rows);
     } else {
-        transport_->Resize(widePty_ ? ptyLineWidth_ : cols, rows);
+        const bool wordWrap = docLayout_->GetWordWrap();
+        transport_->Resize(wordWrap ? cols : ptyLineWidth_, rows);
+    }
+}
+
+void Session::SetWordWrap(bool wrap)
+{
+    docLayout_->SetWordWrap(wrap);
+    if (!altScreenActive_) {
+        transport_->Resize(wrap ? lastCols_ : ptyLineWidth_, lastRows_);
     }
 }
 

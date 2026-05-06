@@ -45,7 +45,6 @@ SessionId SessionManager::CreateSession(const Connection& conn,
                                         unsigned short cols,
                                         unsigned short rows,
                                         unsigned short ptyLineWidth,
-                                        bool widePty,
                                         bool wordWrap)
 {
     const SessionId id = nextId_++;
@@ -63,7 +62,6 @@ SessionId SessionManager::CreateSession(const Connection& conn,
                 observer_->OnSessionDisconnected(id);
         },
         ptyLineWidth,
-        widePty,
         wordWrap);
 
     record.docObserver = std::make_unique<DocumentObserver>();
@@ -151,6 +149,12 @@ void SessionManager::OnResize(SessionId id, unsigned short cols, unsigned short 
 {
     if (SessionRecord* rec = FindRecord(id))
         rec->session->SetViewportSize(cols, rows);
+}
+
+void SessionManager::SetWordWrap(SessionId id, bool wrap)
+{
+    if (SessionRecord* rec = FindRecord(id))
+        rec->session->SetWordWrap(wrap);
 }
 
 // Session thread — must not access sessions_.

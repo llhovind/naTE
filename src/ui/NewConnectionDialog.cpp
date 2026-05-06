@@ -14,10 +14,8 @@ namespace ui
     namespace
     {
         constexpr int ID_RB_LOOPBACK = wxID_HIGHEST + 200;
-        constexpr int ID_RB_PTY = wxID_HIGHEST + 201;
-        constexpr int ID_RB_NORMAL = wxID_HIGHEST + 202;
-        constexpr int ID_RB_WIDE = wxID_HIGHEST + 203;
-        constexpr int ID_CB_WRAP = wxID_HIGHEST + 204;
+        constexpr int ID_RB_PTY      = wxID_HIGHEST + 201;
+        constexpr int ID_CB_WRAP     = wxID_HIGHEST + 204;
     }
 
     NewConnectionDialog::NewConnectionDialog(wxWindow *parent, const std::string &defaultShell)
@@ -48,23 +46,11 @@ namespace ui
         shellRow->Add(m_shellCtrl, 1, wxEXPAND);
         outer->Add(shellRow, 0, wxLEFT | wxRIGHT | wxTOP | wxEXPAND, 12);
 
-        // PTY Width mode
+        // Word wrap checkbox
         outer->AddSpacer(8);
-        outer->Add(new wxStaticText(this, wxID_ANY, "PTY Width:"), 0, wxLEFT, 12);
-
-        m_rbNormal = new wxRadioButton(this, ID_RB_NORMAL, "Normal (follow viewport)",
-                                       wxDefaultPosition, wxDefaultSize, wxRB_GROUP);
-        m_rbWide = new wxRadioButton(this, ID_RB_WIDE, "Wide (fixed width)");
-        m_rbNormal->SetValue(true);
-
-        outer->Add(m_rbNormal, 0, wxLEFT | wxTOP, 12);
-        outer->Add(m_rbWide, 0, wxLEFT | wxTOP, 12);
-
-        // Word wrap checkbox — only meaningful in Wide mode
         m_cbWordWrap = new wxCheckBox(this, ID_CB_WRAP, "Word Wrap");
-        m_cbWordWrap->SetValue(true);
-        m_cbWordWrap->Enable(false);
-        outer->Add(m_cbWordWrap, 0, wxLEFT | wxTOP, 24);
+        m_cbWordWrap->SetValue(false);
+        outer->Add(m_cbWordWrap, 0, wxLEFT | wxTOP, 12);
 
         // Separator + standard OK/Cancel buttons
         outer->AddSpacer(8);
@@ -81,31 +67,13 @@ namespace ui
 
         Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnTransportChanged, this, ID_RB_LOOPBACK);
         Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnTransportChanged, this, ID_RB_PTY);
-        Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnWidthModeChanged, this, ID_RB_NORMAL);
-        Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnWidthModeChanged, this, ID_RB_WIDE);
     }
 
     void NewConnectionDialog::OnTransportChanged(wxCommandEvent &)
     {
         const bool isPty = m_rbPty->GetValue();
         m_shellCtrl->Enable(isPty);
-        m_rbNormal->Enable(isPty);
-        m_rbWide->Enable(isPty);
-        m_cbWordWrap->Enable(isPty && m_rbWide->GetValue());
-    }
-
-    void NewConnectionDialog::OnWidthModeChanged(wxCommandEvent &)
-    {
-        if (m_rbWide->GetValue())
-        {
-            m_cbWordWrap->Enable(true);
-            m_cbWordWrap->SetValue(false);
-        }
-        else
-        {
-            m_cbWordWrap->Enable(false);
-            m_cbWordWrap->SetValue(true);
-        }
+        m_cbWordWrap->Enable(isPty);
     }
 
     ConnectionParams NewConnectionDialog::GetParams() const
@@ -113,7 +81,6 @@ namespace ui
         if (m_rbPty->GetValue())
             return PtyParams{
                 m_shellCtrl->GetValue().ToStdString(),
-                m_rbWide->GetValue(),
                 m_cbWordWrap->GetValue()};
         return LoopbackParams{};
     }

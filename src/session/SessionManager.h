@@ -30,7 +30,6 @@ public:
                             unsigned short cols,
                             unsigned short rows,
                             unsigned short ptyLineWidth = 1024,
-                            bool widePty = false,
                             bool wordWrap = false);
 
     void ActivateSession(SessionId id);
@@ -42,6 +41,7 @@ public:
 
     void OnScroll(SessionId id, int topRow);
     void OnResize(SessionId id, unsigned short cols, unsigned short rows);
+    void SetWordWrap(SessionId id, bool wrap);
 
 private:
     // Listens to a Session's main Document and routes change events back to

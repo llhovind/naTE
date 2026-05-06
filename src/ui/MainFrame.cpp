@@ -79,7 +79,6 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
 
     const int idx = ++m_sessionCount;
     term::session::Connection conn;
-    bool widePty  = false;
     bool wordWrap = false;
     std::visit(overloaded{
         [&](const ui::LoopbackParams&) {
@@ -89,7 +88,6 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
         [&](const ui::PtyParams& p) {
             conn = { wxString::Format("Local Shell %d", idx).ToStdString(),
                      term::session::PtyDesc{ p.shell } };
-            widePty  = p.widePty;
             wordWrap = p.wordWrap;
         }
     }, dlg.GetParams());
@@ -99,7 +97,6 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
                        static_cast<unsigned short>(m_cfg.columns),
                        static_cast<unsigned short>(m_cfg.rows),
                        static_cast<unsigned short>(m_cfg.ptyLineWidth),
-                       widePty,
                        wordWrap);
 }
 
@@ -107,9 +104,9 @@ void MainFrame::OnToggleWordWrap(wxCommandEvent&)
 {
     const term::session::SessionId id = m_sm.GetActiveSessionId();
     if (id == 0) return;
-    DocLayout& layout = m_sm.GetDocLayout(id);
-    layout.SetWordWrap(!layout.GetWordWrap());
-    m_miWordWrap->Check(layout.GetWordWrap());
+    const bool newWrap = !m_sm.GetDocLayout(id).GetWordWrap();
+    m_sm.SetWordWrap(id, newWrap);
+    m_miWordWrap->Check(newWrap);
 }
 
 void MainFrame::SyncWordWrapMenuItem(bool checked)

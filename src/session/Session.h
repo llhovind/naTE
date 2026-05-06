@@ -26,7 +26,6 @@ public:
             unsigned short rows,
             std::function<void()> onDisconnect,
             unsigned short ptyLineWidth = 1024,
-            bool widePty = false,
             bool wordWrap = false);
     ~Session();
 
@@ -83,6 +82,7 @@ public:
     // Layout forwarding — UIManager routes viewport events through here.
     void SetTopRow(int row);
     void SetViewportSize(unsigned short cols, unsigned short rows);
+    void SetWordWrap(bool wrap);
 
 private:
     static std::unique_ptr<transport::Transport> MakeTransport(
@@ -107,7 +107,6 @@ private:
     unsigned short     lastCols_{0};
     unsigned short     lastRows_{0};
     unsigned short     ptyLineWidth_{1024};
-    const bool         widePty_{false};
     bool               altScreenActive_{false};
     std::vector<IDocumentListener*> externalListeners_;
 };
