@@ -155,12 +155,18 @@ void TerminalPanel::OnScroll(wxScrollEvent& e)
 void TerminalPanel::OnMouseWheel(wxMouseEvent& e)
 {
     if (!docLayout_) return;
-    const int delta  = (e.GetWheelRotation() > 0) ? -3 : 3;
-    const int topRow = docLayout_->GetTopVisualRow() + delta;
-    if (scrollCb_)
-        scrollCb_(topRow);
-    else
-        docLayout_->SetTopVisualRow(topRow);
+    const int delta = (e.GetWheelRotation() > 0) ? -3 : 3;
+    const bool isHorizontal = (e.GetWheelAxis() == wxMOUSE_WHEEL_HORIZONTAL)
+                              || e.ShiftDown();
+    if (isHorizontal && !docLayout_->GetWordWrap()) {
+        docLayout_->SetLeftCol(docLayout_->GetLeftCol() + delta);
+    } else {
+        const int topRow = docLayout_->GetTopVisualRow() + delta;
+        if (scrollCb_)
+            scrollCb_(topRow);
+        else
+            docLayout_->SetTopVisualRow(topRow);
+    }
     UpdateScrollbars();
     Refresh();
 }
