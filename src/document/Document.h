@@ -74,6 +74,10 @@ public:
     virtual void DeleteLines(int count) {}               // CSI Ps M — delete lines at cursor
     virtual void MoveCursorToColumn(int col) {}          // CSI G — cursor column absolute (1-indexed)
     virtual void MoveCursorToRow(int row) {}             // CSI d — cursor row absolute (1-indexed)
+    // PTY-configured column width (what readline was told). Used by
+    // MainScreenDocument to map readline's virtual (row,col) to a flat
+    // document column. Defaults are safe; Session keeps this in sync.
+    virtual void SetPtyCols(int cols) {}
     virtual void SaveCursor() {}                         // ESC 7 / CSI s
     virtual void RestoreCursor() {}                      // ESC 8 / CSI u
     virtual void EraseChar(int count) {}                 // CSI X — erase chars at cursor, no cursor movement
@@ -120,16 +124,19 @@ public:
     void MoveCursorToLineEnd()                 override;
     void MoveCursorToPosition(int row, int col) override;
     void MoveCursorToColumn(int col)           override;
+    void MoveCursorToRow(int row)              override;
     void EraseChar(int count)                  override;
     void DeleteChar(int count)                 override;
     void EraseInDisplay(int mode)              override;
     void InsertChar(int count)                 override;
     void InsertLines(int count)                override;
     void DeleteLines(int count)                override;
+    void SetPtyCols(int cols)                  override;
 
 private:
     std::deque<DocLine> lines_;
     int maxLines_;
+    int cols_ = 2048;  // PTY-configured column count; drives virtual-row cursor translation
 };
 
 class AltScreenDocument : public Document {

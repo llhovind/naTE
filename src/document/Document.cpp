@@ -230,7 +230,8 @@ void MainScreenDocument::NewLine()
 
 void MainScreenDocument::CarriageReturn()
 {
-    cursor_.col = 0;
+    const size_t c = static_cast<size_t>(cols_);
+    cursor_.col = (cursor_.col / c) * c;
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 
@@ -254,16 +255,22 @@ void MainScreenDocument::MoveCursorRight(int n)
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
-void MainScreenDocument::MoveCursorUp(int /*n*/)
+void MainScreenDocument::SetPtyCols(int cols)
 {
-    // Cursor is always on the last doc line in a scrollback document.
-    // All writes target lines_.back(), so cursor_.line must never move backward.
-    // Visual sub-row navigation within a wrapped line is DocLayout's concern.
+    cols_ = std::max(1, cols);
 }
 
-void MainScreenDocument::MoveCursorDown(int /*n*/)
+void MainScreenDocument::MoveCursorUp(int n)
 {
-    // Already on the last line — nothing to do.
+    const size_t delta = static_cast<size_t>(n) * static_cast<size_t>(cols_);
+    cursor_.col = (cursor_.col >= delta) ? cursor_.col - delta : 0;
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+void MainScreenDocument::MoveCursorDown(int n)
+{
+    cursor_.col += static_cast<size_t>(n) * static_cast<size_t>(cols_);
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void MainScreenDocument::EraseInLine(int mode)
@@ -298,7 +305,9 @@ void MainScreenDocument::EraseInLine(int mode)
 
 void MainScreenDocument::MoveCursorToColumn(int col)
 {
-    cursor_.col = static_cast<size_t>(std::max(1, col) - 1);
+    const size_t c        = static_cast<size_t>(cols_);
+    const size_t virtRow  = cursor_.col / c;
+    cursor_.col = virtRow * c + static_cast<size_t>(std::max(1, col) - 1);
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
@@ -315,14 +324,20 @@ void MainScreenDocument::MoveCursorToLineEnd()
 }
 
 // row and col are 1-indexed (VT100 convention).
-// The row parameter is ignored: in a scrollback document cursor_.line must
-// always equal lines_.size()-1 (all writes target lines_.back()). Bash/readline
-// sends absolute row positioning (e.g. \x1b[24;1H) to redraw the prompt, but
-// that row is viewport-relative and meaningless against the scrollback index.
+// The row parameter is ignored: readline sends absolute terminal rows
+// (e.g. row=24 in a 24-row terminal), which are not the same as virtual
+// command rows and cannot be translated without knowing where the command
+// started on screen.  Cursor-up/down cover all intra-command row navigation.
 void MainScreenDocument::MoveCursorToPosition(int /*row*/, int col)
 {
     cursor_.col = static_cast<size_t>(std::max(1, col) - 1);
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
+// Same reasoning as MoveCursorToPosition: CSI d sends an absolute terminal
+// row, not a virtual command row.  No-op keeps the cursor on the last line.
+void MainScreenDocument::MoveCursorToRow(int /*row*/)
+{
 }
 
 void MainScreenDocument::EraseChar(int count)

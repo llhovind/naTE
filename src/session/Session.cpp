@@ -40,6 +40,7 @@ Session::Session(const Connection& conn,
       ptyLineWidth_(ptyLineWidth)
 {
     docLayout_->SetWordWrap(wordWrap);
+    main_doc_->SetPtyCols(wordWrap ? cols : ptyLineWidth);
     transport_->Start();
 }
 
@@ -187,7 +188,9 @@ void Session::SetViewportSize(unsigned short cols, unsigned short rows)
         transport_->Resize(cols, rows);
     } else {
         const bool wordWrap = docLayout_->GetWordWrap();
-        transport_->Resize(wordWrap ? cols : ptyLineWidth_, rows);
+        const int  ptyCols  = wordWrap ? cols : ptyLineWidth_;
+        transport_->Resize(static_cast<unsigned short>(ptyCols), rows);
+        main_doc_->SetPtyCols(ptyCols);
     }
 }
 
@@ -195,7 +198,9 @@ void Session::SetWordWrap(bool wrap)
 {
     docLayout_->SetWordWrap(wrap);
     if (!altScreenActive_) {
-        transport_->Resize(wrap ? lastCols_ : ptyLineWidth_, lastRows_);
+        const int ptyCols = wrap ? lastCols_ : ptyLineWidth_;
+        transport_->Resize(static_cast<unsigned short>(ptyCols), lastRows_);
+        main_doc_->SetPtyCols(ptyCols);
     }
 }
 

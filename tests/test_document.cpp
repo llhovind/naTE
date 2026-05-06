@@ -323,3 +323,98 @@ TEST_CASE("given 3x5 grid when NewLine not at bottom then cursor moves down with
     REQUIRE(doc.GetCursor().line == 1);
     REQUIRE(doc.GetLines().size() == 3);
 }
+
+// ---------------------------------------------------------------------------
+// MainScreenDocument virtual-row cursor translation (SetPtyCols)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given ptyCols=80 when MoveCursorUp(1) from col 90 then cursor moves to col 10") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    // Place cursor at col 90 by moving right from 0
+    doc.MoveCursorRight(90);
+    doc.MoveCursorUp(1);
+    REQUIRE(doc.GetCursor().col == 10);
+}
+
+TEST_CASE("given ptyCols=80 when MoveCursorUp(1) from col 10 then cursor clamps to col 0") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    doc.MoveCursorRight(10);
+    doc.MoveCursorUp(1);
+    REQUIRE(doc.GetCursor().col == 0);
+}
+
+TEST_CASE("given ptyCols=80 when MoveCursorDown(1) from col 10 then cursor moves to col 90") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    doc.MoveCursorRight(10);
+    doc.MoveCursorDown(1);
+    REQUIRE(doc.GetCursor().col == 90);
+}
+
+TEST_CASE("given ptyCols=80 when MoveCursorToPosition(2,5) then only col is used") {
+    // row is an absolute terminal row — not a virtual command row — so it is
+    // ignored.  Only the col parameter (1-indexed) is applied.
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    doc.MoveCursorToPosition(2, 5);
+    REQUIRE(doc.GetCursor().col == 4);
+}
+
+TEST_CASE("given ptyCols=80 when MoveCursorToPosition(1,1) then cursor at col 0") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    doc.MoveCursorToPosition(1, 1);
+    REQUIRE(doc.GetCursor().col == 0);
+}
+
+TEST_CASE("given ptyCols=80 when MoveCursorToColumn(5) from col 85 then cursor at col 84") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    doc.MoveCursorRight(85);
+    doc.MoveCursorToColumn(5);
+    // virtual row 1 preserved: 1*80 + (5-1) = 84
+    REQUIRE(doc.GetCursor().col == 84);
+}
+
+TEST_CASE("given ptyCols=80 when MoveCursorToRow(2) then cursor is unchanged") {
+    // CSI d sends an absolute terminal row — ignored like the row in CSI H.
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    doc.MoveCursorRight(10);
+    doc.MoveCursorToRow(2);
+    REQUIRE(doc.GetCursor().col == 10);
+}
+
+TEST_CASE("given ptyCols=80 when CarriageReturn from col 85 then cursor at col 80") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    doc.MoveCursorRight(85);
+    doc.CarriageReturn();
+    // start of virtual row 1: 1*80 = 80
+    REQUIRE(doc.GetCursor().col == 80);
+}
+
+TEST_CASE("given ptyCols=80 when CarriageReturn from col 10 then cursor at col 0") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    doc.MoveCursorRight(10);
+    doc.CarriageReturn();
+    REQUIRE(doc.GetCursor().col == 0);
+}
+
+TEST_CASE("given ptyCols=2048 (default) when MoveCursorUp(1) from col 90 then cursor clamps to 0") {
+    MainScreenDocument doc;
+    // Default cols_ = 2048, so 1 up = subtract 2048, clamp to 0
+    doc.MoveCursorRight(90);
+    doc.MoveCursorUp(1);
+    REQUIRE(doc.GetCursor().col == 0);
+}
+
+TEST_CASE("given ptyCols=2048 when MoveCursorToPosition(1,91) then cursor at col 90") {
+    MainScreenDocument doc;
+    // row is always ignored; col 91 (1-indexed) → 90
+    doc.MoveCursorToPosition(1, 91);
+    REQUIRE(doc.GetCursor().col == 90);
+}
