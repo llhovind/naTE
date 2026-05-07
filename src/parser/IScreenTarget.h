@@ -1,0 +1,17 @@
+#pragma once
+
+namespace term::parser {
+
+class IScreenTarget {
+public:
+    virtual ~IScreenTarget() = default;
+
+    virtual void OnEnterAltScreen()              {}
+    virtual void OnExitAltScreen()               {}
+    virtual void OnSetCursorVisibility(bool /*visible*/) {}
+    virtual void OnFunctionKey(int /*n*/)        {}
+    virtual void OnScrollUp(int /*count*/)       {}
+    virtual void OnScrollDown(int /*count*/)     {}
+};
+
+} // namespace term::parser

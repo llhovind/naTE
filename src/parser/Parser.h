@@ -1,15 +1,17 @@
 #pragma once
 
-#include "parser/IParserTarget.h"
+#include "document/Document.h"
+#include "parser/IScreenTarget.h"
 #include <string>
 
 namespace term::parser {
 
 class Parser {
 public:
-    explicit Parser(IParserTarget& target);
+    Parser(IDocumentTarget& docTarget, IScreenTarget& screenTarget);
 
     void Process(const std::string& data);
+    void SetDocTarget(IDocumentTarget* target) { doc_ = target; }
 
 private:
     enum class State { Normal, Escape, Ss3, Csi, Osc, OscEsc, SkipOne };
@@ -29,11 +31,12 @@ private:
     int  ParseFirstParam(int defaultVal) const;
     int  ParseParam(int index, int defaultVal) const;
 
-    IParserTarget& target_;
-    State          state_       = State::Normal;
-    std::string    params_;
-    bool           privateMode_ = false;
-    std::string    osc_payload_;
+    IDocumentTarget* doc_;
+    IScreenTarget&   screen_;
+    State            state_       = State::Normal;
+    std::string      params_;
+    bool             privateMode_ = false;
+    std::string      osc_payload_;
 
     char32_t utf8_codepoint_ = 0;
     int      utf8_remaining_ = 0;

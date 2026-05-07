@@ -3,8 +3,8 @@
 
 namespace term::parser {
 
-Parser::Parser(IParserTarget& target)
-    : target_(target)
+Parser::Parser(IDocumentTarget& docTarget, IScreenTarget& screenTarget)
+    : doc_(&docTarget), screen_(screenTarget)
 {}
 
 void Parser::Process(const std::string& data)
@@ -33,23 +33,23 @@ void Parser::HandleNormal(unsigned char byte)
         return; // BEL — discard
 
     if (byte == '\b' || byte == '\x7f') {
-        target_.OnCursorLeft(1);
+        doc_->MoveCursorLeft(1);
         return;
     }
 
     if (byte == '\n') {
-        target_.OnNewLine();
+        doc_->NewLine();
         return;
     }
 
     if (byte == '\r') {
-        target_.OnCarriageReturn();
+        doc_->CarriageReturn();
         return;
     }
 
     // UTF-8 multi-byte decode
     if (byte < 0x80) {
-        target_.OnAppendInsertChar(static_cast<char32_t>(byte));
+        doc_->AppendInsertChar(static_cast<char32_t>(byte));
     } else if ((byte & 0xE0) == 0xC0) {
         utf8_codepoint_ = byte & 0x1F;
         utf8_remaining_ = 1;
@@ -62,7 +62,7 @@ void Parser::HandleNormal(unsigned char byte)
     } else if ((byte & 0xC0) == 0x80) {
         utf8_codepoint_ = (utf8_codepoint_ << 6) | (byte & 0x3F);
         if (--utf8_remaining_ == 0) {
-            target_.OnAppendInsertChar(utf8_codepoint_);
+            doc_->AppendInsertChar(utf8_codepoint_);
             utf8_codepoint_ = 0;
         }
     }
@@ -86,9 +86,9 @@ void Parser::HandleEscape(unsigned char byte)
         state_ = State::SkipOne;
     } else {
         switch (byte) {
-        case 'M': target_.OnReverseIndex();  break;  // Reverse Index
-        case '7': target_.OnSaveCursor();    break;  // DECSC
-        case '8': target_.OnRestoreCursor(); break;  // DECRC
+        case 'M': doc_->ReverseIndex();  break;  // Reverse Index
+        case '7': doc_->SaveCursor();    break;  // DECSC
+        case '8': doc_->RestoreCursor(); break;  // DECRC
         default:  break;
         }
         state_ = State::Normal;
@@ -105,16 +105,16 @@ void Parser::HandleSkipOne(unsigned char /*byte*/)
 void Parser::HandleSs3(unsigned char byte)
 {
     switch (byte) {
-    case 'P': target_.OnFunctionKey(1);       break;
-    case 'Q': target_.OnFunctionKey(2);       break;
-    case 'R': target_.OnFunctionKey(3);       break;
-    case 'S': target_.OnFunctionKey(4);       break;
-    case 'A': target_.OnCursorUp(1);          break;
-    case 'B': target_.OnCursorDown(1);        break;
-    case 'C': target_.OnCursorRight(1);       break;
-    case 'D': target_.OnCursorLeft(1);        break;
-    case 'H': target_.OnCursorPosition(1, 1); break;
-    case 'F': target_.OnCursorEnd();          break;
+    case 'P': screen_.OnFunctionKey(1);            break;
+    case 'Q': screen_.OnFunctionKey(2);            break;
+    case 'R': screen_.OnFunctionKey(3);            break;
+    case 'S': screen_.OnFunctionKey(4);            break;
+    case 'A': doc_->MoveCursorUp(1);               break;
+    case 'B': doc_->MoveCursorDown(1);             break;
+    case 'C': doc_->MoveCursorRight(1);            break;
+    case 'D': doc_->MoveCursorLeft(1);             break;
+    case 'H': doc_->MoveCursorToPosition(1, 1);    break;
+    case 'F': doc_->MoveCursorToLineEnd();         break;
     default:  break;
     }
     state_ = State::Normal;
@@ -145,49 +145,49 @@ void Parser::HandleCsi(unsigned char byte)
 void Parser::HandleCsiFinal(unsigned char byte)
 {
     switch (byte) {
-    case 'm': DispatchSgr();                                               break;
-    case 'A': target_.OnCursorUp(ParseFirstParam(1));                      break;
-    case 'B': target_.OnCursorDown(ParseFirstParam(1));                    break;
-    case 'C': target_.OnCursorRight(ParseFirstParam(1));                   break;
-    case 'D': target_.OnCursorLeft(ParseFirstParam(1));                    break;
-    case 'K': target_.OnEraseInLine(ParseFirstParam(0));                   break;
+    case 'm': DispatchSgr();                                                        break;
+    case 'A': doc_->MoveCursorUp(ParseFirstParam(1));                               break;
+    case 'B': doc_->MoveCursorDown(ParseFirstParam(1));                             break;
+    case 'C': doc_->MoveCursorRight(ParseFirstParam(1));                            break;
+    case 'D': doc_->MoveCursorLeft(ParseFirstParam(1));                             break;
+    case 'K': doc_->EraseInLine(ParseFirstParam(0));                                break;
     case 'H': // fall-through: ESC[H = home, ESC[row;colH = position
-    case 'f': target_.OnCursorPosition(ParseParam(0, 1), ParseParam(1, 1)); break;
-    case 'F': target_.OnCursorEnd();                                         break;
-    case 'J': target_.OnEraseInDisplay(ParseParam(0, 0));                  break;
-    case '@': target_.OnInsertChar(ParseFirstParam(1));                     break;
-    case 'P': target_.OnDeleteChar(ParseParam(0, 1));                      break;
-    case 'r': target_.OnSetScrollRegion(ParseParam(0, 0), ParseParam(1, 0)); break;
-    case 'G': target_.OnCursorColumnAbsolute(ParseFirstParam(1));            break;
-    case 'd': target_.OnCursorRowAbsolute(ParseFirstParam(1));               break;
-    case 's': target_.OnSaveCursor();                                        break;
-    case 'u': target_.OnRestoreCursor();                                     break;
-    case 'L': target_.OnInsertLines(ParseFirstParam(1));                      break;
-    case 'M': target_.OnDeleteLines(ParseFirstParam(1));                     break;
-    case 'X': target_.OnEraseChar(ParseFirstParam(1));                       break;
-    case 'h': if (ParseFirstParam(0) == 4) target_.OnSetInsertMode(true);   break;
-    case 'l': if (ParseFirstParam(0) == 4) target_.OnSetInsertMode(false);  break;
+    case 'f': doc_->MoveCursorToPosition(ParseParam(0, 1), ParseParam(1, 1));       break;
+    case 'F': doc_->MoveCursorToLineEnd();                                          break;
+    case 'J': doc_->EraseInDisplay(ParseParam(0, 0));                               break;
+    case '@': doc_->InsertChar(ParseFirstParam(1));                                 break;
+    case 'P': doc_->DeleteChar(ParseParam(0, 1));                                   break;
+    case 'r': doc_->SetScrollRegion(ParseParam(0, 0), ParseParam(1, 0));            break;
+    case 'G': doc_->MoveCursorToColumn(ParseFirstParam(1));                         break;
+    case 'd': doc_->MoveCursorToRow(ParseFirstParam(1));                            break;
+    case 's': doc_->SaveCursor();                                                   break;
+    case 'u': doc_->RestoreCursor();                                                break;
+    case 'L': doc_->InsertLines(ParseFirstParam(1));                                break;
+    case 'M': doc_->DeleteLines(ParseFirstParam(1));                                break;
+    case 'X': doc_->EraseChar(ParseFirstParam(1));                                  break;
+    case 'h': if (ParseFirstParam(0) == 4) doc_->SetInsertMode(true);              break;
+    case 'l': if (ParseFirstParam(0) == 4) doc_->SetInsertMode(false);             break;
     case '~': {
         const int code = ParseParam(0, 0);
         switch (code) {
-        case 1: case 7:  target_.OnCursorToLineStart(); break;
+        case 1: case 7:  doc_->MoveCursorToLineStart();  break;
         case 2:          /* insert mode toggle — no-op */ break;
-        case 3:          target_.OnDeleteChar(1);        break;
-        case 4: case 8:  target_.OnCursorEnd();          break;
-        case 5:          target_.OnScrollUp(1);          break;
-        case 6:          target_.OnScrollDown(1);        break;
-        case 11:         target_.OnFunctionKey(1);       break;
-        case 12:         target_.OnFunctionKey(2);       break;
-        case 13:         target_.OnFunctionKey(3);       break;
-        case 14:         target_.OnFunctionKey(4);       break;
-        case 15:         target_.OnFunctionKey(5);       break;
-        case 17:         target_.OnFunctionKey(6);       break;
-        case 18:         target_.OnFunctionKey(7);       break;
-        case 19:         target_.OnFunctionKey(8);       break;
-        case 20:         target_.OnFunctionKey(9);       break;
-        case 21:         target_.OnFunctionKey(10);      break;
-        case 23:         target_.OnFunctionKey(11);      break;
-        case 24:         target_.OnFunctionKey(12);      break;
+        case 3:          doc_->DeleteChar(1);             break;
+        case 4: case 8:  doc_->MoveCursorToLineEnd();     break;
+        case 5:          screen_.OnScrollUp(1);           break;
+        case 6:          screen_.OnScrollDown(1);         break;
+        case 11:         screen_.OnFunctionKey(1);        break;
+        case 12:         screen_.OnFunctionKey(2);        break;
+        case 13:         screen_.OnFunctionKey(3);        break;
+        case 14:         screen_.OnFunctionKey(4);        break;
+        case 15:         screen_.OnFunctionKey(5);        break;
+        case 17:         screen_.OnFunctionKey(6);        break;
+        case 18:         screen_.OnFunctionKey(7);        break;
+        case 19:         screen_.OnFunctionKey(8);        break;
+        case 20:         screen_.OnFunctionKey(9);        break;
+        case 21:         screen_.OnFunctionKey(10);       break;
+        case 23:         screen_.OnFunctionKey(11);       break;
+        case 24:         screen_.OnFunctionKey(12);       break;
         default: break;
         }
         break;
@@ -202,14 +202,14 @@ void Parser::HandleCsiPrivate(unsigned char byte)
     const int code = ParseFirstParam(0);
     if (byte == 'h') {
         switch (code) {
-        case 25:   target_.OnSetCursorVisibility(true); break;
-        case 1049: target_.OnEnterAltScreen();           break;
+        case 25:   screen_.OnSetCursorVisibility(true); break;
+        case 1049: screen_.OnEnterAltScreen();           break;
         default:   break;
         }
     } else if (byte == 'l') {
         switch (code) {
-        case 25:   target_.OnSetCursorVisibility(false); break;
-        case 1049: target_.OnExitAltScreen();             break;
+        case 25:   screen_.OnSetCursorVisibility(false); break;
+        case 1049: screen_.OnExitAltScreen();             break;
         default:   break;
         }
     }
@@ -247,7 +247,7 @@ void Parser::DispatchOsc()
     }
 
     if (code == 0 || code == 1 || code == 2)
-        target_.OnSetTitle(osc_payload_.substr(sep + 1));
+        doc_->SetTitle(osc_payload_.substr(sep + 1));
 }
 
 // Returns the n-th ';'-delimited parameter (0-indexed).
@@ -347,7 +347,7 @@ void Parser::DispatchSgr()
         if (!have_bg) style.bg = -1;
     }
 
-    target_.OnSetStyle(style);
+    doc_->SetCurrentStyle(style);
 }
 
 } // namespace term::parser

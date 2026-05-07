@@ -6,7 +6,6 @@
 #include <cstdint>
 #include "document/IDocumentListener.h"
 
-
 struct Style {
     int fg = -1;  // -1 = use terminal default
     int bg = -1;  // -1 = use terminal default
@@ -44,7 +43,45 @@ struct DocLine {
     void Clear();
 };
 
-class Document {
+// Interface through which the Parser drives document mutations directly,
+// eliminating the Session pass-through layer.
+class IDocumentTarget {
+public:
+    virtual ~IDocumentTarget() = default;
+
+    virtual void AppendInsertChar(char32_t ch) = 0;
+    virtual void Backspace() = 0;
+    virtual void NewLine() = 0;
+    virtual void CarriageReturn() = 0;
+    virtual void SetCurrentStyle(const Style& style) = 0;
+    virtual void SetTitle(const std::string& /*title*/) {}
+
+    virtual void MoveCursorLeft(int n) = 0;
+    virtual void MoveCursorRight(int n) = 0;
+    virtual void MoveCursorUp(int n) = 0;
+    virtual void MoveCursorDown(int n) = 0;
+    virtual void MoveCursorToLineStart() = 0;
+    virtual void MoveCursorToLineEnd() = 0;
+    virtual void MoveCursorToPosition(int row, int col) = 0;
+    virtual void MoveCursorToColumn(int /*col*/) {}
+    virtual void MoveCursorToRow(int /*row*/) {}
+    virtual void SaveCursor() {}
+    virtual void RestoreCursor() {}
+
+    virtual void EraseInLine(int mode) = 0;
+    virtual void EraseInDisplay(int mode) = 0;
+    virtual void EraseChar(int /*count*/) {}
+    virtual void DeleteChar(int count) = 0;
+    virtual void InsertChar(int count) = 0;
+    virtual void SetInsertMode(bool /*on*/) {}
+
+    virtual void ReverseIndex() {}
+    virtual void SetScrollRegion(int /*top*/, int /*bot*/) {}
+    virtual void InsertLines(int /*count*/) {}
+    virtual void DeleteLines(int /*count*/) {}
+};
+
+class Document : public IDocumentTarget {
 public:
     virtual ~Document() = default;
 

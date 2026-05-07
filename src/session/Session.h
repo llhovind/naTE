@@ -10,14 +10,14 @@
 #include "transport/Transport.hpp"
 #include "transport/ITransportTarget.h"
 #include "parser/Parser.h"
-#include "parser/IParserTarget.h"
+#include "parser/IScreenTarget.h"
 #include "document/Document.h"
 #include "ui/DocLayout.h"
 
 namespace term::session {
 
 class Session : public input::InputTarget,
-                public parser::IParserTarget,
+                public parser::IScreenTarget,
                 public transport::ITransportTarget {
 public:
     Session(const Connection& conn,
@@ -37,36 +37,9 @@ public:
     // input::InputTarget
     void OnInput(const input::KeyEvent& event) override;
 
-    // parser::IParserTarget
-    void OnAppendInsertChar(char32_t ch) override;
-    void OnBackspace() override;
-    void OnNewLine() override;
-    void OnCarriageReturn() override;
-    void OnSetStyle(const Style& style) override;
-    void OnSetTitle(const std::string& title) override;
-    void OnCursorUp(int count)              override;
-    void OnCursorDown(int count)            override;
-    void OnCursorRight(int count)           override;
-    void OnCursorLeft(int count)            override;
-    void OnEraseInLine(int mode)            override;
-    void OnCursorPosition(int row, int col) override;
-    void OnCursorToLineStart()              override;
-    void OnCursorEnd()                      override;
-    void OnEraseInDisplay(int mode)         override;
-    void OnDeleteChar(int count)            override;
-    void OnEnterAltScreen()                 override;
-    void OnExitAltScreen()                  override;
-    void OnReverseIndex()                    override;
-    void OnSetScrollRegion(int top, int bot) override;
-    void OnInsertLines(int count)            override;
-    void OnDeleteLines(int count)            override;
-    void OnCursorColumnAbsolute(int col)     override;
-    void OnCursorRowAbsolute(int row)        override;
-    void OnSaveCursor()                      override;
-    void OnRestoreCursor()                   override;
-    void OnEraseChar(int count)              override;
-    void OnInsertChar(int count)             override;
-    void OnSetInsertMode(bool on)            override;
+    // parser::IScreenTarget
+    void OnEnterAltScreen() override;
+    void OnExitAltScreen()  override;
 
     // transport::ITransportTarget
     void OnData(const std::string& data) override;
@@ -94,11 +67,12 @@ private:
 private:
     std::unique_ptr<transport::Transport> transport_;
     InputEncoder                          encoder_;
-    parser::Parser                        parser_;
 
     std::unique_ptr<Document> main_doc_;
     std::unique_ptr<Document> alt_doc_;
     Document*                 active_doc_;
+
+    parser::Parser                        parser_;
 
     std::unique_ptr<DocLayout> docLayout_;
 
