@@ -353,6 +353,42 @@ TEST_CASE("given ptyCols=80 when MoveCursorDown(1) from col 10 then cursor moves
     REQUIRE(doc.GetCursor().col == 90);
 }
 
+// ---------------------------------------------------------------------------
+// NewLine() with wrapped lines (readline [End] key fix)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given ptyCols=80 and 90-char line when NewLine from subRow 0 then cursor advances to subRow 1") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    for (int i = 0; i < 90; ++i) doc.AppendInsertChar(U'A');
+    doc.MoveCursorLeft(90);
+    const size_t linesBefore = doc.GetLines().size();
+    doc.NewLine();
+    REQUIRE(doc.GetLines().size() == linesBefore); // no new DocLine
+    REQUIRE(doc.GetCursor().col == 80);            // start of subRow 1
+    REQUIRE(doc.GetCursor().line == linesBefore - 1);
+}
+
+TEST_CASE("given ptyCols=80 and 90-char line when NewLine from subRow 1 (last) then new DocLine created") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    for (int i = 0; i < 90; ++i) doc.AppendInsertChar(U'A');
+    // cursor_.col == 90, which is on subRow 1 — the last one
+    const size_t linesBefore = doc.GetLines().size();
+    doc.NewLine();
+    REQUIRE(doc.GetLines().size() == linesBefore + 1);
+    REQUIRE(doc.GetCursor().col == 0);
+}
+
+TEST_CASE("given ptyCols=80 and empty line when NewLine then new DocLine created") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    const size_t linesBefore = doc.GetLines().size();
+    doc.NewLine();
+    REQUIRE(doc.GetLines().size() == linesBefore + 1);
+    REQUIRE(doc.GetCursor().col == 0);
+}
+
 TEST_CASE("given ptyCols=80 when MoveCursorToPosition(2,5) then only col is used") {
     // row is an absolute terminal row — not a virtual command row — so it is
     // ignored.  Only the col parameter (1-indexed) is applied.
@@ -417,4 +453,28 @@ TEST_CASE("given ptyCols=2048 when MoveCursorToPosition(1,91) then cursor at col
     // row is always ignored; col 91 (1-indexed) → 90
     doc.MoveCursorToPosition(1, 91);
     REQUIRE(doc.GetCursor().col == 90);
+}
+
+TEST_CASE("given ptyCols=10 and 20-char line when readline multi-row clear sequence then no phantom DocLine") {
+    // Simulates readline replacing a wrapped command via history cycling:
+    //   CursorUp  → EraseInLine(0)  → NewLine  → EraseInLine(0)
+    // After the first EraseInLine the second sub-row no longer exists in the
+    // text, so NewLine creates a phantom DocLine. The second EraseInLine must
+    // detect and remove it.
+    MainScreenDocument doc;
+    doc.SetPtyCols(10);
+    for (int i = 0; i < 20; ++i) doc.AppendInsertChar(U'A'); // 2 sub-rows
+    const size_t linesBefore = doc.GetLines().size();
+    const int    lineBefore  = doc.GetCursor().line;
+
+    doc.MoveCursorUp(1);     // move into sub-row 0
+    doc.EraseInLine(0);      // erase sub-row 0 → text now empty
+    doc.NewLine();           // readline thinks sub-row 1 exists; creates phantom DocLine
+    doc.EraseInLine(0);      // must remove phantom and restore cursor
+
+    REQUIRE(doc.GetLines().size() == linesBefore);          // no net new DocLine
+    REQUIRE(doc.GetCursor().line == lineBefore);            // cursor on original line
+    // CursorUp landed at col 10 (sub-row 1 start); EraseInLine(0) removed
+    // chars 10-19, leaving "AAAAAAAAAA". Cursor restored to end of that text.
+    REQUIRE(doc.GetCursor().col == doc.GetLines()[doc.GetCursor().line].text.size());
 }

@@ -216,6 +216,16 @@ void MainScreenDocument::Backspace()
 
 void MainScreenDocument::NewLine()
 {
+    const size_t lineLen    = lines_[cursor_.line].text.size();
+    const int    lastSubRow = lineLen == 0 ? 0 : (int)((lineLen - 1) / (size_t)cols_);
+    const int    cursorSubRow = (int)(cursor_.col / (size_t)cols_);
+
+    if (cursorSubRow < lastSubRow) {
+        cursor_.col = static_cast<size_t>(cursorSubRow + 1) * static_cast<size_t>(cols_);
+        NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+        return;
+    }
+
     lines_.emplace_back();
     ++cursor_.line;
     cursor_.col = 0;
@@ -278,6 +288,17 @@ void MainScreenDocument::EraseInLine(int mode)
     DocLine& line = lines_.back();
     switch (mode) {
     case 0: // cursor to end of line
+        // Phantom line: NewLine() appended a DocLine when readline navigated
+        // to what it believed was a second visual row, but the preceding
+        // EraseInLine had already erased that row's content. Remove the
+        // phantom and restore cursor to the end of the now-current line.
+        if (cursor_.col == 0 && line.text.empty() && cursor_.line > 0) {
+            lines_.pop_back();
+            --cursor_.line;
+            cursor_.col = lines_[cursor_.line].text.size();
+            NotifyListeners(DocChangeType::DeleteLine, cursor_.line + 1);
+            return;
+        }
         if (cursor_.col < line.text.size()) {
             line.text.erase(cursor_.col);
             for (auto it = line.styles.begin(); it != line.styles.end(); ) {
