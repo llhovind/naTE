@@ -478,3 +478,87 @@ TEST_CASE("given ptyCols=10 and 20-char line when readline multi-row clear seque
     // chars 10-19, leaving "AAAAAAAAAA". Cursor restored to end of that text.
     REQUIRE(doc.GetCursor().col == doc.GetLines()[doc.GetCursor().line].text.size());
 }
+
+TEST_CASE("given ptyCols=10 and 15-char line when new-readline history-cycle sequence then DocLine contains new command") {
+    // Newer readline clears a wrapped line via:
+    //   CursorUp → Backspace(n) → DeleteChar(n) → WriteChars → NewLine → EraseInLine(0)
+    // DeleteChar must not shift sub-row 1 content into sub-row 0.
+    // After the full sequence the DocLine must equal the new command with no
+    // phantom line created and cursor at the content end.
+    //
+    // Setup: cols_=10, "AAAAAAAAAAAAAAA" (15 chars)
+    //   sub-row 0: cols 0-9  ("AAAAAAAAAA")
+    //   sub-row 1: cols 10-14 ("AAAAA")
+    // Prompt is 2 chars ("$ "), so command starts at col 2.
+    MainScreenDocument doc;
+    doc.SetPtyCols(10);
+    // Write "$ " prompt then 13 'A's so total = 15 chars, cursor at col 15
+    for (char32_t ch : std::u32string(U"$ AAAAAAAAAAAAA")) doc.AppendInsertChar(ch);
+
+    const size_t linesBefore = doc.GetLines().size();
+    const int    lineBefore  = doc.GetCursor().line;
+
+    // CursorUp: col 15 → 15-10 = 5 (into sub-row 0, after prompt)
+    doc.MoveCursorUp(1);
+    // Backspace back to col 2 (end of "$ " prompt): 3 backspaces
+    doc.Backspace(); doc.Backspace(); doc.Backspace();
+    REQUIRE(doc.GetCursor().col == 2);
+    // DeleteChar(8): fills cols 2-9 with spaces (sub-row 0 end), sub-row 1 untouched
+    doc.DeleteChar(8);
+    // Write new shorter command "BBBBB" (5 chars)
+    for (char32_t ch : std::u32string(U"BBBBB")) doc.AppendInsertChar(ch);
+    // NewLine: cursor advances to sub-row 1 start (col 10)
+    doc.NewLine();
+    REQUIRE(doc.GetCursor().col == 10);
+    // EraseInLine(0): erases old sub-row 1 content, trims trailing spaces, resets cursor
+    doc.EraseInLine(0);
+
+    REQUIRE(doc.GetLines().size() == linesBefore);         // no phantom DocLine
+    REQUIRE(doc.GetCursor().line == lineBefore);           // still on original line
+    REQUIRE(doc.GetLines()[lineBefore].text == U"$ BBBBB"); // trimmed to actual content
+    REQUIRE(doc.GetCursor().col == doc.GetLines()[lineBefore].text.size());
+}
+
+TEST_CASE("given ptyCols=10 and 15-char line when DeleteChar at col 2 then sub-row 1 chars are unchanged") {
+    // Directly verifies the subRow boundary invariant: DeleteChar on a
+    // multi-subRow line must not shift sub-row 1 content into sub-row 0.
+    MainScreenDocument doc;
+    doc.SetPtyCols(10);
+    for (int i = 0; i < 15; ++i) doc.AppendInsertChar(static_cast<char32_t>(U'A' + i)); // "ABCDEFGHIJKLMNO"
+    doc.MoveCursorUp(1);   // cursor: 15 → 5
+    doc.MoveCursorLeft(3); // cursor: 5 → 2
+
+    doc.DeleteChar(8); // fill cols 2-9 with spaces; sub-row 1 (cols 10-14) = "KLMNO"
+
+    const auto& text = doc.GetLines()[doc.GetCursor().line].text;
+    REQUIRE(text.size() == 15);
+    // sub-row 1 content at positions 10-14 must be unchanged
+    REQUIRE(text.substr(10) == U"KLMNO");
+    // deleted range became spaces
+    for (size_t i = 2; i < 10; ++i) REQUIRE(text[i] == U' ');
+}
+
+TEST_CASE("given ptyCols=10 and 20-char line when DeleteChar(3) at col 2 then shift within sub-row and sub-row 1 unchanged") {
+    // Verifies DeleteAtClamped shift-within-subRow semantics (partial delete, not to EOL).
+    // "ABCDEFGHIJ" = sub-row 0 (0-9), "KLMNOPQRST" = sub-row 1 (10-19)
+    // DeleteChar(3) at col 2 on sub-row 0:
+    //   real terminal: E-F-G-H-I-J shift left to [2..7], [8..9] fill with spaces
+    //   sub-row 1 unchanged.
+    MainScreenDocument doc;
+    doc.SetPtyCols(10);
+    for (int i = 0; i < 20; ++i) doc.AppendInsertChar(static_cast<char32_t>(U'A' + i));
+    doc.MoveCursorUp(1);   // cursor: 20 → 10 (sub-row 1 start)
+    doc.MoveCursorLeft(8); // cursor: 10 → 2
+
+    doc.DeleteChar(3); // delete E,F,G at cols 2,3,4
+
+    const auto& text = doc.GetLines()[doc.GetCursor().line].text;
+    REQUIRE(text.size() == 20);
+    REQUIRE(text[0] == U'A'); REQUIRE(text[1] == U'B');
+    // cols 2-6: F..J shifted left (C,D,E deleted; originally at cols 5-9)
+    REQUIRE(text.substr(2, 5) == U"FGHIJ");
+    // cols 7-9: spaces (end-of-subRow padding for 3 deleted chars)
+    REQUIRE(text[7] == U' '); REQUIRE(text[8] == U' '); REQUIRE(text[9] == U' ');
+    // sub-row 1 completely unchanged
+    REQUIRE(text.substr(10) == U"KLMNOPQRST");
+}

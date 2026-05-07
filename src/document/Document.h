@@ -40,6 +40,7 @@ struct DocLine {
     void InsertAt(size_t col, char32_t ch);
     void DeletePreviousChar(size_t cursorCol);
     void DeleteAt(size_t col, size_t count);
+    void DeleteAtClamped(size_t col, size_t count, size_t boundary);
     void Clear();
 };
 
@@ -172,8 +173,9 @@ public:
 
 private:
     std::deque<DocLine> lines_;
-    int maxLines_;
-    int cols_ = 2048;  // PTY-configured column count; drives virtual-row cursor translation
+    int  maxLines_;
+    int  cols_               = 2048;  // PTY-configured column count; drives virtual-row cursor translation
+    bool pendingSubRowClear_ = false; // set by DeleteChar on multi-subRow line; consumed by EraseInLine(0)
 };
 
 class AltScreenDocument : public Document {

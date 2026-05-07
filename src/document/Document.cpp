@@ -118,6 +118,31 @@ void DocLine::DeleteAt(size_t col, size_t count)
     }
 }
 
+// VT100 CSI P semantics bounded to a visual row [col, boundary).
+// Deletes eff=min(count, boundary-col) chars at col, shifts [col+eff, boundary) left,
+// fills [boundary-eff, boundary) with spaces, leaves [boundary, ...) untouched.
+// Style-safe: composed entirely from DeleteAt and InsertAt.
+void DocLine::DeleteAtClamped(size_t col, size_t count, size_t boundary)
+{
+    if (col >= text.size() || col >= boundary || count == 0)
+        return;
+
+    const size_t eff = std::min(count, boundary - col);
+
+    if (text.size() <= boundary) {
+        // No content past boundary — plain bounded delete, nothing to protect.
+        DeleteAt(col, std::min(eff, text.size() - col));
+        return;
+    }
+
+    // Content exists at [boundary, ...). DeleteAt shifts it left by eff into
+    // [boundary-eff, ...). Re-inserting eff spaces at boundary-eff pushes the
+    // suffix back to [boundary, ...) and fills the gap with spaces.
+    DeleteAt(col, eff);
+    for (size_t i = 0; i < eff; ++i)
+        InsertAt(boundary - eff, U' ');
+}
+
 // Insert `ch` at `col`, shifting all characters from `col` rightward by one.
 // If `col` is past the end of the line it delegates to WriteAt (pad + append).
 void DocLine::InsertAt(size_t col, char32_t ch)
@@ -287,7 +312,9 @@ void MainScreenDocument::EraseInLine(int mode)
 {
     DocLine& line = lines_.back();
     switch (mode) {
-    case 0: // cursor to end of line
+    case 0: { // cursor to end of line
+        const bool hadPendingClear = pendingSubRowClear_;
+        pendingSubRowClear_ = false;
         // Phantom line: NewLine() appended a DocLine when readline navigated
         // to what it believed was a second visual row, but the preceding
         // EraseInLine had already erased that row's content. Remove the
@@ -312,7 +339,28 @@ void MainScreenDocument::EraseInLine(int mode)
                 }
             }
         }
+        // After erasing subRow 1+ content (cursor is exactly at a subRow
+        // start), trim trailing spaces left by DeleteAtClamped padding and
+        // reset cursor to the true content end. Gated on hadPendingClear to
+        // avoid false-positive trims from unrelated erases at a subRow boundary.
+        if (hadPendingClear && cursor_.col > 0
+                            && cursor_.col % static_cast<size_t>(cols_) == 0) {
+            while (!line.text.empty() && line.text.back() == U' ') {
+                line.text.pop_back();
+                for (auto it = line.styles.begin(); it != line.styles.end(); ) {
+                    const size_t newLen = line.text.size();
+                    if (it->start >= newLen)
+                        it = line.styles.erase(it);
+                    else if (it->start + it->length > newLen)
+                        { it->length = newLen - it->start; ++it; }
+                    else
+                        ++it;
+                }
+            }
+            cursor_.col = line.text.size();
+        }
         break;
+    }
     case 1: // beginning of line to cursor (inclusive) — fill with spaces
         for (size_t i = 0; i <= cursor_.col && i < line.text.size(); ++i)
             line.text[i] = U' ';
@@ -372,7 +420,22 @@ void MainScreenDocument::EraseChar(int count)
 
 void MainScreenDocument::DeleteChar(int count)
 {
-    lines_[cursor_.line].DeleteAt(cursor_.col, static_cast<size_t>(count));
+    const size_t c       = static_cast<size_t>(cols_);
+    const size_t lineLen = lines_[cursor_.line].text.size();
+
+    if (lineLen > c) {
+        // Multi-subRow line: scope deletion to the current visual row so content
+        // on subRow N+1 is never shifted into subRow N (VT100 CSI P invariant).
+        // The condition is lineLen > c ("any multi-subRow line"), not
+        // lineLen > subRowEnd, to also handle cursor positions in subRow 1+.
+        const size_t subRowEnd = (cursor_.col / c + 1) * c;
+        lines_[cursor_.line].DeleteAtClamped(cursor_.col,
+                                             static_cast<size_t>(count),
+                                             subRowEnd);
+        pendingSubRowClear_ = true;
+    } else {
+        lines_[cursor_.line].DeleteAt(cursor_.col, static_cast<size_t>(count));
+    }
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 
