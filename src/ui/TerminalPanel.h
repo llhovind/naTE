@@ -6,6 +6,8 @@
 #include "ui/DocLayout.h"
 #include "config/Config.h"
 
+class SearchBar;
+
 class TerminalPanel : public wxPanel
 {
 public:
@@ -28,6 +30,11 @@ public:
     // Scroll the viewport to make the cursor visible and re-enable follow-tail.
     // Called on keyboard input so that typing while scrolled up snaps back.
     void EnsureCursorVisible();
+
+    // Search bar — created by UIManager; panel handles layout and focus routing.
+    void SetSearchBar(SearchBar* bar);
+    void ShowSearchBar(bool show);
+    bool HasSearchBarFocus() const;
 
 private:
     ::DocLayout* docLayout_ = nullptr;
@@ -56,4 +63,7 @@ private:
 
     wxTimer resizeTimer_;
     wxSize  pendingResize_{0, 0};
+
+    SearchBar* searchBar_       = nullptr;  // wx-parent-owned; non-owning here
+    int        searchBarHeight_ = 0;
 };

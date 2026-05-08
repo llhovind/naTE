@@ -1,6 +1,11 @@
 #include "ui/DocLayout.h"
 #include <algorithm>
 
+static char32_t CaseFold(char32_t c)
+{
+    return (c >= U'A' && c <= U'Z') ? c + (U'a' - U'A') : c;
+}
+
 DocLayout::DocLayout(Document& doc, int cols, int rows)
     : doc_(&doc), cols_(cols), rows_(rows)
 {
@@ -122,6 +127,23 @@ RenderedLine DocLayout::GetRenderedLine(int r)
         const size_t overlapEnd   = std::min(srEnd, sliceEnd);
         for (size_t c = overlapStart; c < overlapEnd; ++c)
             result.attrs[c - startCol] = sr.style;
+    }
+
+    // Search highlight overlay: runs over the base attrs[], replacing bg/fg for matches.
+    for (size_t mi = 0; mi < searchMatches_.size(); ++mi) {
+        const SearchMatch& m = searchMatches_[mi];
+        if (m.lineIndex != (size_t)pos.docLine) continue;
+        const size_t mEnd = m.colStart + m.colLen;
+        const size_t sliceEnd = startCol + len;
+        if (mEnd <= startCol || m.colStart >= sliceEnd) continue;
+        const size_t overlapStart = std::max(m.colStart, startCol);
+        const size_t overlapEnd   = std::min(mEnd, sliceEnd);
+        const bool isCurrent = (mi == searchCurrentIdx_);
+        Style hl;
+        hl.bg = isCurrent ? SearchHighlight::kCurrentBg : SearchHighlight::kMatchBg;
+        hl.fg = SearchHighlight::kFg;
+        for (size_t c = overlapStart; c < overlapEnd; ++c)
+            result.attrs[c - startCol] = hl;
     }
 
     // Cursor: check whether the document cursor lands on this exact visual row.
@@ -352,6 +374,59 @@ int DocLayout::GetLeftCol() const
 {
     std::lock_guard<std::mutex> lk(mtx_);
     return leftCol_;
+}
+
+int DocLayout::GetViewportRows() const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    return rows_;
+}
+
+std::vector<SearchMatch> DocLayout::Search(const std::u32string& foldedNeedle) const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    std::vector<SearchMatch> results;
+    if (foldedNeedle.empty()) return results;
+
+    const auto& lines = doc_->GetLines();
+    for (size_t i = 0; i < lines.size(); ++i) {
+        std::u32string haystack;
+        haystack.reserve(lines[i].text.size());
+        for (char32_t c : lines[i].text)
+            haystack.push_back(CaseFold(c));
+
+        size_t pos = 0;
+        while ((pos = haystack.find(foldedNeedle, pos)) != std::u32string::npos) {
+            results.push_back({i, pos, foldedNeedle.size()});
+            pos += foldedNeedle.size();
+        }
+    }
+    return results;
+}
+
+void DocLayout::SetSearchState(const std::vector<SearchMatch>& matches, size_t currentIdx)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    searchMatches_    = matches;
+    searchCurrentIdx_ = currentIdx;
+}
+
+void DocLayout::ClearSearchState()
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    searchMatches_.clear();
+    searchCurrentIdx_ = 0;
+}
+
+int DocLayout::GetVisualRowForDocLine(int docLine) const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!wordWrap_) return docLine;
+    const auto& lines = doc_->GetLines();
+    int visual = 0;
+    for (int i = 0; i < docLine && i < (int)lines.size(); ++i)
+        visual += VisualCount(lines[i]);
+    return visual;
 }
 
 void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)

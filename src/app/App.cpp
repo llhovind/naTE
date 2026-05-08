@@ -1,6 +1,7 @@
 #include "app/App.h"
 #include "ui/MainFrame.h"
 #include "ui/wxKeyAdapter.h"
+#include "ui/SearchController.h"
 #include "input/KeyEvent.hpp"
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
@@ -74,6 +75,27 @@ void App::OnGdkKeyPress(GdkEvent* event)
             evt.key = term::input::Key::Unknown;
         }
         break;
+    }
+
+    // Ctrl+F — open/focus the search bar (never send to PTY).
+    if (evt.ctrl && evt.key == term::input::Key::Character && evt.code == 'f') {
+        m_uiManager->ShowSearchBarForActive(true);
+        return;
+    }
+
+    // When the search bar has focus, intercept F3/Shift+F3/Escape and suppress
+    // PTY routing for all other keys (wxWidgets still dispatches them to the
+    // focused text control via the gtk_main_do_event() call in GdkEventHandler).
+    if (m_uiManager->SearchBarHasFocus()) {
+        if (evt.key == term::input::Key::Escape) {
+            m_uiManager->ShowSearchBarForActive(false);
+            m_uiManager->EnsureCursorVisibleForActive();
+        } else if (evt.key == term::input::Key::FunctionKey && evt.code == 3) {
+            if (auto* sc = m_uiManager->GetActiveSearchController()) {
+                if (evt.shift) sc->PrevMatch(); else sc->NextMatch();
+            }
+        }
+        return;
     }
 
     m_router->Send(evt);

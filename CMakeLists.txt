@@ -30,6 +30,8 @@ set(SOURCES
     src/ui/TerminalPanel.cpp
     src/ui/DocLayout.cpp
     src/ui/UIManager.cpp
+    src/ui/SearchController.cpp
+    src/ui/SearchBar.cpp
 )
 
 if(APPLE)

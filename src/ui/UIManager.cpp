@@ -2,6 +2,8 @@
 #include "ui/MainFrame.h"
 #include "ui/TerminalPanel.h"
 #include "ui/DocLayout.h"
+#include "ui/SearchBar.h"
+#include "ui/SearchController.h"
 #include <wx/sizer.h>
 #include <wx/string.h>
 
@@ -34,6 +36,12 @@ void UIManager::OnSessionCreated(term::session::SessionId id, const std::string&
         RequestActivate(id);
     });
 
+    // Create SearchController and SearchBar; bar is a wx child of panel (panel owns it).
+    auto ctrl = std::make_unique<SearchController>(sm_.GetDocLayout(id), *panel);
+    auto* bar = new SearchBar(panel, *ctrl);
+    ctrl->SetBar(bar);
+    panel->SetSearchBar(bar);
+
     frame_->GetSizer()->Add(panel, 1, wxEXPAND);
 
     // Add menu item for this session.
@@ -43,7 +51,13 @@ void UIManager::OnSessionCreated(term::session::SessionId id, const std::string&
         RequestActivate(id);
     }, menuId);
 
-    sessions_.emplace(id, SessionUI{ id, label, menuId, panel });
+    SessionUI sui;
+    sui.id        = id;
+    sui.label     = label;
+    sui.menuId    = menuId;
+    sui.panel     = panel;
+    sui.searchCtrl = std::move(ctrl);
+    sessions_.emplace(id, std::move(sui));
 
     // Auto-focus the new session.
     RequestActivate(id);
@@ -93,6 +107,9 @@ void UIManager::OnSessionDestroyed(term::session::SessionId id)
     if (!ui) return;
 
     connMenu_->Delete(ui->menuId);
+
+    // Disconnect the SearchController from its bar before the panel (and bar) are destroyed.
+    if (ui->searchCtrl) ui->searchCtrl->SetBar(nullptr);
 
     if (ui->panel) {
         ui->panel->Destroy();
@@ -156,6 +173,32 @@ UIManager::SessionUI* UIManager::FindSessionUI(term::session::SessionId id)
 {
     auto it = sessions_.find(id);
     return (it != sessions_.end()) ? &it->second : nullptr;
+}
+
+const UIManager::SessionUI* UIManager::FindSessionUI(term::session::SessionId id) const
+{
+    auto it = sessions_.find(id);
+    return (it != sessions_.end()) ? &it->second : nullptr;
+}
+
+SearchController* UIManager::GetActiveSearchController()
+{
+    SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
+    return ui ? ui->searchCtrl.get() : nullptr;
+}
+
+bool UIManager::SearchBarHasFocus() const
+{
+    const SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
+    if (!ui || !ui->panel) return false;
+    return ui->panel->HasSearchBarFocus();
+}
+
+void UIManager::ShowSearchBarForActive(bool show)
+{
+    SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
+    if (ui && ui->panel)
+        ui->panel->ShowSearchBar(show);
 }
 
 void UIManager::UpdateStatusBar()

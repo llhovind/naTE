@@ -8,6 +8,7 @@
 #include "config/Config.h"
 #include "session/ISessionObserver.h"
 #include "session/SessionManager.h"
+#include "ui/SearchController.h"
 
 class MainFrame;
 class TerminalPanel;
@@ -37,17 +38,24 @@ public:
     // Called on keyboard input to snap the active session's viewport to the cursor.
     void EnsureCursorVisibleForActive();
 
+    // Search bar access — used by App::OnGdkKeyPress to route search keystrokes.
+    SearchController* GetActiveSearchController();
+    bool              SearchBarHasFocus() const;
+    void              ShowSearchBarForActive(bool show);
+
 private:
     static constexpr int kMenuIdBase = wxID_HIGHEST + 200;
 
     struct SessionUI {
-        term::session::SessionId id       = 0;
-        std::string              label;
-        int                      menuId   = 0;
-        TerminalPanel*           panel    = nullptr; // wx-parent-owned; non-owning here
+        term::session::SessionId          id       = 0;
+        std::string                       label;
+        int                               menuId   = 0;
+        TerminalPanel*                    panel    = nullptr; // wx-parent-owned; non-owning here
+        std::unique_ptr<SearchController> searchCtrl;
     };
 
-    SessionUI* FindSessionUI(term::session::SessionId id);
+    SessionUI*       FindSessionUI(term::session::SessionId id);
+    const SessionUI* FindSessionUI(term::session::SessionId id) const;
     void       UpdateStatusBar();
 
     term::session::SessionManager& sm_;

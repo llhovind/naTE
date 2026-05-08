@@ -2,7 +2,9 @@
 
 #include "document/Document.h"
 #include "document/IDocumentListener.h"
+#include "ui/SearchMatch.h"
 #include <mutex>
+#include <vector>
 
 // Rendered representation of one visual row — the only line-level type that
 // crosses the DocLayout→TerminalPanel boundary.  attrs is parallel to text:
@@ -55,6 +57,16 @@ public:
     void SetLeftCol(int col);
     int  GetLeftCol() const;
     int  GetMaxVisibleWidth() const;
+    int  GetViewportRows() const;
+
+    // Search — caller passes a case-folded needle; DocLayout folds each haystack
+    // character internally so both sides are folded before comparison.
+    std::vector<SearchMatch> Search(const std::u32string& foldedNeedle) const;
+    void SetSearchState(const std::vector<SearchMatch>& matches, size_t currentIdx);
+    void ClearSearchState();
+
+    // Returns the first visual row that corresponds to docLine (sub-row 0).
+    int GetVisualRowForDocLine(int docLine) const;
 
     // Translate a viewport-relative (col, row) to a document position.
     // Forward-compatible hook for mouse-driven text selection.
@@ -89,4 +101,7 @@ private:
     int            maxVisibleWidth_ = 0;
     bool           autoScroll_      = true;
     bool           wordWrap_        = false;
+
+    std::vector<SearchMatch> searchMatches_;
+    size_t                   searchCurrentIdx_ = 0;
 };

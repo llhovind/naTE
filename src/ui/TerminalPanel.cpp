@@ -1,4 +1,5 @@
 #include "ui/TerminalPanel.h"
+#include "ui/SearchBar.h"
 #include <wx/dcbuffer.h>
 #include <wx/dcmemory.h>
 #include <wx/settings.h>
@@ -73,6 +74,50 @@ wxSize TerminalPanel::ViewportChars() const
             std::max(1, (sz.y - m_sbThick - 2 * kInnerPad) / m_charSize.y)};
 }
 
+void TerminalPanel::SetSearchBar(SearchBar* bar)
+{
+    searchBar_ = bar;
+    if (searchBar_) {
+        searchBar_->Hide();
+        searchBar_->SetCloseCallback([this]() { ShowSearchBar(false); });
+    }
+}
+
+void TerminalPanel::ShowSearchBar(bool show)
+{
+    if (!searchBar_) return;
+    if (show) {
+        if (searchBarHeight_ > 0) {
+            searchBar_->FocusInput();
+            return;
+        }
+        const wxSize best = searchBar_->GetBestSize();
+        searchBarHeight_  = best.y;
+        searchBar_->SetSize(GetClientSize().x - best.x, 0, best.x, best.y);
+        searchBar_->Raise();
+        searchBar_->Show();
+        searchBar_->FocusInput();
+    } else {
+        if (searchBarHeight_ == 0) return;
+        searchBarHeight_ = 0;
+        searchBar_->Hide();
+    }
+    Refresh();
+}
+
+bool TerminalPanel::HasSearchBarFocus() const
+{
+    if (!searchBar_ || searchBarHeight_ == 0) return false;
+    const wxWindow* focused = wxWindow::FindFocus();
+    if (!focused) return false;
+    const wxWindow* w = focused;
+    while (w) {
+        if (w == searchBar_) return true;
+        w = w->GetParent();
+    }
+    return false;
+}
+
 void TerminalPanel::LayoutScrollbars()
 {
     const wxSize sz = GetClientSize();
@@ -115,6 +160,11 @@ void TerminalPanel::EnsureCursorVisible()
 
 void TerminalPanel::OnSize(wxSizeEvent& e)
 {
+    if (searchBar_ && searchBarHeight_ > 0) {
+        const wxSize best = searchBar_->GetBestSize();
+        searchBar_->SetSize(GetClientSize().x - best.x, 0, best.x, best.y);
+    }
+
     if (docLayout_) {
         const wxSize v = ViewportChars();
         docLayout_->SetViewportSize(v.x, v.y);
