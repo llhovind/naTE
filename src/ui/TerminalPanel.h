@@ -27,6 +27,10 @@ public:
     // Called by the document-refresh chain after DocLayout has updated topRow_.
     void OnDocumentUpdate();
 
+    // Sync scrollbar thumb positions after an externally-driven viewport change
+    // (e.g. search navigation) that doesn't go through the normal document-update path.
+    void SyncScrollbars();
+
     // Scroll the viewport to make the cursor visible and re-enable follow-tail.
     // Called on keyboard input so that typing while scrolled up snaps back.
     void EnsureCursorVisible();

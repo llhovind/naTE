@@ -382,6 +382,12 @@ int DocLayout::GetViewportRows() const
     return rows_;
 }
 
+int DocLayout::GetViewportCols() const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    return cols_;
+}
+
 std::vector<SearchMatch> DocLayout::Search(const std::u32string& foldedNeedle) const
 {
     std::lock_guard<std::mutex> lk(mtx_);

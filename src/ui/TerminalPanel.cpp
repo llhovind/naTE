@@ -150,6 +150,11 @@ void TerminalPanel::OnDocumentUpdate()
     Refresh();
 }
 
+void TerminalPanel::SyncScrollbars()
+{
+    UpdateScrollbars();
+}
+
 void TerminalPanel::EnsureCursorVisible()
 {
     if (!docLayout_) return;

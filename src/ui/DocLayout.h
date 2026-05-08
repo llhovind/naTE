@@ -58,6 +58,7 @@ public:
     int  GetLeftCol() const;
     int  GetMaxVisibleWidth() const;
     int  GetViewportRows() const;
+    int  GetViewportCols() const;
 
     // Search — caller passes a case-folded needle; DocLayout folds each haystack
     // character internally so both sides are folded before comparison.

@@ -76,12 +76,25 @@ void SearchController::RebuildMatches()
 void SearchController::NavigateTo(size_t idx)
 {
     if (idx < matches_.size()) {
-        const int lineRow  = layout_.GetVisualRowForDocLine((int)matches_[idx].lineIndex);
+        const SearchMatch& m = matches_[idx];
+
+        // Vertical: place the match line ~1/3 from the top of the viewport.
+        const int lineRow  = layout_.GetVisualRowForDocLine((int)m.lineIndex);
         const int viewRows = layout_.GetViewportRows();
         layout_.SetTopVisualRow(std::max(0, lineRow - viewRows / 3));
+
+        // Horizontal: only relevant when word-wrap is off.
+        if (!layout_.GetWordWrap()) {
+            const int matchCol = (int)m.colStart;
+            const int leftCol  = layout_.GetLeftCol();
+            const int viewCols = layout_.GetViewportCols();
+            if (matchCol < leftCol || matchCol + (int)m.colLen > leftCol + viewCols)
+                layout_.SetLeftCol(std::max(0, matchCol - viewCols / 4));
+        }
     }
     if (bar_)
         bar_->UpdateStatus(matches_.empty() ? 0 : currentIdx_ + 1, matches_.size());
+    panel_.SyncScrollbars();
     panel_.Refresh();
 }
 
