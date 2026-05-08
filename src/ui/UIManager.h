@@ -11,6 +11,7 @@
 #include "session/ISessionObserver.h"
 #include "session/SessionManager.h"
 #include "ui/SearchController.h"
+#include "ui/SelectionActionRegistry.h"
 
 class MainFrame;
 class TerminalPanel;
@@ -64,6 +65,8 @@ private:
     wxMenu*                        connMenu_;
     MainFrame*                     frame_;
     AppConfig                      cfg_;
+
+    std::unique_ptr<SelectionActionRegistry> selectionActions_;
 
     std::unordered_map<term::session::SessionId, SessionUI> sessions_;
     int nextMenuId_ = kMenuIdBase;

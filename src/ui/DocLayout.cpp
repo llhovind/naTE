@@ -1,4 +1,5 @@
 #include "ui/DocLayout.h"
+#include "ui/SearchMatch.h"
 #include <algorithm>
 
 static char32_t CaseFold(char32_t c)
@@ -151,6 +152,28 @@ RenderedLine DocLayout::GetRenderedLine(int r)
         hl.fg = SearchHighlight::kFg;
         for (size_t c = overlapStart; c < overlapEnd; ++c)
             result.attrs[c - startCol] = hl;
+    }
+
+    // Selection highlight overlay — drawn on top of search highlights.
+    if (selection_.active) {
+        auto [selStart, selEnd] = NormalizeSelectionLocked();
+        if (selStart.docLine <= pos.docLine && pos.docLine <= selEnd.docLine) {
+            const size_t from = (pos.docLine == selStart.docLine)
+                              ? static_cast<size_t>(selStart.docCol) : 0;
+            const size_t to   = (pos.docLine == selEnd.docLine)
+                              ? static_cast<size_t>(selEnd.docCol)
+                              : dline.text.size();
+            const size_t sliceEnd     = startCol + len;
+            const size_t overlapStart = std::max(from, startCol);
+            const size_t overlapEnd   = std::min(to, sliceEnd);
+            if (overlapStart < overlapEnd) {
+                Style selStyle;
+                selStyle.fg = SelectionHighlight::kFg;
+                selStyle.bg = SelectionHighlight::kBg;
+                for (size_t c = overlapStart; c < overlapEnd; ++c)
+                    result.attrs[c - startCol] = selStyle;
+            }
+        }
     }
 
     // Cursor: check whether the document cursor lands on this exact visual row.
@@ -443,6 +466,69 @@ int DocLayout::GetVisualRowForDocLine(int docLine) const
     for (int i = 0; i < docLine && i < (int)lines.size(); ++i)
         visual += VisualCount(lines[i]);
     return visual;
+}
+
+// ---------------------------------------------------------------------------
+// Text selection
+// ---------------------------------------------------------------------------
+
+std::pair<DocLayout::DocPosition, DocLayout::DocPosition>
+DocLayout::NormalizeSelectionLocked() const
+{
+    const DocPosition& a = selection_.anchor;
+    const DocPosition& e = selection_.extent;
+    if (a.docLine < e.docLine || (a.docLine == e.docLine && a.docCol <= e.docCol))
+        return {a, e};
+    return {e, a};
+}
+
+void DocLayout::SetSelection(const TextSelection& sel)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    selection_ = sel;
+}
+
+void DocLayout::ClearSelection()
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    selection_.active = false;
+}
+
+DocLayout::TextSelection DocLayout::GetSelection() const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    return selection_;
+}
+
+bool DocLayout::HasSelection() const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!selection_.active) return false;
+    return selection_.anchor.docLine != selection_.extent.docLine ||
+           selection_.anchor.docCol  != selection_.extent.docCol;
+}
+
+std::u32string DocLayout::GetSelectedText() const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!selection_.active) return {};
+
+    auto [selStart, selEnd] = NormalizeSelectionLocked();
+    const auto& lines = doc_->GetLines();
+
+    std::u32string result;
+    for (int li = selStart.docLine; li <= selEnd.docLine && li < (int)lines.size(); ++li) {
+        const std::u32string& txt = lines[li].text;
+        const size_t from = (li == selStart.docLine)
+                          ? std::min((size_t)selStart.docCol, txt.size()) : 0;
+        const size_t to   = (li == selEnd.docLine)
+                          ? std::min((size_t)selEnd.docCol, txt.size()) : txt.size();
+        if (from < to)
+            result += txt.substr(from, to - from);
+        if (li < selEnd.docLine)
+            result += U'\n';
+    }
+    return result;
 }
 
 void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)

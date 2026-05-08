@@ -4,6 +4,7 @@
 #include <wx/scrolbar.h>
 #include <wx/timer.h>
 #include "ui/DocLayout.h"
+#include "ui/SelectionActionRegistry.h"
 #include "config/Config.h"
 
 class SearchBar;
@@ -40,6 +41,9 @@ public:
     void ShowSearchBar(bool show);
     bool HasSearchBarFocus() const;
 
+    // Selection actions — non-owning; UIManager owns the registry.
+    void SetActionRegistry(SelectionActionRegistry* reg) { actionRegistry_ = reg; }
+
 private:
     ::DocLayout* docLayout_ = nullptr;
 
@@ -48,11 +52,23 @@ private:
     void OnResizeTimer(wxTimerEvent&);
     void OnScroll(wxScrollEvent&);
     void OnMouseWheel(wxMouseEvent&);
+    void OnLeftDown(wxMouseEvent&);
+    void OnLeftUp(wxMouseEvent&);
+    void OnMouseMove(wxMouseEvent&);
+    void OnRightDown(wxMouseEvent&);
+    void OnSelScrollTimer(wxTimerEvent&);
+    void OnKeyDown(wxKeyEvent&);
     void OnFocus(wxFocusEvent&);
 
     void LayoutScrollbars();
     void UpdateScrollbars();
     wxSize ViewportChars() const;
+
+    // Convert a pixel position to a clamped (viewportRow, viewportCol) pair.
+    std::pair<int, int> PixelToViewportChar(wxPoint px) const;
+
+    // Extend the active selection to the given pixel position.
+    void ExtendSelectionTo(wxPoint px);
 
     AppConfig    m_cfg;
     wxFont       m_font;
@@ -70,4 +86,14 @@ private:
 
     SearchBar* searchBar_       = nullptr;  // wx-parent-owned; non-owning here
     int        searchBarHeight_ = 0;
+
+    // Selection state
+    bool    m_selecting_    = false;
+    wxTimer m_selScrollTimer_;
+    wxPoint m_lastMousePos_{-1, -1};
+
+    // Keyboard selection cursor (independent of the PTY document cursor)
+    DocLayout::DocPosition m_kbCursor_{0, 0};
+
+    SelectionActionRegistry* actionRegistry_ = nullptr;  // non-owning
 };

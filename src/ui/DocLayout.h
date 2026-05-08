@@ -70,9 +70,22 @@ public:
     int GetVisualRowForDocLine(int docLine) const;
 
     // Translate a viewport-relative (col, row) to a document position.
-    // Forward-compatible hook for mouse-driven text selection.
     struct DocPosition { int docLine = 0; int docCol = 0; };
     DocPosition HitTest(int viewportRow, int viewportCol) const;
+
+    // Text selection — anchor is where the drag began, extent is the current end.
+    // Either may precede the other; use GetSelectedText() for the normalised extract.
+    struct TextSelection {
+        DocPosition anchor;
+        DocPosition extent;
+        bool        active = false;
+    };
+
+    void           SetSelection(const TextSelection& sel);
+    void           ClearSelection();
+    TextSelection  GetSelection() const;
+    std::u32string GetSelectedText() const;
+    bool           HasSelection() const;
 
     void OnDocumentChanged(DocChangeType type, size_t lineIndex) override;
 
@@ -106,4 +119,9 @@ private:
 
     std::vector<SearchMatch> searchMatches_;
     size_t                   searchCurrentIdx_ = 0;
+
+    TextSelection selection_;
+
+    // Returns {start, end} with start ≤ end in document order. Caller holds mtx_.
+    std::pair<DocPosition, DocPosition> NormalizeSelectionLocked() const;
 };

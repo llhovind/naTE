@@ -4,6 +4,7 @@
 #include "ui/DocLayout.h"
 #include "ui/SearchBar.h"
 #include "ui/SearchController.h"
+#include "ui/SelectionActions.h"
 #include <wx/sizer.h>
 #include <wx/string.h>
 
@@ -14,7 +15,12 @@ UIManager::UIManager(term::session::SessionManager& sm,
                      MainFrame*                     frame,
                      const AppConfig&               cfg)
     : sm_(sm), connMenu_(connMenu), frame_(frame), cfg_(cfg)
-{}
+{
+    selectionActions_ = std::make_unique<SelectionActionRegistry>();
+    selectionActions_->Register(std::make_unique<CopyAction>());
+    selectionActions_->Register(std::make_unique<SaveToFileAction>());
+    selectionActions_->Register(std::make_unique<WebSearchAction>());
+}
 
 // ---------------------------------------------------------------------------
 // ISessionObserver
@@ -35,6 +41,7 @@ void UIManager::OnSessionCreated(term::session::SessionId id, const std::string&
     panel->SetFocusCallback([this, id]() {
         RequestActivate(id);
     });
+    panel->SetActionRegistry(selectionActions_.get());
 
     // Create SearchController and SearchBar; bar is a wx child of panel (panel owns it).
     auto ctrl = std::make_unique<SearchController>(sm_.GetDocLayout(id), *panel);

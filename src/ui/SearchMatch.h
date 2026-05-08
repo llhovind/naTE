@@ -12,3 +12,8 @@ namespace SearchHighlight {
     static constexpr int kCurrentBg = 208;  // xterm-256 orange
     static constexpr int kFg        = 0;    // black text on highlight
 }
+
+namespace SelectionHighlight {
+    static constexpr int kBg = 39;   // xterm-256 cyan
+    static constexpr int kFg = 0;    // black text on highlight
+}

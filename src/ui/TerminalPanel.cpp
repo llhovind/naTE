@@ -1,9 +1,14 @@
 #include "ui/TerminalPanel.h"
 #include "ui/SearchBar.h"
+#include <wx/clipbrd.h>
 #include <wx/dcbuffer.h>
 #include <wx/dcmemory.h>
+#include <wx/menu.h>
 #include <wx/settings.h>
 #include <algorithm>
+
+// Base wxID for context menu action items.
+static constexpr int kActionMenuBaseId = wxID_HIGHEST + 100;
 
 static int QueryScrollbarThickness()
 {
@@ -19,7 +24,8 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
       m_cfg(cfg),
       m_font(cfg.fontSize, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL),
       m_sbThick(QueryScrollbarThickness()),
-      resizeTimer_(this)
+      resizeTimer_(this),
+      m_selScrollTimer_(this)
 {
     wxMemoryDC dc;
     dc.SetFont(m_font);
@@ -48,11 +54,17 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
     SetMinClientSize({cfg.columns * m_charSize.x + m_sbThick + 2 * kInnerPad,
                       cfg.rows    * m_charSize.y + m_sbThick + 2 * kInnerPad});
 
-    Bind(wxEVT_PAINT,      &TerminalPanel::OnPaint,       this);
-    Bind(wxEVT_SIZE,       &TerminalPanel::OnSize,        this);
-    Bind(wxEVT_TIMER,      &TerminalPanel::OnResizeTimer, this);
-    Bind(wxEVT_MOUSEWHEEL, &TerminalPanel::OnMouseWheel,  this);
-    Bind(wxEVT_SET_FOCUS,  &TerminalPanel::OnFocus,       this);
+    Bind(wxEVT_PAINT,      &TerminalPanel::OnPaint,          this);
+    Bind(wxEVT_SIZE,       &TerminalPanel::OnSize,           this);
+    Bind(wxEVT_TIMER,      &TerminalPanel::OnResizeTimer,    this, resizeTimer_.GetId());
+    Bind(wxEVT_TIMER,      &TerminalPanel::OnSelScrollTimer, this, m_selScrollTimer_.GetId());
+    Bind(wxEVT_MOUSEWHEEL, &TerminalPanel::OnMouseWheel,     this);
+    Bind(wxEVT_LEFT_DOWN,  &TerminalPanel::OnLeftDown,       this);
+    Bind(wxEVT_LEFT_UP,    &TerminalPanel::OnLeftUp,         this);
+    Bind(wxEVT_MOTION,     &TerminalPanel::OnMouseMove,      this);
+    Bind(wxEVT_RIGHT_DOWN, &TerminalPanel::OnRightDown,      this);
+    Bind(wxEVT_KEY_DOWN,   &TerminalPanel::OnKeyDown,        this);
+    Bind(wxEVT_SET_FOCUS,  &TerminalPanel::OnFocus,          this);
 }
 
 void TerminalPanel::SetDocLayout(::DocLayout* docLayout)
@@ -198,6 +210,8 @@ void TerminalPanel::OnResizeTimer(wxTimerEvent&)
 void TerminalPanel::OnScroll(wxScrollEvent& e)
 {
     if (docLayout_) {
+        if (!m_selecting_)
+            docLayout_->ClearSelection();
         if (e.GetEventObject() == m_hScroll) {
             docLayout_->SetLeftCol(m_hScroll->GetThumbPosition());
         } else {
@@ -216,6 +230,8 @@ void TerminalPanel::OnScroll(wxScrollEvent& e)
 void TerminalPanel::OnMouseWheel(wxMouseEvent& e)
 {
     if (!docLayout_) return;
+    if (!m_selecting_)
+        docLayout_->ClearSelection();
     const int delta = (e.GetWheelRotation() > 0) ? -3 : 3;
     const bool isHorizontal = (e.GetWheelAxis() == wxMOUSE_WHEEL_HORIZONTAL)
                               || e.ShiftDown();
@@ -236,6 +252,201 @@ void TerminalPanel::OnFocus(wxFocusEvent& e)
 {
     if (focusCb_) focusCb_();
     e.Skip();
+}
+
+// ---------------------------------------------------------------------------
+// Coordinate helpers
+// ---------------------------------------------------------------------------
+
+std::pair<int, int> TerminalPanel::PixelToViewportChar(wxPoint px) const
+{
+    const wxSize view = ViewportChars();
+    const int col = std::clamp((px.x - kInnerPad) / m_charSize.x, 0, view.x - 1);
+    const int row = std::clamp((px.y - kInnerPad) / m_charSize.y, 0, view.y - 1);
+    return {row, col};
+}
+
+void TerminalPanel::ExtendSelectionTo(wxPoint px)
+{
+    if (!docLayout_) return;
+    auto [row, col]    = PixelToViewportChar(px);
+    const auto docPos  = docLayout_->HitTest(row, col);
+    auto sel           = docLayout_->GetSelection();
+    sel.extent         = docPos;
+    sel.active         = true;
+    docLayout_->SetSelection(sel);
+}
+
+// ---------------------------------------------------------------------------
+// Mouse selection handlers
+// ---------------------------------------------------------------------------
+
+void TerminalPanel::OnLeftDown(wxMouseEvent& e)
+{
+    if (!docLayout_) { e.Skip(); return; }
+    SetFocus();
+
+    auto [row, col]            = PixelToViewportChar(e.GetPosition());
+    const auto anchor          = docLayout_->HitTest(row, col);
+    const DocLayout::TextSelection sel{anchor, anchor, true};
+    docLayout_->SetSelection(sel);
+
+    m_selecting_    = true;
+    m_lastMousePos_ = e.GetPosition();
+    CaptureMouse();
+    m_selScrollTimer_.Start(50);
+    Refresh();
+}
+
+void TerminalPanel::OnMouseMove(wxMouseEvent& e)
+{
+    if (!m_selecting_) return;
+    m_lastMousePos_ = e.GetPosition();
+    ExtendSelectionTo(e.GetPosition());
+    Refresh();
+}
+
+void TerminalPanel::OnLeftUp(wxMouseEvent& e)
+{
+    if (!m_selecting_) { e.Skip(); return; }
+    m_selecting_ = false;
+    m_selScrollTimer_.Stop();
+    if (HasCapture()) ReleaseMouse();
+    ExtendSelectionTo(e.GetPosition());
+    Refresh();
+}
+
+void TerminalPanel::OnRightDown(wxMouseEvent& e)
+{
+    if (!docLayout_ || !actionRegistry_ || !docLayout_->HasSelection()) {
+        e.Skip();
+        return;
+    }
+
+    const std::u32string selected = docLayout_->GetSelectedText();
+    wxMenu menu;
+    actionRegistry_->PopulateMenu(menu, kActionMenuBaseId);
+
+    // Dispatch menu events inline so the registry reference is captured safely.
+    menu.Bind(wxEVT_MENU, [this, selected](wxCommandEvent& ev) {
+        if (actionRegistry_)
+            actionRegistry_->Execute(ev.GetId() - kActionMenuBaseId, selected);
+    });
+
+    PopupMenu(&menu);
+}
+
+void TerminalPanel::OnSelScrollTimer(wxTimerEvent&)
+{
+    if (!m_selecting_ || !docLayout_) {
+        m_selScrollTimer_.Stop();
+        return;
+    }
+
+    const wxSize clientSz = GetClientSize();
+    const int    top      = kInnerPad;
+    const int    bottom   = clientSz.y - m_sbThick - kInnerPad;
+    const int    left     = kInnerPad;
+    const int    right    = clientSz.x - m_sbThick - kInnerPad;
+
+    bool scrolled = false;
+
+    if (m_lastMousePos_.y < top) {
+        const int topRow = docLayout_->GetTopVisualRow() - 1;
+        if (scrollCb_) scrollCb_(topRow); else docLayout_->SetTopVisualRow(topRow);
+        scrolled = true;
+    } else if (m_lastMousePos_.y > bottom) {
+        const int topRow = docLayout_->GetTopVisualRow() + 1;
+        if (scrollCb_) scrollCb_(topRow); else docLayout_->SetTopVisualRow(topRow);
+        scrolled = true;
+    }
+
+    if (!docLayout_->GetWordWrap()) {
+        if (m_lastMousePos_.x < left) {
+            docLayout_->SetLeftCol(docLayout_->GetLeftCol() - 1);
+            scrolled = true;
+        } else if (m_lastMousePos_.x > right) {
+            docLayout_->SetLeftCol(docLayout_->GetLeftCol() + 1);
+            scrolled = true;
+        }
+    }
+
+    if (scrolled) {
+        ExtendSelectionTo(m_lastMousePos_);
+        UpdateScrollbars();
+        Refresh();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard selection (Shift+Arrow/Home/End extends selection without PTY send)
+// ---------------------------------------------------------------------------
+
+void TerminalPanel::OnKeyDown(wxKeyEvent& e)
+{
+    if (!docLayout_ || !e.ShiftDown()) {
+        // Non-Shift key: clear any keyboard-driven selection and let the event
+        // propagate to the parent (PTY input path).
+        if (docLayout_ && !e.ShiftDown()) {
+            const int k = e.GetKeyCode();
+            if (k == WXK_LEFT || k == WXK_RIGHT || k == WXK_UP || k == WXK_DOWN ||
+                k == WXK_HOME || k == WXK_END) {
+                docLayout_->ClearSelection();
+                Refresh();
+            }
+        }
+        e.Skip();
+        return;
+    }
+
+    const int k = e.GetKeyCode();
+    if (k != WXK_LEFT && k != WXK_RIGHT && k != WXK_UP && k != WXK_DOWN &&
+        k != WXK_HOME && k != WXK_END) {
+        e.Skip();
+        return;
+    }
+
+    // Shift + navigation key: extend or begin keyboard selection.
+    auto sel = docLayout_->GetSelection();
+    if (!sel.active) {
+        // Anchor at the current document cursor.
+        const CursorPos cur = docLayout_->GetCursorDocPos();
+        m_kbCursor_ = {(int)cur.line, (int)cur.col};
+        sel.anchor  = m_kbCursor_;
+        sel.extent  = m_kbCursor_;
+        sel.active  = true;
+    }
+
+    const int lineCount = docLayout_->GetLineCount();
+
+    DocLayout::DocPosition& ext = sel.extent;
+
+    switch (k) {
+    case WXK_LEFT:
+        if (ext.docCol > 0) { --ext.docCol; }
+        else if (ext.docLine > 0) { --ext.docLine; ext.docCol = INT_MAX; }
+        break;
+    case WXK_RIGHT:
+        ++ext.docCol;
+        break;
+    case WXK_UP:
+        if (ext.docLine > 0) --ext.docLine;
+        break;
+    case WXK_DOWN:
+        if (ext.docLine < lineCount - 1) ++ext.docLine;
+        break;
+    case WXK_HOME:
+        ext.docCol = 0;
+        break;
+    case WXK_END:
+        ext.docCol = INT_MAX;
+        break;
+    }
+
+    m_kbCursor_ = ext;
+    docLayout_->SetSelection(sel);
+    Refresh();
+    // Do NOT call e.Skip() — swallow the event so it doesn't reach the PTY.
 }
 
 void TerminalPanel::OnPaint(wxPaintEvent&)
