@@ -1,8 +1,10 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <wx/menu.h>
 
 #include "config/Config.h"
@@ -65,6 +67,9 @@ private:
 
     std::unordered_map<term::session::SessionId, SessionUI> sessions_;
     int nextMenuId_ = kMenuIdBase;
+
+    std::mutex                                       pendingRefreshMtx_;
+    std::unordered_set<term::session::SessionId>     pendingRefresh_;
 };
 
 } // namespace ui

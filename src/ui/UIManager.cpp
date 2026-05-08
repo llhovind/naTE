@@ -85,7 +85,19 @@ void UIManager::OnSessionTitleChanged(term::session::SessionId id, const std::st
 void UIManager::OnSessionRefresh(term::session::SessionId id)
 {
     // Arrives on the Session thread — must cross to the UI thread.
+    // Coalesce: if a refresh is already queued for this session, skip allocation.
+    {
+        std::lock_guard<std::mutex> lk(pendingRefreshMtx_);
+        if (!pendingRefresh_.insert(id).second)
+            return;
+    }
     frame_->CallAfter([this, id]() {
+        // Clear before processing so notifications arriving during the update
+        // can immediately queue the next refresh.
+        {
+            std::lock_guard<std::mutex> lk(pendingRefreshMtx_);
+            pendingRefresh_.erase(id);
+        }
         SessionUI* ui = FindSessionUI(id);
         if (ui && ui->panel)
             ui->panel->OnDocumentUpdate();
