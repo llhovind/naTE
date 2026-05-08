@@ -136,19 +136,23 @@ void TerminalPanel::UpdateScrollbars()
         ? std::max(docLayout_->GetTotalVisualLineCount(), view.y)
         : view.y;
     m_vScroll->SetScrollbar(vTop, view.y, vTotal, view.y);
-    m_vScroll->Refresh();
     const bool hEnabled = docLayout_ && !docLayout_->GetWordWrap();
     const int  hLeft    = hEnabled ? docLayout_->GetLeftCol()                               : 0;
     const int  hTotal   = hEnabled ? std::max(docLayout_->GetMaxVisibleWidth(), view.x) : view.x;
     m_hScroll->SetScrollbar(hLeft, view.x, hTotal, view.x);
     m_hScroll->Enable(hEnabled);
-    m_hScroll->Refresh();
 }
 
 void TerminalPanel::OnDocumentUpdate()
 {
     // DocLayout has already adjusted topRow_ internally (autoScroll_ policy).
     UpdateScrollbars();
+    // GTK defers widget redraws to idle processing, which only runs when a
+    // native input event is in flight. On the data path (CallAfter from a PTY
+    // read) there is no input event, so Update() forces gdk_window_process_updates()
+    // synchronously rather than waiting for the next keystroke or mouse move.
+    m_vScroll->Update();
+    m_hScroll->Update();
     Refresh();
 }
 
