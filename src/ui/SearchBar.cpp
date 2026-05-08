@@ -56,6 +56,12 @@ void SearchBar::FocusInput()
     input_->SelectAll();
 }
 
+void SearchBar::Reset()
+{
+    input_->ChangeValue("");
+    status_->SetLabel("");
+}
+
 void SearchBar::SetInitialQuery(const std::u32string& query)
 {
     // ChangeValue does not fire wxEVT_TEXT, so we drive the search explicitly.

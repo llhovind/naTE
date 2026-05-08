@@ -121,6 +121,8 @@ void App::OnGdkKeyPress(GdkEvent* event)
     // focused text control via the gtk_main_do_event() call in GdkEventHandler).
     if (m_uiManager->SearchBarHasFocus()) {
         if (evt.key == term::input::Key::Escape) {
+            if (auto* sc = m_uiManager->GetActiveSearchController())
+                sc->Clear();
             m_uiManager->ShowSearchBarForActive(false);
             m_uiManager->EnsureCursorVisibleForActive();
         } else if (evt.key == term::input::Key::FunctionKey && evt.code == 3) {

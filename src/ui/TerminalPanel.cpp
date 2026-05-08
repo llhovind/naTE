@@ -113,6 +113,9 @@ void TerminalPanel::ShowSearchBar(bool show)
         if (searchBarHeight_ == 0) return;
         searchBarHeight_ = 0;
         searchBar_->Hide();
+        searchBar_->Reset();
+        EnsureCursorVisible();
+        SetFocus();
     }
     Refresh();
 }

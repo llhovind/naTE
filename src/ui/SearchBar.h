@@ -14,6 +14,7 @@ public:
     SearchBar(wxWindow* parent, SearchController& ctrl);
 
     void FocusInput();
+    void Reset();
     void UpdateStatus(size_t current, size_t total);
     void SetCloseCallback(CloseCallback cb) { onClose_ = std::move(cb); }
 
