@@ -85,7 +85,7 @@ private:
     ViewportAnchor WalkAnchorBy(ViewportAnchor a, int delta) const;
     int            VisualCount(const DocLine& line) const;
     int            TotalVisualLinesLocked() const;
-    void           ComputeMaxVisibleWidthLocked();
+    void           ComputeMaxVisibleWidthLocked() const;
     void           SetTopRowLocked(int docLine);
     void           ScrollToEndLocked();
     bool           IsAtEndLocked() const;
@@ -98,10 +98,11 @@ private:
     int            cols_;
     int            rows_;
     ViewportAnchor topAnchor_;
-    int            leftCol_         = 0;
-    int            maxVisibleWidth_ = 0;
-    bool           autoScroll_      = true;
-    bool           wordWrap_        = false;
+    int            leftCol_              = 0;
+    mutable int    maxVisibleWidth_      = 0;
+    mutable bool   maxVisibleWidthDirty_ = true;
+    bool           autoScroll_           = true;
+    bool           wordWrap_             = false;
 
     std::vector<SearchMatch> searchMatches_;
     size_t                   searchCurrentIdx_ = 0;

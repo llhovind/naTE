@@ -136,11 +136,13 @@ void TerminalPanel::UpdateScrollbars()
         ? std::max(docLayout_->GetTotalVisualLineCount(), view.y)
         : view.y;
     m_vScroll->SetScrollbar(vTop, view.y, vTotal, view.y);
+    m_vScroll->Refresh();
     const bool hEnabled = docLayout_ && !docLayout_->GetWordWrap();
     const int  hLeft    = hEnabled ? docLayout_->GetLeftCol()                               : 0;
     const int  hTotal   = hEnabled ? std::max(docLayout_->GetMaxVisibleWidth(), view.x) : view.x;
     m_hScroll->SetScrollbar(hLeft, view.x, hTotal, view.x);
     m_hScroll->Enable(hEnabled);
+    m_hScroll->Refresh();
 }
 
 void TerminalPanel::OnDocumentUpdate()

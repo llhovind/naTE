@@ -334,8 +334,9 @@ void DocLayout::EnsureCursorVisibleHorizontally()
         leftCol_ = docCol - cols_ + 1;
 }
 
-void DocLayout::ComputeMaxVisibleWidthLocked()
+void DocLayout::ComputeMaxVisibleWidthLocked() const
 {
+    maxVisibleWidthDirty_ = false;
     maxVisibleWidth_ = cols_;
     if (wordWrap_) return;
 
@@ -351,6 +352,8 @@ void DocLayout::ComputeMaxVisibleWidthLocked()
 int DocLayout::GetMaxVisibleWidth() const
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    if (maxVisibleWidthDirty_)
+        ComputeMaxVisibleWidthLocked();
     return maxVisibleWidth_;
 }
 
@@ -445,6 +448,7 @@ int DocLayout::GetVisualRowForDocLine(int docLine) const
 void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    maxVisibleWidthDirty_ = true;
     const int idx = (int)lineIndex;
 
     switch (type) {
