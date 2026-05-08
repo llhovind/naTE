@@ -38,6 +38,20 @@ bool App::OnInit() {
 
 void App::OnGdkKeyPress(GdkEvent* event)
 {
+    // Native GTK modal dialogs (e.g. wxFileDialog) use gtk_grab_add() internally,
+    // so gtk_grab_get_current() is non-null while they are active. Check this first
+    // because wx focus tracking does not update for native GTK windows, making
+    // wxWindow::FindFocus() unreliable in that case.
+    if (gtk_grab_get_current() != nullptr)
+        return;
+
+    // Pure wx dialogs (e.g. NewConnectionDialog) don't use GTK grabs, but wx
+    // focus tracking does work for them: the focused widget's top-level parent
+    // will be the dialog itself, not a MainFrame.
+    wxWindow* const focused = wxWindow::FindFocus();
+    if (!focused || !dynamic_cast<MainFrame*>(wxGetTopLevelParent(focused)))
+        return;
+
     GdkEventKey* ke = reinterpret_cast<GdkEventKey*>(event);
 
     term::input::KeyEvent evt;
