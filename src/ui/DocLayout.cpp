@@ -76,6 +76,7 @@ DocLayout::WalkAnchorBy(ViewportAnchor a, int delta) const
 void DocLayout::SetViewportSize(int newCols, int newRows)
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    const int prevCols = cols_;
     cols_ = newCols;
     rows_ = newRows;
 
@@ -87,6 +88,12 @@ void DocLayout::SetViewportSize(int newCols, int newRows)
             const int maxSub = VisualCount(lines[topAnchor_.docLine]) - 1;
             topAnchor_.subRow = std::min(topAnchor_.subRow, maxSub);
         }
+    } else if (newCols > prevCols) {
+        // Viewport grew: leftCol_ may have been pushed right by an earlier
+        // undersized viewport (e.g. before panel layout completes on startup).
+        // Reset to the leftmost position that still keeps the cursor visible.
+        const int cursorCol = (int)doc_->GetCursor().col;
+        leftCol_ = std::max(0, cursorCol - cols_ + 1);
     }
 
     if (autoScroll_) ScrollToEndLocked();
