@@ -7,6 +7,7 @@
 #include <wx/stdpaths.h>
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
+#include <libssh2.h>
 
 static void GdkEventHandler(GdkEvent* event, gpointer data)
 {
@@ -17,6 +18,8 @@ static void GdkEventHandler(GdkEvent* event, gpointer data)
 }
 
 bool App::OnInit() {
+    libssh2_init(0);
+
     const wxString exeDir =
         wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath();
     m_cfg = AppConfig::load((exeDir + wxFileName::GetPathSeparator() + "config.ini").ToStdString());
@@ -35,6 +38,12 @@ bool App::OnInit() {
 
     frame->Show();
     return true;
+}
+
+int App::OnExit()
+{
+    libssh2_exit();
+    return wxApp::OnExit();
 }
 
 void App::OnGdkKeyPress(GdkEvent* event)

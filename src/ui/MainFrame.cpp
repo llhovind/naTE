@@ -92,6 +92,31 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
             conn = { wxString::Format("Local Shell %d", idx).ToStdString(),
                      term::session::PtyDesc{ p.shell } };
             wordWrap = p.wordWrap;
+        },
+        [&](const ui::SshParams& p) {
+            term::session::SshDesc d;
+            d.host              = p.host;
+            d.port              = p.port;
+            d.username          = p.username;
+            d.connectTimeoutSec = p.connectTimeoutSec;
+            d.keepaliveSeconds  = p.keepaliveSeconds;
+            d.remoteCommand     = p.remoteCommand;
+            d.compress          = p.compress;
+            d.password          = p.password;
+            d.privateKeyPath    = p.privateKeyPath;
+            d.passphrase        = p.passphrase;
+            switch (p.authMethod) {
+                case ui::SshAuthChoice::Agent:
+                    d.authMethod = term::session::SshAuthMethod::Agent; break;
+                case ui::SshAuthChoice::Password:
+                    d.authMethod = term::session::SshAuthMethod::Password; break;
+                case ui::SshAuthChoice::PrivateKey:
+                    d.authMethod = term::session::SshAuthMethod::PrivateKey; break;
+            }
+            conn = { wxString::Format("SSH %s@%s:%d #%d",
+                                      p.username, p.host,
+                                      static_cast<int>(p.port), idx).ToStdString(),
+                     d };
         }
     }, dlg.GetParams());
 

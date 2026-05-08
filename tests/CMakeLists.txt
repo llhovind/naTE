@@ -32,6 +32,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/session/SessionManager.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/LoopbackTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/PtyTransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/DocLayout.cpp
 )
 
@@ -40,8 +41,8 @@ add_executable(naTE_core_tests
     test_session_manager.cpp
     ${CORE_SOURCES}
 )
-target_link_libraries(naTE_core_tests PRIVATE Catch2::Catch2WithMain)
-target_include_directories(naTE_core_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(naTE_core_tests PRIVATE Catch2::Catch2WithMain ${LIBSSH2_LIBRARIES})
+target_include_directories(naTE_core_tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${LIBSSH2_INCLUDE_DIRS})
 
 if(UNIX AND NOT APPLE)
     target_link_libraries(naTE_core_tests PRIVATE util)

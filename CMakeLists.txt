@@ -10,6 +10,7 @@ include(${wxWidgets_USE_FILE})
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
+pkg_check_modules(LIBSSH2 REQUIRED libssh2)
 
 set(SOURCES
     src/main.cpp
@@ -23,6 +24,7 @@ set(SOURCES
     src/session/SessionManager.cpp
     src/transport/LoopbackTransport.cpp
     src/transport/PtyTransport.cpp
+    src/transport/SshTransport.cpp
     src/parser/Parser.cpp
     src/ui/wxKeyAdapter.cpp
     src/ui/MainFrame.cpp
@@ -42,12 +44,12 @@ else()
     add_executable(naTE ${SOURCES})
 endif()
 
-target_link_libraries(naTE PRIVATE ${wxWidgets_LIBRARIES} ${GTK3_LIBRARIES})
+target_link_libraries(naTE PRIVATE ${wxWidgets_LIBRARIES} ${GTK3_LIBRARIES} ${LIBSSH2_LIBRARIES})
 
 if(UNIX AND NOT APPLE)
     target_link_libraries(naTE PRIVATE util)
 endif()
-target_include_directories(naTE PRIVATE src ${GTK3_INCLUDE_DIRS})
+target_include_directories(naTE PRIVATE src ${GTK3_INCLUDE_DIRS} ${LIBSSH2_INCLUDE_DIRS})
 
 enable_testing()
 add_subdirectory(tests)

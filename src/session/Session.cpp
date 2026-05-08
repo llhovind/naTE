@@ -1,6 +1,7 @@
 #include "session/Session.h"
 #include "transport/PtyTransport.h"
 #include "transport/LoopbackTransport.h"
+#include "transport/SshTransport.h"
 #include <algorithm>
 
 namespace term::session {
@@ -16,6 +17,8 @@ std::unique_ptr<transport::Transport> Session::MakeTransport(
         using T = std::decay_t<decltype(desc)>;
         if constexpr (std::is_same_v<T, PtyDesc>)
             return std::make_unique<transport::PtyTransport>(target, desc.shell, cols, rows);
+        else if constexpr (std::is_same_v<T, SshDesc>)
+            return std::make_unique<transport::SshTransport>(target, desc, cols, rows);
         else
             return std::make_unique<transport::LoopbackTransport>(target);
     }, conn.transport);
