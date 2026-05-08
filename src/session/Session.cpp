@@ -29,6 +29,7 @@ Session::Session(const Connection& conn,
                  unsigned short cols,
                  unsigned short rows,
                  std::function<void()> onDisconnect,
+                 std::function<void(const transport::TransportError&)> onError,
                  unsigned short ptyLineWidth,
                  bool wordWrap)
     : transport_(MakeTransport(*this, conn, wordWrap ? cols : ptyLineWidth, rows)),
@@ -38,6 +39,7 @@ Session::Session(const Connection& conn,
       parser_(*active_doc_, *this),
       docLayout_(std::make_unique<DocLayout>(*main_doc_, cols, rows)),
       onDisconnect_(std::move(onDisconnect)),
+      onError_(std::move(onError)),
       lastCols_(cols),
       lastRows_(rows),
       ptyLineWidth_(ptyLineWidth)
@@ -77,6 +79,12 @@ void Session::Paste(const std::string& utf8)
 void Session::OnData(const std::string& data)
 {
     parser_.Process(data);
+}
+
+void Session::OnError(const transport::TransportError& error)
+{
+    if (onError_)
+        onError_(error);
 }
 
 void Session::OnDisconnect()

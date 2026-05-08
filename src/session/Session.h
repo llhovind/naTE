@@ -9,6 +9,7 @@
 #include "session/InputEncoder.h"
 #include "transport/Transport.hpp"
 #include "transport/ITransportTarget.h"
+#include "transport/TransportError.h"
 #include "parser/Parser.h"
 #include "parser/IScreenTarget.h"
 #include "document/Document.h"
@@ -25,6 +26,7 @@ public:
             unsigned short cols,
             unsigned short rows,
             std::function<void()> onDisconnect,
+            std::function<void(const transport::TransportError&)> onError,
             unsigned short ptyLineWidth = 1024,
             bool wordWrap = false);
     ~Session();
@@ -44,6 +46,7 @@ public:
 
     // transport::ITransportTarget
     void OnData(const std::string& data) override;
+    void OnError(const transport::TransportError& error) override;
     void OnDisconnect() override;
 
     // Allows SessionManager to attach a DocumentObserver to the active document.
@@ -77,7 +80,8 @@ private:
 
     std::unique_ptr<DocLayout> docLayout_;
 
-    std::function<void()> onDisconnect_;
+    std::function<void()>                                    onDisconnect_;
+    std::function<void(const transport::TransportError&)>    onError_;
 
     unsigned short     lastCols_{0};
     unsigned short     lastRows_{0};

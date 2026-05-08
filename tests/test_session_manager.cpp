@@ -33,6 +33,8 @@ struct MockObserver : ISessionObserver {
     void OnSessionRefresh(SessionId id) override {
         events.push_back({RecordedEvent::Type::Refresh, id, {}});
     }
+    void OnSessionError(SessionId /*id*/,
+                        const term::transport::TransportError& /*error*/) override {}
     void OnSessionDisconnected(SessionId id) override {
         events.push_back({RecordedEvent::Type::Disconnected, id, {}});
     }
@@ -152,7 +154,7 @@ TEST_CASE("given bash readline backspace sequence with CSI K when processed then
     //   cursor navigated left 6:  ESC[D × 6
     //   bash response:         \b  + "fghijk" + ESC[K + ESC[6D
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     // Write the initial text directly into the document via OnData
     session.OnData("abcdefghijk");
@@ -174,7 +176,7 @@ TEST_CASE("given bash readline backspace sequence with space-overwrite when proc
     // Same scenario but bash uses a trailing space (dumb-terminal style) instead of ESC[K.
     //   bash response:  \b + "fghijk" + " " + \b × 7
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     session.OnData("abcdefghijk");
     session.OnData("\033[D\033[D\033[D\033[D\033[D\033[D");
@@ -280,7 +282,7 @@ TEST_CASE("given F12 key when encoded then produces CSI 24-tilde") {
 
 TEST_CASE("given CSI H when processed then cursor column resets to 0") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     // "hello" leaves cursor at col 5; ESC[H moves it to (1,1) → col 0; 'X' overwrites col 0
     session.OnData("hello\033[HX");
@@ -292,7 +294,7 @@ TEST_CASE("given CSI H when processed then cursor column resets to 0") {
 
 TEST_CASE("given CSI 3-tilde when processed then character at cursor is deleted") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     session.OnData("abcde");
     session.OnData("\033[D\033[D\033[D"); // cursor at col 2 (on 'c')
@@ -305,7 +307,7 @@ TEST_CASE("given CSI 3-tilde when processed then character at cursor is deleted"
 
 TEST_CASE("given CSI P when processed then character at cursor is deleted") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     session.OnData("abcde");
     session.OnData("\033[D\033[D\033[D"); // cursor at col 2
@@ -318,7 +320,7 @@ TEST_CASE("given CSI P when processed then character at cursor is deleted") {
 
 TEST_CASE("given CSI 2P when processed then two characters at cursor are deleted") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     session.OnData("abcde");
     session.OnData("\033[D\033[D\033[D"); // cursor at col 2
@@ -331,7 +333,7 @@ TEST_CASE("given CSI 2P when processed then two characters at cursor are deleted
 
 TEST_CASE("given CSI 2J when processed then all lines cleared") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     session.OnData("line one\n");
     session.OnData("line two\n");
@@ -346,7 +348,7 @@ TEST_CASE("given CSI 2J when processed then all lines cleared") {
 
 TEST_CASE("given CSI J when processed then content from cursor to end is erased") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     session.OnData("abcde");
     session.OnData("\033[D\033[D\033[D"); // cursor at col 2
@@ -359,7 +361,7 @@ TEST_CASE("given CSI J when processed then content from cursor to end is erased"
 
 TEST_CASE("given CSI 1-tilde when processed then cursor moves to line start") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     // "abcde" puts cursor at col 5; ESC[1~ (Home tilde) moves it to col 0;
     // 'X' overwrites position 0 → line starts with 'X'
@@ -373,7 +375,7 @@ TEST_CASE("given CSI 1-tilde when processed then cursor moves to line start") {
 
 TEST_CASE("given CSI 4-tilde when processed then cursor moves to line end") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     // Move back to col 2, then End tilde moves to col 5, 'X' appends
     session.OnData("abcde");
@@ -387,7 +389,7 @@ TEST_CASE("given CSI 4-tilde when processed then cursor moves to line end") {
 
 TEST_CASE("given CSI F when processed then cursor moves to line end") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     session.OnData("abcde");
     session.OnData("\033[D\033[D\033[D"); // cursor at col 2
@@ -400,7 +402,7 @@ TEST_CASE("given CSI F when processed then cursor moves to line end") {
 
 TEST_CASE("given CSI ?25h and CSI ?25l when processed then no crash") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     // Cursor visibility sequences are no-ops at Session level but must parse cleanly.
     REQUIRE_NOTHROW(session.OnData("\033[?25h"));
@@ -409,7 +411,7 @@ TEST_CASE("given CSI ?25h and CSI ?25l when processed then no crash") {
 
 TEST_CASE("given SS3 and tilde F-key sequences when processed then no crash") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     // F-key sequences from PTY output are no-ops at Session level but must
     // parse without crashing.
@@ -423,7 +425,7 @@ TEST_CASE("given Delete key loopback when processed then char at cursor removed"
     // Full round-trip: KeyEvent → InputEncoder → LoopbackTransport → Parser → Document.
     // Uses Session directly so we can pre-feed document state via OnData.
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     session.OnData("abcde");
     session.OnData("\033[D\033[D\033[D"); // cursor at col 2
@@ -443,7 +445,7 @@ TEST_CASE("given Delete key loopback when processed then char at cursor removed"
 
 TEST_CASE("given basic fg SGR code when processed then style stores palette index 0 to 7") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     session.OnData("\033[31mX"); // red fg → palette index 1
     const RenderedLine line = session.GetDocLayout().GetRenderedLine(
@@ -454,7 +456,7 @@ TEST_CASE("given basic fg SGR code when processed then style stores palette inde
 
 TEST_CASE("given bright fg SGR code when processed then style stores palette index 8 to 15") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     session.OnData("\033[91mX"); // bright red fg → palette index 9
     const RenderedLine line = session.GetDocLayout().GetRenderedLine(
@@ -465,7 +467,7 @@ TEST_CASE("given bright fg SGR code when processed then style stores palette ind
 
 TEST_CASE("given 256-color fg SGR sequence when processed then style stores palette index") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     session.OnData("\033[38;5;196mX"); // xterm colour 196 (bright red cube)
     const RenderedLine line = session.GetDocLayout().GetRenderedLine(
@@ -476,7 +478,7 @@ TEST_CASE("given 256-color fg SGR sequence when processed then style stores pale
 
 TEST_CASE("given 256-color bg SGR sequence when processed then style stores palette index") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     session.OnData("\033[48;5;21mX"); // xterm colour 21 (blue cube) as bg
     const RenderedLine line = session.GetDocLayout().GetRenderedLine(
@@ -487,7 +489,7 @@ TEST_CASE("given 256-color bg SGR sequence when processed then style stores pale
 
 TEST_CASE("given SGR reset sequence when processed then style returns to defaults") {
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 80, 24, {});
+    Session session(conn, 1000, 80, 24, {}, {});
 
     // Set red fg, then reset; 'X' must have default style
     session.OnData("\033[31mA\033[0mX");
@@ -501,7 +503,7 @@ TEST_CASE("given SGR reset sequence when processed then style returns to default
 TEST_CASE("given line longer than viewport when word wrap off then horizontal scroll slices correctly") {
     // 20-column viewport; word wrap defaults to false
     Connection conn{"test", LoopbackDesc{}};
-    Session session(conn, 1000, 20, 5, {});
+    Session session(conn, 1000, 20, 5, {}, {});
 
     // Feed 40 printable characters: A-Z then A-N
     session.OnData("ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMN");

@@ -1,4 +1,5 @@
 #include "session/SessionManager.h"
+#include "transport/TransportError.h"
 #include <algorithm>
 #include <stdexcept>
 
@@ -60,6 +61,10 @@ SessionId SessionManager::CreateSession(const Connection& conn,
         [this, id]() {
             if (observer_)
                 observer_->OnSessionDisconnected(id);
+        },
+        [this, id](const transport::TransportError& error) {
+            if (observer_)
+                observer_->OnSessionError(id, error);
         },
         ptyLineWidth,
         wordWrap);

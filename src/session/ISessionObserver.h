@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <string>
 
+#include "transport/TransportError.h"
+
 namespace term::session {
 
 using SessionId = std::size_t;
@@ -19,6 +21,9 @@ public:
 
     // Session thread — implementations MUST CallAfter before touching wx.
     virtual void OnSessionRefresh(SessionId) = 0;
+
+    // Session thread — implementations MUST CallAfter before touching wx.
+    virtual void OnSessionError(SessionId, const term::transport::TransportError& error) = 0;
 
     // Session thread — implementations MUST CallAfter before touching wx.
     virtual void OnSessionDisconnected(SessionId) = 0;

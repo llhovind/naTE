@@ -7,6 +7,7 @@
 #include "ui/SelectionActions.h"
 #include "ui/StringUtils.h"
 #include <gtk/gtk.h>
+#include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/string.h>
 
@@ -124,6 +125,23 @@ void UIManager::OnSessionRefresh(term::session::SessionId id)
     });
 }
 
+void UIManager::OnSessionError(term::session::SessionId /*id*/,
+                               const term::transport::TransportError& error)
+{
+    // Arrives on the Session thread — must cross to the UI thread before touching wx.
+    const bool isHostKey =
+        (error.category == term::transport::TransportError::Category::HostKey);
+    std::string msg = error.message;
+    frame_->CallAfter([this, msg, isHostKey]() {
+        if (isHostKey) {
+            wxMessageBox(wxString::FromUTF8(msg), "Host Key Error",
+                         wxICON_ERROR | wxOK, frame_);
+        } else {
+            pendingErrorMsg_ = msg;
+        }
+    });
+}
+
 void UIManager::OnSessionDisconnected(term::session::SessionId id)
 {
     // Arrives on the Session thread — must cross to the UI thread.
@@ -158,6 +176,11 @@ void UIManager::OnSessionDestroyed(term::session::SessionId id)
         RequestActivate(sessions_.begin()->first);
     else
         UpdateStatusBar();
+
+    if (!pendingErrorMsg_.empty()) {
+        frame_->SetStatusText(wxString::FromUTF8(pendingErrorMsg_), 1);
+        pendingErrorMsg_.clear();
+    }
 }
 
 // ---------------------------------------------------------------------------

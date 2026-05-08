@@ -2,6 +2,7 @@
 
 #include "transport/Transport.hpp"
 #include "transport/ITransportTarget.h"
+#include "transport/TransportError.h"
 #include "session/Connection.h"
 
 #include <atomic>
@@ -62,8 +63,8 @@ private:
     // Wraps libssh2_session_block_directions + poll(); returns false if !running_.
     bool PollUntilReady(int timeout_ms);
 
-    // Writes msg into the terminal then fires OnDisconnect.
-    void NotifyError(const std::string& msg);
+    // Writes msg into the terminal, fires OnError, then fires OnDisconnect.
+    void NotifyError(TransportError::Category category, const std::string& msg);
 
     // Returns the last libssh2 error string from the session.
     std::string LastSshError() const;

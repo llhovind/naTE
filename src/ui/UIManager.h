@@ -7,6 +7,8 @@
 #include <unordered_set>
 #include <wx/menu.h>
 
+#include "transport/TransportError.h"
+
 #include "config/Config.h"
 #include "input/InputRouter.h"
 #include "session/ISessionObserver.h"
@@ -28,10 +30,12 @@ public:
               term::input::InputRouter&      router,
               wxMenu*                        editMenu);
 
-    // ISessionObserver — all five callbacks documented on the interface
+    // ISessionObserver — all six callbacks documented on the interface
     void OnSessionCreated(term::session::SessionId, const std::string& label) override;
     void OnSessionTitleChanged(term::session::SessionId, const std::string& title) override;
     void OnSessionRefresh(term::session::SessionId) override;
+    void OnSessionError(term::session::SessionId,
+                        const term::transport::TransportError& error) override;
     void OnSessionDisconnected(term::session::SessionId) override;
     void OnSessionDestroyed(term::session::SessionId) override;
 
@@ -94,6 +98,9 @@ private:
 
     std::mutex                                       pendingRefreshMtx_;
     std::unordered_set<term::session::SessionId>     pendingRefresh_;
+
+    // Set on the UI thread when a session error arrives; displayed in OnSessionDestroyed.
+    std::string                                      pendingErrorMsg_;
 };
 
 } // namespace ui

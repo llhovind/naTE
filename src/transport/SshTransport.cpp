@@ -137,7 +137,8 @@ int SshTransport::ConnectSocket()
     addrinfo* res = nullptr;
     int rc = ::getaddrinfo(desc_.host.c_str(), portStr.c_str(), &hints, &res);
     if (rc != 0) {
-        NotifyError("SSH: name resolution failed for '" + desc_.host +
+        NotifyError(TransportError::Category::Connection,
+                    "SSH: name resolution failed for '" + desc_.host +
                     "': " + gai_strerror(rc));
         return -1;
     }
@@ -166,7 +167,8 @@ int SshTransport::ConnectSocket()
     ::freeaddrinfo(res);
 
     if (fd < 0) {
-        NotifyError("SSH: could not connect to " + desc_.host + ":" + portStr +
+        NotifyError(TransportError::Category::Connection,
+                    "SSH: could not connect to " + desc_.host + ":" + portStr +
                     " — " + std::strerror(errno));
         return -1;
     }
@@ -181,7 +183,8 @@ bool SshTransport::PerformHandshake(int fd)
 {
     session_ = libssh2_session_init();
     if (!session_) {
-        NotifyError("SSH: libssh2_session_init failed");
+        NotifyError(TransportError::Category::Protocol,
+                    "SSH: libssh2_session_init failed");
         return false;
     }
 
@@ -193,7 +196,8 @@ bool SshTransport::PerformHandshake(int fd)
         if (!PollUntilReady(kPollTimeoutMs)) return false;
     }
     if (rc != 0) {
-        NotifyError("SSH: handshake failed — " + LastSshError());
+        NotifyError(TransportError::Category::Protocol,
+                    "SSH: handshake failed — " + LastSshError());
         return false;
     }
     return true;
@@ -209,13 +213,15 @@ bool SshTransport::VerifyHostKey()
     int    keyType = 0;
     const char* key = libssh2_session_hostkey(session_, &keyLen, &keyType);
     if (!key) {
-        NotifyError("SSH: could not retrieve server host key");
+        NotifyError(TransportError::Category::Protocol,
+                    "SSH: could not retrieve server host key");
         return false;
     }
 
     LIBSSH2_KNOWNHOSTS* hosts = libssh2_knownhost_init(session_);
     if (!hosts) {
-        NotifyError("SSH: libssh2_knownhost_init failed");
+        NotifyError(TransportError::Category::Protocol,
+                    "SSH: libssh2_knownhost_init failed");
         return false;
     }
 
@@ -263,14 +269,16 @@ bool SshTransport::VerifyHostKey()
             break;
 
         case LIBSSH2_KNOWNHOST_CHECK_MISMATCH:
-            NotifyError("SSH: HOST KEY MISMATCH for " + desc_.host +
+            NotifyError(TransportError::Category::HostKey,
+                        "SSH: HOST KEY MISMATCH for " + desc_.host +
                         " — possible man-in-the-middle attack.\n"
                         "Remove the entry from " + khPath + " to proceed.");
             ok = false;
             break;
 
         default:
-            NotifyError("SSH: host key check failed (code " +
+            NotifyError(TransportError::Category::HostKey,
+                        "SSH: host key check failed (code " +
                         std::to_string(check) + ")");
             ok = false;
             break;
@@ -299,17 +307,20 @@ bool SshTransport::AuthViaAgent()
 {
     agent_ = libssh2_agent_init(session_);
     if (!agent_) {
-        NotifyError("SSH: could not initialise SSH agent");
+        NotifyError(TransportError::Category::Authentication,
+                    "SSH: could not initialise SSH agent");
         return false;
     }
 
     if (libssh2_agent_connect(agent_) != 0) {
-        NotifyError("SSH: could not connect to SSH agent — is SSH_AUTH_SOCK set?");
+        NotifyError(TransportError::Category::Authentication,
+                    "SSH: could not connect to SSH agent — is SSH_AUTH_SOCK set?");
         return false;
     }
 
     if (libssh2_agent_list_identities(agent_) != 0) {
-        NotifyError("SSH: could not list SSH agent identities");
+        NotifyError(TransportError::Category::Authentication,
+                    "SSH: could not list SSH agent identities");
         return false;
     }
 
@@ -320,11 +331,13 @@ bool SshTransport::AuthViaAgent()
         int rc = libssh2_agent_get_identity(agent_, &identity, prev);
         if (rc == 1) {
             // No more identities.
-            NotifyError("SSH: agent has no identity that was accepted by the server");
+            NotifyError(TransportError::Category::Authentication,
+                        "SSH: agent has no identity that was accepted by the server");
             return false;
         }
         if (rc < 0) {
-            NotifyError("SSH: agent identity enumeration failed");
+            NotifyError(TransportError::Category::Authentication,
+                        "SSH: agent identity enumeration failed");
             return false;
         }
 
@@ -353,7 +366,8 @@ bool SshTransport::AuthViaPassword()
         PollUntilReady(kPollTimeoutMs);
     }
     if (rc != 0) {
-        NotifyError("SSH: password authentication failed — " + LastSshError());
+        NotifyError(TransportError::Category::Authentication,
+                    "SSH: password authentication failed — " + LastSshError());
         return false;
     }
     return true;
@@ -379,7 +393,8 @@ bool SshTransport::AuthViaPrivateKey()
         PollUntilReady(kPollTimeoutMs);
     }
     if (rc != 0) {
-        NotifyError("SSH: private key authentication failed — " + LastSshError());
+        NotifyError(TransportError::Category::Authentication,
+                    "SSH: private key authentication failed — " + LastSshError());
         return false;
     }
     return true;
@@ -397,7 +412,8 @@ bool SshTransport::OpenChannel()
             return true;
         if (libssh2_session_last_error(session_, nullptr, nullptr, 0) !=
             LIBSSH2_ERROR_EAGAIN) {
-            NotifyError("SSH: could not open channel — " + LastSshError());
+            NotifyError(TransportError::Category::Protocol,
+                        "SSH: could not open channel — " + LastSshError());
             return false;
         }
         if (!PollUntilReady(kPollTimeoutMs)) return false;
@@ -419,7 +435,8 @@ bool SshTransport::RequestPty()
         PollUntilReady(kPollTimeoutMs);
     }
     if (rc != 0) {
-        NotifyError("SSH: PTY request failed — " + LastSshError());
+        NotifyError(TransportError::Category::Protocol,
+                    "SSH: PTY request failed — " + LastSshError());
         return false;
     }
 
@@ -439,7 +456,8 @@ bool SshTransport::RequestPty()
     }
 
     if (rc != 0) {
-        NotifyError("SSH: could not start " +
+        NotifyError(TransportError::Category::Protocol,
+                    "SSH: could not start " +
                     std::string(hasCommand ? "command" : "shell") +
                     " — " + LastSshError());
         return false;
@@ -570,9 +588,11 @@ bool SshTransport::PollUntilReady(int timeout_ms)
     return running_.load();
 }
 
-void SshTransport::NotifyError(const std::string& msg)
+void SshTransport::NotifyError(TransportError::Category category,
+                               const std::string& msg)
 {
     target_.OnData("\r\n\x1b[31m" + msg + "\x1b[0m\r\n");
+    target_.OnError(TransportError{category, msg});
     target_.OnDisconnect();
     running_ = false;
 }
