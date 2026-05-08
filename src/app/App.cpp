@@ -29,7 +29,8 @@ bool App::OnInit() {
     auto* frame = new MainFrame(m_cfg, *m_router, *m_sessionManager);
 
     m_uiManager = std::make_unique<ui::UIManager>(
-        *m_sessionManager, frame->GetConnMenu(), frame, m_cfg);
+        *m_sessionManager, frame->GetConnMenu(), frame, m_cfg, *m_router,
+        frame->GetEditMenu());
     m_sessionManager->SetObserver(m_uiManager.get());
 
     frame->Show();
@@ -89,6 +90,23 @@ void App::OnGdkKeyPress(GdkEvent* event)
             evt.key = term::input::Key::Unknown;
         }
         break;
+    }
+
+    // Ctrl+V — paste clipboard contents through the router (respects broadcast mode).
+    // Uses GTK's async gtk_clipboard_request_text rather than wxTheClipboard: wx's
+    // synchronous clipboard API pumps the GTK event loop via gtk_main_iteration_do(),
+    // which corrupts GTK focus/grab state and silently kills all subsequent keyboard input.
+    if (evt.ctrl && evt.key == term::input::Key::Character && evt.code == 'v') {
+        gtk_clipboard_request_text(
+            gtk_clipboard_get(GDK_SELECTION_CLIPBOARD),
+            [](GtkClipboard*, const gchar* text, gpointer data) {
+                if (!text) return;
+                auto* self = static_cast<App*>(data);
+                self->m_router->Paste(std::string(text));
+                self->m_uiManager->EnsureCursorVisibleForActive();
+            },
+            this);
+        return;
     }
 
     // Ctrl+F — open/focus the search bar (never send to PTY).

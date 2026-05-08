@@ -13,6 +13,7 @@ public:
               term::session::SessionManager& sm);
 
     wxMenu* GetConnMenu() const { return m_connMenu; }
+    wxMenu* GetEditMenu() const { return m_editMenu; }
 
     // Called by UIManager::UpdateStatusBar to keep the menu check in sync.
     void SyncWordWrapMenuItem(bool checked);
@@ -27,6 +28,7 @@ private:
     term::session::SessionManager&  m_sm;
     AppConfig                       m_cfg;
     wxMenu*                         m_connMenu  = nullptr;
+    wxMenu*                         m_editMenu  = nullptr;
     wxMenuItem*                     m_miWordWrap = nullptr;
     int                             m_sessionCount = 0;
 };

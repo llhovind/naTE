@@ -8,6 +8,7 @@
 #include <wx/menu.h>
 
 #include "config/Config.h"
+#include "input/InputRouter.h"
 #include "session/ISessionObserver.h"
 #include "session/SessionManager.h"
 #include "ui/SearchController.h"
@@ -23,7 +24,9 @@ public:
     UIManager(term::session::SessionManager& sm,
               wxMenu*                        connMenu,
               MainFrame*                     frame,
-              const AppConfig&               cfg);
+              const AppConfig&               cfg,
+              term::input::InputRouter&      router,
+              wxMenu*                        editMenu);
 
     // ISessionObserver — all five callbacks documented on the interface
     void OnSessionCreated(term::session::SessionId, const std::string& label) override;
@@ -50,7 +53,16 @@ public:
     std::u32string    GetActiveSelectedText() const;
 
 private:
-    static constexpr int kMenuIdBase = wxID_HIGHEST + 200;
+    static constexpr int kMenuIdBase      = wxID_HIGHEST + 200;
+
+    // Edit menu item IDs
+    static constexpr int kEditMenuCopy      = wxID_HIGHEST + 10;
+    static constexpr int kEditMenuPaste     = wxID_HIGHEST + 11;
+    static constexpr int kEditMenuSelectAll = wxID_HIGHEST + 12;
+    static constexpr int kEditMenuPasteSel  = wxID_HIGHEST + 13;
+    static constexpr int kEditMenuFind      = wxID_HIGHEST + 14;
+    static constexpr int kEditMenuSaveFile  = wxID_HIGHEST + 15;
+    static constexpr int kEditMenuWebSearch = wxID_HIGHEST + 16;
 
     struct SessionUI {
         term::session::SessionId          id       = 0;
@@ -62,9 +74,15 @@ private:
 
     SessionUI*       FindSessionUI(term::session::SessionId id);
     const SessionUI* FindSessionUI(term::session::SessionId id) const;
-    void       UpdateStatusBar();
+    void             UpdateStatusBar();
+
+    void             SetupEditMenu(wxMenu* menu);
+    void             PasteFromClipboard();
+    bool             HasActiveSelection() const;
+    std::u32string   GetFullActiveSelectedText() const;
 
     term::session::SessionManager& sm_;
+    term::input::InputRouter&      router_;
     wxMenu*                        connMenu_;
     MainFrame*                     frame_;
     AppConfig                      cfg_;

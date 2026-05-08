@@ -36,6 +36,7 @@ public:
 
     // input::InputTarget
     void OnInput(const input::KeyEvent& event) override;
+    void Paste(const std::string& utf8) override;
 
     // parser::IScreenTarget
     void OnEnterAltScreen() override;

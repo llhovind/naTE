@@ -5,6 +5,8 @@
 #include "ui/SearchBar.h"
 #include "ui/SearchController.h"
 #include "ui/SelectionActions.h"
+#include "ui/StringUtils.h"
+#include <gtk/gtk.h>
 #include <wx/sizer.h>
 #include <wx/string.h>
 
@@ -13,8 +15,10 @@ namespace ui {
 UIManager::UIManager(term::session::SessionManager& sm,
                      wxMenu*                        connMenu,
                      MainFrame*                     frame,
-                     const AppConfig&               cfg)
-    : sm_(sm), connMenu_(connMenu), frame_(frame), cfg_(cfg)
+                     const AppConfig&               cfg,
+                     term::input::InputRouter&      router,
+                     wxMenu*                        editMenu)
+    : sm_(sm), router_(router), connMenu_(connMenu), frame_(frame), cfg_(cfg)
 {
     selectionActions_ = std::make_unique<SelectionActionRegistry>();
     selectionActions_->Register(std::make_unique<CopyAction>());
@@ -23,6 +27,11 @@ UIManager::UIManager(term::session::SessionManager& sm,
     selectionActions_->Register(std::make_unique<FindInTerminalAction>(
         [this](const std::u32string& q) { ShowSearchBarForActive(true, q); }
     ));
+    selectionActions_->Register(std::make_unique<PasteSelectionAction>(
+        [this](const std::u32string& text) { router_.Paste(ToUtf8(text)); }
+    ));
+
+    SetupEditMenu(editMenu);
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +275,87 @@ void UIManager::UpdateStatusBar()
     const CursorPos cur = layout.GetCursorDocPos();
     frame_->SetStatusText(
         wxString::Format("Ln %zu, Col %zu", cur.line + 1, cur.col + 1), 3);
+}
+
+void UIManager::SetupEditMenu(wxMenu* menu)
+{
+    menu->Append(kEditMenuCopy,      "Copy");
+    menu->Append(kEditMenuPaste,     "Paste");
+    menu->Append(kEditMenuSelectAll, "Select All");
+    menu->AppendSeparator();
+    menu->Append(kEditMenuPasteSel,  "Paste Selection");
+    menu->Append(kEditMenuFind,      "Find in Terminal");
+    menu->AppendSeparator();
+    menu->Append(kEditMenuSaveFile,  "Save to File...");
+    menu->Append(kEditMenuWebSearch, "Search the Web");
+
+    frame_->Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        const auto text = GetFullActiveSelectedText();
+        if (!text.empty()) CopyAction{}.Execute(text);
+    }, kEditMenuCopy);
+
+    frame_->Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        PasteFromClipboard();
+    }, kEditMenuPaste);
+
+    frame_->Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
+        if (!ui) return;
+        sm_.GetDocLayout(ui->id).SelectAll();
+        if (ui->panel) ui->panel->Refresh();
+    }, kEditMenuSelectAll);
+
+    frame_->Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        const auto text = GetFullActiveSelectedText();
+        if (!text.empty()) router_.Paste(ToUtf8(text));
+    }, kEditMenuPasteSel);
+
+    frame_->Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        ShowSearchBarForActive(true, GetActiveSelectedText());
+    }, kEditMenuFind);
+
+    frame_->Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        const auto text = GetFullActiveSelectedText();
+        if (!text.empty()) SaveToFileAction{}.Execute(text);
+    }, kEditMenuSaveFile);
+
+    frame_->Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        const auto text = GetFullActiveSelectedText();
+        if (!text.empty()) WebSearchAction{}.Execute(text);
+    }, kEditMenuWebSearch);
+
+    const auto enableIfSelection = [this](wxUpdateUIEvent& e) {
+        e.Enable(HasActiveSelection());
+    };
+    for (int id : {kEditMenuCopy, kEditMenuPasteSel,
+                   kEditMenuSaveFile, kEditMenuWebSearch}) {
+        frame_->Bind(wxEVT_UPDATE_UI, enableIfSelection, id);
+    }
+}
+
+void UIManager::PasteFromClipboard()
+{
+    gtk_clipboard_request_text(
+        gtk_clipboard_get(GDK_SELECTION_CLIPBOARD),
+        [](GtkClipboard*, const gchar* text, gpointer data) {
+            if (!text) return;
+            auto* self = static_cast<UIManager*>(data);
+            self->router_.Paste(std::string(text));
+            self->EnsureCursorVisibleForActive();
+        },
+        this);
+}
+
+bool UIManager::HasActiveSelection() const
+{
+    const SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
+    return ui && sm_.GetDocLayout(ui->id).HasSelection();
+}
+
+std::u32string UIManager::GetFullActiveSelectedText() const
+{
+    const SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
+    return ui ? sm_.GetDocLayout(ui->id).GetSelectedText() : std::u32string{};
 }
 
 } // namespace ui

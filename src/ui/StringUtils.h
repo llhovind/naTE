@@ -2,10 +2,9 @@
 #include <string>
 #include <wx/string.h>
 
-// Convert a UTF-32 string to a wxString via a UTF-8 intermediate.
-inline wxString ToWxString(const std::u32string& u32)
+// Encode a UTF-32 string as UTF-8.
+inline std::string ToUtf8(const std::u32string& u32)
 {
-    // Encode as UTF-8 manually so we don't depend on platform wchar_t width.
     std::string utf8;
     utf8.reserve(u32.size());
     for (char32_t cp : u32) {
@@ -25,5 +24,10 @@ inline wxString ToWxString(const std::u32string& u32)
             utf8.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
         }
     }
-    return wxString::FromUTF8(utf8);
+    return utf8;
+}
+
+inline wxString ToWxString(const std::u32string& u32)
+{
+    return wxString::FromUTF8(ToUtf8(u32));
 }

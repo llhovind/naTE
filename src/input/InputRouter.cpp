@@ -99,6 +99,26 @@ void InputRouter::Send(KeyEvent event) {
     }
 }
 
+void InputRouter::Paste(const std::string& utf8) {
+    if (utf8.empty()) return;
+
+    switch (mode_) {
+    case InputMode::Focused:
+        if (focused_) {
+            focused_->Paste(utf8);
+        }
+        break;
+
+    case InputMode::Broadcast:
+        for (auto* target : selected_) {
+            if (target) {
+                target->Paste(utf8);
+            }
+        }
+        break;
+    }
+}
+
 // --- Internal ---
 
 bool InputRouter::IsValidTarget(InputTarget* target) const {

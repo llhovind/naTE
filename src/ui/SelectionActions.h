@@ -34,3 +34,17 @@ public:
 private:
     Callback cb_;
 };
+
+// Sends the selected text back through the InputRouter as paste input,
+// allowing commands from the scrollback to be re-executed.
+class PasteSelectionAction : public ISelectionAction {
+public:
+    using Callback = std::function<void(const std::u32string&)>;
+    explicit PasteSelectionAction(Callback cb) : cb_(std::move(cb)) {}
+
+    std::string Label() const override { return "Paste Selection"; }
+    void Execute(const std::u32string& text) override { if (cb_) cb_(text); }
+
+private:
+    Callback cb_;
+};

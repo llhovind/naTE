@@ -83,6 +83,7 @@ public:
 
     void           SetSelection(const TextSelection& sel);
     void           ClearSelection();
+    void           SelectAll();
     TextSelection  GetSelection() const;
     std::u32string GetSelectedText() const;
     bool           HasSelection() const;

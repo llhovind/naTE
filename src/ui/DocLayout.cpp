@@ -1,6 +1,7 @@
 #include "ui/DocLayout.h"
 #include "ui/SearchMatch.h"
 #include <algorithm>
+#include <limits>
 
 static char32_t CaseFold(char32_t c)
 {
@@ -492,6 +493,14 @@ void DocLayout::ClearSelection()
 {
     std::lock_guard<std::mutex> lk(mtx_);
     selection_.active = false;
+}
+
+void DocLayout::SelectAll()
+{
+    const int lastLine = std::max(0, GetLineCount() - 1);
+    SetSelection({ DocPosition{0, 0},
+                   DocPosition{lastLine, std::numeric_limits<int>::max()},
+                   true });
 }
 
 DocLayout::TextSelection DocLayout::GetSelection() const

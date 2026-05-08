@@ -64,6 +64,13 @@ void Session::OnInput(const input::KeyEvent& event)
     }
 }
 
+void Session::Paste(const std::string& utf8)
+{
+    if (utf8.empty()) return;
+    docLayout_->ScrollToEnd();
+    transport_->Write(utf8);
+}
+
 void Session::OnData(const std::string& data)
 {
     parser_.Process(data);

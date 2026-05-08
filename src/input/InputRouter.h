@@ -12,6 +12,7 @@ class InputTarget {
 public:
     virtual ~InputTarget() = default;
     virtual void OnInput(const KeyEvent& event) = 0;
+    virtual void Paste(const std::string& utf8) {}
 };
 
 class InputFilter {
@@ -60,6 +61,7 @@ public:
 
     // --- Dispatch ---
     void Send(KeyEvent event);
+    void Paste(const std::string& utf8);
 
 private:
     bool IsValidTarget(InputTarget* target) const;

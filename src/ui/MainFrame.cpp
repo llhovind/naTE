@@ -25,6 +25,8 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_MENU,         &MainFrame::OnQuit,  this, wxID_EXIT);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
 
+    m_editMenu = new wxMenu;
+
     m_connMenu = new wxMenu;
     m_connMenu->Append(ID_NEW_CONNECTION, "New Connection\tCtrl+N");
     m_connMenu->AppendSeparator();
@@ -36,6 +38,7 @@ MainFrame::MainFrame(const AppConfig& cfg,
 
     auto* menuBar = new wxMenuBar;
     menuBar->Append(fileMenu,   "&File");
+    menuBar->Append(m_editMenu, "&Edit");
     menuBar->Append(m_connMenu, "&Connection");
     menuBar->Append(termMenu,   "&Terminal");
     SetMenuBar(menuBar);
