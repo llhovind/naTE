@@ -24,6 +24,14 @@ SearchController::SearchController(DocLayout& layout, TerminalPanel& panel)
 
 void SearchController::SetBar(SearchBar* bar) { bar_ = bar; }
 
+void SearchController::SetInitialQuery(const std::u32string& query)
+{
+    if (bar_)
+        bar_->SetInitialQuery(query);
+    else
+        SetQuery(query);
+}
+
 void SearchController::SetQuery(const std::u32string& query)
 {
     query_ = query;

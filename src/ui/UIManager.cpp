@@ -20,6 +20,9 @@ UIManager::UIManager(term::session::SessionManager& sm,
     selectionActions_->Register(std::make_unique<CopyAction>());
     selectionActions_->Register(std::make_unique<SaveToFileAction>());
     selectionActions_->Register(std::make_unique<WebSearchAction>());
+    selectionActions_->Register(std::make_unique<FindInTerminalAction>(
+        [this](const std::u32string& q) { ShowSearchBarForActive(true, q); }
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -213,11 +216,23 @@ bool UIManager::SearchBarHasFocus() const
     return ui->panel->HasSearchBarFocus();
 }
 
-void UIManager::ShowSearchBarForActive(bool show)
+void UIManager::ShowSearchBarForActive(bool show, const std::u32string& initialQuery)
 {
     SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
-    if (ui && ui->panel)
-        ui->panel->ShowSearchBar(show);
+    if (!ui || !ui->panel) return;
+    ui->panel->ShowSearchBar(show);
+    if (show && !initialQuery.empty() && ui->searchCtrl)
+        ui->searchCtrl->SetInitialQuery(initialQuery);
+}
+
+std::u32string UIManager::GetActiveSelectedText() const
+{
+    const SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
+    if (!ui) return {};
+    const std::u32string full = sm_.GetDocLayout(ui->id).GetSelectedText();
+    // The per-line search doesn't support multi-line queries; use only the first line.
+    const auto nl = full.find(U'\n');
+    return (nl != std::u32string::npos) ? full.substr(0, nl) : full;
 }
 
 void UIManager::UpdateStatusBar()

@@ -1,5 +1,6 @@
 #include "ui/SearchBar.h"
 #include "ui/SearchController.h"
+#include "ui/StringUtils.h"
 #include <wx/sizer.h>
 #include <wx/settings.h>
 
@@ -53,6 +54,15 @@ void SearchBar::FocusInput()
 {
     input_->SetFocus();
     input_->SelectAll();
+}
+
+void SearchBar::SetInitialQuery(const std::u32string& query)
+{
+    // ChangeValue does not fire wxEVT_TEXT, so we drive the search explicitly.
+    input_->ChangeValue(ToWxString(query));
+    input_->SetFocus();
+    input_->SelectAll();
+    ctrl_.SetQuery(query);
 }
 
 void SearchBar::UpdateStatus(size_t current, size_t total)

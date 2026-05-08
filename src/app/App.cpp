@@ -78,8 +78,9 @@ void App::OnGdkKeyPress(GdkEvent* event)
     }
 
     // Ctrl+F — open/focus the search bar (never send to PTY).
+    // If text is selected, pre-populate the bar with the selection.
     if (evt.ctrl && evt.key == term::input::Key::Character && evt.code == 'f') {
-        m_uiManager->ShowSearchBarForActive(true);
+        m_uiManager->ShowSearchBarForActive(true, m_uiManager->GetActiveSelectedText());
         return;
     }
 

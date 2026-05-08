@@ -14,6 +14,8 @@ public:
     void SetBar(SearchBar* bar);
 
     void SetQuery(const std::u32string& query);
+    // Pre-populate the search bar with query and run the search immediately.
+    void SetInitialQuery(const std::u32string& query);
     void NextMatch();
     void PrevMatch();
     void Clear();

@@ -17,6 +17,9 @@ public:
     void UpdateStatus(size_t current, size_t total);
     void SetCloseCallback(CloseCallback cb) { onClose_ = std::move(cb); }
 
+    // Pre-populate the text field and trigger a search, as if the user had typed it.
+    void SetInitialQuery(const std::u32string& query);
+
 private:
     void OnText(wxCommandEvent&);
     void OnNext(wxCommandEvent&);

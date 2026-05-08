@@ -44,7 +44,10 @@ public:
     // Search bar access — used by App::OnGdkKeyPress to route search keystrokes.
     SearchController* GetActiveSearchController();
     bool              SearchBarHasFocus() const;
-    void              ShowSearchBarForActive(bool show);
+    void              ShowSearchBarForActive(bool show,
+                                             const std::u32string& initialQuery = {});
+    // Returns the first line of the active session's selection (empty if none).
+    std::u32string    GetActiveSelectedText() const;
 
 private:
     static constexpr int kMenuIdBase = wxID_HIGHEST + 200;
