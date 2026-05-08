@@ -160,12 +160,18 @@ void UIManager::RequestActivate(term::session::SessionId id)
     sm_.ActivateSession(id);
 
     // Show the activated panel; hide all others.
+    TerminalPanel* activePanel = nullptr;
     for (auto& [sid, ui] : sessions_) {
-        if (ui.panel)
-            ui.panel->Show(sid == id);
+        const bool isActive = (sid == id);
+        if (ui.panel) {
+            ui.panel->Show(isActive);
+            if (isActive) activePanel = ui.panel;
+        }
     }
     frame_->Layout();
     UpdateStatusBar();
+    if (activePanel)
+        activePanel->SetFocus();
 }
 
 void UIManager::OnScroll(term::session::SessionId id, int topRow)
