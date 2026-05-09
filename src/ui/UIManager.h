@@ -85,6 +85,7 @@ private:
 
     void             SetupEditMenu(wxMenu* menu);
     void             PasteFromClipboard();
+    void             ResizeFrameToFitTiles();
     bool             HasActiveSelection() const;
     std::u32string   GetFullActiveSelectedText() const;
 
@@ -94,7 +95,6 @@ private:
     MainFrame*                     frame_;
     AppConfig                      cfg_;
     TerminalGrid*                  grid_ = nullptr; // wx-child of frame_; non-owning here
-    bool                           firstSession_ = true;
 
     std::unique_ptr<SelectionActionRegistry> selectionActions_;
 

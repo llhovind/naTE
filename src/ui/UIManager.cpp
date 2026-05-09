@@ -9,6 +9,7 @@
 #include "ui/SelectionActions.h"
 #include "ui/StringUtils.h"
 #include <gtk/gtk.h>
+#include <wx/display.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/string.h>
@@ -76,14 +77,7 @@ void UIManager::OnSessionCreated(term::session::SessionId id,
     panel->SetSearchBar(bar);
 
     grid_->AddTile(tile);
-
-    // On the first session, resize the frame to comfortably fit one tile.
-    if (firstSession_) {
-        const wxSize tileMin = tile->GetMinSize();
-        frame_->SetClientSize(
-            tileMin + wxSize(2 * TerminalGrid::kGap, 2 * TerminalGrid::kGap));
-        firstSession_ = false;
-    }
+    ResizeFrameToFitTiles();
 
     // Add menu item for this session.
     const int menuId = nextMenuId_++;
@@ -370,6 +364,25 @@ void UIManager::SetupEditMenu(wxMenu* menu)
                    kEditMenuSaveFile, kEditMenuWebSearch}) {
         frame_->Bind(wxEVT_UPDATE_UI, enableIfSelection, id);
     }
+}
+
+void UIManager::ResizeFrameToFitTiles()
+{
+    const wxSize ideal = grid_->ComputeIdealGridSize();
+    if (ideal.x <= 0 || ideal.y <= 0) return;
+
+    const int displayIdx = wxDisplay::GetFromWindow(frame_);
+    const wxDisplay display(displayIdx == wxNOT_FOUND ? 0 : displayIdx);
+    const wxRect workArea = display.GetClientArea();
+
+    // Chrome = title bar + menu bar + status bar, measured live so it's always accurate.
+    const wxSize chrome = frame_->GetSize() - frame_->GetClientSize();
+
+    const int maxClientW = workArea.GetWidth()  - chrome.x;
+    const int maxClientH = workArea.GetHeight() - chrome.y;
+
+    frame_->SetClientSize(std::min(ideal.x, maxClientW),
+                          std::min(ideal.y, maxClientH));
 }
 
 void UIManager::PasteFromClipboard()

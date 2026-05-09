@@ -1,6 +1,7 @@
 #include "ui/TerminalGrid.h"
 #include "ui/TerminalTile.h"
 #include <algorithm>
+#include <cmath>
 #include <wx/sizer.h>
 
 TerminalGrid::TerminalGrid(wxWindow* parent)
@@ -35,6 +36,48 @@ void TerminalGrid::SetDirection(GridDirection dir)
     RelayoutTiles();
 }
 
+int TerminalGrid::ComputeGridColumns(int n)
+{
+    if (n <= 0) return 1;
+    return static_cast<int>(std::ceil(std::sqrt(static_cast<double>(n))));
+}
+
+wxSize TerminalGrid::ComputeIdealGridSize() const
+{
+    if (tiles_.empty()) return wxSize(0, 0);
+
+    // Mirrors the RowFirst layout pass so the result stays in sync when the
+    // wrap condition changes (e.g. a future width-aware bin-pack PR).
+    const int n    = static_cast<int>(tiles_.size());
+    const int cols = ComputeGridColumns(n);
+
+    int totalW = 0;
+    int totalH = kGap;  // top gap
+    int col    = 0;
+    int rowW   = kGap;  // left gap of current row
+    int rowH   = 0;
+
+    for (TerminalTile* t : tiles_) {
+        const wxSize sz = t->GetMinSize();
+
+        if (col > 0 && col >= cols) {
+            totalW  = std::max(totalW, rowW);
+            totalH += rowH + kGap;
+            rowW    = kGap;
+            rowH    = 0;
+            col     = 0;
+        }
+
+        rowW += sz.x + kGap;
+        rowH  = std::max(rowH, sz.y);
+        col++;
+    }
+    totalW  = std::max(totalW, rowW);
+    totalH += rowH + kGap;  // bottom gap
+
+    return wxSize(totalW, totalH);
+}
+
 void TerminalGrid::OnSize(wxSizeEvent& evt)
 {
     RelayoutTiles();
@@ -51,29 +94,35 @@ void TerminalGrid::RelayoutTiles()
     const wxSize client = GetClientSize();
 
     if (direction_ == GridDirection::RowFirst) {
-        int x = kGap;
-        int y = kGap;
-        int maxRowH = 0;
+        const int n    = static_cast<int>(tiles_.size());
+        const int cols = ComputeGridColumns(n);
+
+        int x        = kGap;
+        int y        = kGap;
+        int maxRowH  = 0;
+        int col      = 0;
+        int contentW = 0;
 
         for (TerminalTile* tile : tiles_) {
             const wxSize sz = tile->GetMinSize();
 
-            // Wrap to next row when the tile won't fit — but never on the
-            // first tile in a row (x == kGap) to avoid infinite empty rows.
-            if (x > kGap && x + sz.x + kGap > client.x) {
-                x = kGap;
-                y += maxRowH + kGap;
+            if (col > 0 && col >= cols) {
+                x       = kGap;
+                y      += maxRowH + kGap;
                 maxRowH = 0;
+                col     = 0;
             }
 
             tile->SetSize(sz);
             tile->SetPosition(wxPoint(x, y));
 
             x += sz.x + kGap;
-            maxRowH = std::max(maxRowH, sz.y);
+            contentW = std::max(contentW, x);
+            maxRowH  = std::max(maxRowH, sz.y);
+            col++;
         }
 
-        SetVirtualSize(client.x, y + maxRowH + kGap);
+        SetVirtualSize(std::max(client.x, contentW), y + maxRowH + kGap);
 
     } else {  // ColumnFirst
         int x = kGap;

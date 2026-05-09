@@ -19,6 +19,15 @@ public:
     // Changes the fill axis and reflows immediately.
     void SetDirection(GridDirection dir);
 
+    // Returns the column count for N tiles using the balanced-grid strategy
+    // (cols = ceil(sqrt(N))). Single source of truth for layout and sizing.
+    static int ComputeGridColumns(int n);
+
+    // Returns the pixel content size needed to display all current tiles at
+    // their min size under the active layout strategy. Used by UIManager to
+    // resize the frame after tiles are added.
+    wxSize ComputeIdealGridSize() const;
+
     static constexpr int kGap = 8;  // px between tiles
 
 private:
