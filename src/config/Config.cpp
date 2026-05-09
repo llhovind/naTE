@@ -14,6 +14,24 @@ std::string trim(std::string_view sv) {
     return std::string(sv.substr(first, last - first + 1));
 }
 
+std::vector<unsigned short> parseWidths(const std::string& val) {
+    std::vector<unsigned short> result;
+    std::istringstream ss(val);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+        const std::string t = trim(token);
+        if (t.empty()) continue;
+        try {
+            const int v = std::stoi(t);
+            if (v > 0 && v <= 65535)
+                result.push_back(static_cast<unsigned short>(v));
+        } catch (...) {}
+    }
+    if (result.empty())
+        result = {80, 132};
+    return result;
+}
+
 } // namespace
 
 AppConfig AppConfig::load(const std::string& path) {
@@ -51,6 +69,8 @@ AppConfig AppConfig::load(const std::string& path) {
             else if (key == "Rows")         cfg.rows         = toInt(val, cfg.rows);
             else if (key == "FontSize")     cfg.fontSize     = toInt(val, cfg.fontSize);
             else if (key == "PtyLineWidth") cfg.ptyLineWidth = toInt(val, cfg.ptyLineWidth);
+        } else if (section == "Terminal") {
+            if (key == "ColumnWidths")      cfg.columnWidths = parseWidths(val);
         } else if (section == "Colors") {
             auto clamp = [](int v) -> uint8_t {
                 return static_cast<uint8_t>(std::max(0, std::min(255, v)));

@@ -19,7 +19,7 @@ static int QueryScrollbarThickness()
 static constexpr int kResizeDebounceMs = 80;
 static constexpr int kInnerPad         = 4;   // px inset between content and panel/scrollbar edges
 
-TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
+TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg, unsigned short cols)
     : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS),
       m_cfg(cfg),
       m_font(cfg.fontSize, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL),
@@ -51,8 +51,8 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg)
 
     SetBackgroundColour(wxColour(cfg.bgColour.r, cfg.bgColour.g, cfg.bgColour.b));
     SetBackgroundStyle(wxBG_STYLE_PAINT);
-    SetMinClientSize({cfg.columns * m_charSize.x + m_sbThick + 2 * kInnerPad,
-                      cfg.rows    * m_charSize.y + m_sbThick + 2 * kInnerPad});
+    SetMinClientSize({cols       * m_charSize.x + m_sbThick + 2 * kInnerPad,
+                      cfg.rows   * m_charSize.y + m_sbThick + 2 * kInnerPad});
 
     Bind(wxEVT_PAINT,      &TerminalPanel::OnPaint,          this);
     Bind(wxEVT_SIZE,       &TerminalPanel::OnSize,           this);

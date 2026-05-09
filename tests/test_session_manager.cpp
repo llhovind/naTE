@@ -24,7 +24,7 @@ struct RecordedEvent {
 struct MockObserver : ISessionObserver {
     std::vector<RecordedEvent> events;
 
-    void OnSessionCreated(SessionId id, const std::string& label) override {
+    void OnSessionCreated(SessionId id, const std::string& label, unsigned short /*cols*/) override {
         events.push_back({RecordedEvent::Type::Created, id, label});
     }
     void OnSessionTitleChanged(SessionId id, const std::string& title) override {

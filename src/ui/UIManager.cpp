@@ -39,10 +39,12 @@ UIManager::UIManager(term::session::SessionManager& sm,
 // ISessionObserver
 // ---------------------------------------------------------------------------
 
-void UIManager::OnSessionCreated(term::session::SessionId id, const std::string& label)
+void UIManager::OnSessionCreated(term::session::SessionId id,
+                                  const std::string& label,
+                                  unsigned short cols)
 {
     // Create TerminalPanel as a child of the frame; wire all event callbacks.
-    auto* panel = new TerminalPanel(frame_, cfg_);
+    auto* panel = new TerminalPanel(frame_, cfg_, cols);
     panel->SetDocLayout(&sm_.GetDocLayout(id));
 
     panel->SetScrollCallback([this, id](int topRow) {
@@ -79,15 +81,8 @@ void UIManager::OnSessionCreated(term::session::SessionId id, const std::string&
     sui.searchCtrl = std::move(ctrl);
     sessions_.emplace(id, std::move(sui));
 
-    // Auto-focus the new session.
+    // Auto-focus the new session — RequestActivate also resizes the frame.
     RequestActivate(id);
-
-    // On the first session, resize the frame so the panel receives exactly its
-    // minimum client size — guaranteeing ViewportChars() == cfg.columns × cfg.rows.
-    if (sessions_.size() == 1) {
-        frame_->SetClientSize(panel->GetMinClientSize());
-        frame_->Layout();
-    }
 }
 
 void UIManager::OnSessionTitleChanged(term::session::SessionId id, const std::string& title)
@@ -200,6 +195,13 @@ void UIManager::RequestActivate(term::session::SessionId id)
             if (isActive) activePanel = ui.panel;
         }
     }
+
+    // Resize the frame so the active panel receives exactly its minimum client
+    // size, guaranteeing ViewportChars() == connection.columnWidth × cfg.rows.
+    // This runs on both new-session creation and explicit session switching.
+    if (activePanel)
+        frame_->SetClientSize(activePanel->GetMinClientSize());
+
     frame_->Layout();
     UpdateStatusBar();
     if (activePanel)

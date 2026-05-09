@@ -1,6 +1,9 @@
 #include "ui/NewConnectionDialog.h"
+#include "db/ConnectionProfile.h"
+#include "session/Connection.h"
 
 #include <wx/checkbox.h>
+#include <wx/combobox.h>
 #include <wx/filepicker.h>
 #include <wx/msgdlg.h>
 #include <wx/panel.h>
@@ -20,15 +23,20 @@ namespace
     constexpr int ID_RB_LOOPBACK    = wxID_HIGHEST + 200;
     constexpr int ID_RB_PTY         = wxID_HIGHEST + 201;
     constexpr int ID_RB_SSH         = wxID_HIGHEST + 202;
-    constexpr int ID_CB_WRAP        = wxID_HIGHEST + 204;
     constexpr int ID_RB_AUTH_AGENT  = wxID_HIGHEST + 205;
     constexpr int ID_RB_AUTH_PASS   = wxID_HIGHEST + 206;
     constexpr int ID_RB_AUTH_KEY    = wxID_HIGHEST + 207;
 }
 
-NewConnectionDialog::NewConnectionDialog(wxWindow* parent, const std::string& defaultShell)
-    : wxDialog(parent, wxID_ANY, "New Connection", wxDefaultPosition, wxDefaultSize,
+NewConnectionDialog::NewConnectionDialog(wxWindow* parent,
+                                         const std::string& defaultShell,
+                                         const std::vector<unsigned short>& columnWidths,
+                                         const term::db::ConnectionProfile* prefill)
+    : wxDialog(parent, wxID_ANY,
+               prefill ? "Edit Connection" : "New Connection",
+               wxDefaultPosition, wxDefaultSize,
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
+    , m_columnWidths(columnWidths.empty() ? std::vector<unsigned short>{80, 132} : columnWidths)
 {
     auto* outer = new wxBoxSizer(wxVERTICAL);
 
@@ -53,11 +61,6 @@ NewConnectionDialog::NewConnectionDialog(wxWindow* parent, const std::string& de
                                  wxDefaultPosition, wxSize(280, -1));
     shellRow->Add(m_shellCtrl, 1, wxEXPAND);
     outer->Add(shellRow, 0, wxLEFT | wxRIGHT | wxTOP | wxEXPAND, 12);
-
-    outer->AddSpacer(4);
-    m_cbWordWrap = new wxCheckBox(this, ID_CB_WRAP, "Word Wrap");
-    m_cbWordWrap->SetValue(false);
-    outer->Add(m_cbWordWrap, 0, wxLEFT | wxTOP, 12);
 
     // ---- SSH panel ----------------------------------------------------------
     m_sshPanel = new wxPanel(this, wxID_ANY);
@@ -177,14 +180,38 @@ NewConnectionDialog::NewConnectionDialog(wxWindow* parent, const std::string& de
     m_sshPanel->Show(false);
     outer->Add(m_sshPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
 
-    // ---- Footer -------------------------------------------------------------
+    // ---- Shared terminal options --------------------------------------------
     outer->AddSpacer(8);
+    outer->Add(new wxStaticLine(this), 0, wxEXPAND | wxLEFT | wxRIGHT, 12);
+    outer->AddSpacer(6);
+
+    auto* termOptRow = new wxBoxSizer(wxHORIZONTAL);
+    termOptRow->Add(new wxStaticText(this, wxID_ANY, "Column width:"),
+                    0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+
+    wxArrayString widthChoices;
+    for (unsigned short w : m_columnWidths)
+        widthChoices.Add(wxString::Format("%d", static_cast<int>(w)));
+    m_colWidthCtrl = new wxComboBox(this, wxID_ANY, widthChoices.empty() ? "80" : widthChoices[0],
+                                    wxDefaultPosition, wxSize(80, -1),
+                                    widthChoices, wxCB_READONLY);
+    if (!widthChoices.IsEmpty())
+        m_colWidthCtrl->SetSelection(0);
+    termOptRow->Add(m_colWidthCtrl, 0, wxRIGHT, 20);
+
+    m_cbWordWrap = new wxCheckBox(this, wxID_ANY, "Word Wrap");
+    m_cbWordWrap->SetValue(false);
+    termOptRow->Add(m_cbWordWrap, 0, wxALIGN_CENTER_VERTICAL);
+
+    outer->Add(termOptRow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
+
+    // ---- Footer -------------------------------------------------------------
     outer->Add(new wxStaticLine(this), 0, wxEXPAND | wxLEFT | wxRIGHT, 12);
     outer->Add(CreateButtonSizer(wxOK | wxCANCEL), 0,
                wxALIGN_RIGHT | wxALL, 10);
 
     if (auto* btn = dynamic_cast<wxButton*>(FindWindow(wxID_OK)))
-        btn->SetLabel("Connect");
+        btn->SetLabel(prefill ? "Save" : "Connect");
 
     SetSizerAndFit(outer);
     SetMinSize(GetSize());
@@ -197,16 +224,83 @@ NewConnectionDialog::NewConnectionDialog(wxWindow* parent, const std::string& de
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_PASS);
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_KEY);
     Bind(wxEVT_BUTTON, &NewConnectionDialog::OnOK, this, wxID_OK);
+
+    if (prefill)
+        ApplyPrefill(*prefill);
+}
+
+void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profile)
+{
+    std::visit([this](const auto& desc) {
+        using T = std::decay_t<decltype(desc)>;
+        if constexpr (std::is_same_v<T, term::session::PtyDesc>) {
+            m_rbPty->SetValue(true);
+            m_shellCtrl->SetValue(desc.shell);
+            m_sshPanel->Show(false);
+            m_shellCtrl->Enable(true);
+        } else if constexpr (std::is_same_v<T, term::session::SshDesc>) {
+            m_rbSsh->SetValue(true);
+            m_hostCtrl->SetValue(desc.host);
+            m_portCtrl->SetValue(desc.port);
+            m_userCtrl->SetValue(desc.username);
+            m_timeoutCtrl->SetValue(desc.connectTimeoutSec);
+            m_keepaliveCtrl->SetValue(desc.keepaliveSeconds);
+            m_remoteCmdCtrl->SetValue(desc.remoteCommand);
+            m_cbCompress->SetValue(desc.compress);
+            switch (desc.authMethod) {
+                case term::session::SshAuthMethod::Password:
+                    m_rbAuthPass->SetValue(true);
+                    m_passPanel->Show(true);
+                    break;
+                case term::session::SshAuthMethod::PrivateKey:
+                    m_rbAuthKey->SetValue(true);
+                    m_keyPicker->SetPath(desc.privateKeyPath);
+                    m_keyPanel->Show(true);
+                    break;
+                default:
+                    m_rbAuthAgent->SetValue(true);
+                    break;
+            }
+            m_sshPanel->Show(true);
+            m_shellCtrl->Enable(false);
+        } else {
+            // Loopback
+            m_rbLoopback->SetValue(true);
+            m_sshPanel->Show(false);
+            m_shellCtrl->Enable(false);
+        }
+    }, profile.transport);
+
+    // Apply shared settings
+    m_cbWordWrap->SetValue(profile.wordWrap);
+    for (int i = 0; i < static_cast<int>(m_columnWidths.size()); ++i) {
+        if (m_columnWidths[i] == profile.columnWidth) {
+            m_colWidthCtrl->SetSelection(i);
+            break;
+        }
+    }
+
+    // Sync word wrap state for Loopback
+    if (m_rbLoopback->GetValue()) {
+        m_cbWordWrap->SetValue(true);
+        m_cbWordWrap->Enable(false);
+    }
+
+    UpdateLayout();
 }
 
 void NewConnectionDialog::OnTransportChanged(wxCommandEvent&)
 {
-    const bool isPty = m_rbPty->GetValue();
-    const bool isSsh = m_rbSsh->GetValue();
+    const bool isPty      = m_rbPty->GetValue();
+    const bool isSsh      = m_rbSsh->GetValue();
+    const bool isLoopback = m_rbLoopback->GetValue();
 
     m_shellCtrl->Enable(isPty);
-    m_cbWordWrap->Enable(isPty);
     m_sshPanel->Show(isSsh);
+
+    // Loopback: word wrap is always on and not user-adjustable
+    m_cbWordWrap->SetValue(isLoopback ? true : m_cbWordWrap->GetValue());
+    m_cbWordWrap->Enable(!isLoopback);
 
     UpdateLayout();
 }
@@ -247,20 +341,30 @@ void NewConnectionDialog::UpdateLayout()
 
 ConnectionParams NewConnectionDialog::GetParams() const
 {
+    const int selIdx = m_colWidthCtrl->GetSelection();
+    const unsigned short colWidth =
+        (selIdx >= 0 && selIdx < static_cast<int>(m_columnWidths.size()))
+        ? m_columnWidths[selIdx]
+        : 80;
+    const bool wordWrap = m_cbWordWrap->GetValue();
+
     if (m_rbPty->GetValue())
         return PtyParams{
             m_shellCtrl->GetValue().ToStdString(),
-            m_cbWordWrap->GetValue()};
+            wordWrap,
+            colWidth};
 
     if (m_rbSsh->GetValue()) {
         SshParams p;
-        p.host             = m_hostCtrl->GetValue().ToStdString();
-        p.port             = static_cast<unsigned short>(m_portCtrl->GetValue());
-        p.username         = m_userCtrl->GetValue().ToStdString();
+        p.host              = m_hostCtrl->GetValue().ToStdString();
+        p.port              = static_cast<unsigned short>(m_portCtrl->GetValue());
+        p.username          = m_userCtrl->GetValue().ToStdString();
         p.connectTimeoutSec = m_timeoutCtrl->GetValue();
         p.keepaliveSeconds  = m_keepaliveCtrl->GetValue();
-        p.remoteCommand    = m_remoteCmdCtrl->GetValue().ToStdString();
-        p.compress         = m_cbCompress->GetValue();
+        p.remoteCommand     = m_remoteCmdCtrl->GetValue().ToStdString();
+        p.compress          = m_cbCompress->GetValue();
+        p.wordWrap          = wordWrap;
+        p.columnWidth       = colWidth;
 
         if (m_rbAuthPass->GetValue()) {
             p.authMethod = SshAuthChoice::Password;
@@ -275,7 +379,7 @@ ConnectionParams NewConnectionDialog::GetParams() const
         return p;
     }
 
-    return LoopbackParams{};
+    return LoopbackParams{true, colWidth};
 }
 
 } // namespace ui

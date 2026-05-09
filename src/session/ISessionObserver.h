@@ -14,7 +14,8 @@ public:
     virtual ~ISessionObserver() = default;
 
     // UI thread — called synchronously from SessionManager::CreateSession.
-    virtual void OnSessionCreated(SessionId, const std::string& label) = 0;
+    // cols is the effective terminal column width for this session.
+    virtual void OnSessionCreated(SessionId, const std::string& label, unsigned short cols) = 0;
 
     // Session thread — implementations MUST CallAfter before touching wx.
     virtual void OnSessionTitleChanged(SessionId, const std::string& title) = 0;

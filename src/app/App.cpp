@@ -1,4 +1,5 @@
 #include "app/App.h"
+#include "db/JsonConnectionRepository.h"
 #include "ui/MainFrame.h"
 #include "ui/wxKeyAdapter.h"
 #include "ui/SearchController.h"
@@ -8,6 +9,8 @@
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
 #include <libssh2.h>
+#include <cstdlib>
+#include <string>
 
 static void GdkEventHandler(GdkEvent* event, gpointer data)
 {
@@ -24,12 +27,21 @@ bool App::OnInit() {
         wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath();
     m_cfg = AppConfig::load((exeDir + wxFileName::GetPathSeparator() + "config.ini").ToStdString());
 
+    // Resolve ~/.nate/connections.json (same directory as known_hosts)
+    const std::string connectionsPath = [] {
+        const char* home = std::getenv("HOME");
+        const std::string base = home ? std::string(home) + "/.nate" : std::string(".nate");
+        return base + "/connections.json";
+    }();
+    m_connectionStore = std::make_unique<term::db::ConnectionStore>(
+        std::make_unique<term::db::JsonConnectionRepository>(connectionsPath));
+
     m_router         = std::make_unique<term::input::InputRouter>();
     m_sessionManager = std::make_unique<term::session::SessionManager>(*m_router);
 
     gdk_event_handler_set(GdkEventHandler, this, nullptr);
 
-    auto* frame = new MainFrame(m_cfg, *m_router, *m_sessionManager);
+    auto* frame = new MainFrame(m_cfg, *m_router, *m_sessionManager, *m_connectionStore);
 
     m_uiManager = std::make_unique<ui::UIManager>(
         *m_sessionManager, frame->GetConnMenu(), frame, m_cfg, *m_router,

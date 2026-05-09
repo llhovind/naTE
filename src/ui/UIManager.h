@@ -31,7 +31,7 @@ public:
               wxMenu*                        editMenu);
 
     // ISessionObserver — all six callbacks documented on the interface
-    void OnSessionCreated(term::session::SessionId, const std::string& label) override;
+    void OnSessionCreated(term::session::SessionId, const std::string& label, unsigned short cols) override;
     void OnSessionTitleChanged(term::session::SessionId, const std::string& title) override;
     void OnSessionRefresh(term::session::SessionId) override;
     void OnSessionError(term::session::SessionId,

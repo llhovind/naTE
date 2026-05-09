@@ -1,10 +1,13 @@
 #include "ui/MainFrame.h"
+#include "ui/ConnectionManagerDialog.h"
+#include "db/ConnectionStore.h"
 #include <wx/sizer.h>
 #include <cstdlib>
 
 namespace {
-    constexpr int ID_NEW_CONNECTION  = wxID_HIGHEST + 1;
-    constexpr int ID_TOGGLE_WORDWRAP = wxID_HIGHEST + 2;
+    constexpr int ID_NEW_CONNECTION     = wxID_HIGHEST + 1;
+    constexpr int ID_TOGGLE_WORDWRAP    = wxID_HIGHEST + 2;
+    constexpr int ID_CONNECTION_MANAGER = wxID_HIGHEST + 3;
 
     template<class... Ts>
     struct overloaded : Ts... { using Ts::operator()...; };
@@ -14,10 +17,12 @@ namespace {
 
 MainFrame::MainFrame(const AppConfig& cfg,
                      term::input::InputRouter& router,
-                     term::session::SessionManager& sm)
+                     term::session::SessionManager& sm,
+                     term::db::ConnectionStore& store)
     : wxFrame(nullptr, wxID_ANY, "naTE"),
       m_router(router),
       m_sm(sm),
+      m_store(store),
       m_cfg(cfg)
 {
     auto* fileMenu = new wxMenu;
@@ -28,9 +33,11 @@ MainFrame::MainFrame(const AppConfig& cfg,
     m_editMenu = new wxMenu;
 
     m_connMenu = new wxMenu;
-    m_connMenu->Append(ID_NEW_CONNECTION, "New Connection\tCtrl+N");
+    m_connMenu->Append(ID_CONNECTION_MANAGER, "Connection Manager...\tCtrl+Shift+M");
+    m_connMenu->Append(ID_NEW_CONNECTION,     "New Connection\tCtrl+N");
     m_connMenu->AppendSeparator();
-    Bind(wxEVT_MENU, &MainFrame::OnNewConnection, this, ID_NEW_CONNECTION);
+    Bind(wxEVT_MENU, &MainFrame::OnConnectionManager, this, ID_CONNECTION_MANAGER);
+    Bind(wxEVT_MENU, &MainFrame::OnNewConnection,     this, ID_NEW_CONNECTION);
 
     auto* termMenu = new wxMenu;
     m_miWordWrap = termMenu->AppendCheckItem(ID_TOGGLE_WORDWRAP, "Word Wrap\tCtrl+W");
@@ -49,7 +56,7 @@ MainFrame::MainFrame(const AppConfig& cfg,
         SetStatusWidths(4, kWidths);
     }
     SetStatusText("",     0);
-    SetStatusText("Ready — use Connection > New Connection to start", 1);
+    SetStatusText("Ready — use Connection > Connection Manager to start", 1);
     SetStatusText("",     2);
     SetStatusText("",     3);
 
@@ -69,6 +76,19 @@ void MainFrame::OnQuit(wxCommandEvent&)
     Close(true);
 }
 
+void MainFrame::LaunchSession(const term::session::Connection& conn)
+{
+    const unsigned short cols = conn.columnWidth
+        ? conn.columnWidth
+        : static_cast<unsigned short>(m_cfg.columns);
+
+    m_sm.CreateSession(conn,
+                       m_cfg.scrollbackLines,
+                       cols,
+                       static_cast<unsigned short>(m_cfg.rows),
+                       static_cast<unsigned short>(m_cfg.ptyLineWidth));
+}
+
 void MainFrame::OnNewConnection(wxCommandEvent&)
 {
     const std::string defaultShell = [] {
@@ -76,22 +96,24 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
         return s ? std::string(s) : std::string("/bin/bash");
     }();
 
-    ui::NewConnectionDialog dlg(this, defaultShell);
+    ui::NewConnectionDialog dlg(this, defaultShell, m_cfg.columnWidths);
     if (dlg.ShowModal() != wxID_OK)
         return;
 
     const int idx = ++m_sessionCount;
     term::session::Connection conn;
-    bool wordWrap = false;
     std::visit(overloaded{
-        [&](const ui::LoopbackParams&) {
-            conn = { wxString::Format("Loopback %d", idx).ToStdString(),
-                     term::session::LoopbackDesc{} };
+        [&](const ui::LoopbackParams& p) {
+            conn.label       = wxString::Format("Loopback %d", idx).ToStdString();
+            conn.transport   = term::session::LoopbackDesc{};
+            conn.wordWrap    = p.wordWrap;
+            conn.columnWidth = p.columnWidth;
         },
         [&](const ui::PtyParams& p) {
-            conn = { wxString::Format("Local Shell %d", idx).ToStdString(),
-                     term::session::PtyDesc{ p.shell } };
-            wordWrap = p.wordWrap;
+            conn.label       = wxString::Format("Local Shell %d", idx).ToStdString();
+            conn.transport   = term::session::PtyDesc{ p.shell };
+            conn.wordWrap    = p.wordWrap;
+            conn.columnWidth = p.columnWidth;
         },
         [&](const ui::SshParams& p) {
             term::session::SshDesc d;
@@ -113,19 +135,26 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
                 case ui::SshAuthChoice::PrivateKey:
                     d.authMethod = term::session::SshAuthMethod::PrivateKey; break;
             }
-            conn = { wxString::Format("SSH %s@%s:%d #%d",
-                                      p.username, p.host,
-                                      static_cast<int>(p.port), idx).ToStdString(),
-                     d };
+            conn.label       = wxString::Format("SSH %s@%s:%d #%d",
+                                                p.username, p.host,
+                                                static_cast<int>(p.port), idx).ToStdString();
+            conn.transport   = d;
+            conn.wordWrap    = p.wordWrap;
+            conn.columnWidth = p.columnWidth;
         }
     }, dlg.GetParams());
 
-    m_sm.CreateSession(conn,
-                       m_cfg.scrollbackLines,
-                       static_cast<unsigned short>(m_cfg.columns),
-                       static_cast<unsigned short>(m_cfg.rows),
-                       static_cast<unsigned short>(m_cfg.ptyLineWidth),
-                       wordWrap);
+    LaunchSession(conn);
+}
+
+void MainFrame::OnConnectionManager(wxCommandEvent&)
+{
+    ui::ConnectionManagerDialog dlg(this, m_store, m_cfg,
+        [this](const term::session::Connection& conn) {
+            ++m_sessionCount;
+            LaunchSession(conn);
+        });
+    dlg.ShowModal();
 }
 
 void MainFrame::OnToggleWordWrap(wxCommandEvent&)

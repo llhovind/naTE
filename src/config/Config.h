@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <vector>
 
 struct Rgb {
     uint8_t r = 0;
@@ -19,6 +20,7 @@ struct AppConfig {
     int ptyLineWidth    = 1024;
     Rgb textColour{ 0,   0,   0   };
     Rgb bgColour  { 255, 255, 204 };
+    std::vector<unsigned short> columnWidths = {80, 132};
 
     static AppConfig load(const std::string& path);
 };

@@ -16,7 +16,7 @@ public:
     using ResizeCallback = std::function<void(unsigned short cols, unsigned short rows)>;
     using FocusCallback  = std::function<void()>;
 
-    TerminalPanel(wxWindow* parent, const AppConfig& cfg);
+    TerminalPanel(wxWindow* parent, const AppConfig& cfg, unsigned short cols);
 
     void SetDocLayout(::DocLayout* docLayout);
 

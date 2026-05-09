@@ -3,22 +3,30 @@
 #include <wx/dialog.h>
 #include <string>
 #include <variant>
+#include <vector>
 
 class wxRadioButton;
 class wxCheckBox;
+class wxComboBox;
 class wxTextCtrl;
 class wxPanel;
 class wxSpinCtrl;
 class wxFilePickerCtrl;
 
+namespace term::db { struct ConnectionProfile; }
+
 namespace ui
 {
 
-struct LoopbackParams {};
+struct LoopbackParams {
+    bool           wordWrap    = true;
+    unsigned short columnWidth = 80;
+};
 
 struct PtyParams {
-    std::string shell;
-    bool        wordWrap = false;
+    std::string    shell;
+    bool           wordWrap    = false;
+    unsigned short columnWidth = 80;
 };
 
 enum class SshAuthChoice { Agent, Password, PrivateKey };
@@ -35,6 +43,8 @@ struct SshParams {
     int            connectTimeoutSec = 10;
     std::string    remoteCommand;
     bool           compress          = false;
+    bool           wordWrap          = false;
+    unsigned short columnWidth       = 80;
 };
 
 using ConnectionParams = std::variant<LoopbackParams, PtyParams, SshParams>;
@@ -42,7 +52,12 @@ using ConnectionParams = std::variant<LoopbackParams, PtyParams, SshParams>;
 class NewConnectionDialog : public wxDialog
 {
 public:
-    NewConnectionDialog(wxWindow* parent, const std::string& defaultShell);
+    // columnWidths:  list of selectable column widths from AppConfig
+    // prefill:       non-null to pre-populate fields for editing a saved profile
+    NewConnectionDialog(wxWindow* parent,
+                        const std::string& defaultShell,
+                        const std::vector<unsigned short>& columnWidths,
+                        const term::db::ConnectionProfile* prefill = nullptr);
 
     // Valid only after ShowModal() == wxID_OK
     ConnectionParams GetParams() const;
@@ -53,6 +68,7 @@ private:
     void OnOK(wxCommandEvent&);
 
     void UpdateLayout();
+    void ApplyPrefill(const term::db::ConnectionProfile& profile);
 
     // Transport selection
     wxRadioButton* m_rbLoopback   = nullptr;
@@ -61,7 +77,6 @@ private:
 
     // PTY fields
     wxTextCtrl*    m_shellCtrl    = nullptr;
-    wxCheckBox*    m_cbWordWrap   = nullptr;
 
     // SSH panel (shown/hidden as a unit)
     wxPanel*       m_sshPanel     = nullptr;
@@ -90,6 +105,12 @@ private:
     wxSpinCtrl*    m_keepaliveCtrl  = nullptr;
     wxTextCtrl*    m_remoteCmdCtrl  = nullptr;
     wxCheckBox*    m_cbCompress     = nullptr;
+
+    // Shared terminal options (all transports)
+    wxComboBox*    m_colWidthCtrl   = nullptr;
+    wxCheckBox*    m_cbWordWrap     = nullptr;
+
+    std::vector<unsigned short> m_columnWidths;
 };
 
 } // namespace ui
