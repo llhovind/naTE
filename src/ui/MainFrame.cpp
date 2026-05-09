@@ -60,9 +60,9 @@ MainFrame::MainFrame(const AppConfig& cfg,
     SetStatusText("",     2);
     SetStatusText("",     3);
 
-    SetBackgroundColour(wxColour(211, 211, 211));
+    SetBackgroundColour(wxColour(40, 40, 40));
     SetSizer(new wxBoxSizer(wxVERTICAL));
-    SetClientSize(wxSize(810, 470));
+    SetClientSize(wxSize(1200, 700));
 }
 
 void MainFrame::OnClose(wxCloseEvent& event)

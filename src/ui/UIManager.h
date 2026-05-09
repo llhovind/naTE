@@ -18,6 +18,8 @@
 
 class MainFrame;
 class TerminalPanel;
+class TerminalGrid;
+class TerminalTile;
 
 namespace ui {
 
@@ -72,7 +74,8 @@ private:
         term::session::SessionId          id       = 0;
         std::string                       label;
         int                               menuId   = 0;
-        TerminalPanel*                    panel    = nullptr; // wx-parent-owned; non-owning here
+        TerminalTile*                     tile     = nullptr; // wx-parent-owned by grid; non-owning here
+        TerminalPanel*                    panel    = nullptr; // wx-child of tile; non-owning here
         std::unique_ptr<SearchController> searchCtrl;
     };
 
@@ -90,6 +93,8 @@ private:
     wxMenu*                        connMenu_;
     MainFrame*                     frame_;
     AppConfig                      cfg_;
+    TerminalGrid*                  grid_ = nullptr; // wx-child of frame_; non-owning here
+    bool                           firstSession_ = true;
 
     std::unique_ptr<SelectionActionRegistry> selectionActions_;
 

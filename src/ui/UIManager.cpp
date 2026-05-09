@@ -1,6 +1,8 @@
 #include "ui/UIManager.h"
 #include "ui/MainFrame.h"
 #include "ui/TerminalPanel.h"
+#include "ui/TerminalTile.h"
+#include "ui/TerminalGrid.h"
 #include "ui/DocLayout.h"
 #include "ui/SearchBar.h"
 #include "ui/SearchController.h"
@@ -32,6 +34,9 @@ UIManager::UIManager(term::session::SessionManager& sm,
         [this](const std::u32string& text) { router_.Paste(ToUtf8(text)); }
     ));
 
+    grid_ = new TerminalGrid(frame_);
+    frame_->GetSizer()->Add(grid_, 1, wxEXPAND);
+
     SetupEditMenu(editMenu);
 }
 
@@ -43,8 +48,10 @@ void UIManager::OnSessionCreated(term::session::SessionId id,
                                   const std::string& label,
                                   unsigned short cols)
 {
-    // Create TerminalPanel as a child of the frame; wire all event callbacks.
-    auto* panel = new TerminalPanel(frame_, cfg_, cols);
+    // Create TerminalTile (which owns the TerminalPanel) as a grid child.
+    auto* tile  = new TerminalTile(grid_, cfg_, cols, label);
+    auto* panel = tile->GetTerminalPanel();
+
     panel->SetDocLayout(&sm_.GetDocLayout(id));
 
     panel->SetScrollCallback([this, id](int topRow) {
@@ -58,13 +65,25 @@ void UIManager::OnSessionCreated(term::session::SessionId id,
     });
     panel->SetActionRegistry(selectionActions_.get());
 
+    tile->SetActivateCallback([this, id]() {
+        RequestActivate(id);
+    });
+
     // Create SearchController and SearchBar; bar is a wx child of panel (panel owns it).
     auto ctrl = std::make_unique<SearchController>(sm_.GetDocLayout(id), *panel);
     auto* bar = new SearchBar(panel, *ctrl);
     ctrl->SetBar(bar);
     panel->SetSearchBar(bar);
 
-    frame_->GetSizer()->Add(panel, 1, wxEXPAND);
+    grid_->AddTile(tile);
+
+    // On the first session, resize the frame to comfortably fit one tile.
+    if (firstSession_) {
+        const wxSize tileMin = tile->GetMinSize();
+        frame_->SetClientSize(
+            tileMin + wxSize(2 * TerminalGrid::kGap, 2 * TerminalGrid::kGap));
+        firstSession_ = false;
+    }
 
     // Add menu item for this session.
     const int menuId = nextMenuId_++;
@@ -74,14 +93,15 @@ void UIManager::OnSessionCreated(term::session::SessionId id,
     }, menuId);
 
     SessionUI sui;
-    sui.id        = id;
-    sui.label     = label;
-    sui.menuId    = menuId;
-    sui.panel     = panel;
+    sui.id         = id;
+    sui.label      = label;
+    sui.menuId     = menuId;
+    sui.tile       = tile;
+    sui.panel      = panel;
     sui.searchCtrl = std::move(ctrl);
     sessions_.emplace(id, std::move(sui));
 
-    // Auto-focus the new session — RequestActivate also resizes the frame.
+    // Auto-focus the new session.
     RequestActivate(id);
 }
 
@@ -93,6 +113,8 @@ void UIManager::OnSessionTitleChanged(term::session::SessionId id, const std::st
         if (!ui) return;
         ui->label = title;
         connMenu_->SetLabel(ui->menuId, wxString::FromUTF8(title));
+        if (ui->tile)
+            ui->tile->SetTileLabel(wxString::FromUTF8(title));
         UpdateStatusBar();
     });
 }
@@ -152,17 +174,18 @@ void UIManager::OnSessionDestroyed(term::session::SessionId id)
 
     connMenu_->Delete(ui->menuId);
 
-    // Disconnect the SearchController from its bar before the panel (and bar) are destroyed.
+    // Disconnect the SearchController from its bar before the tile (and its
+    // TerminalPanel + SearchBar children) are destroyed.
     if (ui->searchCtrl) ui->searchCtrl->SetBar(nullptr);
 
-    if (ui->panel) {
-        ui->panel->Destroy();
+    if (ui->tile) {
+        grid_->RemoveTile(ui->tile);
+        ui->tile->Destroy();
+        ui->tile  = nullptr;
         ui->panel = nullptr;
     }
 
     sessions_.erase(id);
-
-    frame_->Layout();
 
     // If any sessions remain, activate the most recently inserted one;
     // RequestActivate calls UpdateStatusBar. Otherwise update directly to
@@ -186,21 +209,12 @@ void UIManager::RequestActivate(term::session::SessionId id)
 {
     sm_.ActivateSession(id);
 
-    // Show the activated panel; hide all others.
-    TerminalPanel* activePanel = nullptr;
-    for (auto& [sid, ui] : sessions_) {
-        const bool isActive = (sid == id);
-        if (ui.panel) {
-            ui.panel->Show(isActive);
-            if (isActive) activePanel = ui.panel;
-        }
-    }
+    SessionUI* ui = FindSessionUI(id);
+    TerminalPanel* activePanel = ui ? ui->panel : nullptr;
 
-    // Resize the frame so the active panel receives exactly its minimum client
-    // size, guaranteeing ViewportChars() == connection.columnWidth × cfg.rows.
-    // This runs on both new-session creation and explicit session switching.
-    if (activePanel)
-        frame_->SetClientSize(activePanel->GetMinClientSize());
+    // Highlight the active tile; all tiles remain visible.
+    if (ui && ui->tile)
+        grid_->SetActiveTile(ui->tile);
 
     frame_->Layout();
     UpdateStatusBar();

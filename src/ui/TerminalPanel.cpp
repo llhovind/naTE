@@ -288,6 +288,9 @@ void TerminalPanel::OnLeftDown(wxMouseEvent& e)
 {
     if (!docLayout_) { e.Skip(); return; }
     SetFocus();
+    // Explicitly activate the session — GTK's can-focus is not set on wxPanel,
+    // so wxEVT_SET_FOCUS may never fire from SetFocus() on this platform.
+    if (focusCb_) focusCb_();
 
     auto [row, col]            = PixelToViewportChar(e.GetPosition());
     const auto anchor          = docLayout_->HitTest(row, col);
