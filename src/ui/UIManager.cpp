@@ -177,6 +177,7 @@ void UIManager::OnSessionDestroyed(term::session::SessionId id)
         ui->tile->Destroy();
         ui->tile  = nullptr;
         ui->panel = nullptr;
+        ResizeFrameToFitTiles();
     }
 
     sessions_.erase(id);
