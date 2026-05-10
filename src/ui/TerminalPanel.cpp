@@ -1,5 +1,6 @@
 #include "ui/TerminalPanel.h"
 #include "ui/SearchBar.h"
+#include "ui/wxKeyAdapter.h"
 #include <wx/clipbrd.h>
 #include <wx/dcbuffer.h>
 #include <wx/dcmemory.h>
@@ -64,6 +65,7 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg, unsigned sh
     Bind(wxEVT_MOTION,     &TerminalPanel::OnMouseMove,      this);
     Bind(wxEVT_RIGHT_DOWN, &TerminalPanel::OnRightDown,      this);
     Bind(wxEVT_KEY_DOWN,   &TerminalPanel::OnKeyDown,        this);
+    Bind(wxEVT_CHAR,       &TerminalPanel::OnChar,           this);
     Bind(wxEVT_SET_FOCUS,  &TerminalPanel::OnFocus,          this);
 }
 
@@ -391,8 +393,7 @@ void TerminalPanel::OnSelScrollTimer(wxTimerEvent&)
 void TerminalPanel::OnKeyDown(wxKeyEvent& e)
 {
     if (!docLayout_ || !e.ShiftDown()) {
-        // Non-Shift key: clear any keyboard-driven selection and let the event
-        // propagate to the parent (PTY input path).
+        // Clear keyboard-driven selection on bare navigation keys.
         if (docLayout_ && !e.ShiftDown()) {
             const int k = e.GetKeyCode();
             if (k == WXK_LEFT || k == WXK_RIGHT || k == WXK_UP || k == WXK_DOWN ||
@@ -400,6 +401,18 @@ void TerminalPanel::OnKeyDown(wxKeyEvent& e)
                 docLayout_->ClearSelection();
                 Refresh();
             }
+        }
+        // Special keys and ctrl-combos route directly; printable chars go to OnChar.
+        const int k = e.GetKeyCode();
+        const bool isSpecial =
+            k == WXK_RETURN   || k == WXK_BACK     || k == WXK_TAB      || k == WXK_ESCAPE  ||
+            k == WXK_UP       || k == WXK_DOWN      || k == WXK_LEFT     || k == WXK_RIGHT   ||
+            k == WXK_HOME     || k == WXK_END       || k == WXK_PAGEUP   || k == WXK_PAGEDOWN||
+            k == WXK_INSERT   || k == WXK_DELETE    ||
+            (k >= WXK_F1 && k <= WXK_F12);
+        if ((isSpecial || e.ControlDown()) && keyCb_) {
+            keyCb_(term::ui::wx::ConvertKey(e));
+            return;
         }
         e.Skip();
         return;
@@ -453,6 +466,26 @@ void TerminalPanel::OnKeyDown(wxKeyEvent& e)
     docLayout_->SetSelection(sel);
     Refresh();
     // Do NOT call e.Skip() — swallow the event so it doesn't reach the PTY.
+}
+
+void TerminalPanel::OnChar(wxKeyEvent& e)
+{
+    const wxChar uc = e.GetUnicodeKey();
+    if (uc == WXK_NONE || e.ControlDown() || uc < 32) {
+        e.Skip();
+        return;
+    }
+    if (keyCb_) {
+        term::input::KeyEvent evt;
+        evt.key   = term::input::Key::Character;
+        evt.ctrl  = false;
+        evt.alt   = e.AltDown();
+        evt.shift = e.ShiftDown();
+        evt.code  = static_cast<uint32_t>(uc);
+        const wxString s(uc);
+        evt.text  = s.ToStdString(wxConvUTF8);
+        keyCb_(evt);
+    }
 }
 
 void TerminalPanel::OnPaint(wxPaintEvent&)

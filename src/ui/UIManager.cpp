@@ -8,8 +8,9 @@
 #include "ui/SearchController.h"
 #include "ui/SelectionActions.h"
 #include "ui/StringUtils.h"
-#include <gtk/gtk.h>
 #include <wx/brush.h>
+#include <wx/clipbrd.h>
+#include <wx/dataobj.h>
 #include <wx/dcmemory.h>
 #include <wx/generic/dragimgg.h>
 #include <wx/display.h>
@@ -155,6 +156,30 @@ void UIManager::TakeSession(term::session::SessionId  id,
         OnViewportResize(id, c, r);
     });
     panel->SetFocusCallback([this, id]() { RequestActivate(id); });
+    panel->SetKeyCallback([this](const term::input::KeyEvent& evt) {
+        if (evt.ctrl && evt.key == term::input::Key::Character && evt.code == 'f') {
+            ShowSearchBarForActive(true, GetActiveSelectedText());
+            return;
+        }
+        if (evt.ctrl && evt.key == term::input::Key::Character && evt.code == 'v') {
+            wxString text;
+            if (wxTheClipboard->Open()) {
+                if (wxTheClipboard->IsSupported(wxDF_TEXT)) {
+                    wxTextDataObject data;
+                    wxTheClipboard->GetData(data);
+                    text = data.GetText();
+                }
+                wxTheClipboard->Close();
+            }
+            if (!text.empty()) {
+                router_.Paste(text.ToStdString());
+                EnsureCursorVisibleForActive();
+            }
+            return;
+        }
+        router_.Send(evt);
+        EnsureCursorVisibleForActive();
+    });
     panel->SetActionRegistry(selectionActions_.get());
 
     tile->SetActivateCallback([this, id]() { RequestActivate(id); });
@@ -520,15 +545,19 @@ void UIManager::ResizeFrameToFitTiles()
 
 void UIManager::PasteFromClipboard()
 {
-    gtk_clipboard_request_text(
-        gtk_clipboard_get(GDK_SELECTION_CLIPBOARD),
-        [](GtkClipboard*, const gchar* text, gpointer data) {
-            if (!text) return;
-            auto* self = static_cast<UIManager*>(data);
-            self->router_.Paste(std::string(text));
-            self->EnsureCursorVisibleForActive();
-        },
-        this);
+    wxString text;
+    if (wxTheClipboard->Open()) {
+        if (wxTheClipboard->IsSupported(wxDF_TEXT)) {
+            wxTextDataObject data;
+            wxTheClipboard->GetData(data);
+            text = data.GetText();
+        }
+        wxTheClipboard->Close();
+    }
+    if (!text.empty()) {
+        router_.Paste(text.ToStdString());
+        EnsureCursorVisibleForActive();
+    }
 }
 
 bool UIManager::HasActiveSelection() const

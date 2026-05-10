@@ -112,6 +112,10 @@ void SearchBar::OnKeyDown(wxKeyEvent &e)
     {
         ctrl_.NextMatch();
     }
+    else if (e.GetKeyCode() == WXK_F3)
+    {
+        if (e.ShiftDown()) ctrl_.PrevMatch(); else ctrl_.NextMatch();
+    }
     else
     {
         e.Skip();

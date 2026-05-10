@@ -10,15 +10,12 @@
 #include "session/SessionManager.h"
 #include "ui/UIManager.h"
 
-#include <gdk/gdk.h>
-
 class MainFrame;
 
 class App : public wxApp {
 public:
     bool OnInit() override;
     int  OnExit() override;
-    void OnGdkKeyPress(GdkEvent* event);
 
     // Creates a new independent window; returns its frame.
     MainFrame* CreateNewWindow();
@@ -45,7 +42,6 @@ private:
     };
 
     WindowContext* FindContext(MainFrame* frame);
-    WindowContext* FindActiveContext();
 
     AppConfig                                      m_cfg;
     std::unique_ptr<term::db::ConnectionStore>     m_connectionStore;

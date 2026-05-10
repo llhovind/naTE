@@ -6,6 +6,7 @@
 #include "ui/DocLayout.h"
 #include "ui/SelectionActionRegistry.h"
 #include "config/Config.h"
+#include "input/KeyEvent.hpp"
 
 class SearchBar;
 
@@ -15,6 +16,7 @@ public:
     using ScrollCallback = std::function<void(int topRow)>;
     using ResizeCallback = std::function<void(unsigned short cols, unsigned short rows)>;
     using FocusCallback  = std::function<void()>;
+    using KeyCallback    = std::function<void(const term::input::KeyEvent&)>;
 
     TerminalPanel(wxWindow* parent, const AppConfig& cfg, unsigned short cols);
 
@@ -24,6 +26,7 @@ public:
     void SetScrollCallback(ScrollCallback cb) { scrollCb_ = std::move(cb); }
     void SetResizeCallback(ResizeCallback cb) { resizeCb_ = std::move(cb); }
     void SetFocusCallback(FocusCallback  cb) { focusCb_  = std::move(cb); }
+    void SetKeyCallback(KeyCallback      cb) { keyCb_    = std::move(cb); }
 
     // Called by the document-refresh chain after DocLayout has updated topRow_.
     void OnDocumentUpdate();
@@ -58,6 +61,7 @@ private:
     void OnRightDown(wxMouseEvent&);
     void OnSelScrollTimer(wxTimerEvent&);
     void OnKeyDown(wxKeyEvent&);
+    void OnChar(wxKeyEvent&);
     void OnFocus(wxFocusEvent&);
 
     void LayoutScrollbars();
@@ -80,6 +84,7 @@ private:
     ScrollCallback scrollCb_;
     ResizeCallback resizeCb_;
     FocusCallback  focusCb_;
+    KeyCallback    keyCb_;
 
     wxTimer resizeTimer_;
     wxSize  pendingResize_{0, 0};
