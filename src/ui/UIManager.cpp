@@ -9,12 +9,57 @@
 #include "ui/SelectionActions.h"
 #include "ui/StringUtils.h"
 #include <gtk/gtk.h>
+#include <wx/brush.h>
+#include <wx/dcmemory.h>
+#include <wx/generic/dragimgg.h>
 #include <wx/display.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/string.h>
 
 namespace ui {
+
+// ---------------------------------------------------------------------------
+// SessionNotifier — runs on the session thread
+// ---------------------------------------------------------------------------
+
+void UIManager::SessionNotifier::OnDocumentChanged(DocChangeType type, size_t)
+{
+    if (type == DocChangeType::TitleChanged) {
+        std::string t = getTitle();
+        mgr->frame_->CallAfter([m = mgr, sid = id, title = std::move(t)]() {
+            SessionUI* ui = m->FindSessionUI(sid);
+            if (!ui) return;
+            ui->label = title;
+            m->connMenu_->SetLabel(ui->menuId, wxString::FromUTF8(title));
+            if (ui->tile)
+                ui->tile->SetTileLabel(wxString::FromUTF8(title));
+            m->UpdateStatusBar();
+            if (sid == m->activeId_)
+                m->frame_->SetTitle(wxString::FromUTF8("naTE \xe2\x80\x94 " + title));
+        });
+    } else {
+        {
+            std::lock_guard<std::mutex> lk(mgr->pendingRefreshMtx_);
+            if (!mgr->pendingRefresh_.insert(id).second)
+                return;
+        }
+        mgr->frame_->CallAfter([m = mgr, sid = id]() {
+            {
+                std::lock_guard<std::mutex> lk(m->pendingRefreshMtx_);
+                m->pendingRefresh_.erase(sid);
+            }
+            SessionUI* ui = m->FindSessionUI(sid);
+            if (ui && ui->panel)
+                ui->panel->OnDocumentUpdate();
+            m->UpdateStatusBar();
+        });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Constructor / Destructor
+// ---------------------------------------------------------------------------
 
 UIManager::UIManager(term::session::SessionManager& sm,
                      wxMenu*                        connMenu,
@@ -41,107 +86,31 @@ UIManager::UIManager(term::session::SessionManager& sm,
     SetupEditMenu(editMenu);
 }
 
-// ---------------------------------------------------------------------------
-// ISessionObserver
-// ---------------------------------------------------------------------------
-
-void UIManager::OnSessionCreated(term::session::SessionId id,
-                                  const std::string& label,
-                                  unsigned short cols)
+UIManager::~UIManager()
 {
-    // Create TerminalTile (which owns the TerminalPanel) as a grid child.
-    auto* tile  = new TerminalTile(grid_, cfg_, cols, label);
-    auto* panel = tile->GetTerminalPanel();
-
-    panel->SetDocLayout(&sm_.GetDocLayout(id));
-
-    panel->SetScrollCallback([this, id](int topRow) {
-        OnScroll(id, topRow);
-    });
-    panel->SetResizeCallback([this, id](unsigned short c, unsigned short r) {
-        OnViewportResize(id, c, r);
-    });
-    panel->SetFocusCallback([this, id]() {
-        RequestActivate(id);
-    });
-    panel->SetActionRegistry(selectionActions_.get());
-
-    tile->SetActivateCallback([this, id]() {
-        RequestActivate(id);
-    });
-
-    // Create SearchController and SearchBar; bar is a wx child of panel (panel owns it).
-    auto ctrl = std::make_unique<SearchController>(sm_.GetDocLayout(id), *panel);
-    auto* bar = new SearchBar(panel, *ctrl);
-    ctrl->SetBar(bar);
-    panel->SetSearchBar(bar);
-
-    grid_->AddTile(tile);
-    ResizeFrameToFitTiles();
-
-    // Add menu item for this session.
-    const int menuId = nextMenuId_++;
-    connMenu_->Append(menuId, wxString::FromUTF8(label));
-    frame_->Bind(wxEVT_MENU, [this, id](wxCommandEvent&) {
-        RequestActivate(id);
-    }, menuId);
-
-    SessionUI sui;
-    sui.id         = id;
-    sui.label      = label;
-    sui.menuId     = menuId;
-    sui.tile       = tile;
-    sui.panel      = panel;
-    sui.searchCtrl = std::move(ctrl);
-    sessions_.emplace(id, std::move(sui));
-
-    // Auto-focus the new session.
-    RequestActivate(id);
-}
-
-void UIManager::OnSessionTitleChanged(term::session::SessionId id, const std::string& title)
-{
-    // Arrives on the Session thread — cross to the UI thread before touching wx.
-    frame_->CallAfter([this, id, title]() {
-        SessionUI* ui = FindSessionUI(id);
-        if (!ui) return;
-        ui->label = title;
-        connMenu_->SetLabel(ui->menuId, wxString::FromUTF8(title));
-        if (ui->tile)
-            ui->tile->SetTileLabel(wxString::FromUTF8(title));
-        UpdateStatusBar();
-        if (id == sm_.GetActiveSessionId())
-            frame_->SetTitle(wxString::FromUTF8("naTE \xe2\x80\x94 " + title));
-    });
-}
-
-void UIManager::OnSessionRefresh(term::session::SessionId id)
-{
-    // Arrives on the Session thread — must cross to the UI thread.
-    // Coalesce: if a refresh is already queued for this session, skip allocation.
-    {
-        std::lock_guard<std::mutex> lk(pendingRefreshMtx_);
-        if (!pendingRefresh_.insert(id).second)
-            return;
+    // Detach all remaining SessionNotifiers from their documents before the
+    // sessions are destroyed by SessionManager (which outlives UIManager in
+    // WindowContext destruction order).
+    for (auto& [id, ui] : sessions_) {
+        if (ui.notifier)
+            sm_.DetachSessionListener(id, ui.notifier.get());
     }
+}
+
+// ---------------------------------------------------------------------------
+// ISessionObserver — 3-method slim interface
+// ---------------------------------------------------------------------------
+
+void UIManager::OnSessionDisconnected(term::session::SessionId id)
+{
     frame_->CallAfter([this, id]() {
-        // Clear before processing so notifications arriving during the update
-        // can immediately queue the next refresh.
-        {
-            std::lock_guard<std::mutex> lk(pendingRefreshMtx_);
-            pendingRefresh_.erase(id);
-        }
-        SessionUI* ui = FindSessionUI(id);
-        if (ui && ui->panel)
-            ui->panel->OnDocumentUpdate();
-        UpdateStatusBar();
+        sm_.CloseSession(id);
     });
 }
 
 void UIManager::OnSessionError(term::session::SessionId /*id*/,
                                const term::transport::TransportError& error)
 {
-    // Arrives on the Session thread — must cross to the UI thread before touching wx.
     const bool isHostKey =
         (error.category == term::transport::TransportError::Category::HostKey);
     std::string msg = error.message;
@@ -155,23 +124,121 @@ void UIManager::OnSessionError(term::session::SessionId /*id*/,
     });
 }
 
-void UIManager::OnSessionDisconnected(term::session::SessionId id)
+void UIManager::OnSessionDestroyed(term::session::SessionId id)
 {
-    // Arrives on the Session thread — must cross to the UI thread.
-    frame_->CallAfter([this, id]() {
-        sm_.CloseSession(id);
-    });
+    // SM-initiated (called after Stop() — transport thread already joined).
+    // Detach notifier first (safe without Document mutex since thread is stopped).
+    SessionUI* ui = FindSessionUI(id);
+    if (ui && ui->notifier) {
+        sm_.DetachSessionListener(id, ui->notifier.get());
+        ui->notifier.reset();
+    }
+    TearDownSessionUI(id);
 }
 
-void UIManager::OnSessionDestroyed(term::session::SessionId id)
+// ---------------------------------------------------------------------------
+// App-initiated session subscription
+// ---------------------------------------------------------------------------
+
+void UIManager::TakeSession(term::session::SessionId  id,
+                             std::function<std::string()> getTitle,
+                             unsigned short            cols,
+                             const std::string&        label)
+{
+    auto* tile  = new TerminalTile(grid_, cfg_, cols, label);
+    auto* panel = tile->GetTerminalPanel();
+
+    panel->SetDocLayout(&sm_.GetDocLayout(id));
+
+    panel->SetScrollCallback([this, id](int topRow) { OnScroll(id, topRow); });
+    panel->SetResizeCallback([this, id](unsigned short c, unsigned short r) {
+        OnViewportResize(id, c, r);
+    });
+    panel->SetFocusCallback([this, id]() { RequestActivate(id); });
+    panel->SetActionRegistry(selectionActions_.get());
+
+    tile->SetActivateCallback([this, id]() { RequestActivate(id); });
+    tile->SetTileSessionId(id);
+    tile->SetDragStartCallback([this](term::session::SessionId sid, wxPoint pt) {
+        OnTileDragStart(sid, pt);
+    });
+
+    auto ctrl = std::make_unique<SearchController>(sm_.GetDocLayout(id), *panel);
+    auto* bar = new SearchBar(panel, *ctrl);
+    ctrl->SetBar(bar);
+    panel->SetSearchBar(bar);
+
+    grid_->AddTile(tile);
+    ResizeFrameToFitTiles();
+
+    const int menuId = nextMenuId_++;
+    connMenu_->Append(menuId, wxString::FromUTF8(label));
+    frame_->Bind(wxEVT_MENU, [this, id](wxCommandEvent&) {
+        RequestActivate(id);
+    }, menuId);
+
+    // Create SessionNotifier and attach it to the session's document.
+    auto notifier         = std::make_unique<SessionNotifier>();
+    notifier->id          = id;
+    notifier->mgr         = this;
+    notifier->getTitle    = std::move(getTitle);
+    sm_.AttachSessionListener(id, notifier.get());
+
+    SessionUI sui;
+    sui.id         = id;
+    sui.label      = label;
+    sui.menuId     = menuId;
+    sui.tile       = tile;
+    sui.panel      = panel;
+    sui.searchCtrl = std::move(ctrl);
+    sui.notifier   = std::move(notifier);
+    sessions_.emplace(id, std::move(sui));
+
+    RequestActivate(id);
+}
+
+void UIManager::ReleaseSession(term::session::SessionId id)
+{
+    SessionUI* ui = FindSessionUI(id);
+    if (!ui) return;
+
+    // Detach notifier with transport still running — Document mutex makes this safe.
+    if (ui->notifier) {
+        sm_.DetachSessionListener(id, ui->notifier.get());
+        ui->notifier.reset();
+    }
+    TearDownSessionUI(id);
+}
+
+void UIManager::CloseAllSessions()
+{
+    std::vector<term::session::SessionId> ids;
+    ids.reserve(sessions_.size());
+    for (auto& [id, _] : sessions_)
+        ids.push_back(id);
+    for (auto id : ids)
+        sm_.CloseSession(id);
+}
+
+void UIManager::ToggleWordWrapForActive()
+{
+    if (activeId_ == 0) return;
+    const bool newWrap = !sm_.GetDocLayout(activeId_).GetWordWrap();
+    sm_.SetWordWrap(activeId_, newWrap);
+    frame_->SyncWordWrapMenuItem(newWrap);
+}
+
+// ---------------------------------------------------------------------------
+// Common teardown (called by both OnSessionDestroyed and ReleaseSession)
+// ---------------------------------------------------------------------------
+
+void UIManager::TearDownSessionUI(term::session::SessionId id)
 {
     SessionUI* ui = FindSessionUI(id);
     if (!ui) return;
 
     connMenu_->Delete(ui->menuId);
 
-    // Disconnect the SearchController from its bar before the tile (and its
-    // TerminalPanel + SearchBar children) are destroyed.
     if (ui->searchCtrl) ui->searchCtrl->SetBar(nullptr);
 
     if (ui->tile) {
@@ -184,9 +251,9 @@ void UIManager::OnSessionDestroyed(term::session::SessionId id)
 
     sessions_.erase(id);
 
-    // If any sessions remain, activate the most recently inserted one;
-    // RequestActivate calls UpdateStatusBar. Otherwise update directly to
-    // reflect the no-session state.
+    if (activeId_ == id)
+        activeId_ = 0;
+
     if (!sessions_.empty())
         RequestActivate(sessions_.begin()->first);
     else {
@@ -206,12 +273,12 @@ void UIManager::OnSessionDestroyed(term::session::SessionId id)
 
 void UIManager::RequestActivate(term::session::SessionId id)
 {
-    sm_.ActivateSession(id);
+    sm_.ActivateSession(id, router_);
+    activeId_ = id;
 
     SessionUI* ui = FindSessionUI(id);
     TerminalPanel* activePanel = ui ? ui->panel : nullptr;
 
-    // Highlight the active tile; all tiles remain visible.
     if (ui && ui->tile)
         grid_->SetActiveTile(ui->tile);
 
@@ -237,9 +304,104 @@ void UIManager::OnViewportResize(term::session::SessionId id,
 
 void UIManager::EnsureCursorVisibleForActive()
 {
-    SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
+    SessionUI* ui = FindSessionUI(activeId_);
     if (ui && ui->panel)
         ui->panel->EnsureCursorVisible();
+}
+
+// ---------------------------------------------------------------------------
+// Drag support
+// ---------------------------------------------------------------------------
+
+void UIManager::OnTileDragStart(term::session::SessionId id, wxPoint screenAnchor)
+{
+    SessionUI* ui = FindSessionUI(id);
+    if (!ui) return;
+
+    // Create a label-text bitmap as the drag visual.
+    const wxString label = wxString::FromUTF8(ui->label);
+    const int bmpW = frame_->GetTextExtent(label).x + 16;
+    const int bmpH = TerminalTile::kTitleBarHeight;
+    wxBitmap bmp(bmpW, bmpH);
+    {
+        wxMemoryDC dc(bmp);
+        dc.SetBackground(wxBrush(wxColour(60, 100, 160)));
+        dc.Clear();
+        dc.SetTextForeground(*wxWHITE);
+        dc.DrawText(label, 4, 4);
+    }
+
+    dragImage_ = std::make_unique<wxGenericDragImage>(bmp, wxCursor(wxCURSOR_HAND));
+    const wxPoint clientAnchor = frame_->ScreenToClient(screenAnchor);
+    dragImage_->BeginDrag(wxPoint(0, 0), frame_, true);
+    dragImage_->Show();
+    dragImage_->Move(clientAnchor);
+    draggingId_ = id;
+
+    frame_->Bind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
+    frame_->Bind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
+}
+
+void UIManager::OnDragMotion(wxMouseEvent& evt)
+{
+    if (dragImage_)
+        dragImage_->Move(evt.GetPosition());
+    evt.Skip();
+}
+
+void UIManager::OnDragRelease(wxMouseEvent& evt)
+{
+    if (dragImage_) {
+        dragImage_->EndDrag();
+        dragImage_.reset();
+    }
+    frame_->Unbind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
+    frame_->Unbind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
+
+    const wxPoint screenPt = frame_->ClientToScreen(evt.GetPosition());
+    auto* hit = wxFindWindowAtPoint(screenPt);
+    auto* dstFrame = dynamic_cast<MainFrame*>(wxGetTopLevelParent(hit));
+
+    if (dstFrame && dstFrame != frame_ && moveSessionCb_)
+        moveSessionCb_(draggingId_, dstFrame);
+
+    draggingId_ = 0;
+    evt.Skip();
+}
+
+// ---------------------------------------------------------------------------
+// Search / selection helpers
+// ---------------------------------------------------------------------------
+
+SearchController* UIManager::GetActiveSearchController()
+{
+    SessionUI* ui = FindSessionUI(activeId_);
+    return ui ? ui->searchCtrl.get() : nullptr;
+}
+
+bool UIManager::SearchBarHasFocus() const
+{
+    const SessionUI* ui = FindSessionUI(activeId_);
+    if (!ui || !ui->panel) return false;
+    return ui->panel->HasSearchBarFocus();
+}
+
+void UIManager::ShowSearchBarForActive(bool show, const std::u32string& initialQuery)
+{
+    SessionUI* ui = FindSessionUI(activeId_);
+    if (!ui || !ui->panel) return;
+    ui->panel->ShowSearchBar(show);
+    if (show && !initialQuery.empty() && ui->searchCtrl)
+        ui->searchCtrl->SetInitialQuery(initialQuery);
+}
+
+std::u32string UIManager::GetActiveSelectedText() const
+{
+    const SessionUI* ui = FindSessionUI(activeId_);
+    if (!ui) return {};
+    const std::u32string full = sm_.GetDocLayout(ui->id).GetSelectedText();
+    const auto nl = full.find(U'\n');
+    return (nl != std::u32string::npos) ? full.substr(0, nl) : full;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,43 +420,9 @@ const UIManager::SessionUI* UIManager::FindSessionUI(term::session::SessionId id
     return (it != sessions_.end()) ? &it->second : nullptr;
 }
 
-SearchController* UIManager::GetActiveSearchController()
-{
-    SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
-    return ui ? ui->searchCtrl.get() : nullptr;
-}
-
-bool UIManager::SearchBarHasFocus() const
-{
-    const SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
-    if (!ui || !ui->panel) return false;
-    return ui->panel->HasSearchBarFocus();
-}
-
-void UIManager::ShowSearchBarForActive(bool show, const std::u32string& initialQuery)
-{
-    SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
-    if (!ui || !ui->panel) return;
-    ui->panel->ShowSearchBar(show);
-    if (show && !initialQuery.empty() && ui->searchCtrl)
-        ui->searchCtrl->SetInitialQuery(initialQuery);
-}
-
-std::u32string UIManager::GetActiveSelectedText() const
-{
-    const SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
-    if (!ui) return {};
-    const std::u32string full = sm_.GetDocLayout(ui->id).GetSelectedText();
-    // The per-line search doesn't support multi-line queries; use only the first line.
-    const auto nl = full.find(U'\n');
-    return (nl != std::u32string::npos) ? full.substr(0, nl) : full;
-}
-
 void UIManager::UpdateStatusBar()
 {
-    const term::session::SessionId activeId = sm_.GetActiveSessionId();
-
-    if (activeId == 0 || sessions_.find(activeId) == sessions_.end()) {
+    if (activeId_ == 0 || sessions_.find(activeId_) == sessions_.end()) {
         frame_->SetStatusText("",    0);
         frame_->SetStatusText("Ready — use Connection > New Connection to start", 1);
         frame_->SetStatusText("",    2);
@@ -302,12 +430,12 @@ void UIManager::UpdateStatusBar()
         return;
     }
 
-    const SessionUI* ui = FindSessionUI(activeId);
+    const SessionUI* ui = FindSessionUI(activeId_);
 
-    frame_->SetStatusText(wxString::Format("ID: %zu", activeId), 0);
+    frame_->SetStatusText(wxString::Format("ID: %zu", activeId_), 0);
     frame_->SetStatusText(ui ? wxString::FromUTF8(ui->label) : wxString{}, 1);
 
-    const DocLayout& layout = sm_.GetDocLayout(activeId);
+    const DocLayout& layout = sm_.GetDocLayout(activeId_);
     const bool wrap = layout.GetWordWrap();
     frame_->SetStatusText(wrap ? "Wrap: ON" : "Wrap: OFF", 2);
     frame_->SyncWordWrapMenuItem(wrap);
@@ -339,7 +467,7 @@ void UIManager::SetupEditMenu(wxMenu* menu)
     }, kEditMenuPaste);
 
     frame_->Bind(wxEVT_MENU, [this](wxCommandEvent&) {
-        SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
+        SessionUI* ui = FindSessionUI(activeId_);
         if (!ui) return;
         sm_.GetDocLayout(ui->id).SelectAll();
         if (ui->panel) ui->panel->Refresh();
@@ -382,9 +510,7 @@ void UIManager::ResizeFrameToFitTiles()
     const wxDisplay display(displayIdx == wxNOT_FOUND ? 0 : displayIdx);
     const wxRect workArea = display.GetClientArea();
 
-    // Chrome = title bar + menu bar + status bar, measured live so it's always accurate.
     const wxSize chrome = frame_->GetSize() - frame_->GetClientSize();
-
     const int maxClientW = workArea.GetWidth()  - chrome.x;
     const int maxClientH = workArea.GetHeight() - chrome.y;
 
@@ -407,13 +533,13 @@ void UIManager::PasteFromClipboard()
 
 bool UIManager::HasActiveSelection() const
 {
-    const SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
+    const SessionUI* ui = FindSessionUI(activeId_);
     return ui && sm_.GetDocLayout(ui->id).HasSelection();
 }
 
 std::u32string UIManager::GetFullActiveSelectedText() const
 {
-    const SessionUI* ui = FindSessionUI(sm_.GetActiveSessionId());
+    const SessionUI* ui = FindSessionUI(activeId_);
     return ui ? sm_.GetDocLayout(ui->id).GetSelectedText() : std::u32string{};
 }
 

@@ -1,5 +1,6 @@
 #include "ui/MainFrame.h"
 #include "ui/ConnectionManagerDialog.h"
+#include "ui/UIManager.h"
 #include "db/ConnectionStore.h"
 #include "app/App.h"
 #include <wx/sizer.h>
@@ -24,11 +25,9 @@ namespace {
 
 MainFrame::MainFrame(const AppConfig& cfg,
                      term::input::InputRouter& router,
-                     term::session::SessionManager& sm,
                      term::db::ConnectionStore& store)
     : wxFrame(nullptr, wxID_ANY, "naTE"),
       m_router(router),
-      m_sm(sm),
       m_store(store),
       m_cfg(cfg)
 {
@@ -88,7 +87,8 @@ MainFrame::MainFrame(const AppConfig& cfg,
 
 void MainFrame::OnClose(wxCloseEvent& event)
 {
-    m_sm.CloseAllSessions();
+    if (m_uiManager)
+        m_uiManager->CloseAllSessions();
     event.Skip();
 }
 
@@ -109,15 +109,7 @@ void MainFrame::OnNewWindow(wxCommandEvent&)
 
 void MainFrame::LaunchSession(const term::session::Connection& conn)
 {
-    const unsigned short cols = conn.columnWidth
-        ? conn.columnWidth
-        : static_cast<unsigned short>(m_cfg.columns);
-
-    m_sm.CreateSession(conn,
-                       m_cfg.scrollbackLines,
-                       cols,
-                       static_cast<unsigned short>(m_cfg.rows),
-                       static_cast<unsigned short>(m_cfg.ptyLineWidth));
+    static_cast<App*>(wxTheApp)->CreateSessionInWindow(conn, this);
 }
 
 void MainFrame::OnNewConnection(wxCommandEvent&)
@@ -208,11 +200,8 @@ void MainFrame::OnConnectionManager(wxCommandEvent&)
 
 void MainFrame::OnToggleWordWrap(wxCommandEvent&)
 {
-    const term::session::SessionId id = m_sm.GetActiveSessionId();
-    if (id == 0) return;
-    const bool newWrap = !m_sm.GetDocLayout(id).GetWordWrap();
-    m_sm.SetWordWrap(id, newWrap);
-    m_miWordWrap->Check(newWrap);
+    if (m_uiManager)
+        m_uiManager->ToggleWordWrapForActive();
 }
 
 void MainFrame::SyncWordWrapMenuItem(bool checked)

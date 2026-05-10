@@ -37,6 +37,8 @@ bool App::OnInit() {
     m_connectionStore = std::make_unique<term::db::ConnectionStore>(
         std::make_unique<term::db::JsonConnectionRepository>(connectionsPath));
 
+    m_sessionManager = std::make_unique<term::session::SessionManager>();
+
     gdk_event_handler_set(GdkEventHandler, this, nullptr);
 
     CreateNewWindow();
@@ -46,16 +48,23 @@ bool App::OnInit() {
 MainFrame* App::CreateNewWindow()
 {
     auto wc = std::make_unique<WindowContext>();
-    wc->router         = std::make_unique<term::input::InputRouter>();
-    wc->sessionManager = std::make_unique<term::session::SessionManager>(*wc->router);
+    wc->router = std::make_unique<term::input::InputRouter>();
 
-    auto* frame = new MainFrame(m_cfg, *wc->router, *wc->sessionManager, *m_connectionStore);
+    auto* frame = new MainFrame(m_cfg, *wc->router, *m_connectionStore);
     wc->frame = frame;
 
     wc->uiManager = std::make_unique<ui::UIManager>(
-        *wc->sessionManager, frame->GetConnMenu(), frame, m_cfg,
+        *m_sessionManager, frame->GetConnMenu(), frame, m_cfg,
         *wc->router, frame->GetEditMenu());
-    wc->sessionManager->SetObserver(wc->uiManager.get());
+
+    frame->SetUIManager(wc->uiManager.get());
+
+    // Wire drag-to-move: UIManager fires this when a tile is dropped on
+    // another window's frame.
+    wc->uiManager->SetMoveSessionCallback(
+        [this, frame](term::session::SessionId id, MainFrame* dstFrame) {
+            MoveSession(frame, id, dstFrame);
+        });
 
     frame->Bind(wxEVT_DESTROY, [this, frame](wxWindowDestroyEvent& evt) {
         if (evt.GetEventObject() == frame) {
@@ -75,6 +84,55 @@ MainFrame* App::CreateNewWindow()
 
     RebuildWindowMenus();
     return frame;
+}
+
+term::session::SessionId App::CreateSessionInWindow(
+    const term::session::Connection& conn, MainFrame* target)
+{
+    WindowContext* ctx = FindContext(target);
+    if (!ctx) return 0;
+
+    const unsigned short cols = conn.columnWidth
+        ? conn.columnWidth
+        : static_cast<unsigned short>(m_cfg.columns);
+
+    const term::session::SessionId id = m_sessionManager->CreateSession(
+        conn,
+        m_cfg.scrollbackLines,
+        cols,
+        static_cast<unsigned short>(m_cfg.rows),
+        static_cast<unsigned short>(m_cfg.ptyLineWidth));
+
+    m_sessionManager->SetSessionObserver(id, ctx->uiManager.get());
+    m_sessionManager->RegisterRouter(id, *ctx->router);
+    ctx->uiManager->TakeSession(
+        id,
+        m_sessionManager->MakeTitleGetter(id),
+        cols,
+        conn.label);
+    return id;
+}
+
+void App::MoveSession(MainFrame* src, term::session::SessionId id, MainFrame* dst)
+{
+    WindowContext* srcCtx = FindContext(src);
+    WindowContext* dstCtx = FindContext(dst);
+    if (!srcCtx || !dstCtx || srcCtx == dstCtx) return;
+
+    srcCtx->uiManager->ReleaseSession(id);
+
+    m_sessionManager->SetSessionObserver(id, dstCtx->uiManager.get());
+    m_sessionManager->ReassignRouter(id, *srcCtx->router, *dstCtx->router);
+
+    dstCtx->uiManager->TakeSession(
+        id,
+        m_sessionManager->MakeTitleGetter(id),
+        m_sessionManager->GetDocLayout(id).GetViewportCols(),
+        m_sessionManager->GetLabel(id));
+
+    m_sessionManager->ActivateSession(id, *dstCtx->router);
+    dst->Raise();
+    RebuildWindowMenus();
 }
 
 void App::QuitAll()
@@ -104,6 +162,13 @@ int App::OnExit()
     return wxApp::OnExit();
 }
 
+App::WindowContext* App::FindContext(MainFrame* frame)
+{
+    for (auto& w : m_windows)
+        if (w->frame == frame) return w.get();
+    return nullptr;
+}
+
 App::WindowContext* App::FindActiveContext()
 {
     // Native GTK modal dialogs use gtk_grab_add(); focus tracking unreliable there.
@@ -118,11 +183,7 @@ App::WindowContext* App::FindActiveContext()
     if (!topLevel)
         return nullptr;
 
-    for (auto& w : m_windows) {
-        if (w->frame == topLevel)
-            return w.get();
-    }
-    return nullptr;
+    return FindContext(topLevel);
 }
 
 void App::OnGdkKeyPress(GdkEvent* event)

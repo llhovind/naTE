@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <atomic>
 #include <stdexcept>
 #include <vector>
 
@@ -15,31 +16,23 @@ using namespace term::session;
 namespace {
 
 struct RecordedEvent {
-    enum class Type { Created, TitleChanged, Refresh, Disconnected, Destroyed };
+    enum class Type { Disconnected, Error, Destroyed };
     Type      type;
     SessionId id;
-    std::string data;
 };
 
 struct MockObserver : ISessionObserver {
     std::vector<RecordedEvent> events;
 
-    void OnSessionCreated(SessionId id, const std::string& label, unsigned short /*cols*/) override {
-        events.push_back({RecordedEvent::Type::Created, id, label});
-    }
-    void OnSessionTitleChanged(SessionId id, const std::string& title) override {
-        events.push_back({RecordedEvent::Type::TitleChanged, id, title});
-    }
-    void OnSessionRefresh(SessionId id) override {
-        events.push_back({RecordedEvent::Type::Refresh, id, {}});
-    }
-    void OnSessionError(SessionId /*id*/,
-                        const term::transport::TransportError& /*error*/) override {}
     void OnSessionDisconnected(SessionId id) override {
-        events.push_back({RecordedEvent::Type::Disconnected, id, {}});
+        events.push_back({RecordedEvent::Type::Disconnected, id});
+    }
+    void OnSessionError(SessionId id,
+                        const term::transport::TransportError& /*error*/) override {
+        events.push_back({RecordedEvent::Type::Error, id});
     }
     void OnSessionDestroyed(SessionId id) override {
-        events.push_back({RecordedEvent::Type::Destroyed, id, {}});
+        events.push_back({RecordedEvent::Type::Destroyed, id});
     }
 
     std::vector<RecordedEvent> ofType(RecordedEvent::Type t) const {
@@ -56,28 +49,13 @@ Connection loopbackConn(const std::string& label = "Test") {
 
 } // namespace
 
-TEST_CASE("given observer when session created then OnSessionCreated fires with label") {
+TEST_CASE("given observer when session closed then OnSessionDestroyed fires") {
     term::input::InputRouter router;
-    SessionManager sm(router);
+    SessionManager sm;
     MockObserver obs;
-    sm.SetObserver(&obs);
 
     const SessionId id = sm.CreateSession(loopbackConn("My Session"), 1000, 80, 24);
-
-    const auto created = obs.ofType(RecordedEvent::Type::Created);
-    REQUIRE(created.size() == 1);
-    REQUIRE(created[0].id   == id);
-    REQUIRE(created[0].data == "My Session");
-}
-
-TEST_CASE("given live session when closed then OnSessionDestroyed fires") {
-    term::input::InputRouter router;
-    SessionManager sm(router);
-    MockObserver obs;
-    sm.SetObserver(&obs);
-
-    const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
-    obs.events.clear();
+    sm.SetSessionObserver(id, &obs);
 
     sm.CloseSession(id);
 
@@ -86,27 +64,25 @@ TEST_CASE("given live session when closed then OnSessionDestroyed fires") {
     REQUIRE(destroyed[0].id == id);
 }
 
-TEST_CASE("given two sessions when ActivateSession called then active id tracks correctly") {
+TEST_CASE("given two sessions when second closed then only second fires destroyed") {
     term::input::InputRouter router;
-    SessionManager sm(router);
+    SessionManager sm;
     MockObserver obs;
-    sm.SetObserver(&obs);
 
     const SessionId id1 = sm.CreateSession(loopbackConn("A"), 1000, 80, 24);
     const SessionId id2 = sm.CreateSession(loopbackConn("B"), 1000, 80, 24);
+    sm.SetSessionObserver(id1, &obs);
+    sm.SetSessionObserver(id2, &obs);
 
-    sm.ActivateSession(id1);
-    REQUIRE(sm.GetActiveSessionId() == id1);
+    sm.CloseSession(id2);
 
-    sm.ActivateSession(id2);
-    REQUIRE(sm.GetActiveSessionId() == id2);
+    const auto destroyed = obs.ofType(RecordedEvent::Type::Destroyed);
+    REQUIRE(destroyed.size() == 1);
+    REQUIRE(destroyed[0].id == id2);
 }
 
 TEST_CASE("given session when GetDocLayout called then layout has at least one line") {
-    term::input::InputRouter router;
-    SessionManager sm(router);
-    MockObserver obs;
-    sm.SetObserver(&obs);
+    SessionManager sm;
 
     const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
 
@@ -115,32 +91,87 @@ TEST_CASE("given session when GetDocLayout called then layout has at least one l
 }
 
 TEST_CASE("given no session when GetDocLayout called with unknown id then throws") {
-    term::input::InputRouter router;
-    SessionManager sm(router);
+    SessionManager sm;
 
     REQUIRE_THROWS_AS(sm.GetDocLayout(999), std::out_of_range);
 }
 
-TEST_CASE("given loopback session when character input sent then OnSessionRefresh fires") {
-    // LoopbackTransport echoes writes back synchronously: no threading involved.
-    // The chain is: router.Send → session.OnInput → encoder → transport.Write
-    //   → OnData → parser → document mutation → DocumentObserver → OnSessionRefresh.
-    term::input::InputRouter router;
-    SessionManager sm(router);
-    MockObserver obs;
-    sm.SetObserver(&obs);
+TEST_CASE("given session when SetSessionObserver changes observer then disconnect routes to new observer") {
+    SessionManager sm;
+    MockObserver obs1;
+    MockObserver obs2;
 
     const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
-    sm.ActivateSession(id);
-    obs.events.clear();
+    sm.SetSessionObserver(id, &obs1);
 
+    // Reassign to obs2 — destroyed notification should go to obs2.
+    sm.SetSessionObserver(id, &obs2);
+    sm.CloseSession(id);
+
+    REQUIRE(obs1.ofType(RecordedEvent::Type::Destroyed).empty());
+    REQUIRE(obs2.ofType(RecordedEvent::Type::Destroyed).size() == 1);
+}
+
+TEST_CASE("given session when ReassignRouter called then session moves between routers") {
+    term::input::InputRouter router1;
+    term::input::InputRouter router2;
+    SessionManager sm;
+
+    const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
+    sm.RegisterRouter(id, router1);
+
+    // Activate in router1 — send a character; LoopbackTransport echoes it back.
+    sm.ActivateSession(id, router1);
     term::input::KeyEvent evt;
     evt.key  = term::input::Key::Character;
-    evt.code = 'a';
-    evt.text = "a";
-    router.Send(evt);
+    evt.code = 'x';
+    evt.text = "x";
+    router1.Send(evt);  // should not crash
 
-    REQUIRE_FALSE(obs.ofType(RecordedEvent::Type::Refresh).empty());
+    // Move to router2 — subsequent sends go via router2.
+    sm.ReassignRouter(id, router1, router2);
+    sm.ActivateSession(id, router2);
+    router2.Send(evt);  // should not crash
+
+    // Session is still accessible and healthy.
+    REQUIRE(sm.GetDocLayout(id).GetLineCount() >= 1);
+
+    sm.CloseSession(id);
+}
+
+TEST_CASE("given session when MakeTitleGetter called then returns session title") {
+    SessionManager sm;
+
+    const SessionId id = sm.CreateSession(loopbackConn("TitleTest"), 1000, 80, 24);
+    auto getter = sm.MakeTitleGetter(id);
+    REQUIRE_NOTHROW(getter());
+
+    sm.CloseSession(id);
+}
+
+TEST_CASE("given session when GetLabel called then returns connection label") {
+    SessionManager sm;
+
+    const SessionId id = sm.CreateSession(loopbackConn("MyLabel"), 1000, 80, 24);
+    REQUIRE(sm.GetLabel(id) == "MyLabel");
+
+    sm.CloseSession(id);
+}
+
+TEST_CASE("given session when closed twice then second call is a no-op") {
+    term::input::InputRouter router;
+    SessionManager sm;
+    MockObserver obs;
+
+    const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
+    sm.SetSessionObserver(id, &obs);
+    sm.CloseSession(id);
+    obs.events.clear();
+
+    // Second close must not crash or fire additional events.
+    sm.CloseSession(id);
+
+    REQUIRE(obs.events.empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -526,20 +557,4 @@ TEST_CASE("given line longer than viewport when word wrap off then horizontal sc
     layout.SetLeftCol(10);
     const RenderedLine row1 = layout.GetRenderedLine(0);
     REQUIRE(row1.text == U"KLMNOPQRSTUVWXYZABCD");
-}
-
-TEST_CASE("given session when closed twice then second call is a no-op") {
-    term::input::InputRouter router;
-    SessionManager sm(router);
-    MockObserver obs;
-    sm.SetObserver(&obs);
-
-    const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
-    sm.CloseSession(id);
-    obs.events.clear();
-
-    // Second close must not crash or fire additional events.
-    sm.CloseSession(id);
-
-    REQUIRE(obs.events.empty());
 }

@@ -193,16 +193,19 @@ void Document::SetTitle(const std::string& title)
 
 void Document::AddListener(IDocumentListener* l)
 {
+    std::lock_guard lock(listenerMutex_);
     listeners_.push_back(l);
 }
 
 void Document::RemoveListener(IDocumentListener* l)
 {
+    std::lock_guard lock(listenerMutex_);
     listeners_.erase(std::remove(listeners_.begin(), listeners_.end(), l), listeners_.end());
 }
 
 void Document::NotifyListeners(DocChangeType type, size_t lineIndex)
 {
+    std::lock_guard lock(listenerMutex_);
     for (auto* l : listeners_)
         l->OnDocumentChanged(type, lineIndex);
 }

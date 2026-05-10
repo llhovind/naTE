@@ -7,25 +7,27 @@
 #include "config/Config.h"
 #include "input/InputRouter.h"
 #include "session/Connection.h"
-#include "session/SessionManager.h"
 #include "ui/NewConnectionDialog.h"
 
 namespace term::db { class ConnectionStore; }
+namespace ui { class UIManager; }
 
 class MainFrame : public wxFrame {
 public:
     MainFrame(const AppConfig& cfg,
               term::input::InputRouter& router,
-              term::session::SessionManager& sm,
               term::db::ConnectionStore& store);
 
     wxMenu* GetConnMenu() const { return m_connMenu; }
     wxMenu* GetEditMenu() const { return m_editMenu; }
 
+    // Called by App after UIManager construction to wire session/word-wrap calls.
+    void SetUIManager(ui::UIManager* ui) { m_uiManager = ui; }
+
     // Called by UIManager to keep the word-wrap menu check in sync.
     void SyncWordWrapMenuItem(bool checked);
 
-    // Opens a connection in this window's TerminalGrid.
+    // Opens a connection in this window via App::CreateSessionInWindow.
     void LaunchSession(const term::session::Connection& conn);
 
     // Rebuilds the Window menu to reflect the current set of open frames.
@@ -42,15 +44,15 @@ private:
     void OnToggleWordWrap(wxCommandEvent&);
     void OnWindowMenuItem(wxCommandEvent& evt);
 
-    term::input::InputRouter&       m_router;
-    term::session::SessionManager&  m_sm;
-    term::db::ConnectionStore&      m_store;
-    AppConfig                       m_cfg;
-    wxMenu*                         m_connMenu   = nullptr;
-    wxMenu*                         m_editMenu   = nullptr;
-    wxMenu*                         m_windowMenu = nullptr;
-    wxMenuItem*                     m_miWordWrap = nullptr;
-    int                             m_sessionCount = 0;
+    term::input::InputRouter&    m_router;
+    term::db::ConnectionStore&   m_store;
+    AppConfig                    m_cfg;
+    ui::UIManager*               m_uiManager  = nullptr;
+    wxMenu*                      m_connMenu   = nullptr;
+    wxMenu*                      m_editMenu   = nullptr;
+    wxMenu*                      m_windowMenu = nullptr;
+    wxMenuItem*                  m_miWordWrap = nullptr;
+    int                          m_sessionCount = 0;
 
     // Parallel to the current window menu items; used by OnWindowMenuItem.
     std::vector<MainFrame*> m_windowFrames;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mutex>
 #include <string>
 #include <vector>
 #include <deque>
@@ -139,6 +140,7 @@ protected:
 
 private:
     std::vector<IDocumentListener*> listeners_;
+    std::mutex                      listenerMutex_;
 };
 
 class MainScreenDocument : public Document {

@@ -6,40 +6,26 @@
 namespace term::session {
 
 // ---------------------------------------------------------------------------
-// DocumentObserver  (runs on Session thread)
-// ---------------------------------------------------------------------------
-
-void SessionManager::DocumentObserver::OnDocumentChanged(DocChangeType type, size_t)
-{
-    if (type == DocChangeType::TitleChanged)
-        manager->OnTitleChanged(id, getTitle());
-    else
-        manager->OnDocumentDirty(id);
-}
-
-// ---------------------------------------------------------------------------
 // SessionManager
 // ---------------------------------------------------------------------------
 
-SessionManager::SessionManager(term::input::InputRouter& router)
-    : router_(router)
-{}
+SessionManager::SessionManager() = default;
 
 SessionManager::~SessionManager()
 {
-    // Stop transport threads first so no callbacks are in-flight when we
-    // deregister observers and destroy session records.
+    // Stop all transport threads before records are destroyed. Listeners were
+    // already detached by UIManager::~UIManager (which is destroyed before
+    // SessionManager in WindowContext order) or by explicit CloseSession calls.
     for (auto& [id, rec] : sessions_) {
-        rec.session->Stop();
-        rec.session->RemoveDocumentListener(rec.docObserver.get());
-        router_.RemoveTarget(rec.session.get());
+        rec->session->Stop();
+        if (rec->router)
+            rec->router->RemoveTarget(rec->session.get());
     }
 }
 
-void SessionManager::SetObserver(ISessionObserver* observer)
-{
-    observer_ = observer;
-}
+// ---------------------------------------------------------------------------
+// Session lifecycle
+// ---------------------------------------------------------------------------
 
 SessionId SessionManager::CreateSession(const Connection& conn,
                                         int scrollbackLines,
@@ -49,73 +35,54 @@ SessionId SessionManager::CreateSession(const Connection& conn,
 {
     const SessionId id = nextId_++;
 
-    SessionRecord record;
-    record.label = conn.label;
+    auto rec = std::make_unique<SessionRecord>();
+    rec->label      = conn.label;
+    rec->uiObserver = std::make_shared<std::atomic<ISessionObserver*>>(nullptr);
 
-    record.session = std::make_unique<Session>(
+    // Capture the shared_ptr so the lambda remains valid even if this record
+    // is erased from the map before the session thread fires the callback.
+    auto uiObs = rec->uiObserver;
+
+    rec->session = std::make_unique<Session>(
         conn,
         scrollbackLines,
         cols,
         rows,
-        [this, id]() {
-            if (observer_)
-                observer_->OnSessionDisconnected(id);
+        [uiObs, id]() {
+            if (auto* obs = uiObs->load(std::memory_order_acquire))
+                obs->OnSessionDisconnected(id);
         },
-        [this, id](const transport::TransportError& error) {
-            if (observer_)
-                observer_->OnSessionError(id, error);
+        [uiObs, id](const transport::TransportError& err) {
+            if (auto* obs = uiObs->load(std::memory_order_acquire))
+                obs->OnSessionError(id, err);
         },
         ptyLineWidth,
         conn.wordWrap);
 
-    record.docObserver = std::make_unique<DocumentObserver>();
-    record.docObserver->id       = id;
-    record.docObserver->manager  = this;
-    // Capture the session pointer; safe because Session outlives its observer.
-    Session* sess = record.session.get();
-    record.docObserver->getTitle = [sess]() { return sess->GetTitle(); };
-
-    record.session->AddDocumentListener(record.docObserver.get());
-    router_.AddTarget(record.session.get());
-    sessions_.emplace(id, std::move(record));
-
-    if (observer_)
-        observer_->OnSessionCreated(id, conn.label, cols);
-
+    sessions_.emplace(id, std::move(rec));
     return id;
-}
-
-void SessionManager::ActivateSession(SessionId id)
-{
-    SessionRecord* rec = FindRecord(id);
-    if (!rec) return;
-
-    router_.SetFocused(rec->session.get());
-    activeId_ = id;
 }
 
 void SessionManager::CloseSession(SessionId id)
 {
-    // Guard against re-entrant calls (e.g. disconnect fires while already closing)
-    // and against double-close of an already-removed session.
     for (SessionId pending : pendingClose_)
         if (pending == id) return;
     if (!FindRecord(id)) return;
 
     pendingClose_.push_back(id);
 
-    // Stop the transport thread first so no DocumentObserver callbacks are
-    // in-flight when we deregister and destroy the session record.
     if (SessionRecord* rec = FindRecord(id)) {
         rec->session->Stop();
-        rec->session->RemoveDocumentListener(rec->docObserver.get());
-        router_.RemoveTarget(rec->session.get());
-        if (activeId_ == id)
-            activeId_ = 0;
-    }
 
-    if (observer_)
-        observer_->OnSessionDestroyed(id);
+        if (rec->router)
+            rec->router->RemoveTarget(rec->session.get());
+
+        // Notify the current UIManager to tear down its tile and detach its
+        // SessionNotifier. OnSessionDestroyed is always called on the UI thread
+        // (CloseSession is UI-thread-only), so the notifier detach is safe.
+        if (auto* obs = rec->uiObserver->load(std::memory_order_acquire))
+            obs->OnSessionDestroyed(id);
+    }
 
     sessions_.erase(id);
 
@@ -126,7 +93,6 @@ void SessionManager::CloseSession(SessionId id)
 
 void SessionManager::CloseAllSessions()
 {
-    // Snapshot IDs first — CloseSession erases from sessions_ while iterating.
     std::vector<SessionId> ids;
     ids.reserve(sessions_.size());
     for (auto& [id, _] : sessions_)
@@ -135,12 +101,89 @@ void SessionManager::CloseAllSessions()
         CloseSession(id);
 }
 
+// ---------------------------------------------------------------------------
+// Per-session routing
+// ---------------------------------------------------------------------------
+
+void SessionManager::RegisterRouter(SessionId id, term::input::InputRouter& router)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (!rec) return;
+    rec->router = &router;
+    router.AddTarget(rec->session.get());
+}
+
+void SessionManager::ReassignRouter(SessionId id,
+                                    term::input::InputRouter& oldRouter,
+                                    term::input::InputRouter& newRouter)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (!rec) return;
+    oldRouter.RemoveTarget(rec->session.get());
+    rec->router = &newRouter;
+    newRouter.AddTarget(rec->session.get());
+}
+
+void SessionManager::ActivateSession(SessionId id, term::input::InputRouter& router)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (!rec) return;
+    router.SetFocused(rec->session.get());
+}
+
+// ---------------------------------------------------------------------------
+// Per-session observer
+// ---------------------------------------------------------------------------
+
+void SessionManager::SetSessionObserver(SessionId id, ISessionObserver* obs)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (!rec) return;
+    rec->uiObserver->store(obs, std::memory_order_release);
+}
+
+// ---------------------------------------------------------------------------
+// Per-session document listener
+// ---------------------------------------------------------------------------
+
+void SessionManager::AttachSessionListener(SessionId id, IDocumentListener* l)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (!rec) return;
+    rec->session->AddDocumentListener(l);
+}
+
+void SessionManager::DetachSessionListener(SessionId id, IDocumentListener* l)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (!rec) return;
+    rec->session->RemoveDocumentListener(l);
+}
+
+std::function<std::string()> SessionManager::MakeTitleGetter(SessionId id) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    if (!rec) return []{ return std::string{}; };
+    Session* sess = rec->session.get();
+    return [sess]{ return sess->GetTitle(); };
+}
+
+// ---------------------------------------------------------------------------
+// Viewport control
+// ---------------------------------------------------------------------------
+
 DocLayout& SessionManager::GetDocLayout(SessionId id) const
 {
     const SessionRecord* rec = FindRecord(id);
     if (!rec)
         throw std::out_of_range("SessionManager::GetDocLayout: unknown SessionId");
     return rec->session->GetDocLayout();
+}
+
+std::string SessionManager::GetLabel(SessionId id) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    return rec ? rec->label : std::string{};
 }
 
 void SessionManager::OnScroll(SessionId id, int topRow)
@@ -161,30 +204,20 @@ void SessionManager::SetWordWrap(SessionId id, bool wrap)
         rec->session->SetWordWrap(wrap);
 }
 
-// Session thread — must not access sessions_.
-void SessionManager::OnDocumentDirty(SessionId id)
-{
-    if (observer_)
-        observer_->OnSessionRefresh(id);
-}
-
-// Session thread — must not access sessions_.
-void SessionManager::OnTitleChanged(SessionId id, const std::string& title)
-{
-    if (observer_)
-        observer_->OnSessionTitleChanged(id, title);
-}
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
 
 SessionManager::SessionRecord* SessionManager::FindRecord(SessionId id)
 {
     auto it = sessions_.find(id);
-    return (it != sessions_.end()) ? &it->second : nullptr;
+    return (it != sessions_.end()) ? it->second.get() : nullptr;
 }
 
 const SessionManager::SessionRecord* SessionManager::FindRecord(SessionId id) const
 {
     auto it = sessions_.find(id);
-    return (it != sessions_.end()) ? &it->second : nullptr;
+    return (it != sessions_.end()) ? it->second.get() : nullptr;
 }
 
 } // namespace term::session

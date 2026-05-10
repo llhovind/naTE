@@ -1,6 +1,7 @@
 #pragma once
 
-#include <cstddef>
+#include <atomic>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -17,13 +18,15 @@ namespace term::session {
 
 class SessionManager {
 public:
-    explicit SessionManager(term::input::InputRouter& router);
+    SessionManager();
     ~SessionManager();
 
     SessionManager(const SessionManager&) = delete;
     SessionManager& operator=(const SessionManager&) = delete;
 
-    void SetObserver(ISessionObserver* observer);
+    // -------------------------------------------------------------------------
+    // Session lifecycle
+    // -------------------------------------------------------------------------
 
     SessionId CreateSession(const Connection& conn,
                             int scrollbackLines,
@@ -31,51 +34,78 @@ public:
                             unsigned short rows,
                             unsigned short ptyLineWidth = 1024);
 
-    void ActivateSession(SessionId id);
+    // Stops the transport, fires OnSessionDestroyed on the per-session observer,
+    // then destroys the session record.
     void CloseSession(SessionId id);
     void CloseAllSessions();
 
+    // -------------------------------------------------------------------------
+    // Per-session routing — called by App after CreateSession
+    // -------------------------------------------------------------------------
+
+    // Registers session with the given router and records the router for later
+    // ReassignRouter / CloseSession calls.
+    void RegisterRouter(SessionId id, term::input::InputRouter& router);
+
+    // Moves the session from one window's router to another's.
+    void ReassignRouter(SessionId id,
+                        term::input::InputRouter& oldRouter,
+                        term::input::InputRouter& newRouter);
+
+    // Sets the focused InputTarget in router to this session.
+    void ActivateSession(SessionId id, term::input::InputRouter& router);
+
+    // -------------------------------------------------------------------------
+    // Per-session observer (disconnect / error / destroyed callbacks)
+    // -------------------------------------------------------------------------
+
+    // Atomically updates the per-session observer pointer. Safe to call from
+    // the UI thread while the session thread may be firing callbacks.
+    void SetSessionObserver(SessionId id, ISessionObserver* obs);
+
+    // -------------------------------------------------------------------------
+    // Per-session document listener (for UIManager's SessionNotifier)
+    // -------------------------------------------------------------------------
+
+    // Attach / detach a document listener directly on the session's active doc.
+    // Both are safe to call with the transport thread running (Document mutex).
+    void AttachSessionListener(SessionId id, IDocumentListener* l);
+    void DetachSessionListener(SessionId id, IDocumentListener* l);
+
+    // Returns a callable that reads the session title on whichever thread calls
+    // it. Caller is responsible for ensuring the session outlives the returned
+    // function (SessionManager guarantees this while the session is registered).
+    std::function<std::string()> MakeTitleGetter(SessionId id) const;
+
+    // -------------------------------------------------------------------------
+    // Viewport control — called by UIManager on the UI thread
+    // -------------------------------------------------------------------------
+
     DocLayout&  GetDocLayout(SessionId id) const;
-    SessionId   GetActiveSessionId() const { return activeId_; }
+    std::string GetLabel(SessionId id) const;
 
     void OnScroll(SessionId id, int topRow);
     void OnResize(SessionId id, unsigned short cols, unsigned short rows);
     void SetWordWrap(SessionId id, bool wrap);
 
 private:
-    // Listens to a Session's main Document and routes change events back to
-    // SessionManager by SessionId — avoids any callback storage on Session.
-    //
-    // Runs entirely on the Session thread. getTitle() reads the Document
-    // directly (same thread that just wrote the title) so no lock is needed.
-    // Neither OnDocumentDirty nor OnTitleChanged access sessions_.
-    struct DocumentObserver : IDocumentListener {
-        SessionId                    id;
-        SessionManager*              manager;
-        std::function<std::string()> getTitle;
-        void OnDocumentChanged(DocChangeType type, size_t lineIndex) override;
-    };
-
     struct SessionRecord {
-        std::unique_ptr<Session>          session;
-        std::unique_ptr<DocumentObserver> docObserver;
-        std::string                       label;
+        std::unique_ptr<Session>                         session;
+        std::string                                      label;
+        term::input::InputRouter*                        router     = nullptr;
+        // Heap-allocated so lambdas captured in the Session constructor can
+        // hold a stable pointer even if sessions_ is rehashed.
+        std::shared_ptr<std::atomic<ISessionObserver*>>  uiObserver;
     };
-
-    // Both called on the Session thread — must not access sessions_.
-    void OnDocumentDirty(SessionId id);
-    void OnTitleChanged(SessionId id, const std::string& title);
 
     SessionRecord*       FindRecord(SessionId id);
     const SessionRecord* FindRecord(SessionId id) const;
 
-    term::input::InputRouter& router_;
-    ISessionObserver*         observer_ = nullptr;
-
-    std::unordered_map<SessionId, SessionRecord> sessions_;
-    std::vector<SessionId>                       pendingClose_;
-    SessionId                                    nextId_   = 1;
-    SessionId                                    activeId_ = 0;
+    // sessions_ owns all records via unique_ptr so pointers to members
+    // (e.g. uiObserver) remain stable across map rehashes.
+    std::unordered_map<SessionId, std::unique_ptr<SessionRecord>> sessions_;
+    std::vector<SessionId>                                         pendingClose_;
+    SessionId                                                      nextId_ = 1;
 };
 
 } // namespace term::session
