@@ -52,8 +52,8 @@ public:
     bool IsAtEnd() const;
     void EnsureCursorVisible();
 
-    void SetwrapMode(bool wrap);
-    bool GetwrapMode() const;
+    void SetWrapMode(bool wrap);
+    bool GetWrapMode() const;
     void SetLeftCol(int col);
     int  GetLeftCol() const;
     int  GetMaxVisibleWidth() const;

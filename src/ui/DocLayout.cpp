@@ -381,7 +381,7 @@ int DocLayout::GetMaxVisibleWidth() const
     return maxVisibleWidth_;
 }
 
-void DocLayout::SetwrapMode(bool wrap)
+void DocLayout::SetWrapMode(bool wrap)
 {
     std::lock_guard<std::mutex> lk(mtx_);
     if (wrapMode_ == wrap) return;
@@ -392,7 +392,7 @@ void DocLayout::SetwrapMode(bool wrap)
     ComputeMaxVisibleWidthLocked();
 }
 
-bool DocLayout::GetwrapMode() const
+bool DocLayout::GetWrapMode() const
 {
     std::lock_guard<std::mutex> lk(mtx_);
     return wrapMode_;

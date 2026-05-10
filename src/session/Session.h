@@ -59,7 +59,7 @@ public:
     // Layout forwarding — UIManager routes viewport events through here.
     void SetTopRow(int row);
     void SetViewportSize(unsigned short cols, unsigned short rows);
-    void SetwrapMode(bool wrap);
+    void SetWrapMode(bool wrap);
 
 private:
     static std::unique_ptr<transport::Transport> MakeTransport(

@@ -92,7 +92,7 @@ void SearchController::NavigateTo(size_t idx)
         layout_.SetTopVisualRow(std::max(0, lineRow - viewRows / 3));
 
         // Horizontal: only relevant when wrap mode is off.
-        if (!layout_.GetwrapMode()) {
+        if (!layout_.GetWrapMode()) {
             const int matchCol = (int)m.colStart;
             const int leftCol  = layout_.GetLeftCol();
             const int viewCols = layout_.GetViewportCols();

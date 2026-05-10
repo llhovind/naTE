@@ -198,10 +198,10 @@ void SessionManager::OnResize(SessionId id, unsigned short cols, unsigned short 
         rec->session->SetViewportSize(cols, rows);
 }
 
-void SessionManager::SetwrapMode(SessionId id, bool wrap)
+void SessionManager::SetWrapMode(SessionId id, bool wrap)
 {
     if (SessionRecord* rec = FindRecord(id))
-        rec->session->SetwrapMode(wrap);
+        rec->session->SetWrapMode(wrap);
 }
 
 term::input::InputTarget* SessionManager::GetInputTarget(SessionId id) const

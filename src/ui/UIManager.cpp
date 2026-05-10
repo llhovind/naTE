@@ -250,8 +250,8 @@ void UIManager::CloseAllSessions()
 void UIManager::TogglewrapModeForActive()
 {
     if (activeId_ == 0) return;
-    const bool newWrap = !sm_.GetDocLayout(activeId_).GetwrapMode();
-    sm_.SetwrapMode(activeId_, newWrap);
+    const bool newWrap = !sm_.GetDocLayout(activeId_).GetWrapMode();
+    sm_.SetWrapMode(activeId_, newWrap);
     frame_->SyncwrapModeMenuItem(newWrap);
 }
 
@@ -518,7 +518,7 @@ void UIManager::UpdateStatusBar()
     frame_->SetStatusText(ui ? wxString::FromUTF8(ui->label) : wxString{}, 1);
 
     const DocLayout& layout = sm_.GetDocLayout(activeId_);
-    const bool wrap = layout.GetwrapMode();
+    const bool wrap = layout.GetWrapMode();
     frame_->SetStatusText(wrap ? "Wrap: ON" : "Wrap: OFF", 2);
     frame_->SyncwrapModeMenuItem(wrap);
 

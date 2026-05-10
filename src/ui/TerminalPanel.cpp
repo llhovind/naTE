@@ -153,7 +153,7 @@ void TerminalPanel::UpdateScrollbars()
         ? std::max(docLayout_->GetTotalVisualLineCount(), view.y)
         : view.y;
     m_vScroll->SetScrollbar(vTop, view.y, vTotal, view.y);
-    const bool hEnabled = docLayout_ && !docLayout_->GetwrapMode();
+    const bool hEnabled = docLayout_ && !docLayout_->GetWrapMode();
     const int  hLeft    = hEnabled ? docLayout_->GetLeftCol()                               : 0;
     const int  hTotal   = hEnabled ? std::max(docLayout_->GetMaxVisibleWidth(), view.x) : view.x;
     m_hScroll->SetScrollbar(hLeft, view.x, hTotal, view.x);
@@ -240,7 +240,7 @@ void TerminalPanel::OnMouseWheel(wxMouseEvent& e)
     const int delta = (e.GetWheelRotation() > 0) ? -3 : 3;
     const bool isHorizontal = (e.GetWheelAxis() == wxMOUSE_WHEEL_HORIZONTAL)
                               || e.ShiftDown();
-    if (isHorizontal && !docLayout_->GetwrapMode()) {
+    if (isHorizontal && !docLayout_->GetWrapMode()) {
         docLayout_->SetLeftCol(docLayout_->GetLeftCol() + delta);
     } else {
         const int topRow = docLayout_->GetTopVisualRow() + delta;
@@ -369,7 +369,7 @@ void TerminalPanel::OnSelScrollTimer(wxTimerEvent&)
         scrolled = true;
     }
 
-    if (!docLayout_->GetwrapMode()) {
+    if (!docLayout_->GetWrapMode()) {
         if (m_lastMousePos_.x < left) {
             docLayout_->SetLeftCol(docLayout_->GetLeftCol() - 1);
             scrolled = true;
