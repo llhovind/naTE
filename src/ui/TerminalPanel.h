@@ -9,7 +9,7 @@
 
 class SearchBar;
 
-class TerminalPanel : public wxPanel
+class TerminalPanel : public wxWindow
 {
 public:
     using ScrollCallback = std::function<void(int topRow)>;

@@ -20,7 +20,7 @@ static constexpr int kResizeDebounceMs = 80;
 static constexpr int kInnerPad         = 4;   // px inset between content and panel/scrollbar edges
 
 TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg, unsigned short cols)
-    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS),
+    : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE | wxWANTS_CHARS),
       m_cfg(cfg),
       m_font(cfg.fontSize, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL),
       m_sbThick(QueryScrollbarThickness()),
