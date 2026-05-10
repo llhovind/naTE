@@ -8,7 +8,7 @@
 
 namespace {
     constexpr int ID_NEW_CONNECTION     = wxID_HIGHEST + 1;
-    constexpr int ID_TOGGLE_WORDWRAP    = wxID_HIGHEST + 2;
+    constexpr int ID_TOGGLE_wrapMode    = wxID_HIGHEST + 2;
     constexpr int ID_CONNECTION_MANAGER = wxID_HIGHEST + 3;
     constexpr int ID_NEW_WINDOW         = wxID_HIGHEST + 4;
     constexpr int ID_QUIT_ALL           = wxID_HIGHEST + 5;
@@ -57,9 +57,9 @@ MainFrame::MainFrame(const AppConfig& cfg,
 
     // ---- Terminal menu -------------------------------------------------------
     auto* termMenu = new wxMenu;
-    m_miWordWrap  = termMenu->AppendCheckItem(ID_TOGGLE_WORDWRAP,  "Word Wrap\tCtrl+Shift+W");
+    m_miwrapMode  = termMenu->AppendCheckItem(ID_TOGGLE_wrapMode,  "Wrap Mode\tCtrl+Shift+W");
     m_miBroadcast = termMenu->AppendCheckItem(ID_BROADCAST_MODE,   "Broadcast Input Mode\tCtrl+Shift+B");
-    Bind(wxEVT_MENU, &MainFrame::OnToggleWordWrap, this, ID_TOGGLE_WORDWRAP);
+    Bind(wxEVT_MENU, &MainFrame::OnTogglewrapMode, this, ID_TOGGLE_wrapMode);
     Bind(wxEVT_MENU, &MainFrame::OnToggleBroadcast, this, ID_BROADCAST_MODE);
 
     // ---- Window menu (populated dynamically) ---------------------------------
@@ -132,13 +132,13 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
         [&](const ui::LoopbackParams& p) {
             conn.label       = wxString::Format("Loopback %d", idx).ToStdString();
             conn.transport   = term::session::LoopbackDesc{};
-            conn.wordWrap    = p.wordWrap;
+            conn.wrapMode    = p.wrapMode;
             conn.columnWidth = p.columnWidth;
         },
         [&](const ui::PtyParams& p) {
             conn.label       = wxString::Format("Local Shell %d", idx).ToStdString();
             conn.transport   = term::session::PtyDesc{ p.shell };
-            conn.wordWrap    = p.wordWrap;
+            conn.wrapMode    = p.wrapMode;
             conn.columnWidth = p.columnWidth;
         },
         [&](const ui::SshParams& p) {
@@ -165,7 +165,7 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
                                                 p.username, p.host,
                                                 static_cast<int>(p.port), idx).ToStdString();
             conn.transport   = d;
-            conn.wordWrap    = p.wordWrap;
+            conn.wrapMode    = p.wrapMode;
             conn.columnWidth = p.columnWidth;
         }
     }, dlg.GetParams());
@@ -175,7 +175,7 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
     const std::string name = dlg.GetConnectionName();
     if (!name.empty()) {
         conn.label = name;
-        m_store.Add(name, conn.transport, conn.wordWrap, conn.columnWidth);
+        m_store.Add(name, conn.transport, conn.wrapMode, conn.columnWidth);
     }
 
     if (dlg.GetOpenInNewWindow()) {
@@ -201,16 +201,16 @@ void MainFrame::OnConnectionManager(wxCommandEvent&)
     dlg.ShowModal();
 }
 
-void MainFrame::OnToggleWordWrap(wxCommandEvent&)
+void MainFrame::OnTogglewrapMode(wxCommandEvent&)
 {
     if (m_uiManager)
-        m_uiManager->ToggleWordWrapForActive();
+        m_uiManager->TogglewrapModeForActive();
 }
 
-void MainFrame::SyncWordWrapMenuItem(bool checked)
+void MainFrame::SyncwrapModeMenuItem(bool checked)
 {
-    if (m_miWordWrap)
-        m_miWordWrap->Check(checked);
+    if (m_miwrapMode)
+        m_miwrapMode->Check(checked);
 }
 
 void MainFrame::OnToggleBroadcast(wxCommandEvent&)

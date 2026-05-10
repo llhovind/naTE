@@ -19,7 +19,7 @@ public:
     // Creates a new profile with a generated UUID and current timestamp.
     const ConnectionProfile& Add(const std::string& name,
                                  const term::session::TransportDesc& transport,
-                                 bool wordWrap,
+                                 bool wrapMode,
                                  unsigned short columnWidth);
 
     // Replaces the profile with profile.id; no-op if id not found.

@@ -247,12 +247,12 @@ void UIManager::CloseAllSessions()
         sm_.CloseSession(id);
 }
 
-void UIManager::ToggleWordWrapForActive()
+void UIManager::TogglewrapModeForActive()
 {
     if (activeId_ == 0) return;
-    const bool newWrap = !sm_.GetDocLayout(activeId_).GetWordWrap();
-    sm_.SetWordWrap(activeId_, newWrap);
-    frame_->SyncWordWrapMenuItem(newWrap);
+    const bool newWrap = !sm_.GetDocLayout(activeId_).GetwrapMode();
+    sm_.SetwrapMode(activeId_, newWrap);
+    frame_->SyncwrapModeMenuItem(newWrap);
 }
 
 void UIManager::ToggleBroadcastMode()
@@ -518,9 +518,9 @@ void UIManager::UpdateStatusBar()
     frame_->SetStatusText(ui ? wxString::FromUTF8(ui->label) : wxString{}, 1);
 
     const DocLayout& layout = sm_.GetDocLayout(activeId_);
-    const bool wrap = layout.GetWordWrap();
+    const bool wrap = layout.GetwrapMode();
     frame_->SetStatusText(wrap ? "Wrap: ON" : "Wrap: OFF", 2);
-    frame_->SyncWordWrapMenuItem(wrap);
+    frame_->SyncwrapModeMenuItem(wrap);
 
     const CursorPos cur = layout.GetCursorDocPos();
     frame_->SetStatusText(

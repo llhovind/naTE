@@ -28,7 +28,7 @@ public:
             std::function<void()> onDisconnect,
             std::function<void(const transport::TransportError&)> onError,
             unsigned short ptyLineWidth = 1024,
-            bool wordWrap = false);
+            bool wrapMode = false);
     ~Session();
 
     // Stops the transport I/O thread synchronously. Safe to call multiple
@@ -59,7 +59,7 @@ public:
     // Layout forwarding — UIManager routes viewport events through here.
     void SetTopRow(int row);
     void SetViewportSize(unsigned short cols, unsigned short rows);
-    void SetWordWrap(bool wrap);
+    void SetwrapMode(bool wrap);
 
 private:
     static std::unique_ptr<transport::Transport> MakeTransport(

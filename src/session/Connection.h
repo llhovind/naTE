@@ -30,7 +30,7 @@ using TransportDesc = std::variant<PtyDesc, LoopbackDesc, SshDesc>;
 struct Connection {
     std::string    label;
     TransportDesc  transport;
-    bool           wordWrap    = false;
+    bool           wrapMode    = false;
     unsigned short columnWidth = 0;   // 0 = use app config default
 
     // Returns the hard-coded set of available connection templates.

@@ -19,13 +19,13 @@ namespace ui
 {
 
 struct LoopbackParams {
-    bool           wordWrap    = true;
+    bool           wrapMode    = true;
     unsigned short columnWidth = 80;
 };
 
 struct PtyParams {
     std::string    shell;
-    bool           wordWrap    = false;
+    bool           wrapMode    = false;
     unsigned short columnWidth = 80;
 };
 
@@ -43,7 +43,7 @@ struct SshParams {
     int            connectTimeoutSec = 10;
     std::string    remoteCommand;
     bool           compress          = false;
-    bool           wordWrap          = false;
+    bool           wrapMode          = false;
     unsigned short columnWidth       = 80;
 };
 
@@ -114,7 +114,7 @@ private:
 
     // Shared terminal options (all transports)
     wxComboBox*    m_colWidthCtrl   = nullptr;
-    wxCheckBox*    m_cbWordWrap     = nullptr;
+    wxCheckBox*    m_cbwrapMode     = nullptr;
 
     std::vector<unsigned short> m_columnWidths;
 };

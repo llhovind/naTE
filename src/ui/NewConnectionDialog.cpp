@@ -208,9 +208,9 @@ NewConnectionDialog::NewConnectionDialog(wxWindow* parent,
         m_colWidthCtrl->SetSelection(0);
     termOptRow->Add(m_colWidthCtrl, 0, wxRIGHT, 20);
 
-    m_cbWordWrap = new wxCheckBox(this, wxID_ANY, "Word Wrap");
-    m_cbWordWrap->SetValue(false);
-    termOptRow->Add(m_cbWordWrap, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 20);
+    m_cbwrapMode = new wxCheckBox(this, wxID_ANY, "Wrap mode");
+    m_cbwrapMode->SetValue(false);
+    termOptRow->Add(m_cbwrapMode, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 20);
 
     // Hidden when editing a saved profile (prefill path).
     m_cbOpenNewWindow = new wxCheckBox(this, wxID_ANY, "Open in New Window");
@@ -289,7 +289,7 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
     }, profile.transport);
 
     // Apply shared settings
-    m_cbWordWrap->SetValue(profile.wordWrap);
+    m_cbwrapMode->SetValue(profile.wrapMode);
     for (int i = 0; i < static_cast<int>(m_columnWidths.size()); ++i) {
         if (m_columnWidths[i] == profile.columnWidth) {
             m_colWidthCtrl->SetSelection(i);
@@ -297,10 +297,10 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
         }
     }
 
-    // Sync word wrap state for Loopback
+    // Sync wrap mode state for Loopback
     if (m_rbLoopback->GetValue()) {
-        m_cbWordWrap->SetValue(true);
-        m_cbWordWrap->Enable(false);
+        m_cbwrapMode->SetValue(true);
+        m_cbwrapMode->Enable(false);
     }
 
     UpdateLayout();
@@ -315,9 +315,9 @@ void NewConnectionDialog::OnTransportChanged(wxCommandEvent&)
     m_shellCtrl->Enable(isPty);
     m_sshPanel->Show(isSsh);
 
-    // Loopback: word wrap is always on and not user-adjustable
-    m_cbWordWrap->SetValue(isLoopback ? true : m_cbWordWrap->GetValue());
-    m_cbWordWrap->Enable(!isLoopback);
+    // Loopback: wrap mode is always on and not user-adjustable
+    m_cbwrapMode->SetValue(isLoopback ? true : m_cbwrapMode->GetValue());
+    m_cbwrapMode->Enable(!isLoopback);
 
     UpdateLayout();
 }
@@ -363,12 +363,12 @@ ConnectionParams NewConnectionDialog::GetParams() const
         (selIdx >= 0 && selIdx < static_cast<int>(m_columnWidths.size()))
         ? m_columnWidths[selIdx]
         : 80;
-    const bool wordWrap = m_cbWordWrap->GetValue();
+    const bool wrapMode = m_cbwrapMode->GetValue();
 
     if (m_rbPty->GetValue())
         return PtyParams{
             m_shellCtrl->GetValue().ToStdString(),
-            wordWrap,
+            wrapMode,
             colWidth};
 
     if (m_rbSsh->GetValue()) {
@@ -380,7 +380,7 @@ ConnectionParams NewConnectionDialog::GetParams() const
         p.keepaliveSeconds  = m_keepaliveCtrl->GetValue();
         p.remoteCommand     = m_remoteCmdCtrl->GetValue().ToStdString();
         p.compress          = m_cbCompress->GetValue();
-        p.wordWrap          = wordWrap;
+        p.wrapMode          = wrapMode;
         p.columnWidth       = colWidth;
 
         if (m_rbAuthPass->GetValue()) {

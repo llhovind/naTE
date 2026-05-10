@@ -71,7 +71,7 @@ ConnectionParams ToConnectionParams(const term::db::ConnectionProfile& profile)
     return std::visit([&profile](const auto& desc) -> ConnectionParams {
         using T = std::decay_t<decltype(desc)>;
         if constexpr (std::is_same_v<T, term::session::PtyDesc>) {
-            return PtyParams{desc.shell, profile.wordWrap, profile.columnWidth};
+            return PtyParams{desc.shell, profile.wrapMode, profile.columnWidth};
         } else if constexpr (std::is_same_v<T, term::session::SshDesc>) {
             SshParams p;
             p.host              = desc.host;
@@ -82,7 +82,7 @@ ConnectionParams ToConnectionParams(const term::db::ConnectionProfile& profile)
             p.remoteCommand     = desc.remoteCommand;
             p.compress          = desc.compress;
             p.privateKeyPath    = desc.privateKeyPath;
-            p.wordWrap          = profile.wordWrap;
+            p.wrapMode          = profile.wrapMode;
             p.columnWidth       = profile.columnWidth;
             switch (desc.authMethod) {
                 case term::session::SshAuthMethod::Password:
@@ -94,7 +94,7 @@ ConnectionParams ToConnectionParams(const term::db::ConnectionProfile& profile)
             }
             return p;
         } else {
-            return LoopbackParams{profile.wordWrap, profile.columnWidth};
+            return LoopbackParams{profile.wrapMode, profile.columnWidth};
         }
     }, profile.transport);
 }
@@ -215,7 +215,7 @@ void ConnectionManagerDialog::LaunchProfile(const std::string& id)
     term::session::Connection conn;
     conn.label       = it->name;
     conn.transport   = it->transport;
-    conn.wordWrap    = it->wordWrap;
+    conn.wrapMode    = it->wrapMode;
     conn.columnWidth = it->columnWidth;
 
     m_onConnect(conn, m_cbOpenNewWindow->GetValue());
@@ -250,7 +250,7 @@ void ConnectionManagerDialog::OnNew(wxCommandEvent&)
     // Use profile name = auto-generated label (user can edit later)
     std::string name;
     term::session::TransportDesc transport;
-    bool wordWrap        = false;
+    bool wrapMode        = false;
     unsigned short colW  = 80;
 
     std::visit([&](const auto& p) {
@@ -258,12 +258,12 @@ void ConnectionManagerDialog::OnNew(wxCommandEvent&)
         if constexpr (std::is_same_v<T, LoopbackParams>) {
             name      = "Loopback";
             transport = term::session::LoopbackDesc{};
-            wordWrap  = p.wordWrap;
+            wrapMode  = p.wrapMode;
             colW      = p.columnWidth;
         } else if constexpr (std::is_same_v<T, PtyParams>) {
             name      = "Local Shell";
             transport = term::session::PtyDesc{p.shell};
-            wordWrap  = p.wordWrap;
+            wrapMode  = p.wrapMode;
             colW      = p.columnWidth;
         } else if constexpr (std::is_same_v<T, SshParams>) {
             name = p.username.empty() ? p.host : (p.username + "@" + p.host);
@@ -287,14 +287,14 @@ void ConnectionManagerDialog::OnNew(wxCommandEvent&)
                     d.authMethod = term::session::SshAuthMethod::Agent; break;
             }
             transport = d;
-            wordWrap  = p.wordWrap;
+            wrapMode  = p.wrapMode;
             colW      = p.columnWidth;
         }
     }, dlg.GetParams());
 
     // Prefer the user-supplied name from the dialog over the auto-generated one.
     const std::string dlgName = dlg.GetConnectionName();
-    m_store.Add(dlgName.empty() ? name : dlgName, transport, wordWrap, colW);
+    m_store.Add(dlgName.empty() ? name : dlgName, transport, wrapMode, colW);
     PopulateList();
     UpdateButtonState();
 }
@@ -325,11 +325,11 @@ void ConnectionManagerDialog::OnEdit(wxCommandEvent&)
         using T = std::decay_t<decltype(p)>;
         if constexpr (std::is_same_v<T, LoopbackParams>) {
             updated.transport   = term::session::LoopbackDesc{};
-            updated.wordWrap    = p.wordWrap;
+            updated.wrapMode    = p.wrapMode;
             updated.columnWidth = p.columnWidth;
         } else if constexpr (std::is_same_v<T, PtyParams>) {
             updated.transport   = term::session::PtyDesc{p.shell};
-            updated.wordWrap    = p.wordWrap;
+            updated.wrapMode    = p.wrapMode;
             updated.columnWidth = p.columnWidth;
         } else if constexpr (std::is_same_v<T, SshParams>) {
             term::session::SshDesc d;
@@ -352,7 +352,7 @@ void ConnectionManagerDialog::OnEdit(wxCommandEvent&)
                     d.authMethod = term::session::SshAuthMethod::Agent; break;
             }
             updated.transport   = d;
-            updated.wordWrap    = p.wordWrap;
+            updated.wrapMode    = p.wrapMode;
             updated.columnWidth = p.columnWidth;
         }
     }, dlg.GetParams());
@@ -390,7 +390,7 @@ void ConnectionManagerDialog::OnQuickLocalShell(wxCommandEvent&)
     term::session::Connection conn;
     conn.label     = "Local Shell";
     conn.transport = term::session::PtyDesc{shell};
-    conn.wordWrap  = false;
+    conn.wrapMode  = false;
     conn.columnWidth = m_cfg.columnWidths.empty() ? 80 : m_cfg.columnWidths[0];
 
     m_onConnect(conn, m_cbOpenNewWindow->GetValue());
@@ -402,7 +402,7 @@ void ConnectionManagerDialog::OnQuickLoopback(wxCommandEvent&)
     term::session::Connection conn;
     conn.label     = "Loopback";
     conn.transport = term::session::LoopbackDesc{};
-    conn.wordWrap  = true;
+    conn.wrapMode  = true;
     conn.columnWidth = m_cfg.columnWidths.empty() ? 80 : m_cfg.columnWidths[0];
 
     m_onConnect(conn, m_cbOpenNewWindow->GetValue());

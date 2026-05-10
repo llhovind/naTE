@@ -31,8 +31,8 @@ Session::Session(const Connection& conn,
                  std::function<void()> onDisconnect,
                  std::function<void(const transport::TransportError&)> onError,
                  unsigned short ptyLineWidth,
-                 bool wordWrap)
-    : transport_(MakeTransport(*this, conn, wordWrap ? cols : ptyLineWidth, rows)),
+                 bool wrapMode)
+    : transport_(MakeTransport(*this, conn, wrapMode ? cols : ptyLineWidth, rows)),
       main_doc_(std::make_unique<MainScreenDocument>(scrollbackLines)),
       alt_doc_(std::make_unique<AltScreenDocument>(rows, cols)),
       active_doc_(main_doc_.get()),
@@ -44,8 +44,8 @@ Session::Session(const Connection& conn,
       lastRows_(rows),
       ptyLineWidth_(ptyLineWidth)
 {
-    docLayout_->SetWordWrap(wordWrap);
-    main_doc_->SetPtyCols(wordWrap ? cols : ptyLineWidth);
+    docLayout_->SetwrapMode(wrapMode);
+    main_doc_->SetPtyCols(wrapMode ? cols : ptyLineWidth);
     transport_->Start();
 }
 
@@ -103,7 +103,7 @@ void Session::OnEnterAltScreen()
     docLayout_->SetDocument(*alt_doc_);
     for (auto* l : externalListeners_)
         alt_doc_->AddListener(l);
-    if (!docLayout_->GetWordWrap())
+    if (!docLayout_->GetwrapMode())
         transport_->Resize(lastCols_, lastRows_);
     altScreenActive_ = true;
 }
@@ -117,7 +117,7 @@ void Session::OnExitAltScreen()
     docLayout_->SetDocument(*main_doc_);
     for (auto* l : externalListeners_)
         main_doc_->AddListener(l);
-    if (!docLayout_->GetWordWrap())
+    if (!docLayout_->GetwrapMode())
         transport_->Resize(ptyLineWidth_, lastRows_);
     altScreenActive_ = false;
 }
@@ -156,16 +156,16 @@ void Session::SetViewportSize(unsigned short cols, unsigned short rows)
         alt_doc_->Resize(rows, cols);
         transport_->Resize(cols, rows);
     } else {
-        const bool wordWrap = docLayout_->GetWordWrap();
-        const int  ptyCols  = wordWrap ? cols : ptyLineWidth_;
+        const bool wrapMode = docLayout_->GetwrapMode();
+        const int  ptyCols  = wrapMode ? cols : ptyLineWidth_;
         transport_->Resize(static_cast<unsigned short>(ptyCols), rows);
         main_doc_->SetPtyCols(ptyCols);
     }
 }
 
-void Session::SetWordWrap(bool wrap)
+void Session::SetwrapMode(bool wrap)
 {
-    docLayout_->SetWordWrap(wrap);
+    docLayout_->SetwrapMode(wrap);
     if (!altScreenActive_) {
         const int ptyCols = wrap ? lastCols_ : ptyLineWidth_;
         transport_->Resize(static_cast<unsigned short>(ptyCols), lastRows_);

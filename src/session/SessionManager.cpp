@@ -57,7 +57,7 @@ SessionId SessionManager::CreateSession(const Connection& conn,
                 obs->OnSessionError(id, err);
         },
         ptyLineWidth,
-        conn.wordWrap);
+        conn.wrapMode);
 
     sessions_.emplace(id, std::move(rec));
     return id;
@@ -198,10 +198,10 @@ void SessionManager::OnResize(SessionId id, unsigned short cols, unsigned short 
         rec->session->SetViewportSize(cols, rows);
 }
 
-void SessionManager::SetWordWrap(SessionId id, bool wrap)
+void SessionManager::SetwrapMode(SessionId id, bool wrap)
 {
     if (SessionRecord* rec = FindRecord(id))
-        rec->session->SetWordWrap(wrap);
+        rec->session->SetwrapMode(wrap);
 }
 
 term::input::InputTarget* SessionManager::GetInputTarget(SessionId id) const

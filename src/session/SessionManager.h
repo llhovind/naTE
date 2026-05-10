@@ -86,7 +86,7 @@ public:
 
     void OnScroll(SessionId id, int topRow);
     void OnResize(SessionId id, unsigned short cols, unsigned short rows);
-    void SetWordWrap(SessionId id, bool wrap);
+    void SetwrapMode(SessionId id, bool wrap);
 
     term::input::InputTarget* GetInputTarget(SessionId id) const;
 

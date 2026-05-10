@@ -91,7 +91,7 @@ json SerialiseProfile(const ConnectionProfile& p)
     json j = SerialiseTransport(p.transport);
     j["id"]          = p.id;
     j["name"]        = p.name;
-    j["wordWrap"]    = p.wordWrap;
+    j["wrapMode"]    = p.wrapMode;
     j["columnWidth"] = p.columnWidth;
     j["createdAt"]   = static_cast<long long>(p.createdAt);
     j["lastUsed"]    = static_cast<long long>(p.lastUsed);
@@ -103,7 +103,7 @@ ConnectionProfile DeserialiseProfile(const json& j)
     ConnectionProfile p;
     p.id          = j.value("id",          std::string{});
     p.name        = j.value("name",        std::string{});
-    p.wordWrap    = j.value("wordWrap",    false);
+    p.wrapMode    = j.value("wrapMode",    false);
     p.columnWidth = j.value("columnWidth", static_cast<unsigned short>(80));
     p.createdAt   = static_cast<std::time_t>(j.value("createdAt", 0LL));
     p.lastUsed    = static_cast<std::time_t>(j.value("lastUsed",  0LL));

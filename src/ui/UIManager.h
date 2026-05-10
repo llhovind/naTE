@@ -63,8 +63,8 @@ public:
     // Close every session this UIManager owns (called by MainFrame::OnClose).
     void CloseAllSessions();
 
-    // Toggle word-wrap for the currently active session.
-    void ToggleWordWrapForActive();
+    // Toggle wrap mode for the currently active session.
+    void TogglewrapModeForActive();
 
     // Toggle broadcast mode on/off.  Enabling with an empty selection auto-selects
     // all sessions in this window.  Disabling preserves the selection for restore.

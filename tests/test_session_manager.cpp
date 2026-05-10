@@ -531,8 +531,8 @@ TEST_CASE("given SGR reset sequence when processed then style returns to default
     REQUIRE(line.attrs.back().bg == -1);
 }
 
-TEST_CASE("given line longer than viewport when word wrap off then horizontal scroll slices correctly") {
-    // 20-column viewport; word wrap defaults to false
+TEST_CASE("given line longer than viewport when wrap mode off then horizontal scroll slices correctly") {
+    // 20-column viewport; wrap mode defaults to false
     Connection conn{"test", LoopbackDesc{}};
     Session session(conn, 1000, 20, 5, {}, {});
 

@@ -9,7 +9,7 @@ struct ConnectionProfile {
     std::string                   id;           // UUID v4
     std::string                   name;         // user-given display name
     term::session::TransportDesc  transport;    // variant<PtyDesc, LoopbackDesc, SshDesc>
-    bool                          wordWrap    = false;
+    bool                          wrapMode    = false;
     unsigned short                columnWidth = 80;
     std::time_t                   createdAt   = 0;
     std::time_t                   lastUsed    = 0;  // 0 = never used

@@ -38,11 +38,11 @@ public:
 
     CursorPos GetCursorDocPos() const { return doc_->GetCursor(); }
 
-    // Viewport state in document-line coordinates (word-wrap unaware).
+    // Viewport state in document-line coordinates (wrap mode unaware).
     int  GetTopRow() const;
     void SetTopRow(int docLine);
 
-    // Viewport state in visual-row coordinates. When word-wrap is off these
+    // Viewport state in visual-row coordinates. When wrap mode is off these
     // are identical to the doc-line forms (every logical line is one visual row).
     int  GetTotalVisualLineCount() const;
     int  GetTopVisualRow()         const;
@@ -52,8 +52,8 @@ public:
     bool IsAtEnd() const;
     void EnsureCursorVisible();
 
-    void SetWordWrap(bool wrap);
-    bool GetWordWrap() const;
+    void SetwrapMode(bool wrap);
+    bool GetwrapMode() const;
     void SetLeftCol(int col);
     int  GetLeftCol() const;
     int  GetMaxVisibleWidth() const;
@@ -92,7 +92,7 @@ public:
 
 private:
     // Position in document space: which doc line, and which visual sub-row
-    // within that line (always 0 when word-wrap is off).
+    // within that line (always 0 when wrap mode is off).
     struct ViewportAnchor { int docLine = 0; int subRow = 0; };
 
     // All *Locked methods assume mtx_ is already held by the caller.
@@ -116,7 +116,7 @@ private:
     mutable int    maxVisibleWidth_      = 0;
     mutable bool   maxVisibleWidthDirty_ = true;
     bool           autoScroll_           = true;
-    bool           wordWrap_             = false;
+    bool           wrapMode_             = false;
 
     std::vector<SearchMatch> searchMatches_;
     size_t                   searchCurrentIdx_ = 0;

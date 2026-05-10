@@ -39,7 +39,7 @@ void DocLayout::SetDocument(Document& newDoc)
 // line is empty; ceil(len / cols_) otherwise.
 int DocLayout::VisualCount(const DocLine& line) const
 {
-    if (!wordWrap_ || cols_ <= 0) return 1;
+    if (!wrapMode_ || cols_ <= 0) return 1;
     const int len = (int)line.text.size();
     return len == 0 ? 1 : (len + cols_ - 1) / cols_;
 }
@@ -84,7 +84,7 @@ void DocLayout::SetViewportSize(int newCols, int newRows)
 
     // After a column-width change the anchor's subRow may be out of range for
     // the new wrap geometry — clamp it before any further navigation.
-    if (wordWrap_) {
+    if (wrapMode_) {
         const auto& lines = doc_->GetLines();
         if (topAnchor_.docLine < (int)lines.size()) {
             const int maxSub = VisualCount(lines[topAnchor_.docLine]) - 1;
@@ -114,7 +114,7 @@ RenderedLine DocLayout::GetRenderedLine(int r)
         return {};  // empty row — past end of document
 
     const DocLine& dline    = lines[pos.docLine];
-    const size_t   startCol = wordWrap_
+    const size_t   startCol = wrapMode_
                             ? static_cast<size_t>(pos.subRow) * static_cast<size_t>(cols_)
                             : static_cast<size_t>(leftCol_);
     const size_t   len      = (dline.text.size() > startCol)
@@ -180,7 +180,7 @@ RenderedLine DocLayout::GetRenderedLine(int r)
     // Cursor: check whether the document cursor lands on this exact visual row.
     const CursorPos cursor = doc_->GetCursor();
     if ((int)cursor.line == pos.docLine) {
-        if (wordWrap_) {
+        if (wrapMode_) {
             const int cursorSubRow = (cols_ > 0) ? (int)(cursor.col / (size_t)cols_) : 0;
             if (cursorSubRow == pos.subRow) {
                 result.hasCursor = true;
@@ -218,7 +218,7 @@ void DocLayout::SetTopRow(int docLine)
 
 int DocLayout::TotalVisualLinesLocked() const
 {
-    if (!wordWrap_) return (int)doc_->GetLines().size();
+    if (!wrapMode_) return (int)doc_->GetLines().size();
     int total = 0;
     for (const auto& line : doc_->GetLines())
         total += VisualCount(line);
@@ -234,7 +234,7 @@ int DocLayout::GetTotalVisualLineCount() const
 int DocLayout::GetTopVisualRow() const
 {
     std::lock_guard<std::mutex> lk(mtx_);
-    if (!wordWrap_) return topAnchor_.docLine;
+    if (!wrapMode_) return topAnchor_.docLine;
     const auto& lines = doc_->GetLines();
     int visual = 0;
     for (int i = 0; i < topAnchor_.docLine && i < (int)lines.size(); ++i)
@@ -245,7 +245,7 @@ int DocLayout::GetTopVisualRow() const
 void DocLayout::SetTopVisualRow(int visualRow)
 {
     std::lock_guard<std::mutex> lk(mtx_);
-    if (!wordWrap_) { SetTopRowLocked(visualRow); return; }
+    if (!wrapMode_) { SetTopRowLocked(visualRow); return; }
     const int total = TotalVisualLinesLocked();
     visualRow   = std::clamp(visualRow, 0, std::max(0, total - rows_));
     topAnchor_  = WalkAnchorBy({0, 0}, visualRow);
@@ -285,7 +285,7 @@ DocLayout::HitTest(int viewportRow, int viewportCol) const
 {
     std::lock_guard<std::mutex> lk(mtx_);
     const ViewportAnchor pos = WalkAnchorBy(topAnchor_, viewportRow);
-    const int startCol = wordWrap_ ? pos.subRow * cols_ : leftCol_;
+    const int startCol = wrapMode_ ? pos.subRow * cols_ : leftCol_;
     return {pos.docLine, startCol + viewportCol};
 }
 
@@ -324,7 +324,7 @@ void DocLayout::EnsureCursorVisibleVertically()
 {
     const CursorPos cur        = doc_->GetCursor();
     const int       curDocLine = (int)cur.line;
-    const int       curSubRow  = (wordWrap_ && cols_ > 0)
+    const int       curSubRow  = (wrapMode_ && cols_ > 0)
                                ? (int)(cur.col / (size_t)cols_) : 0;
 
     // Cursor above viewport — snap anchor up to cursor.
@@ -350,7 +350,7 @@ void DocLayout::EnsureCursorVisibleVertically()
 
 void DocLayout::EnsureCursorVisibleHorizontally()
 {
-    if (wordWrap_) return;
+    if (wrapMode_) return;
     const int docCol = (int)doc_->GetCursor().col;
     if (docCol < leftCol_)
         leftCol_ = docCol;
@@ -362,7 +362,7 @@ void DocLayout::ComputeMaxVisibleWidthLocked() const
 {
     maxVisibleWidthDirty_ = false;
     maxVisibleWidth_ = cols_;
-    if (wordWrap_) return;
+    if (wrapMode_) return;
 
     const auto& lines = doc_->GetLines();
     ViewportAnchor pos = topAnchor_;
@@ -381,21 +381,21 @@ int DocLayout::GetMaxVisibleWidth() const
     return maxVisibleWidth_;
 }
 
-void DocLayout::SetWordWrap(bool wrap)
+void DocLayout::SetwrapMode(bool wrap)
 {
     std::lock_guard<std::mutex> lk(mtx_);
-    if (wordWrap_ == wrap) return;
-    wordWrap_         = wrap;
+    if (wrapMode_ == wrap) return;
+    wrapMode_         = wrap;
     leftCol_          = 0;
     topAnchor_.subRow = 0;  // subRow is wrap-relative; reset on mode change
     if (autoScroll_) ScrollToEndLocked();
     ComputeMaxVisibleWidthLocked();
 }
 
-bool DocLayout::GetWordWrap() const
+bool DocLayout::GetwrapMode() const
 {
     std::lock_guard<std::mutex> lk(mtx_);
-    return wordWrap_;
+    return wrapMode_;
 }
 
 void DocLayout::SetLeftCol(int col)
@@ -461,7 +461,7 @@ void DocLayout::ClearSearchState()
 int DocLayout::GetVisualRowForDocLine(int docLine) const
 {
     std::lock_guard<std::mutex> lk(mtx_);
-    if (!wordWrap_) return docLine;
+    if (!wrapMode_) return docLine;
     const auto& lines = doc_->GetLines();
     int visual = 0;
     for (int i = 0; i < docLine && i < (int)lines.size(); ++i)
