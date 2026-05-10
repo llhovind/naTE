@@ -472,12 +472,12 @@ void UIManager::UpdateStatusBar()
 
 void UIManager::SetupEditMenu(wxMenu* menu)
 {
-    menu->Append(kEditMenuCopy,      "Copy");
-    menu->Append(kEditMenuPaste,     "Paste");
-    menu->Append(kEditMenuSelectAll, "Select All");
+    menu->Append(kEditMenuCopy,      "Copy\tCtrl+Shift+C");
+    menu->Append(kEditMenuPaste,     "Paste\tCtrl+Shift+V");
+    menu->Append(kEditMenuSelectAll, "Select All\tCtrl+Shift+A");
     menu->AppendSeparator();
     menu->Append(kEditMenuPasteSel,  "Paste Selection");
-    menu->Append(kEditMenuFind,      "Find in Terminal");
+    menu->Append(kEditMenuFind,      "Find in Terminal\tCtrl+Shift+F");
     menu->AppendSeparator();
     menu->Append(kEditMenuSaveFile,  "Save to File...");
     menu->Append(kEditMenuWebSearch, "Search the Web");

@@ -35,8 +35,8 @@ MainFrame::MainFrame(const AppConfig& cfg,
     auto* fileMenu = new wxMenu;
     fileMenu->Append(ID_NEW_WINDOW, "New Window\tCtrl+Shift+N");
     fileMenu->AppendSeparator();
-    fileMenu->Append(wxID_CLOSE,  "Close This Window\tCtrl+Q");
-    fileMenu->Append(ID_QUIT_ALL, "Quit All\tCtrl+Shift+Q");
+    fileMenu->Append(wxID_CLOSE,  "Close This Window\tCtrl+Shift+Q");
+    fileMenu->Append(ID_QUIT_ALL, "Quit All\tCtrl+Shift+X");
 
     Bind(wxEVT_MENU,         &MainFrame::OnNewWindow,        this, ID_NEW_WINDOW);
     Bind(wxEVT_MENU,         &MainFrame::OnCloseThisWindow,  this, wxID_CLOSE);
@@ -49,14 +49,14 @@ MainFrame::MainFrame(const AppConfig& cfg,
     // ---- Connection menu -----------------------------------------------------
     m_connMenu = new wxMenu;
     m_connMenu->Append(ID_CONNECTION_MANAGER, "Connection Manager...\tCtrl+Shift+M");
-    m_connMenu->Append(ID_NEW_CONNECTION,     "New Connection\tCtrl+N");
+    m_connMenu->Append(ID_NEW_CONNECTION,     "New Connection");
     m_connMenu->AppendSeparator();
     Bind(wxEVT_MENU, &MainFrame::OnConnectionManager, this, ID_CONNECTION_MANAGER);
     Bind(wxEVT_MENU, &MainFrame::OnNewConnection,     this, ID_NEW_CONNECTION);
 
     // ---- Terminal menu -------------------------------------------------------
     auto* termMenu = new wxMenu;
-    m_miWordWrap = termMenu->AppendCheckItem(ID_TOGGLE_WORDWRAP, "Word Wrap\tCtrl+W");
+    m_miWordWrap = termMenu->AppendCheckItem(ID_TOGGLE_WORDWRAP, "Word Wrap\tCtrl+Shift+W");
     Bind(wxEVT_MENU, &MainFrame::OnToggleWordWrap, this, ID_TOGGLE_WORDWRAP);
 
     // ---- Window menu (populated dynamically) ---------------------------------
