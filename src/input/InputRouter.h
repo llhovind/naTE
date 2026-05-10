@@ -50,6 +50,7 @@ public:
     void ClearSelection();
 
     bool IsSelected(InputTarget* target) const;
+    bool HasSelection() const noexcept;
 
     // --- Mode ---
     void SetMode(InputMode mode) noexcept;

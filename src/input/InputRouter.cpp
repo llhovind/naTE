@@ -50,6 +50,10 @@ bool InputRouter::IsSelected(InputTarget* target) const {
     return selected_.find(target) != selected_.end();
 }
 
+bool InputRouter::HasSelection() const noexcept {
+    return !selected_.empty();
+}
+
 // --- Mode ---
 
 void InputRouter::SetMode(InputMode mode) noexcept {

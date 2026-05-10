@@ -288,6 +288,12 @@ void UIManager::ToggleTileBroadcast(term::session::SessionId id)
         router_.Deselect(target);
     else
         router_.Select(target);
+
+    if (router_.GetMode() == term::input::InputMode::Broadcast && !router_.HasSelection()) {
+        router_.SetMode(term::input::InputMode::Focused);
+        frame_->SyncBroadcastMenuItem(false);
+    }
+
     RefreshBroadcastVisuals();
 }
 
