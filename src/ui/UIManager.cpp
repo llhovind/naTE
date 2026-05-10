@@ -110,6 +110,8 @@ void UIManager::OnSessionTitleChanged(term::session::SessionId id, const std::st
         if (ui->tile)
             ui->tile->SetTileLabel(wxString::FromUTF8(title));
         UpdateStatusBar();
+        if (id == sm_.GetActiveSessionId())
+            frame_->SetTitle(wxString::FromUTF8("naTE \xe2\x80\x94 " + title));
     });
 }
 
@@ -187,8 +189,10 @@ void UIManager::OnSessionDestroyed(term::session::SessionId id)
     // reflect the no-session state.
     if (!sessions_.empty())
         RequestActivate(sessions_.begin()->first);
-    else
+    else {
         UpdateStatusBar();
+        frame_->SetTitle("naTE");
+    }
 
     if (!pendingErrorMsg_.empty()) {
         frame_->SetStatusText(wxString::FromUTF8(pendingErrorMsg_), 1);
@@ -213,6 +217,8 @@ void UIManager::RequestActivate(term::session::SessionId id)
 
     frame_->Layout();
     UpdateStatusBar();
+    if (ui)
+        frame_->SetTitle(wxString::FromUTF8("naTE \xe2\x80\x94 " + ui->label));
     if (activePanel)
         activePanel->SetFocus();
 }

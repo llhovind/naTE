@@ -5,6 +5,7 @@
 #include "session/Connection.h"
 
 #include <wx/button.h>
+#include <wx/checkbox.h>
 #include <wx/dataview.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
@@ -145,7 +146,9 @@ ConnectionManagerDialog::ConnectionManagerDialog(wxWindow* parent,
     btnRow->Add(m_btnConn, 0, wxRIGHT, 6);
     btnRow->Add(new wxButton(this, ID_BTN_NEW, "New..."), 0, wxRIGHT, 6);
     btnRow->Add(m_btnEdit,  0, wxRIGHT, 6);
-    btnRow->Add(m_btnDel,   0);
+    btnRow->Add(m_btnDel,   0, wxRIGHT, 20);
+    m_cbOpenNewWindow = new wxCheckBox(this, wxID_ANY, "Open in New Window");
+    btnRow->Add(m_cbOpenNewWindow, 0, wxALIGN_CENTER_VERTICAL);
     btnRow->AddStretchSpacer();
     btnRow->Add(new wxButton(this, wxID_CLOSE, "Close"), 0);
     outer->Add(btnRow, 0, wxEXPAND | wxALL, 12);
@@ -215,7 +218,7 @@ void ConnectionManagerDialog::LaunchProfile(const std::string& id)
     conn.wordWrap    = it->wordWrap;
     conn.columnWidth = it->columnWidth;
 
-    m_onConnect(conn);
+    m_onConnect(conn, m_cbOpenNewWindow->GetValue());
     EndModal(wxID_OK);
 }
 
@@ -289,7 +292,9 @@ void ConnectionManagerDialog::OnNew(wxCommandEvent&)
         }
     }, dlg.GetParams());
 
-    m_store.Add(name, transport, wordWrap, colW);
+    // Prefer the user-supplied name from the dialog over the auto-generated one.
+    const std::string dlgName = dlg.GetConnectionName();
+    m_store.Add(dlgName.empty() ? name : dlgName, transport, wordWrap, colW);
     PopulateList();
     UpdateButtonState();
 }
@@ -313,6 +318,9 @@ void ConnectionManagerDialog::OnEdit(wxCommandEvent&)
     if (dlg.ShowModal() != wxID_OK) return;
 
     term::db::ConnectionProfile updated = *it;
+    const std::string dlgName = dlg.GetConnectionName();
+    if (!dlgName.empty())
+        updated.name = dlgName;
     std::visit([&](const auto& p) {
         using T = std::decay_t<decltype(p)>;
         if constexpr (std::is_same_v<T, LoopbackParams>) {
@@ -385,7 +393,7 @@ void ConnectionManagerDialog::OnQuickLocalShell(wxCommandEvent&)
     conn.wordWrap  = false;
     conn.columnWidth = m_cfg.columnWidths.empty() ? 80 : m_cfg.columnWidths[0];
 
-    m_onConnect(conn);
+    m_onConnect(conn, m_cbOpenNewWindow->GetValue());
     EndModal(wxID_OK);
 }
 
@@ -397,7 +405,7 @@ void ConnectionManagerDialog::OnQuickLoopback(wxCommandEvent&)
     conn.wordWrap  = true;
     conn.columnWidth = m_cfg.columnWidths.empty() ? 80 : m_cfg.columnWidths[0];
 
-    m_onConnect(conn);
+    m_onConnect(conn, m_cbOpenNewWindow->GetValue());
     EndModal(wxID_OK);
 }
 

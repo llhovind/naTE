@@ -10,7 +10,7 @@ TerminalGrid::TerminalGrid(wxWindow* parent)
     : wxScrolledWindow(parent, wxID_ANY)
 {
     SetScrollRate(8, 8);
-    SetBackgroundColour(wxColour(40, 40, 40));
+    SetBackgroundColour(wxColour(145, 145, 156));
     Bind(wxEVT_SIZE, &TerminalGrid::OnSize, this);
 }
 

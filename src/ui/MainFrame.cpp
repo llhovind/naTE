@@ -1,6 +1,7 @@
 #include "ui/MainFrame.h"
 #include "ui/ConnectionManagerDialog.h"
 #include "db/ConnectionStore.h"
+#include "app/App.h"
 #include <wx/sizer.h>
 #include <cstdlib>
 
@@ -8,6 +9,12 @@ namespace {
     constexpr int ID_NEW_CONNECTION     = wxID_HIGHEST + 1;
     constexpr int ID_TOGGLE_WORDWRAP    = wxID_HIGHEST + 2;
     constexpr int ID_CONNECTION_MANAGER = wxID_HIGHEST + 3;
+    constexpr int ID_NEW_WINDOW         = wxID_HIGHEST + 4;
+    constexpr int ID_QUIT_ALL           = wxID_HIGHEST + 5;
+
+    // Window menu items occupy [kWindowMenuBase, kWindowMenuBase + kWindowMenuMax).
+    constexpr int kWindowMenuBase = wxID_HIGHEST + 400;
+    constexpr int kWindowMenuMax  = 64;
 
     template<class... Ts>
     struct overloaded : Ts... { using Ts::operator()...; };
@@ -25,13 +32,22 @@ MainFrame::MainFrame(const AppConfig& cfg,
       m_store(store),
       m_cfg(cfg)
 {
+    // ---- File menu -----------------------------------------------------------
     auto* fileMenu = new wxMenu;
-    fileMenu->Append(wxID_EXIT, "Quit\tCtrl+Q");
-    Bind(wxEVT_MENU,         &MainFrame::OnQuit,  this, wxID_EXIT);
-    Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
+    fileMenu->Append(ID_NEW_WINDOW, "New Window\tCtrl+Shift+N");
+    fileMenu->AppendSeparator();
+    fileMenu->Append(wxID_CLOSE,  "Close This Window\tCtrl+Q");
+    fileMenu->Append(ID_QUIT_ALL, "Quit All\tCtrl+Shift+Q");
 
+    Bind(wxEVT_MENU,         &MainFrame::OnNewWindow,        this, ID_NEW_WINDOW);
+    Bind(wxEVT_MENU,         &MainFrame::OnCloseThisWindow,  this, wxID_CLOSE);
+    Bind(wxEVT_MENU,         &MainFrame::OnQuitAll,          this, ID_QUIT_ALL);
+    Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose,            this);
+
+    // ---- Edit menu (populated by UIManager) ----------------------------------
     m_editMenu = new wxMenu;
 
+    // ---- Connection menu -----------------------------------------------------
     m_connMenu = new wxMenu;
     m_connMenu->Append(ID_CONNECTION_MANAGER, "Connection Manager...\tCtrl+Shift+M");
     m_connMenu->Append(ID_NEW_CONNECTION,     "New Connection\tCtrl+N");
@@ -39,15 +55,20 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_MENU, &MainFrame::OnConnectionManager, this, ID_CONNECTION_MANAGER);
     Bind(wxEVT_MENU, &MainFrame::OnNewConnection,     this, ID_NEW_CONNECTION);
 
+    // ---- Terminal menu -------------------------------------------------------
     auto* termMenu = new wxMenu;
     m_miWordWrap = termMenu->AppendCheckItem(ID_TOGGLE_WORDWRAP, "Word Wrap\tCtrl+W");
     Bind(wxEVT_MENU, &MainFrame::OnToggleWordWrap, this, ID_TOGGLE_WORDWRAP);
 
+    // ---- Window menu (populated dynamically) ---------------------------------
+    m_windowMenu = new wxMenu;
+
     auto* menuBar = new wxMenuBar;
-    menuBar->Append(fileMenu,   "&File");
-    menuBar->Append(m_editMenu, "&Edit");
-    menuBar->Append(m_connMenu, "&Connection");
-    menuBar->Append(termMenu,   "&Terminal");
+    menuBar->Append(fileMenu,      "&File");
+    menuBar->Append(m_editMenu,    "&Edit");
+    menuBar->Append(m_connMenu,    "&Connection");
+    menuBar->Append(termMenu,      "&Terminal");
+    menuBar->Append(m_windowMenu,  "&Window");
     SetMenuBar(menuBar);
 
     CreateStatusBar(4);
@@ -71,9 +92,19 @@ void MainFrame::OnClose(wxCloseEvent& event)
     event.Skip();
 }
 
-void MainFrame::OnQuit(wxCommandEvent&)
+void MainFrame::OnCloseThisWindow(wxCommandEvent&)
 {
     Close(true);
+}
+
+void MainFrame::OnQuitAll(wxCommandEvent&)
+{
+    static_cast<App*>(wxTheApp)->QuitAll();
+}
+
+void MainFrame::OnNewWindow(wxCommandEvent&)
+{
+    static_cast<App*>(wxTheApp)->CreateNewWindow();
 }
 
 void MainFrame::LaunchSession(const term::session::Connection& conn)
@@ -144,15 +175,33 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
         }
     }, dlg.GetParams());
 
-    LaunchSession(conn);
+    // If the user provided a name, override the auto-generated label and
+    // persist the profile to the Connection Manager for future use.
+    const std::string name = dlg.GetConnectionName();
+    if (!name.empty()) {
+        conn.label = name;
+        m_store.Add(name, conn.transport, conn.wordWrap, conn.columnWidth);
+    }
+
+    if (dlg.GetOpenInNewWindow()) {
+        auto* newFrame = static_cast<App*>(wxTheApp)->CreateNewWindow();
+        newFrame->LaunchSession(conn);
+    } else {
+        LaunchSession(conn);
+    }
 }
 
 void MainFrame::OnConnectionManager(wxCommandEvent&)
 {
     ui::ConnectionManagerDialog dlg(this, m_store, m_cfg,
-        [this](const term::session::Connection& conn) {
+        [this](const term::session::Connection& conn, bool openInNewWindow) {
             ++m_sessionCount;
-            LaunchSession(conn);
+            if (openInNewWindow) {
+                auto* f = static_cast<App*>(wxTheApp)->CreateNewWindow();
+                f->LaunchSession(conn);
+            } else {
+                LaunchSession(conn);
+            }
         });
     dlg.ShowModal();
 }
@@ -170,4 +219,33 @@ void MainFrame::SyncWordWrapMenuItem(bool checked)
 {
     if (m_miWordWrap)
         m_miWordWrap->Check(checked);
+}
+
+void MainFrame::RebuildWindowMenu(const std::vector<std::pair<MainFrame*, std::string>>& entries)
+{
+    // Unbind handlers for any previously populated items.
+    for (int i = 0; i < static_cast<int>(m_windowFrames.size()); ++i)
+        Unbind(wxEVT_MENU, &MainFrame::OnWindowMenuItem, this, kWindowMenuBase + i);
+
+    while (m_windowMenu->GetMenuItemCount() > 0)
+        m_windowMenu->Delete(m_windowMenu->FindItemByPosition(0));
+
+    m_windowFrames.clear();
+
+    int id = kWindowMenuBase;
+    for (const auto& [frame, title] : entries) {
+        auto* item = m_windowMenu->AppendCheckItem(id, title.empty() ? "naTE" : title);
+        if (frame == this)
+            item->Check(true);
+        Bind(wxEVT_MENU, &MainFrame::OnWindowMenuItem, this, id);
+        m_windowFrames.push_back(frame);
+        ++id;
+    }
+}
+
+void MainFrame::OnWindowMenuItem(wxCommandEvent& evt)
+{
+    const int idx = evt.GetId() - kWindowMenuBase;
+    if (idx >= 0 && idx < static_cast<int>(m_windowFrames.size()))
+        m_windowFrames[idx]->Raise();
 }

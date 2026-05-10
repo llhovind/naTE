@@ -40,6 +40,15 @@ NewConnectionDialog::NewConnectionDialog(wxWindow* parent,
 {
     auto* outer = new wxBoxSizer(wxVERTICAL);
 
+    // ---- Name ---------------------------------------------------------------
+    auto* nameRow = new wxBoxSizer(wxHORIZONTAL);
+    nameRow->Add(new wxStaticText(this, wxID_ANY, "Name:"),
+                 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+    m_nameCtrl = new wxTextCtrl(this, wxID_ANY, wxEmptyString,
+                                wxDefaultPosition, wxSize(280, -1));
+    nameRow->Add(m_nameCtrl, 1, wxEXPAND);
+    outer->Add(nameRow, 0, wxLEFT | wxRIGHT | wxTOP | wxEXPAND, 12);
+
     // ---- Transport selection ------------------------------------------------
     outer->Add(new wxStaticText(this, wxID_ANY, "Transport:"), 0, wxLEFT | wxTOP, 12);
 
@@ -201,7 +210,13 @@ NewConnectionDialog::NewConnectionDialog(wxWindow* parent,
 
     m_cbWordWrap = new wxCheckBox(this, wxID_ANY, "Word Wrap");
     m_cbWordWrap->SetValue(false);
-    termOptRow->Add(m_cbWordWrap, 0, wxALIGN_CENTER_VERTICAL);
+    termOptRow->Add(m_cbWordWrap, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 20);
+
+    // Hidden when editing a saved profile (prefill path).
+    m_cbOpenNewWindow = new wxCheckBox(this, wxID_ANY, "Open in New Window");
+    m_cbOpenNewWindow->SetValue(false);
+    m_cbOpenNewWindow->Show(prefill == nullptr);
+    termOptRow->Add(m_cbOpenNewWindow, 0, wxALIGN_CENTER_VERTICAL);
 
     outer->Add(termOptRow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
 
@@ -231,6 +246,8 @@ NewConnectionDialog::NewConnectionDialog(wxWindow* parent,
 
 void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profile)
 {
+    m_nameCtrl->SetValue(profile.name);
+
     std::visit([this](const auto& desc) {
         using T = std::decay_t<decltype(desc)>;
         if constexpr (std::is_same_v<T, term::session::PtyDesc>) {
@@ -380,6 +397,16 @@ ConnectionParams NewConnectionDialog::GetParams() const
     }
 
     return LoopbackParams{true, colWidth};
+}
+
+std::string NewConnectionDialog::GetConnectionName() const
+{
+    return m_nameCtrl->GetValue().Trim().ToStdString();
+}
+
+bool NewConnectionDialog::GetOpenInNewWindow() const
+{
+    return m_cbOpenNewWindow->IsShown() && m_cbOpenNewWindow->GetValue();
 }
 
 } // namespace ui

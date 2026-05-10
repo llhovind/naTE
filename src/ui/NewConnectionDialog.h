@@ -61,6 +61,8 @@ public:
 
     // Valid only after ShowModal() == wxID_OK
     ConnectionParams GetParams() const;
+    std::string      GetConnectionName() const;
+    bool             GetOpenInNewWindow() const;
 
 private:
     void OnTransportChanged(wxCommandEvent&);
@@ -69,6 +71,10 @@ private:
 
     void UpdateLayout();
     void ApplyPrefill(const term::db::ConnectionProfile& profile);
+
+    // Name / open-in-new-window
+    wxTextCtrl*    m_nameCtrl         = nullptr;
+    wxCheckBox*    m_cbOpenNewWindow  = nullptr;
 
     // Transport selection
     wxRadioButton* m_rbLoopback   = nullptr;

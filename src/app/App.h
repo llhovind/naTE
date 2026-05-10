@@ -1,6 +1,7 @@
 #pragma once
 #include <wx/app.h>
 #include <memory>
+#include <vector>
 #include "config/Config.h"
 #include "db/ConnectionStore.h"
 #include "input/InputRouter.h"
@@ -9,16 +10,34 @@
 
 #include <gdk/gdk.h>
 
+class MainFrame;
+
 class App : public wxApp {
 public:
     bool OnInit() override;
     int  OnExit() override;
     void OnGdkKeyPress(GdkEvent* event);
 
+    // Creates a new independent window with its own session stack.
+    MainFrame* CreateNewWindow();
+
+    // Closes every open window and exits the application.
+    void QuitAll();
+
+    // Notifies all open windows to rebuild their Window menu.
+    void RebuildWindowMenus();
+
 private:
+    struct WindowContext {
+        std::unique_ptr<term::input::InputRouter>      router;
+        std::unique_ptr<term::session::SessionManager> sessionManager;
+        std::unique_ptr<ui::UIManager>                 uiManager;
+        MainFrame*                                     frame = nullptr; // wx-owned
+    };
+
+    WindowContext* FindActiveContext();
+
     AppConfig                                      m_cfg;
     std::unique_ptr<term::db::ConnectionStore>     m_connectionStore;
-    std::unique_ptr<term::input::InputRouter>      m_router;
-    std::unique_ptr<term::session::SessionManager> m_sessionManager;
-    std::unique_ptr<ui::UIManager>                 m_uiManager;
+    std::vector<std::unique_ptr<WindowContext>>    m_windows;
 };

@@ -11,6 +11,7 @@
 #include <libssh2.h>
 #include <cstdlib>
 #include <string>
+#include <algorithm>
 
 static void GdkEventHandler(GdkEvent* event, gpointer data)
 {
@@ -36,20 +37,65 @@ bool App::OnInit() {
     m_connectionStore = std::make_unique<term::db::ConnectionStore>(
         std::make_unique<term::db::JsonConnectionRepository>(connectionsPath));
 
-    m_router         = std::make_unique<term::input::InputRouter>();
-    m_sessionManager = std::make_unique<term::session::SessionManager>(*m_router);
-
     gdk_event_handler_set(GdkEventHandler, this, nullptr);
 
-    auto* frame = new MainFrame(m_cfg, *m_router, *m_sessionManager, *m_connectionStore);
+    CreateNewWindow();
+    return true;
+}
 
-    m_uiManager = std::make_unique<ui::UIManager>(
-        *m_sessionManager, frame->GetConnMenu(), frame, m_cfg, *m_router,
-        frame->GetEditMenu());
-    m_sessionManager->SetObserver(m_uiManager.get());
+MainFrame* App::CreateNewWindow()
+{
+    auto wc = std::make_unique<WindowContext>();
+    wc->router         = std::make_unique<term::input::InputRouter>();
+    wc->sessionManager = std::make_unique<term::session::SessionManager>(*wc->router);
+
+    auto* frame = new MainFrame(m_cfg, *wc->router, *wc->sessionManager, *m_connectionStore);
+    wc->frame = frame;
+
+    wc->uiManager = std::make_unique<ui::UIManager>(
+        *wc->sessionManager, frame->GetConnMenu(), frame, m_cfg,
+        *wc->router, frame->GetEditMenu());
+    wc->sessionManager->SetObserver(wc->uiManager.get());
+
+    frame->Bind(wxEVT_DESTROY, [this, frame](wxWindowDestroyEvent& evt) {
+        if (evt.GetEventObject() == frame) {
+            auto it = std::find_if(m_windows.begin(), m_windows.end(),
+                [frame](const std::unique_ptr<WindowContext>& w) {
+                    return w->frame == frame;
+                });
+            if (it != m_windows.end())
+                m_windows.erase(it);
+            RebuildWindowMenus();
+        }
+        evt.Skip();
+    });
 
     frame->Show();
-    return true;
+    m_windows.push_back(std::move(wc));
+
+    RebuildWindowMenus();
+    return frame;
+}
+
+void App::QuitAll()
+{
+    // Copy frame pointers — Close() will modify m_windows via EVT_DESTROY.
+    std::vector<MainFrame*> frames;
+    frames.reserve(m_windows.size());
+    for (auto& w : m_windows)
+        frames.push_back(w->frame);
+    for (auto* f : frames)
+        f->Close(true);
+}
+
+void App::RebuildWindowMenus()
+{
+    std::vector<std::pair<MainFrame*, std::string>> entries;
+    entries.reserve(m_windows.size());
+    for (auto& w : m_windows)
+        entries.emplace_back(w->frame, w->frame->GetTitle().ToStdString());
+    for (auto& w : m_windows)
+        w->frame->RebuildWindowMenu(entries);
 }
 
 int App::OnExit()
@@ -58,20 +104,34 @@ int App::OnExit()
     return wxApp::OnExit();
 }
 
+App::WindowContext* App::FindActiveContext()
+{
+    // Native GTK modal dialogs use gtk_grab_add(); focus tracking unreliable there.
+    if (gtk_grab_get_current() != nullptr)
+        return nullptr;
+
+    wxWindow* const focused = wxWindow::FindFocus();
+    if (!focused)
+        return nullptr;
+
+    auto* topLevel = dynamic_cast<MainFrame*>(wxGetTopLevelParent(focused));
+    if (!topLevel)
+        return nullptr;
+
+    for (auto& w : m_windows) {
+        if (w->frame == topLevel)
+            return w.get();
+    }
+    return nullptr;
+}
+
 void App::OnGdkKeyPress(GdkEvent* event)
 {
-    // Native GTK modal dialogs (e.g. wxFileDialog) use gtk_grab_add() internally,
-    // so gtk_grab_get_current() is non-null while they are active. Check this first
-    // because wx focus tracking does not update for native GTK windows, making
-    // wxWindow::FindFocus() unreliable in that case.
-    if (gtk_grab_get_current() != nullptr)
-        return;
-
     // Pure wx dialogs (e.g. NewConnectionDialog) don't use GTK grabs, but wx
     // focus tracking does work for them: the focused widget's top-level parent
     // will be the dialog itself, not a MainFrame.
-    wxWindow* const focused = wxWindow::FindFocus();
-    if (!focused || !dynamic_cast<MainFrame*>(wxGetTopLevelParent(focused)))
+    WindowContext* wc = FindActiveContext();
+    if (!wc)
         return;
 
     GdkEventKey* ke = reinterpret_cast<GdkEventKey*>(event);
@@ -118,42 +178,44 @@ void App::OnGdkKeyPress(GdkEvent* event)
     // synchronous clipboard API pumps the GTK event loop via gtk_main_iteration_do(),
     // which corrupts GTK focus/grab state and silently kills all subsequent keyboard input.
     if (evt.ctrl && evt.key == term::input::Key::Character && evt.code == 'v') {
+        struct PasteCtx { ui::UIManager* ui; term::input::InputRouter* router; };
+        auto* ctx = new PasteCtx{ wc->uiManager.get(), wc->router.get() };
         gtk_clipboard_request_text(
             gtk_clipboard_get(GDK_SELECTION_CLIPBOARD),
             [](GtkClipboard*, const gchar* text, gpointer data) {
-                if (!text) return;
-                auto* self = static_cast<App*>(data);
-                self->m_router->Paste(std::string(text));
-                self->m_uiManager->EnsureCursorVisibleForActive();
+                auto* ctx = static_cast<PasteCtx*>(data);
+                if (text) {
+                    ctx->router->Paste(std::string(text));
+                    ctx->ui->EnsureCursorVisibleForActive();
+                }
+                delete ctx;
             },
-            this);
+            ctx);
         return;
     }
 
     // Ctrl+F — open/focus the search bar (never send to PTY).
-    // If text is selected, pre-populate the bar with the selection.
     if (evt.ctrl && evt.key == term::input::Key::Character && evt.code == 'f') {
-        m_uiManager->ShowSearchBarForActive(true, m_uiManager->GetActiveSelectedText());
+        wc->uiManager->ShowSearchBarForActive(true, wc->uiManager->GetActiveSelectedText());
         return;
     }
 
     // When the search bar has focus, intercept F3/Shift+F3/Escape and suppress
-    // PTY routing for all other keys (wxWidgets still dispatches them to the
-    // focused text control via the gtk_main_do_event() call in GdkEventHandler).
-    if (m_uiManager->SearchBarHasFocus()) {
+    // PTY routing for all other keys.
+    if (wc->uiManager->SearchBarHasFocus()) {
         if (evt.key == term::input::Key::Escape) {
-            if (auto* sc = m_uiManager->GetActiveSearchController())
+            if (auto* sc = wc->uiManager->GetActiveSearchController())
                 sc->Clear();
-            m_uiManager->ShowSearchBarForActive(false);
-            m_uiManager->EnsureCursorVisibleForActive();
+            wc->uiManager->ShowSearchBarForActive(false);
+            wc->uiManager->EnsureCursorVisibleForActive();
         } else if (evt.key == term::input::Key::FunctionKey && evt.code == 3) {
-            if (auto* sc = m_uiManager->GetActiveSearchController()) {
+            if (auto* sc = wc->uiManager->GetActiveSearchController()) {
                 if (evt.shift) sc->PrevMatch(); else sc->NextMatch();
             }
         }
         return;
     }
 
-    m_router->Send(evt);
-    m_uiManager->EnsureCursorVisibleForActive();
+    wc->router->Send(evt);
+    wc->uiManager->EnsureCursorVisibleForActive();
 }
