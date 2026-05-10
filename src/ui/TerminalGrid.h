@@ -28,7 +28,7 @@ public:
     // resize the frame after tiles are added.
     wxSize ComputeIdealGridSize() const;
 
-    static constexpr int kGap = 8;  // px between tiles
+    static constexpr int kGap = 2;  // px between tiles
 
 private:
     void RelayoutTiles();
