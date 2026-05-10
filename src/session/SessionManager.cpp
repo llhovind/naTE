@@ -204,6 +204,13 @@ void SessionManager::SetWordWrap(SessionId id, bool wrap)
         rec->session->SetWordWrap(wrap);
 }
 
+term::input::InputTarget* SessionManager::GetInputTarget(SessionId id) const
+{
+    if (const SessionRecord* rec = FindRecord(id))
+        return rec->session.get();
+    return nullptr;
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------

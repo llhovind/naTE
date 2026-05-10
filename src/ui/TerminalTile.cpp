@@ -1,5 +1,6 @@
 #include "ui/TerminalTile.h"
 #include "ui/TerminalPanel.h"
+#include <wx/menu.h>
 #include <wx/stattext.h>
 #include <wx/sizer.h>
 #include <cmath>
@@ -19,12 +20,14 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& cfg,
     titleText_->SetForegroundColour(*wxWHITE);
 
     // Route title bar events: activate on click, detect drag threshold for move.
-    titleBar_->Bind(wxEVT_LEFT_DOWN, &TerminalTile::OnTitleDown,   this);
-    titleBar_->Bind(wxEVT_MOTION,    &TerminalTile::OnTitleMotion, this);
-    titleBar_->Bind(wxEVT_LEFT_UP,   &TerminalTile::OnTitleUp,     this);
-    titleText_->Bind(wxEVT_LEFT_DOWN, &TerminalTile::OnTitleDown,   this);
-    titleText_->Bind(wxEVT_MOTION,    &TerminalTile::OnTitleMotion, this);
-    titleText_->Bind(wxEVT_LEFT_UP,   &TerminalTile::OnTitleUp,     this);
+    titleBar_->Bind(wxEVT_LEFT_DOWN,  &TerminalTile::OnTitleDown,       this);
+    titleBar_->Bind(wxEVT_MOTION,     &TerminalTile::OnTitleMotion,     this);
+    titleBar_->Bind(wxEVT_LEFT_UP,    &TerminalTile::OnTitleUp,         this);
+    titleBar_->Bind(wxEVT_RIGHT_DOWN, &TerminalTile::OnTitleRightClick, this);
+    titleText_->Bind(wxEVT_LEFT_DOWN,  &TerminalTile::OnTitleDown,       this);
+    titleText_->Bind(wxEVT_MOTION,     &TerminalTile::OnTitleMotion,     this);
+    titleText_->Bind(wxEVT_LEFT_UP,    &TerminalTile::OnTitleUp,         this);
+    titleText_->Bind(wxEVT_RIGHT_DOWN, &TerminalTile::OnTitleRightClick, this);
 
     terminal_ = new TerminalPanel(this, cfg, cols);
 
@@ -44,10 +47,25 @@ void TerminalTile::OnSize(wxSizeEvent& evt)
     evt.Skip();
 }
 
+void TerminalTile::UpdateTitleBarColor()
+{
+    const wxColour& c = inBroadcast_ ? colBroadcast_
+                      : isFocused_   ? colActive_
+                                     : colInactive_;
+    titleBar_->SetBackgroundColour(c);
+    titleBar_->Refresh();
+}
+
 void TerminalTile::SetFocused(bool focused)
 {
-    titleBar_->SetBackgroundColour(focused ? colActive_ : colInactive_);
-    titleBar_->Refresh();
+    isFocused_ = focused;
+    UpdateTitleBarColor();
+}
+
+void TerminalTile::SetBroadcastActive(bool active)
+{
+    inBroadcast_ = active;
+    UpdateTitleBarColor();
 }
 
 void TerminalTile::SetTileLabel(const wxString& label)
@@ -57,6 +75,10 @@ void TerminalTile::SetTileLabel(const wxString& label)
 
 void TerminalTile::OnTitleDown(wxMouseEvent& evt)
 {
+    if (evt.ControlDown()) {
+        if (broadcastToggleCb_) broadcastToggleCb_();
+        return;
+    }
     if (terminal_) terminal_->SetFocus();
     if (activateCb_) activateCb_();
     dragAnchor_  = evt.GetEventObject()
@@ -88,4 +110,17 @@ void TerminalTile::OnTitleUp(wxMouseEvent& evt)
 {
     dragPending_ = false;
     evt.Skip();
+}
+
+void TerminalTile::OnTitleRightClick(wxMouseEvent&)
+{
+    if (!broadcastToggleCb_) return;
+    wxMenu menu;
+    const wxString label = inBroadcast_ ? "Remove from Broadcast"
+                                        : "Add to Broadcast";
+    menu.Append(wxID_ANY, label);
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        if (broadcastToggleCb_) broadcastToggleCb_();
+    });
+    PopupMenu(&menu);
 }

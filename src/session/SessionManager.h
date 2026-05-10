@@ -88,6 +88,8 @@ public:
     void OnResize(SessionId id, unsigned short cols, unsigned short rows);
     void SetWordWrap(SessionId id, bool wrap);
 
+    term::input::InputTarget* GetInputTarget(SessionId id) const;
+
 private:
     struct SessionRecord {
         std::unique_ptr<Session>                         session;

@@ -12,6 +12,7 @@ namespace {
     constexpr int ID_CONNECTION_MANAGER = wxID_HIGHEST + 3;
     constexpr int ID_NEW_WINDOW         = wxID_HIGHEST + 4;
     constexpr int ID_QUIT_ALL           = wxID_HIGHEST + 5;
+    constexpr int ID_BROADCAST_MODE     = wxID_HIGHEST + 6;
 
     // Window menu items occupy [kWindowMenuBase, kWindowMenuBase + kWindowMenuMax).
     constexpr int kWindowMenuBase = wxID_HIGHEST + 400;
@@ -56,8 +57,10 @@ MainFrame::MainFrame(const AppConfig& cfg,
 
     // ---- Terminal menu -------------------------------------------------------
     auto* termMenu = new wxMenu;
-    m_miWordWrap = termMenu->AppendCheckItem(ID_TOGGLE_WORDWRAP, "Word Wrap\tCtrl+Shift+W");
+    m_miWordWrap  = termMenu->AppendCheckItem(ID_TOGGLE_WORDWRAP,  "Word Wrap\tCtrl+Shift+W");
+    m_miBroadcast = termMenu->AppendCheckItem(ID_BROADCAST_MODE,   "Broadcast Input Mode\tCtrl+Shift+B");
     Bind(wxEVT_MENU, &MainFrame::OnToggleWordWrap, this, ID_TOGGLE_WORDWRAP);
+    Bind(wxEVT_MENU, &MainFrame::OnToggleBroadcast, this, ID_BROADCAST_MODE);
 
     // ---- Window menu (populated dynamically) ---------------------------------
     m_windowMenu = new wxMenu;
@@ -208,6 +211,18 @@ void MainFrame::SyncWordWrapMenuItem(bool checked)
 {
     if (m_miWordWrap)
         m_miWordWrap->Check(checked);
+}
+
+void MainFrame::OnToggleBroadcast(wxCommandEvent&)
+{
+    if (m_uiManager)
+        m_uiManager->ToggleBroadcastMode();
+}
+
+void MainFrame::SyncBroadcastMenuItem(bool checked)
+{
+    if (m_miBroadcast)
+        m_miBroadcast->Check(checked);
 }
 
 void MainFrame::RebuildWindowMenu(const std::vector<std::pair<MainFrame*, std::string>>& entries)

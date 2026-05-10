@@ -183,6 +183,7 @@ void UIManager::TakeSession(term::session::SessionId  id,
     panel->SetActionRegistry(selectionActions_.get());
 
     tile->SetActivateCallback([this, id]() { RequestActivate(id); });
+    tile->SetBroadcastToggleCallback([this, id]() { ToggleTileBroadcast(id); });
     tile->SetTileSessionId(id);
     tile->SetDragStartCallback([this](term::session::SessionId sid, wxPoint pt) {
         OnTileDragStart(sid, pt);
@@ -220,6 +221,7 @@ void UIManager::TakeSession(term::session::SessionId  id,
     sessions_.emplace(id, std::move(sui));
 
     RequestActivate(id);
+    RefreshBroadcastVisuals();
 }
 
 void UIManager::ReleaseSession(term::session::SessionId id)
@@ -251,6 +253,53 @@ void UIManager::ToggleWordWrapForActive()
     const bool newWrap = !sm_.GetDocLayout(activeId_).GetWordWrap();
     sm_.SetWordWrap(activeId_, newWrap);
     frame_->SyncWordWrapMenuItem(newWrap);
+}
+
+void UIManager::ToggleBroadcastMode()
+{
+    const bool enabling = router_.GetMode() != term::input::InputMode::Broadcast;
+    if (enabling) {
+        bool anySelected = false;
+        for (auto& [id, sui] : sessions_) {
+            if (auto* t = sm_.GetInputTarget(id); t && router_.IsSelected(t)) {
+                anySelected = true;
+                break;
+            }
+        }
+        if (!anySelected) {
+            for (auto& [id, sui] : sessions_) {
+                if (auto* t = sm_.GetInputTarget(id))
+                    router_.Select(t);
+            }
+        }
+        router_.SetMode(term::input::InputMode::Broadcast);
+    } else {
+        router_.SetMode(term::input::InputMode::Focused);
+    }
+    RefreshBroadcastVisuals();
+    frame_->SyncBroadcastMenuItem(enabling);
+}
+
+void UIManager::ToggleTileBroadcast(term::session::SessionId id)
+{
+    auto* target = sm_.GetInputTarget(id);
+    if (!target) return;
+    if (router_.IsSelected(target))
+        router_.Deselect(target);
+    else
+        router_.Select(target);
+    RefreshBroadcastVisuals();
+}
+
+void UIManager::RefreshBroadcastVisuals()
+{
+    const bool broadcasting = router_.GetMode() == term::input::InputMode::Broadcast;
+    for (auto& [id, sui] : sessions_) {
+        if (!sui.tile) continue;
+        auto* target = sm_.GetInputTarget(id);
+        const bool active = broadcasting && target && router_.IsSelected(target);
+        sui.tile->SetBroadcastActive(active);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +339,8 @@ void UIManager::TearDownSessionUI(term::session::SessionId id)
         frame_->SetStatusText(wxString::FromUTF8(pendingErrorMsg_), 1);
         pendingErrorMsg_.clear();
     }
+
+    RefreshBroadcastVisuals();
 }
 
 // ---------------------------------------------------------------------------

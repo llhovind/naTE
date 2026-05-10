@@ -66,6 +66,17 @@ public:
     // Toggle word-wrap for the currently active session.
     void ToggleWordWrapForActive();
 
+    // Toggle broadcast mode on/off.  Enabling with an empty selection auto-selects
+    // all sessions in this window.  Disabling preserves the selection for restore.
+    void ToggleBroadcastMode();
+
+    // Toggle one session's membership in the broadcast group.
+    void ToggleTileBroadcast(term::session::SessionId id);
+
+    bool IsBroadcastMode() const {
+        return router_.GetMode() == term::input::InputMode::Broadcast;
+    }
+
     // -------------------------------------------------------------------------
     // UI-thread event routing
     // -------------------------------------------------------------------------
@@ -141,6 +152,9 @@ private:
 
     // Common tile teardown logic (called by both OnSessionDestroyed and ReleaseSession).
     void TearDownSessionUI(term::session::SessionId id);
+
+    // Refreshes SetBroadcastActive on all tiles to match current router state.
+    void RefreshBroadcastVisuals();
 
     // Drag handlers
     void OnTileDragStart(term::session::SessionId id, wxPoint screenAnchor);

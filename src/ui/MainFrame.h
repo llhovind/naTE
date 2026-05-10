@@ -27,6 +27,9 @@ public:
     // Called by UIManager to keep the word-wrap menu check in sync.
     void SyncWordWrapMenuItem(bool checked);
 
+    // Called by UIManager to keep the broadcast mode menu check in sync.
+    void SyncBroadcastMenuItem(bool checked);
+
     // Opens a connection in this window via App::CreateSessionInWindow.
     void LaunchSession(const term::session::Connection& conn);
 
@@ -42,6 +45,7 @@ private:
     void OnNewConnection(wxCommandEvent&);
     void OnConnectionManager(wxCommandEvent&);
     void OnToggleWordWrap(wxCommandEvent&);
+    void OnToggleBroadcast(wxCommandEvent&);
     void OnWindowMenuItem(wxCommandEvent& evt);
 
     term::input::InputRouter&    m_router;
@@ -50,8 +54,9 @@ private:
     ui::UIManager*               m_uiManager  = nullptr;
     wxMenu*                      m_connMenu   = nullptr;
     wxMenu*                      m_editMenu   = nullptr;
-    wxMenu*                      m_windowMenu = nullptr;
-    wxMenuItem*                  m_miWordWrap = nullptr;
+    wxMenu*                      m_windowMenu  = nullptr;
+    wxMenuItem*                  m_miWordWrap  = nullptr;
+    wxMenuItem*                  m_miBroadcast = nullptr;
     int                          m_sessionCount = 0;
 
     // Parallel to the current window menu items; used by OnWindowMenuItem.
