@@ -64,7 +64,10 @@ private:
     bool                     inBroadcast_   = false;
     static constexpr int     kDragThreshold = 5;
 
-    wxColour colActive_    {  60, 100, 160 };
-    wxColour colInactive_  {  70,  70,  70 };
-    wxColour colBroadcast_ { 175, 130,  40 };
+    // wxColour colActive_    {  60, 100, 160 };
+    wxColour colActive_    {  45, 57, 160 };
+    // wxColour colInactive_  {  70,  70,  70 };
+    wxColour colInactive_  {  131,  136,  141 };
+    // wxColour colBroadcast_ { 175, 130,  40 };
+    wxColour colBroadcast_ { 255, 140,  0 };
 };
