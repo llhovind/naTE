@@ -11,6 +11,7 @@
 #include "ui/UIManager.h"
 
 class MainFrame;
+class TerminalTile;
 
 class App : public wxApp {
 public:
@@ -20,13 +21,20 @@ public:
     // Creates a new independent window; returns its frame.
     MainFrame* CreateNewWindow();
 
-    // Creates a session in the global SM and subscribes the target window's
-    // UIManager to it. Returns the new SessionId (0 on failure).
+    // Creates a session in a new tile in the target window.
     term::session::SessionId CreateSessionInWindow(
         const term::session::Connection& conn, MainFrame* target);
 
+    // Creates a session as a new tab in an existing tile.
+    term::session::SessionId CreateSessionInTile(
+        const term::session::Connection& conn,
+        MainFrame*    target,
+        TerminalTile* targetTile);
+
     // Moves a live session from one window's UIManager to another's.
-    void MoveSession(MainFrame* src, term::session::SessionId id, MainFrame* dst);
+    // dstTile may be nullptr (creates a new tile in the destination window).
+    void MoveSession(MainFrame* src, term::session::SessionId id, MainFrame* dst,
+                     TerminalTile* dstTile = nullptr);
 
     // Closes every open window and exits the application.
     void QuitAll();

@@ -1,6 +1,7 @@
 #include "app/App.h"
 #include "db/JsonConnectionRepository.h"
 #include "ui/MainFrame.h"
+#include "ui/TerminalTile.h"
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
 #include <libssh2.h>
@@ -15,7 +16,6 @@ bool App::OnInit() {
         wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath();
     m_cfg = AppConfig::load((exeDir + wxFileName::GetPathSeparator() + "config.ini").ToStdString());
 
-    // Resolve ~/.nate/connections.json (same directory as known_hosts)
     const std::string connectionsPath = [] {
         const char* home = std::getenv("HOME");
         const std::string base = home ? std::string(home) + "/.nate" : std::string(".nate");
@@ -44,11 +44,15 @@ MainFrame* App::CreateNewWindow()
 
     frame->SetUIManager(wc->uiManager.get());
 
-    // Wire drag-to-move: UIManager fires this when a tile is dropped on
-    // another window's frame.
     wc->uiManager->SetMoveSessionCallback(
         [this, frame](term::session::SessionId id, MainFrame* dstFrame) {
-            MoveSession(frame, id, dstFrame);
+            MoveSession(frame, id, dstFrame, nullptr);
+        });
+
+    wc->uiManager->SetMoveTabToTileCallback(
+        [this, frame](term::session::SessionId id, MainFrame* dstFrame,
+                      TerminalTile* dstTile) {
+            MoveSession(frame, id, dstFrame, dstTile);
         });
 
     frame->Bind(wxEVT_DESTROY, [this, frame](wxWindowDestroyEvent& evt) {
@@ -74,6 +78,14 @@ MainFrame* App::CreateNewWindow()
 term::session::SessionId App::CreateSessionInWindow(
     const term::session::Connection& conn, MainFrame* target)
 {
+    return CreateSessionInTile(conn, target, nullptr);
+}
+
+term::session::SessionId App::CreateSessionInTile(
+    const term::session::Connection& conn,
+    MainFrame*    target,
+    TerminalTile* targetTile)
+{
     WindowContext* ctx = FindContext(target);
     if (!ctx) return 0;
 
@@ -94,11 +106,13 @@ term::session::SessionId App::CreateSessionInWindow(
         id,
         m_sessionManager->MakeTitleGetter(id),
         cols,
-        conn.label);
+        conn.label,
+        targetTile);
     return id;
 }
 
-void App::MoveSession(MainFrame* src, term::session::SessionId id, MainFrame* dst)
+void App::MoveSession(MainFrame* src, term::session::SessionId id, MainFrame* dst,
+                      TerminalTile* dstTile)
 {
     WindowContext* srcCtx = FindContext(src);
     WindowContext* dstCtx = FindContext(dst);
@@ -113,7 +127,8 @@ void App::MoveSession(MainFrame* src, term::session::SessionId id, MainFrame* ds
         id,
         m_sessionManager->MakeTitleGetter(id),
         m_sessionManager->GetDocLayout(id).GetViewportCols(),
-        m_sessionManager->GetLabel(id));
+        m_sessionManager->GetLabel(id),
+        dstTile);
 
     m_sessionManager->ActivateSession(id, *dstCtx->router);
     dst->Raise();
@@ -122,7 +137,6 @@ void App::MoveSession(MainFrame* src, term::session::SessionId id, MainFrame* ds
 
 void App::QuitAll()
 {
-    // Copy frame pointers — Close() will modify m_windows via EVT_DESTROY.
     std::vector<MainFrame*> frames;
     frames.reserve(m_windows.size());
     for (auto& w : m_windows)

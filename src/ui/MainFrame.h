@@ -11,6 +11,7 @@
 
 namespace term::db { class ConnectionStore; }
 namespace ui { class UIManager; }
+class TerminalTile;
 
 class MainFrame : public wxFrame {
 public:
@@ -30,11 +31,19 @@ public:
     // Called by UIManager to keep the broadcast mode menu check in sync.
     void SyncBroadcastMenuItem(bool checked);
 
-    // Opens a connection in this window via App::CreateSessionInWindow.
+    // Opens a connection in this window in a new tile.
     void LaunchSession(const term::session::Connection& conn);
 
+    // Opens a connection in this window as a new tab inside targetTile.
+    // If targetTile is nullptr, falls back to LaunchSession (new tile).
+    void LaunchSessionInTile(const term::session::Connection& conn,
+                             TerminalTile* targetTile);
+
+    // Called by UIManager when the user presses "+" in a tile's tab strip.
+    // Opens the New Connection dialog and routes the result to targetTile.
+    void LaunchNewConnectionInTile(TerminalTile* targetTile);
+
     // Rebuilds the Window menu to reflect the current set of open frames.
-    // entries: {frame*, title} for each open window, ordered by creation time.
     void RebuildWindowMenu(const std::vector<std::pair<MainFrame*, std::string>>& entries);
 
 private:
@@ -43,10 +52,16 @@ private:
     void OnQuitAll(wxCommandEvent&);
     void OnNewWindow(wxCommandEvent&);
     void OnNewConnection(wxCommandEvent&);
+    void OnNewConnectionInActiveTile(wxCommandEvent&);
     void OnConnectionManager(wxCommandEvent&);
     void OnTogglewrapMode(wxCommandEvent&);
     void OnToggleBroadcast(wxCommandEvent&);
     void OnWindowMenuItem(wxCommandEvent& evt);
+
+    // Shared dialog flow: shows the New Connection dialog and returns a filled
+    // Connection, or returns false if the user cancelled.
+    bool RunNewConnectionDialog(term::session::Connection& conn,
+                                bool& openInNewWindow);
 
     term::input::InputRouter&    m_router;
     term::db::ConnectionStore&   m_store;

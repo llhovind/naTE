@@ -7,12 +7,13 @@
 #include <cstdlib>
 
 namespace {
-    constexpr int ID_NEW_CONNECTION     = wxID_HIGHEST + 1;
-    constexpr int ID_TOGGLE_wrapMode    = wxID_HIGHEST + 2;
-    constexpr int ID_CONNECTION_MANAGER = wxID_HIGHEST + 3;
-    constexpr int ID_NEW_WINDOW         = wxID_HIGHEST + 4;
-    constexpr int ID_QUIT_ALL           = wxID_HIGHEST + 5;
-    constexpr int ID_BROADCAST_MODE     = wxID_HIGHEST + 6;
+    constexpr int ID_NEW_CONNECTION          = wxID_HIGHEST + 1;
+    constexpr int ID_TOGGLE_wrapMode         = wxID_HIGHEST + 2;
+    constexpr int ID_CONNECTION_MANAGER      = wxID_HIGHEST + 3;
+    constexpr int ID_NEW_WINDOW              = wxID_HIGHEST + 4;
+    constexpr int ID_QUIT_ALL                = wxID_HIGHEST + 5;
+    constexpr int ID_BROADCAST_MODE          = wxID_HIGHEST + 6;
+    constexpr int ID_NEW_CONNECTION_IN_TILE  = wxID_HIGHEST + 7;
 
     // Window menu items occupy [kWindowMenuBase, kWindowMenuBase + kWindowMenuMax).
     constexpr int kWindowMenuBase = wxID_HIGHEST + 400;
@@ -49,11 +50,13 @@ MainFrame::MainFrame(const AppConfig& cfg,
 
     // ---- Connection menu -----------------------------------------------------
     m_connMenu = new wxMenu;
-    m_connMenu->Append(ID_CONNECTION_MANAGER, "Connection Manager...\tCtrl+Shift+M");
-    m_connMenu->Append(ID_NEW_CONNECTION,     "New Connection");
+    m_connMenu->Append(ID_CONNECTION_MANAGER,     "Connection Manager...\tCtrl+Shift+M");
+    m_connMenu->Append(ID_NEW_CONNECTION,         "New Connection");
+    m_connMenu->Append(ID_NEW_CONNECTION_IN_TILE, "New Connection in Active Tile");
     m_connMenu->AppendSeparator();
-    Bind(wxEVT_MENU, &MainFrame::OnConnectionManager, this, ID_CONNECTION_MANAGER);
-    Bind(wxEVT_MENU, &MainFrame::OnNewConnection,     this, ID_NEW_CONNECTION);
+    Bind(wxEVT_MENU, &MainFrame::OnConnectionManager,       this, ID_CONNECTION_MANAGER);
+    Bind(wxEVT_MENU, &MainFrame::OnNewConnection,           this, ID_NEW_CONNECTION);
+    Bind(wxEVT_MENU, &MainFrame::OnNewConnectionInActiveTile, this, ID_NEW_CONNECTION_IN_TILE);
 
     // ---- Terminal menu -------------------------------------------------------
     auto* termMenu = new wxMenu;
@@ -115,7 +118,33 @@ void MainFrame::LaunchSession(const term::session::Connection& conn)
     static_cast<App*>(wxTheApp)->CreateSessionInWindow(conn, this);
 }
 
-void MainFrame::OnNewConnection(wxCommandEvent&)
+void MainFrame::LaunchSessionInTile(const term::session::Connection& conn,
+                                    TerminalTile* targetTile)
+{
+    if (!targetTile) {
+        LaunchSession(conn);
+        return;
+    }
+    static_cast<App*>(wxTheApp)->CreateSessionInTile(conn, this, targetTile);
+}
+
+void MainFrame::LaunchNewConnectionInTile(TerminalTile* targetTile)
+{
+    term::session::Connection conn;
+    bool openInNewWindow = false;
+    if (!RunNewConnectionDialog(conn, openInNewWindow))
+        return;
+
+    if (openInNewWindow) {
+        auto* newFrame = static_cast<App*>(wxTheApp)->CreateNewWindow();
+        newFrame->LaunchSession(conn);
+    } else {
+        LaunchSessionInTile(conn, targetTile);
+    }
+}
+
+bool MainFrame::RunNewConnectionDialog(term::session::Connection& conn,
+                                       bool& openInNewWindow)
 {
     const std::string defaultShell = [] {
         const char* s = std::getenv("SHELL");
@@ -124,10 +153,9 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
 
     ui::NewConnectionDialog dlg(this, defaultShell, m_cfg.columnWidths);
     if (dlg.ShowModal() != wxID_OK)
-        return;
+        return false;
 
     const int idx = ++m_sessionCount;
-    term::session::Connection conn;
     std::visit(overloaded{
         [&](const ui::LoopbackParams& p) {
             conn.label       = wxString::Format("Loopback %d", idx).ToStdString();
@@ -170,19 +198,44 @@ void MainFrame::OnNewConnection(wxCommandEvent&)
         }
     }, dlg.GetParams());
 
-    // If the user provided a name, override the auto-generated label and
-    // persist the profile to the Connection Manager for future use.
     const std::string name = dlg.GetConnectionName();
     if (!name.empty()) {
         conn.label = name;
         m_store.Add(name, conn.transport, conn.wrapMode, conn.columnWidth);
     }
 
-    if (dlg.GetOpenInNewWindow()) {
+    openInNewWindow = dlg.GetOpenInNewWindow();
+    return true;
+}
+
+void MainFrame::OnNewConnection(wxCommandEvent&)
+{
+    term::session::Connection conn;
+    bool openInNewWindow = false;
+    if (!RunNewConnectionDialog(conn, openInNewWindow))
+        return;
+
+    if (openInNewWindow) {
         auto* newFrame = static_cast<App*>(wxTheApp)->CreateNewWindow();
         newFrame->LaunchSession(conn);
     } else {
         LaunchSession(conn);
+    }
+}
+
+void MainFrame::OnNewConnectionInActiveTile(wxCommandEvent&)
+{
+    term::session::Connection conn;
+    bool openInNewWindow = false;
+    if (!RunNewConnectionDialog(conn, openInNewWindow))
+        return;
+
+    if (openInNewWindow) {
+        auto* newFrame = static_cast<App*>(wxTheApp)->CreateNewWindow();
+        newFrame->LaunchSession(conn);
+    } else {
+        TerminalTile* activeTile = m_uiManager ? m_uiManager->GetActiveTile() : nullptr;
+        LaunchSessionInTile(conn, activeTile);
     }
 }
 
@@ -227,7 +280,6 @@ void MainFrame::SyncBroadcastMenuItem(bool checked)
 
 void MainFrame::RebuildWindowMenu(const std::vector<std::pair<MainFrame*, std::string>>& entries)
 {
-    // Unbind handlers for any previously populated items.
     for (int i = 0; i < static_cast<int>(m_windowFrames.size()); ++i)
         Unbind(wxEVT_MENU, &MainFrame::OnWindowMenuItem, this, kWindowMenuBase + i);
 

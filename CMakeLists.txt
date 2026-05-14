@@ -38,6 +38,7 @@ set(SOURCES
     src/ui/ConnectionManagerDialog.cpp
     src/ui/TerminalPanel.cpp
     src/ui/TerminalTile.cpp
+    src/ui/TabStrip.cpp
     src/ui/TerminalGrid.cpp
     src/ui/DocLayout.cpp
     src/ui/UIManager.cpp

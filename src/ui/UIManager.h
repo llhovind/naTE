@@ -18,6 +18,7 @@
 #include "ui/SearchController.h"
 #include "ui/SelectionActionRegistry.h"
 #include "ui/TerminalActions.h"
+#include "ui/TileActions.h"
 
 class MainFrame;
 class TerminalPanel;
@@ -47,18 +48,20 @@ public:
     void OnSessionDestroyed(term::session::SessionId) override;
 
     // -------------------------------------------------------------------------
-    // App-initiated session subscription (replaces ISessionObserver::OnSessionCreated)
+    // App-initiated session subscription
     // -------------------------------------------------------------------------
 
-    // Subscribe UIManager to an existing session: creates tile + SessionNotifier
-    // and attaches the notifier. cols is a hint for the initial tile width.
-    void TakeSession(term::session::SessionId  id,
+    // Subscribe UIManager to an existing session.  Creates a TerminalPanel and
+    // registers it as a new tab in targetTile.  When targetTile is nullptr a
+    // new TerminalTile is created and added to the grid.
+    void TakeSession(term::session::SessionId     id,
                      std::function<std::string()> getTitle,
-                     unsigned short            cols,
-                     const std::string&        label);
+                     unsigned short               cols,
+                     const std::string&           label,
+                     TerminalTile*                targetTile = nullptr);
 
     // Unsubscribe UIManager from a session without closing it (for session moves).
-    // Detaches the SessionNotifier, destroys the tile, auto-activates next session.
+    // Detaches the SessionNotifier, removes the tab, destroys the tile if empty.
     void ReleaseSession(term::session::SessionId id);
 
     // Close every session this UIManager owns (called by MainFrame::OnClose).
@@ -68,8 +71,7 @@ public:
     void ToggleWrapModeForActive();
     void ToggleWrapModeForSession(term::session::SessionId id);
 
-    // Toggle broadcast mode on/off.  Enabling with an empty selection auto-selects
-    // all sessions in this window.  Disabling preserves the selection for restore.
+    // Toggle broadcast mode on/off.
     void ToggleBroadcastMode();
 
     // Toggle one session's membership in the broadcast group.
@@ -86,6 +88,9 @@ public:
     void RequestActivate(term::session::SessionId id);
 
     term::session::SessionId GetActiveSessionId() const { return activeId_; }
+
+    // Returns the tile currently hosting the active session (nullptr if none).
+    TerminalTile* GetActiveTile() const;
 
     // Routed from TerminalPanel callbacks — always on the UI thread.
     void OnScroll(term::session::SessionId id, int topRow);
@@ -105,10 +110,15 @@ public:
     std::u32string GetActiveSelectedText() const;
 
     // -------------------------------------------------------------------------
-    // Drag-to-move callback (set by App in CreateNewWindow)
+    // Drag-to-move callbacks (set by App in CreateNewWindow)
     // -------------------------------------------------------------------------
     using MoveSessionCallback = std::function<void(term::session::SessionId, MainFrame*)>;
     void SetMoveSessionCallback(MoveSessionCallback cb) { moveSessionCb_ = std::move(cb); }
+
+    // Called by App to move a tab to a specific tile in the destination window.
+    using MoveTabToTileCallback =
+        std::function<void(term::session::SessionId, MainFrame*, TerminalTile*)>;
+    void SetMoveTabToTileCallback(MoveTabToTileCallback cb) { moveTabToTileCb_ = std::move(cb); }
 
 private:
     // -------------------------------------------------------------------------
@@ -129,6 +139,7 @@ private:
         std::string                       label;
         int                               menuId   = 0;
         TerminalTile*                     tile     = nullptr;
+        int                               tabIndex = -1;   // slot within tile
         TerminalPanel*                    panel    = nullptr;
         std::unique_ptr<SearchController> searchCtrl;
         std::unique_ptr<SessionNotifier>  notifier;
@@ -152,17 +163,26 @@ private:
     bool             HasActiveSelection() const;
     std::u32string   GetFullActiveSelectedText() const;
 
-    // Common tile teardown logic (called by both OnSessionDestroyed and ReleaseSession).
+    // Wire tile-level callbacks.  Called once when a tile is first created.
+    void WireTileCallbacks(TerminalTile* tile);
+
+    // Common tab / tile teardown logic (called by both OnSessionDestroyed and ReleaseSession).
     void TearDownSessionUI(term::session::SessionId id);
 
     // Refreshes SetBroadcastActive on all tiles to match current router state.
     void RefreshBroadcastVisuals();
 
-    // Drag handlers
+    // Drag handlers — title-bar drag moves the active session, tab drag moves a tab.
     void OnTileDragStart(term::session::SessionId id, wxPoint screenAnchor);
-    void OnDragMotion(wxMouseEvent& evt);
-    void OnDragRelease(wxMouseEvent& evt);
+    void OnTabDragStart (term::session::SessionId id, wxPoint screenAnchor);
+    void OnDragMotion   (wxMouseEvent& evt);
+    void OnDragRelease  (wxMouseEvent& evt);
+
     void OnTerminalAction(TerminalActionEvent& evt);
+    void OnTileAction    (TileActionEvent& evt);
+
+    // Handles the "+" new-tab request fired from TabStrip.
+    void OnNewTabRequest(TerminalTile* tile);
 
     term::session::SessionManager& sm_;
     term::input::InputRouter&      router_;
@@ -184,8 +204,9 @@ private:
     std::string                                      pendingErrorMsg_;
 
     MoveSessionCallback                              moveSessionCb_;
+    MoveTabToTileCallback                            moveTabToTileCb_;
 
-    // Drag state
+    // Drag state (shared by both title-bar drag and tab drag)
     std::unique_ptr<wxGenericDragImage>              dragImage_;
     term::session::SessionId                         draggingId_ = 0;
 };

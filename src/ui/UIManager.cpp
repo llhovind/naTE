@@ -34,7 +34,7 @@ void UIManager::SessionNotifier::OnDocumentChanged(DocChangeType type, size_t)
             ui->label = title;
             m->connMenu_->SetLabel(ui->menuId, wxString::FromUTF8(title));
             if (ui->tile)
-                ui->tile->SetTileLabel(wxString::FromUTF8(title));
+                ui->tile->SetTabLabel(sid, wxString::FromUTF8(title));
             m->UpdateStatusBar();
             if (sid == m->activeId_)
                 m->frame_->SetTitle(wxString::FromUTF8("naTE \xe2\x80\x94 " + title));
@@ -87,6 +87,7 @@ UIManager::UIManager(term::session::SessionManager& sm,
     SetupEditMenu(editMenu);
 
     frame_->Bind(EVT_TERMINAL_ACTION, &UIManager::OnTerminalAction, this);
+    frame_->Bind(EVT_TILE_ACTION,     &UIManager::OnTileAction,     this);
 }
 
 UIManager::~UIManager()
@@ -101,7 +102,7 @@ UIManager::~UIManager()
 }
 
 // ---------------------------------------------------------------------------
-// ISessionObserver — 3-method slim interface
+// ISessionObserver
 // ---------------------------------------------------------------------------
 
 void UIManager::OnSessionDisconnected(term::session::SessionId id)
@@ -130,7 +131,6 @@ void UIManager::OnSessionError(term::session::SessionId /*id*/,
 void UIManager::OnSessionDestroyed(term::session::SessionId id)
 {
     // SM-initiated (called after Stop() — transport thread already joined).
-    // Detach notifier first (safe without Document mutex since thread is stopped).
     SessionUI* ui = FindSessionUI(id);
     if (ui && ui->notifier) {
         sm_.DetachSessionListener(id, ui->notifier.get());
@@ -143,14 +143,36 @@ void UIManager::OnSessionDestroyed(term::session::SessionId id)
 // App-initiated session subscription
 // ---------------------------------------------------------------------------
 
-void UIManager::TakeSession(term::session::SessionId  id,
-                             std::function<std::string()> getTitle,
-                             unsigned short            cols,
-                             const std::string&        label)
+void UIManager::WireTileCallbacks(TerminalTile* tile)
 {
-    auto* tile  = new TerminalTile(grid_, cfg_, cols, label);
-    auto* panel = tile->GetTerminalPanel();
+    tile->SetActivateCallback([this](term::session::SessionId sid) {
+        RequestActivate(sid);
+    });
+    tile->SetBroadcastToggleCallback([this](term::session::SessionId sid) {
+        ToggleTileBroadcast(sid);
+    });
+    tile->SetDragStartCallback([this](term::session::SessionId sid, wxPoint pt) {
+        OnTileDragStart(sid, pt);
+    });
+    tile->SetTabDragStartCallback([this](term::session::SessionId sid, wxPoint pt) {
+        OnTabDragStart(sid, pt);
+    });
+}
 
+void UIManager::TakeSession(term::session::SessionId     id,
+                             std::function<std::string()> getTitle,
+                             unsigned short               cols,
+                             const std::string&           label,
+                             TerminalTile*                targetTile)
+{
+    const bool isNewTile = (targetTile == nullptr);
+    if (isNewTile) {
+        targetTile = new TerminalTile(grid_, cfg_);
+        WireTileCallbacks(targetTile);
+    }
+
+    // Create the panel parented to the tile's content area.
+    auto* panel = new TerminalPanel(targetTile->GetContentArea(), cfg_, cols);
     panel->SetDocLayout(&sm_.GetDocLayout(id));
 
     panel->SetScrollCallback([this, id](int topRow) { OnScroll(id, topRow); });
@@ -184,20 +206,17 @@ void UIManager::TakeSession(term::session::SessionId  id,
     });
     panel->SetActionRegistry(selectionActions_.get());
 
-    tile->SetActivateCallback([this, id]() { RequestActivate(id); });
-    tile->SetBroadcastToggleCallback([this, id]() { ToggleTileBroadcast(id); });
-    tile->SetTileSessionId(id);
-    tile->SetDragStartCallback([this](term::session::SessionId sid, wxPoint pt) {
-        OnTileDragStart(sid, pt);
-    });
-
     auto ctrl = std::make_unique<SearchController>(sm_.GetDocLayout(id), *panel);
     auto* bar = new SearchBar(panel, *ctrl);
     ctrl->SetBar(bar);
     panel->SetSearchBar(bar);
 
-    grid_->AddTile(tile);
-    ResizeFrameToFitTiles();
+    const int tabIdx = targetTile->AddTab(id, panel, wxString::FromUTF8(label));
+
+    if (isNewTile) {
+        grid_->AddTile(targetTile);
+        ResizeFrameToFitTiles();
+    }
 
     const int menuId = nextMenuId_++;
     connMenu_->Append(menuId, wxString::FromUTF8(label));
@@ -205,7 +224,6 @@ void UIManager::TakeSession(term::session::SessionId  id,
         RequestActivate(id);
     }, menuId);
 
-    // Create SessionNotifier and attach it to the session's document.
     auto notifier         = std::make_unique<SessionNotifier>();
     notifier->id          = id;
     notifier->mgr         = this;
@@ -216,7 +234,8 @@ void UIManager::TakeSession(term::session::SessionId  id,
     sui.id         = id;
     sui.label      = label;
     sui.menuId     = menuId;
-    sui.tile       = tile;
+    sui.tile       = targetTile;
+    sui.tabIndex   = tabIdx;
     sui.panel      = panel;
     sui.searchCtrl = std::move(ctrl);
     sui.notifier   = std::move(notifier);
@@ -231,7 +250,6 @@ void UIManager::ReleaseSession(term::session::SessionId id)
     SessionUI* ui = FindSessionUI(id);
     if (!ui) return;
 
-    // Detach notifier with transport still running — Document mutex makes this safe.
     if (ui->notifier) {
         sm_.DetachSessionListener(id, ui->notifier.get());
         ui->notifier.reset();
@@ -264,7 +282,6 @@ void UIManager::ToggleWrapModeForSession(term::session::SessionId id)
     if (id == activeId_)
         frame_->SyncwrapModeMenuItem(newWrap);
 }
-
 
 void UIManager::ToggleBroadcastMode()
 {
@@ -314,13 +331,15 @@ void UIManager::RefreshBroadcastVisuals()
     for (auto& [id, sui] : sessions_) {
         if (!sui.tile) continue;
         auto* target = sm_.GetInputTarget(id);
+        // Only the active tab's session controls the tile's broadcast visual.
+        if (sui.tile->GetActiveSessionId() != id) continue;
         const bool active = broadcasting && target && router_.IsSelected(target);
         sui.tile->SetBroadcastActive(active);
     }
 }
 
 // ---------------------------------------------------------------------------
-// Common teardown (called by both OnSessionDestroyed and ReleaseSession)
+// Common teardown
 // ---------------------------------------------------------------------------
 
 void UIManager::TearDownSessionUI(term::session::SessionId id)
@@ -333,11 +352,14 @@ void UIManager::TearDownSessionUI(term::session::SessionId id)
     if (ui->searchCtrl) ui->searchCtrl->SetBar(nullptr);
 
     if (ui->tile) {
-        grid_->RemoveTile(ui->tile);
-        ui->tile->Destroy();
+        const bool tileEmpty = ui->tile->RemoveTab(id);
+        if (tileEmpty) {
+            grid_->RemoveTile(ui->tile);
+            ui->tile->Destroy();
+            ResizeFrameToFitTiles();
+        }
         ui->tile  = nullptr;
         ui->panel = nullptr;
-        ResizeFrameToFitTiles();
     }
 
     sessions_.erase(id);
@@ -372,8 +394,10 @@ void UIManager::RequestActivate(term::session::SessionId id)
     SessionUI* ui = FindSessionUI(id);
     TerminalPanel* activePanel = ui ? ui->panel : nullptr;
 
-    if (ui && ui->tile)
+    if (ui && ui->tile) {
         grid_->SetActiveTile(ui->tile);
+        ui->tile->ActivateTabById(id);  // ensure the correct tab is visible
+    }
 
     frame_->Layout();
     UpdateStatusBar();
@@ -381,6 +405,12 @@ void UIManager::RequestActivate(term::session::SessionId id)
         frame_->SetTitle(wxString::FromUTF8("naTE \xe2\x80\x94 " + ui->label));
     if (activePanel)
         activePanel->SetFocus();
+}
+
+TerminalTile* UIManager::GetActiveTile() const
+{
+    const SessionUI* ui = FindSessionUI(activeId_);
+    return ui ? ui->tile : nullptr;
 }
 
 void UIManager::OnScroll(term::session::SessionId id, int topRow)
@@ -407,13 +437,33 @@ void UIManager::OnTerminalAction(TerminalActionEvent& evt)
     switch (evt.GetAction())
     {
         case TerminalAction::CloseSession:
-            // TODO: CloseTile(evt.GetSessionId());
+            sm_.CloseSession(evt.GetSessionId());
             break;
 
         case TerminalAction::ToggleWrap:
             ToggleWrapModeForSession(evt.GetSessionId());
             break;
     }
+}
+
+void UIManager::OnTileAction(TileActionEvent& evt)
+{
+    switch (evt.GetAction())
+    {
+        case TileAction::CloseTab:
+            sm_.CloseSession(evt.GetSessionId());
+            break;
+
+        case TileAction::NewTabHere:
+            OnNewTabRequest(evt.GetTile());
+            break;
+    }
+}
+
+void UIManager::OnNewTabRequest(TerminalTile* tile)
+{
+    // Delegate to MainFrame which owns the connection dialog.
+    frame_->LaunchNewConnectionInTile(tile);
 }
 
 // ---------------------------------------------------------------------------
@@ -425,7 +475,6 @@ void UIManager::OnTileDragStart(term::session::SessionId id, wxPoint screenAncho
     SessionUI* ui = FindSessionUI(id);
     if (!ui) return;
 
-    // Create a label-text bitmap as the drag visual.
     const wxString label = wxString::FromUTF8(ui->label);
     const int bmpW = frame_->GetTextExtent(label).x + 16;
     const int bmpH = TerminalTile::kTitleBarHeight;
@@ -449,6 +498,12 @@ void UIManager::OnTileDragStart(term::session::SessionId id, wxPoint screenAncho
     frame_->Bind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
 }
 
+void UIManager::OnTabDragStart(term::session::SessionId id, wxPoint screenAnchor)
+{
+    // Same visual as tile drag, but on release we look for a target tile.
+    OnTileDragStart(id, screenAnchor);
+}
+
 void UIManager::OnDragMotion(wxMouseEvent& evt)
 {
     if (dragImage_)
@@ -466,11 +521,46 @@ void UIManager::OnDragRelease(wxMouseEvent& evt)
     frame_->Unbind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
 
     const wxPoint screenPt = frame_->ClientToScreen(evt.GetPosition());
-    auto* hit = wxFindWindowAtPoint(screenPt);
+    auto* hit      = wxFindWindowAtPoint(screenPt);
     auto* dstFrame = dynamic_cast<MainFrame*>(wxGetTopLevelParent(hit));
 
-    if (dstFrame && dstFrame != frame_ && moveSessionCb_)
-        moveSessionCb_(draggingId_, dstFrame);
+    if (dstFrame && dstFrame != frame_) {
+        // Cross-window: find which tile (if any) the drop landed on.
+        TerminalTile* dstTile = nullptr;
+        wxWindow* w = hit;
+        while (w && w != dstFrame) {
+            if (auto* t = dynamic_cast<TerminalTile*>(w)) { dstTile = t; break; }
+            w = w->GetParent();
+        }
+
+        if (moveTabToTileCb_) {
+            moveTabToTileCb_(draggingId_, dstFrame, dstTile);
+        } else if (moveSessionCb_) {
+            moveSessionCb_(draggingId_, dstFrame);
+        }
+    } else if (dstFrame == frame_) {
+        // Same window: find target tile (if different from source).
+        SessionUI* src = FindSessionUI(draggingId_);
+        TerminalTile* srcTile = src ? src->tile : nullptr;
+
+        wxWindow* w = hit;
+        TerminalTile* dstTile = nullptr;
+        while (w && w != frame_) {
+            if (auto* t = dynamic_cast<TerminalTile*>(w)) { dstTile = t; break; }
+            w = w->GetParent();
+        }
+
+        if (dstTile && dstTile != srcTile) {
+            // Move the tab from srcTile to dstTile within the same window.
+            ReleaseSession(draggingId_);
+            TakeSession(
+                draggingId_,
+                sm_.MakeTitleGetter(draggingId_),
+                sm_.GetDocLayout(draggingId_).GetViewportCols(),
+                sm_.GetLabel(draggingId_),
+                dstTile);
+        }
+    }
 
     draggingId_ = 0;
     evt.Skip();
