@@ -30,9 +30,6 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
 
     tabStrip_->SetTabCloseCallback([this](int idx) {
         if (idx < 0 || idx >= (int)tabs_.size()) return;
-        EmitTerminalAction(TerminalAction::CloseSession);
-        // EmitTerminalAction uses GetActiveSessionId(); the close request must
-        // target the specific tab being closed, so emit directly.
         TerminalActionEvent evt(TerminalAction::CloseSession, tabs_[idx].sessionId);
         ProcessWindowEvent(evt);
     });
@@ -44,6 +41,40 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
 
     tabStrip_->SetNewTabCallback([this]() {
         EmitTileAction(TileAction::NewTabHere, GetActiveSessionId());
+    });
+
+    // Blank header area (right of "+" button) — activate tile and arm whole-tile drag.
+    tabStrip_->SetHeaderActivateCallback([this]() {
+        if (auto* p = GetActivePanel()) p->SetFocus();
+        if (activateCb_) activateCb_(GetActiveSessionId());
+    });
+
+    tabStrip_->SetHeaderDragStartCallback([this](wxPoint screenPt) {
+        if (dragStartCb_) dragStartCb_(this, screenPt);
+    });
+
+    // TabStrip reads broadcast state from TabEntry on every paint — no parallel array.
+    tabStrip_->SetBroadcastQueryCallback([this](int i) {
+        return i >= 0 && i < (int)tabs_.size() && tabs_[i].inBroadcast;
+    });
+
+    tabStrip_->SetHeaderCtrlClickCallback([this]() {
+        if (broadcastToggleCb_) broadcastToggleCb_(GetActiveSessionId());
+    });
+
+    tabStrip_->SetHeaderRightClickCallback([this]() {
+        if (!broadcastToggleCb_) return;
+        const bool activeInBroadcast = activeTabIdx_ >= 0
+                                    && activeTabIdx_ < (int)tabs_.size()
+                                    && tabs_[activeTabIdx_].inBroadcast;
+        wxMenu menu;
+        const wxString label = activeInBroadcast ? "Remove from Broadcast"
+                                                 : "Add to Broadcast";
+        menu.Append(wxID_ANY, label);
+        menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+            if (broadcastToggleCb_) broadcastToggleCb_(GetActiveSessionId());
+        });
+        PopupMenu(&menu);
     });
 
     wxBitmap wrapBmp(wxT("./src/ui/icons/text-wrap.png"), wxBITMAP_TYPE_PNG);
@@ -141,6 +172,13 @@ void TerminalTile::SetTabLabel(term::session::SessionId id, const wxString& labe
     }
 }
 
+term::session::SessionId TerminalTile::GetSessionIdByTabIndex(int index) const
+{
+    if (index >= 0 && index < (int)tabs_.size())
+        return tabs_[index].sessionId;
+    return 0;
+}
+
 term::session::SessionId TerminalTile::GetActiveSessionId() const
 {
     if (activeTabIdx_ >= 0 && activeTabIdx_ < (int)tabs_.size())
@@ -174,6 +212,10 @@ void TerminalTile::ActivateTab(int index)
     const wxSize contentSz = contentArea_->GetClientSize();
     panel->SetSize(0, 0, contentSz.x, contentSz.y);
     panel->Show();
+
+    // Sync header colour with the newly active tab's broadcast state.
+    inBroadcast_ = tabs_[index].inBroadcast;
+    UpdateTitleBarColor();
 
     tabStrip_->SetActiveTab(index);
     contentArea_->Refresh();
@@ -219,6 +261,17 @@ void TerminalTile::SetBroadcastActive(bool active)
 {
     inBroadcast_ = active;
     UpdateTitleBarColor();
+}
+
+void TerminalTile::SetTabBroadcast(term::session::SessionId id, bool inBroadcast)
+{
+    for (auto& tab : tabs_) {
+        if (tab.sessionId == id) {
+            tab.inBroadcast = inBroadcast;
+            tabStrip_->Refresh();  // TabStrip queries tabs_ via BroadcastQueryCallback on next paint
+            return;
+        }
+    }
 }
 
 void TerminalTile::SetWrapMode(bool /*wrap*/)
@@ -272,7 +325,7 @@ void TerminalTile::OnTitleMotion(wxMouseEvent& evt)
     const int dy = cur.y - dragAnchor_.y;
     if (std::abs(dx) > kDragThreshold || std::abs(dy) > kDragThreshold) {
         dragPending_ = false;
-        if (dragStartCb_) dragStartCb_(GetActiveSessionId(), dragAnchor_);
+        if (dragStartCb_) dragStartCb_(this, dragAnchor_);
     }
     evt.Skip();
 }

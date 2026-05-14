@@ -120,6 +120,11 @@ public:
         std::function<void(term::session::SessionId, MainFrame*, TerminalTile*)>;
     void SetMoveTabToTileCallback(MoveTabToTileCallback cb) { moveTabToTileCb_ = std::move(cb); }
 
+    // Called by App to move an entire tile (all sessions, in tab order) to another window.
+    using MoveTileCallback =
+        std::function<void(std::vector<term::session::SessionId>, MainFrame*)>;
+    void SetMoveTileCallback(MoveTileCallback cb) { moveTileCb_ = std::move(cb); }
+
 private:
     // -------------------------------------------------------------------------
     // Per-session document listener — owned by SessionUI, runs on session thread.
@@ -172,8 +177,10 @@ private:
     // Refreshes SetBroadcastActive on all tiles to match current router state.
     void RefreshBroadcastVisuals();
 
-    // Drag handlers — title-bar drag moves the active session, tab drag moves a tab.
-    void OnTileDragStart(term::session::SessionId id, wxPoint screenAnchor);
+    // Drag handlers.
+    // Title-bar drag (OnTileDragStart) moves the whole tile to another window.
+    // Tab drag (OnTabDragStart) moves one session to another tile or window.
+    void OnTileDragStart(TerminalTile* tile, wxPoint screenAnchor);
     void OnTabDragStart (term::session::SessionId id, wxPoint screenAnchor);
     void OnDragMotion   (wxMouseEvent& evt);
     void OnDragRelease  (wxMouseEvent& evt);
@@ -205,10 +212,14 @@ private:
 
     MoveSessionCallback                              moveSessionCb_;
     MoveTabToTileCallback                            moveTabToTileCb_;
+    MoveTileCallback                                 moveTileCb_;
 
-    // Drag state (shared by both title-bar drag and tab drag)
+    // Drag state — exactly one of draggingTile_ / draggingId_ is set at a time.
+    // draggingTile_: title-bar drag (whole tile move).
+    // draggingId_:   tab drag (single session move).
     std::unique_ptr<wxGenericDragImage>              dragImage_;
-    term::session::SessionId                         draggingId_ = 0;
+    TerminalTile*                                    draggingTile_ = nullptr;
+    term::session::SessionId                         draggingId_   = 0;
 };
 
 } // namespace ui

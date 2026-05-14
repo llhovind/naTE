@@ -55,6 +55,32 @@ MainFrame* App::CreateNewWindow()
             MoveSession(frame, id, dstFrame, dstTile);
         });
 
+    wc->uiManager->SetMoveTileCallback(
+        [this, frame](std::vector<term::session::SessionId> ids, MainFrame* dstFrame) {
+            WindowContext* srcCtx = FindContext(frame);
+            WindowContext* dstCtx = FindContext(dstFrame);
+            if (!srcCtx || !dstCtx || srcCtx == dstCtx || ids.empty()) return;
+
+            // Move all sessions in tab order into one new tile at the destination.
+            TerminalTile* newTile = nullptr;
+            for (auto id : ids) {
+                const unsigned short cols =
+                    m_sessionManager->GetDocLayout(id).GetViewportCols();
+                const std::string label = m_sessionManager->GetLabel(id);
+
+                srcCtx->uiManager->ReleaseSession(id);
+                m_sessionManager->SetSessionObserver(id, dstCtx->uiManager.get());
+                m_sessionManager->ReassignRouter(id, *srcCtx->router, *dstCtx->router);
+                dstCtx->uiManager->TakeSession(
+                    id, m_sessionManager->MakeTitleGetter(id), cols, label, newTile);
+                if (!newTile)
+                    newTile = dstCtx->uiManager->GetActiveTile();
+            }
+            m_sessionManager->ActivateSession(ids.back(), *dstCtx->router);
+            dstFrame->Raise();
+            RebuildWindowMenus();
+        });
+
     frame->Bind(wxEVT_DESTROY, [this, frame](wxWindowDestroyEvent& evt) {
         if (evt.GetEventObject() == frame) {
             auto it = std::find_if(m_windows.begin(), m_windows.end(),

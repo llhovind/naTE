@@ -55,7 +55,12 @@ public:
     void SetFocused(bool focused);
 
     // Called by UIManager whenever broadcast mode or group membership changes.
+    // Controls the title bar header colour (reflects the active session's state).
     void SetBroadcastActive(bool active);
+
+    // Colours an individual tab to show whether its session is in broadcast.
+    // Must be called for every session in this tile on each broadcast change.
+    void SetTabBroadcast(term::session::SessionId id, bool inBroadcast);
 
     // Called by UIManager to reflect wrap mode changes originating outside this tile.
     void SetWrapMode(bool wrap);
@@ -68,8 +73,13 @@ public:
     using ActivateCallback = std::function<void(term::session::SessionId)>;
     void SetActivateCallback(ActivateCallback cb) { activateCb_ = std::move(cb); }
 
+    // Returns the session ID at the given tab slot (0-based), or 0 if out of range.
+    // Used by UIManager to collect the ordered session list before a tile move.
+    term::session::SessionId GetSessionIdByTabIndex(int index) const;
+
     // Fired when the user initiates a whole-tile drag (title bar beyond threshold).
-    using DragStartCallback = std::function<void(term::session::SessionId, wxPoint)>;
+    // Receives a pointer to this tile so UIManager can enumerate all its sessions.
+    using DragStartCallback = std::function<void(TerminalTile*, wxPoint)>;
     void SetDragStartCallback(DragStartCallback cb) { dragStartCb_ = std::move(cb); }
 
     // Fired when the user drags a single tab (TabStrip drag beyond threshold).
@@ -84,9 +94,10 @@ public:
 
 private:
     struct TabEntry {
-        term::session::SessionId sessionId = 0;
-        TerminalPanel*           panel     = nullptr;  // wx-child-owned by contentArea_
+        term::session::SessionId sessionId   = 0;
+        TerminalPanel*           panel       = nullptr;  // wx-child-owned by contentArea_
         wxString                 label;
+        bool                     inBroadcast = false;
     };
 
     // Show the panel at index; hide the previous one. Does NOT fire activateCb_.
