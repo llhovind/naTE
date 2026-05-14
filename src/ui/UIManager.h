@@ -64,7 +64,8 @@ public:
     void CloseAllSessions();
 
     // Toggle wrap mode for the currently active session.
-    void TogglewrapModeForActive();
+    void ToggleWrapModeForActive();
+    void ToggleWrapModeForSession(term::session::SessionId id);
 
     // Toggle broadcast mode on/off.  Enabling with an empty selection auto-selects
     // all sessions in this window.  Disabling preserves the selection for restore.
@@ -160,6 +161,7 @@ private:
     void OnTileDragStart(term::session::SessionId id, wxPoint screenAnchor);
     void OnDragMotion(wxMouseEvent& evt);
     void OnDragRelease(wxMouseEvent& evt);
+    void OnTerminalAction(wxCommandEvent& evt);
 
     term::session::SessionManager& sm_;
     term::input::InputRouter&      router_;

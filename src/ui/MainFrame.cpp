@@ -204,7 +204,7 @@ void MainFrame::OnConnectionManager(wxCommandEvent&)
 void MainFrame::OnTogglewrapMode(wxCommandEvent&)
 {
     if (m_uiManager)
-        m_uiManager->TogglewrapModeForActive();
+        m_uiManager->ToggleWrapModeForActive();
 }
 
 void MainFrame::SyncwrapModeMenuItem(bool checked)

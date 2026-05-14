@@ -2,8 +2,11 @@
 #include <functional>
 #include <string>
 #include <wx/panel.h>
+#include <wx/statbmp.h>
+#include <wx/bmpbuttn.h>
 #include "config/Config.h"
 #include "session/ISessionObserver.h"
+#include "ui/TerminalActions.h"
 
 class TerminalPanel;
 class wxStaticText;
@@ -40,7 +43,7 @@ public:
     // active = (mode == Broadcast && this session is in the selected set).
     void SetBroadcastActive(bool active);
 
-    static constexpr int kTitleBarHeight = 24;
+    static constexpr int kTitleBarHeight = 28;
 
 private:
     void UpdateTitleBarColor();
@@ -49,6 +52,8 @@ private:
     void OnTitleMotion(wxMouseEvent& evt);
     void OnTitleUp(wxMouseEvent& evt);
     void OnTitleRightClick(wxMouseEvent& evt);
+    void OnWrapClick(wxCommandEvent& evt);
+    void EmitAction(TerminalAction action);
 
     wxPanel*        titleBar_    = nullptr;  // wx-child-owned
     wxStaticText*   titleText_   = nullptr;  // wx-child-owned by titleBar_

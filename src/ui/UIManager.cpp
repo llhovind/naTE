@@ -85,6 +85,8 @@ UIManager::UIManager(term::session::SessionManager& sm,
     frame_->GetSizer()->Add(grid_, 1, wxEXPAND);
 
     SetupEditMenu(editMenu);
+
+    frame_->Bind(EVT_TERMINAL_ACTION, &UIManager::OnTerminalAction, this);
 }
 
 UIManager::~UIManager()
@@ -247,13 +249,21 @@ void UIManager::CloseAllSessions()
         sm_.CloseSession(id);
 }
 
-void UIManager::TogglewrapModeForActive()
+void UIManager::ToggleWrapModeForActive()
 {
     if (activeId_ == 0) return;
     const bool newWrap = !sm_.GetDocLayout(activeId_).GetWrapMode();
     sm_.SetWrapMode(activeId_, newWrap);
     frame_->SyncwrapModeMenuItem(newWrap);
 }
+void UIManager::ToggleWrapModeForSession(term::session::SessionId id)
+{
+    if (id == 0) return;
+    const bool newWrap = !sm_.GetDocLayout(id).GetWrapMode();
+    sm_.SetWrapMode(id, newWrap);
+    frame_->SyncwrapModeMenuItem(newWrap);
+}
+
 
 void UIManager::ToggleBroadcastMode()
 {
@@ -389,6 +399,36 @@ void UIManager::EnsureCursorVisibleForActive()
     SessionUI* ui = FindSessionUI(activeId_);
     if (ui && ui->panel)
         ui->panel->EnsureCursorVisible();
+}
+
+void UIManager::OnTerminalAction(wxCommandEvent& evt)
+{
+    auto* data =
+        static_cast<TerminalActionData*>(
+            evt.GetClientData());
+
+    if (!data)
+        return;
+
+    switch(data->action)
+    {
+        case TerminalAction::CloseSession:
+        {
+            // CloseTile(data->tileId);
+            break;
+        }
+
+        case TerminalAction::ToggleWrap:
+        {
+            ToggleWrapModeForSession(data->sessionId);
+            break;
+        }
+
+        default:
+            break;
+    }
+
+    delete data;
 }
 
 // ---------------------------------------------------------------------------
