@@ -184,6 +184,10 @@ void TabStrip::OnLeftDown(wxMouseEvent& evt)
         const int activeIdx = activeTabCb_ ? activeTabCb_() : -1;
         if (idx != activeIdx) {
             if (selectedCb_) selectedCb_(idx);
+        } else {
+            // Tab is already active in this tile but the tile itself may be
+            // inactive — fire activate so focus bubbles up to UIManager.
+            if (headerActivateCb_) headerActivateCb_();
         }
         dragTabIdx_  = idx;
         dragAnchor_  = ClientToScreen(evt.GetPosition());

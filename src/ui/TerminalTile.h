@@ -69,10 +69,6 @@ public:
     // Callbacks (wired once per tile by UIManager when the tile is created)
     // -------------------------------------------------------------------------
 
-    // Fired when the user activates a session (tab click, panel focus).
-    using ActivateCallback = std::function<void(term::session::SessionId)>;
-    void SetActivateCallback(ActivateCallback cb) { activateCb_ = std::move(cb); }
-
     // Returns the session ID at the given tab slot (0-based), or 0 if out of range.
     // Used by UIManager to collect the ordered session list before a tile move.
     term::session::SessionId GetSessionIdByTabIndex(int index) const;
@@ -86,10 +82,6 @@ public:
     using TabDragStartCallback = std::function<void(term::session::SessionId, wxPoint)>;
     void SetTabDragStartCallback(TabDragStartCallback cb) { tabDragStartCb_ = std::move(cb); }
 
-    // Fired by right-click / Ctrl+Click to toggle active session in broadcast group.
-    using BroadcastToggleCallback = std::function<void(term::session::SessionId)>;
-    void SetBroadcastToggleCallback(BroadcastToggleCallback cb) { broadcastToggleCb_ = std::move(cb); }
-
     static constexpr int kTitleBarHeight = 28;
 
 private:
@@ -100,7 +92,7 @@ private:
         bool                     inBroadcast = false;
     };
 
-    // Show the panel at index; hide the previous one. Does NOT fire activateCb_.
+    // Show the panel at index; hide the previous one. Does not emit ActivateSession — programmatic activation only.
     void ActivateTab(int index);
 
     void UpdateTitleBarColor();
@@ -121,8 +113,6 @@ private:
     std::vector<TabEntry>      tabs_;
     int                        activeTabIdx_ = -1;
 
-    ActivateCallback           activateCb_;
-    BroadcastToggleCallback    broadcastToggleCb_;
     DragStartCallback          dragStartCb_;
     TabDragStartCallback       tabDragStartCb_;
 

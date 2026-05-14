@@ -145,12 +145,6 @@ void UIManager::OnSessionDestroyed(term::session::SessionId id)
 
 void UIManager::WireTileCallbacks(TerminalTile* tile)
 {
-    tile->SetActivateCallback([this](term::session::SessionId sid) {
-        RequestActivate(sid);
-    });
-    tile->SetBroadcastToggleCallback([this](term::session::SessionId sid) {
-        ToggleTileBroadcast(sid);
-    });
     tile->SetDragStartCallback([this](TerminalTile* t, wxPoint pt) {
         OnTileDragStart(t, pt);
     });
@@ -179,7 +173,6 @@ void UIManager::TakeSession(term::session::SessionId     id,
     panel->SetResizeCallback([this, id](unsigned short c, unsigned short r) {
         OnViewportResize(id, c, r);
     });
-    panel->SetFocusCallback([this, id]() { RequestActivate(id); });
     panel->SetKeyCallback([this](const term::input::KeyEvent& evt) {
         if (evt.ctrl && evt.key == term::input::Key::Character && evt.code == 'f') {
             ShowSearchBarForActive(true, GetActiveSelectedText());
@@ -457,6 +450,9 @@ void UIManager::OnTerminalAction(TerminalActionEvent& evt)
         case TerminalAction::ToggleWrap:
             ToggleWrapModeForSession(evt.GetSessionId());
             break;
+        case TerminalAction::ToggleBroadcast:
+            ToggleTileBroadcast(evt.GetSessionId());
+            break;
     }
 }
 
@@ -471,6 +467,9 @@ void UIManager::OnTileAction(TileActionEvent& evt)
         }
         case TileAction::NewTabHere:
             OnNewTabRequest(evt.GetTile());
+            break;
+        case TileAction::ActivateSession:
+            RequestActivate(evt.GetSessionId());
             break;
     }
 }

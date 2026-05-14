@@ -38,7 +38,7 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
     tabStrip_->SetTabSelectedCallback([this](int idx) {
         if (idx < 0 || idx >= (int)tabs_.size()) return;
         ActivateTab(idx);
-        if (activateCb_) activateCb_(tabs_[idx].sessionId);
+        EmitTileAction(TileAction::ActivateSession, tabs_[idx].sessionId);
     });
 
     tabStrip_->SetTabCloseCallback([this](int idx) {
@@ -59,7 +59,7 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
     // Blank header area (right of "+" button) — activate tile and arm whole-tile drag.
     tabStrip_->SetHeaderActivateCallback([this]() {
         if (auto* p = GetActivePanel()) p->SetFocus();
-        if (activateCb_) activateCb_(GetActiveSessionId());
+        EmitTileAction(TileAction::ActivateSession, GetActiveSessionId());
     });
 
     tabStrip_->SetHeaderDragStartCallback([this](wxPoint screenPt) {
@@ -72,20 +72,18 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
     });
 
     tabStrip_->SetHeaderCtrlClickCallback([this]() {
-        if (broadcastToggleCb_) broadcastToggleCb_(GetActiveSessionId());
+        EmitTerminalAction(TerminalAction::ToggleBroadcast);
     });
 
     tabStrip_->SetHeaderRightClickCallback([this]() {
-        if (!broadcastToggleCb_) return;
         const bool activeInBroadcast = activeTabIdx_ >= 0
                                     && activeTabIdx_ < (int)tabs_.size()
                                     && tabs_[activeTabIdx_].inBroadcast;
         wxMenu menu;
-        const wxString label = activeInBroadcast ? "Remove from Broadcast"
-                                                 : "Add to Broadcast";
-        menu.Append(wxID_ANY, label);
+        menu.Append(wxID_ANY, activeInBroadcast ? "Remove from Broadcast"
+                                                : "Add to Broadcast");
         menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
-            if (broadcastToggleCb_) broadcastToggleCb_(GetActiveSessionId());
+            EmitTerminalAction(TerminalAction::ToggleBroadcast);
         });
         PopupMenu(&menu);
     });
@@ -123,6 +121,9 @@ int TerminalTile::AddTab(term::session::SessionId id, TerminalPanel* panel,
                          const wxString& label)
 {
     panel->Hide();  // hidden until ActivateTab selects it
+    panel->SetFocusCallback([this, id]() {
+        EmitTileAction(TileAction::ActivateSession, id);
+    });
     tabs_.push_back({ id, panel, label });
     tabStrip_->Refresh();
     const int newIdx = static_cast<int>(tabs_.size()) - 1;
@@ -309,11 +310,11 @@ void TerminalTile::OnWrapClick(wxCommandEvent&)
 void TerminalTile::OnTitleDown(wxMouseEvent& evt)
 {
     if (evt.ControlDown()) {
-        if (broadcastToggleCb_) broadcastToggleCb_(GetActiveSessionId());
+        EmitTerminalAction(TerminalAction::ToggleBroadcast);
         return;
     }
     if (auto* p = GetActivePanel()) p->SetFocus();
-    if (activateCb_) activateCb_(GetActiveSessionId());
+    EmitTileAction(TileAction::ActivateSession, GetActiveSessionId());
     dragAnchor_ = evt.GetEventObject()
         ? static_cast<wxWindow*>(evt.GetEventObject())->ClientToScreen(evt.GetPosition())
         : evt.GetPosition();
@@ -347,13 +348,11 @@ void TerminalTile::OnTitleUp(wxMouseEvent& evt)
 
 void TerminalTile::OnTitleRightClick(wxMouseEvent&)
 {
-    if (!broadcastToggleCb_) return;
     wxMenu menu;
-    const wxString label = inBroadcast_ ? "Remove from Broadcast"
-                                        : "Add to Broadcast";
-    menu.Append(wxID_ANY, label);
+    menu.Append(wxID_ANY, inBroadcast_ ? "Remove from Broadcast"
+                                       : "Add to Broadcast");
     menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
-        if (broadcastToggleCb_) broadcastToggleCb_(GetActiveSessionId());
+        EmitTerminalAction(TerminalAction::ToggleBroadcast);
     });
     PopupMenu(&menu);
 }
