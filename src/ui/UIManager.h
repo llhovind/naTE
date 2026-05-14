@@ -17,6 +17,7 @@
 #include "session/SessionManager.h"
 #include "ui/SearchController.h"
 #include "ui/SelectionActionRegistry.h"
+#include "ui/TerminalActions.h"
 
 class MainFrame;
 class TerminalPanel;
@@ -161,7 +162,7 @@ private:
     void OnTileDragStart(term::session::SessionId id, wxPoint screenAnchor);
     void OnDragMotion(wxMouseEvent& evt);
     void OnDragRelease(wxMouseEvent& evt);
-    void OnTerminalAction(wxCommandEvent& evt);
+    void OnTerminalAction(TerminalActionEvent& evt);
 
     term::session::SessionManager& sm_;
     term::input::InputRouter&      router_;

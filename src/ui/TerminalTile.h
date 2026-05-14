@@ -2,7 +2,6 @@
 #include <functional>
 #include <string>
 #include <wx/panel.h>
-#include <wx/statbmp.h>
 #include <wx/bmpbuttn.h>
 #include "config/Config.h"
 #include "session/ISessionObserver.h"
@@ -43,6 +42,9 @@ public:
     // active = (mode == Broadcast && this session is in the selected set).
     void SetBroadcastActive(bool active);
 
+    // Called by UIManager to reflect wrap mode changes originating outside this tile.
+    void SetWrapMode(bool wrap);
+
     static constexpr int kTitleBarHeight = 28;
 
 private:
@@ -55,9 +57,10 @@ private:
     void OnWrapClick(wxCommandEvent& evt);
     void EmitAction(TerminalAction action);
 
-    wxPanel*        titleBar_    = nullptr;  // wx-child-owned
-    wxStaticText*   titleText_   = nullptr;  // wx-child-owned by titleBar_
-    TerminalPanel*  terminal_    = nullptr;  // wx-child-owned
+    wxPanel*          titleBar_    = nullptr;  // wx-child-owned
+    wxStaticText*     titleText_   = nullptr;  // wx-child-owned by titleBar_
+    wxBitmapButton*   wrapBtn_     = nullptr;  // wx-child-owned by titleBar_
+    TerminalPanel*    terminal_    = nullptr;  // wx-child-owned
     ActivateCallback         activateCb_;
     BroadcastToggleCallback  broadcastToggleCb_;
 

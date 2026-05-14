@@ -251,17 +251,18 @@ void UIManager::CloseAllSessions()
 
 void UIManager::ToggleWrapModeForActive()
 {
-    if (activeId_ == 0) return;
-    const bool newWrap = !sm_.GetDocLayout(activeId_).GetWrapMode();
-    sm_.SetWrapMode(activeId_, newWrap);
-    frame_->SyncwrapModeMenuItem(newWrap);
+    ToggleWrapModeForSession(activeId_);
 }
+
 void UIManager::ToggleWrapModeForSession(term::session::SessionId id)
 {
     if (id == 0) return;
     const bool newWrap = !sm_.GetDocLayout(id).GetWrapMode();
     sm_.SetWrapMode(id, newWrap);
-    frame_->SyncwrapModeMenuItem(newWrap);
+    if (auto* sui = FindSessionUI(id); sui && sui->tile)
+        sui->tile->SetWrapMode(newWrap);
+    if (id == activeId_)
+        frame_->SyncwrapModeMenuItem(newWrap);
 }
 
 
@@ -401,34 +402,18 @@ void UIManager::EnsureCursorVisibleForActive()
         ui->panel->EnsureCursorVisible();
 }
 
-void UIManager::OnTerminalAction(wxCommandEvent& evt)
+void UIManager::OnTerminalAction(TerminalActionEvent& evt)
 {
-    auto* data =
-        static_cast<TerminalActionData*>(
-            evt.GetClientData());
-
-    if (!data)
-        return;
-
-    switch(data->action)
+    switch (evt.GetAction())
     {
         case TerminalAction::CloseSession:
-        {
-            // CloseTile(data->tileId);
+            // TODO: CloseTile(evt.GetSessionId());
             break;
-        }
 
         case TerminalAction::ToggleWrap:
-        {
-            ToggleWrapModeForSession(data->sessionId);
-            break;
-        }
-
-        default:
+            ToggleWrapModeForSession(evt.GetSessionId());
             break;
     }
-
-    delete data;
 }
 
 // ---------------------------------------------------------------------------

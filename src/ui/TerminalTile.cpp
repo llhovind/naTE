@@ -1,12 +1,11 @@
 #include "ui/TerminalTile.h"
 #include "ui/TerminalPanel.h"
-// #include "ui/TerminalActions.h"
 #include <wx/menu.h>
 #include <wx/stattext.h>
 #include <wx/sizer.h>
 #include <cmath>
 
-wxDEFINE_EVENT(EVT_TERMINAL_ACTION, wxCommandEvent);
+wxDEFINE_EVENT(EVT_TERMINAL_ACTION, TerminalActionEvent);
 
 TerminalTile::TerminalTile(wxWindow *parent, const AppConfig &cfg,
                            unsigned short cols, const std::string &label)
@@ -18,20 +17,20 @@ TerminalTile::TerminalTile(wxWindow *parent, const AppConfig &cfg,
     titleBar_->SetBackgroundColour(colInactive_);
 
     titleText_ = new wxStaticText(titleBar_, wxID_ANY,
-                                  wxString::FromUTF8(label),
-                                  wxPoint(6, 4));
+                                  wxString::FromUTF8(label));
     titleText_->SetForegroundColour(*wxWHITE);
 
-    // Buttons to add to TitleBar
     wxBitmap wrapBmp(wxT("./src/ui/icons/text-wrap.png"), wxBITMAP_TYPE_PNG);
-    // auto* wrapIcon = new wxStaticBitmap(titleBar_, wxID_ANY, wrapBmp);
-    wxBitmapButton *wrapBtn = new wxBitmapButton(titleBar_, wxID_ANY, wrapBmp, wxDefaultPosition, wxSize(16, 16), wxBORDER_NONE);
-    wrapBtn->Bind(wxEVT_BUTTON, &TerminalTile::OnWrapClick, this);
+    wxASSERT_MSG(wrapBmp.IsOk(), "Failed to load text-wrap.png");
+    wrapBtn_ = new wxBitmapButton(titleBar_, wxID_ANY, wrapBmp,
+                                  wxDefaultPosition, wxSize(16, 16), wxBORDER_NONE);
+    wrapBtn_->SetBackgroundColour(colInactive_);
+    wrapBtn_->Bind(wxEVT_BUTTON, &TerminalTile::OnWrapClick, this);
 
-    wxBoxSizer *hSizer = new wxBoxSizer(wxHORIZONTAL);
+    auto* hSizer = new wxBoxSizer(wxHORIZONTAL);
     hSizer->Add(titleText_, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 8);
-    hSizer->AddStretchSpacer(1); // pushes icon to the right
-    hSizer->Add(wrapBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+    hSizer->AddStretchSpacer(1);
+    hSizer->Add(wrapBtn_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
     titleBar_->SetSizer(hSizer);
     titleBar_->Layout();
 
@@ -70,6 +69,11 @@ void TerminalTile::UpdateTitleBarColor()
                                      : colInactive_;
     titleBar_->SetBackgroundColour(c);
     titleBar_->Refresh();
+    if (wrapBtn_)
+    {
+        wrapBtn_->SetBackgroundColour(c);
+        wrapBtn_->Refresh();
+    }
 }
 
 void TerminalTile::SetFocused(bool focused)
@@ -91,23 +95,20 @@ void TerminalTile::SetTileLabel(const wxString &label)
 
 void TerminalTile::EmitAction(TerminalAction action)
 {
-    auto* data = new TerminalActionData{
-        action,
-        tileSessionId_
-    };
-
-    wxCommandEvent evt(EVT_TERMINAL_ACTION);
-
-    evt.SetClientData(data);
-
+    TerminalActionEvent evt(action, tileSessionId_);
     ProcessWindowEvent(evt);
 }
 
-void TerminalTile::OnWrapClick(wxCommandEvent &evt)
+void TerminalTile::SetWrapMode(bool wrap)
+{
+    // Visual toggle state for the wrap button could be extended here
+    // (e.g., swap icon or set a pressed state) when a toggled icon is available.
+    (void)wrap;
+}
+
+void TerminalTile::OnWrapClick(wxCommandEvent&)
 {
     EmitAction(TerminalAction::ToggleWrap);
-    // std::printf("Wrap button clicked\n");
-    // std::fflush(stdout);
 }
 
 void TerminalTile::OnTitleDown(wxMouseEvent &evt)
