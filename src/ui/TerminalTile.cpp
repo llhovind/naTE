@@ -19,9 +19,22 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
 
     // TabStrip occupies the left portion of the title bar.
     tabStrip_ = new TabStrip(titleBar_);
-    tabStrip_->SetBgColour(colInactive_);
 
-    // Wire TabStrip callbacks back into the tile.
+    // Query callbacks — TabStrip reads these on every paint; no data is duplicated.
+    tabStrip_->SetTabCountCallback([this]() {
+        return static_cast<int>(tabs_.size());
+    });
+    tabStrip_->SetLabelQueryCallback([this](int i) -> wxString {
+        return (i >= 0 && i < (int)tabs_.size()) ? tabs_[i].label : wxString{};
+    });
+    tabStrip_->SetActiveTabCallback([this]() {
+        return activeTabIdx_;
+    });
+    tabStrip_->SetBgColourCallback([this]() {
+        return titleBar_->GetBackgroundColour();
+    });
+
+    // Wire TabStrip notification callbacks back into the tile.
     tabStrip_->SetTabSelectedCallback([this](int idx) {
         if (idx < 0 || idx >= (int)tabs_.size()) return;
         ActivateTab(idx);
@@ -110,8 +123,8 @@ int TerminalTile::AddTab(term::session::SessionId id, TerminalPanel* panel,
                          const wxString& label)
 {
     panel->Hide();  // hidden until ActivateTab selects it
-    tabStrip_->AddTab(label);
     tabs_.push_back({ id, panel, label });
+    tabStrip_->Refresh();
     const int newIdx = static_cast<int>(tabs_.size()) - 1;
 
     if ((int)tabs_.size() == 1) {
@@ -134,7 +147,7 @@ bool TerminalTile::RemoveTab(term::session::SessionId id)
     // Destroy the panel (wx-child-owned; Destroy() is safe on UI thread).
     if (it->panel) it->panel->Destroy();
     tabs_.erase(it);
-    tabStrip_->RemoveTab(removedIdx);
+    tabStrip_->Refresh();
 
     if (tabs_.empty()) {
         activeTabIdx_ = -1;
@@ -166,7 +179,7 @@ void TerminalTile::SetTabLabel(term::session::SessionId id, const wxString& labe
     for (int i = 0; i < (int)tabs_.size(); ++i) {
         if (tabs_[i].sessionId == id) {
             tabs_[i].label = label;
-            tabStrip_->SetTabLabel(i, label);
+            tabStrip_->Refresh();
             return;
         }
     }
@@ -215,9 +228,8 @@ void TerminalTile::ActivateTab(int index)
 
     // Sync header colour with the newly active tab's broadcast state.
     inBroadcast_ = tabs_[index].inBroadcast;
-    UpdateTitleBarColor();
+    UpdateTitleBarColor();  // calls titleBar_->Refresh(), which repaints TabStrip as child
 
-    tabStrip_->SetActiveTab(index);
     contentArea_->Refresh();
 }
 
@@ -245,9 +257,6 @@ void TerminalTile::UpdateTitleBarColor()
     if (wrapBtn_) {
         wrapBtn_->SetBackgroundColour(c);
         wrapBtn_->Refresh();
-    }
-    if (tabStrip_) {
-        tabStrip_->SetBgColour(c);
     }
 }
 

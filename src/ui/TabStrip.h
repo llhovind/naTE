@@ -1,32 +1,40 @@
 #pragma once
 
 #include <functional>
-#include <vector>
 #include <wx/window.h>
 #include <wx/string.h>
+#include <wx/colour.h>
 
 // Custom-drawn tab strip embedded in the TerminalTile title bar.
 // Renders N session tabs left-justified and a "+" new-tab button immediately
 // after the last tab.  The remaining space to the right is "blank header"
 // which fires HeaderActivate / HeaderDragStart callbacks so TerminalTile can
 // handle tile-level activation and drag from that region.
+//
+// TabStrip owns no tab data.  All state is queried on-demand via callbacks
+// wired by TerminalTile at construction time.
 class TabStrip : public wxWindow {
 public:
     explicit TabStrip(wxWindow* parent);
 
     // -------------------------------------------------------------------------
-    // Tab data management — called by TerminalTile
+    // Query callbacks — wired by TerminalTile; called during paint and hit-test.
+    // TabStrip owns no copies of this data.
     // -------------------------------------------------------------------------
-    void AddTab(const wxString& label);
-    void RemoveTab(int index);
-    void SetTabLabel(int index, const wxString& label);
-    void SetActiveTab(int index);
+    using TabCountCallback   = std::function<int()>;
+    using LabelQueryCallback = std::function<wxString(int index)>;
+    using ActiveTabCallback  = std::function<int()>;
+    using BgColourCallback   = std::function<wxColour()>;
 
-    int  GetActiveTab()  const { return activeIdx_; }
-    int  GetTabCount()   const { return static_cast<int>(labels_.size()); }
+    void SetTabCountCallback  (TabCountCallback   cb) { tabCountCb_  = std::move(cb); }
+    void SetLabelQueryCallback(LabelQueryCallback cb) { labelCb_     = std::move(cb); }
+    void SetActiveTabCallback (ActiveTabCallback  cb) { activeTabCb_ = std::move(cb); }
+    void SetBgColourCallback  (BgColourCallback   cb) { bgColourCb_  = std::move(cb); }
 
-    // The background colour must track the tile's title bar colour.
-    void SetBgColour(const wxColour& c);
+    // Query callback: TabStrip calls this during OnPaint to ask whether a given
+    // tab index is in broadcast.  Ownership of broadcast state stays in TerminalTile.
+    using BroadcastQueryCallback = std::function<bool(int tabIndex)>;
+    void SetBroadcastQueryCallback(BroadcastQueryCallback cb) { broadcastQueryCb_ = std::move(cb); }
 
     // -------------------------------------------------------------------------
     // Tab-level callbacks wired by TerminalTile
@@ -51,15 +59,10 @@ public:
     using HeaderCtrlClickCallback  = std::function<void()>;          // Ctrl+left anywhere
     using HeaderRightClickCallback = std::function<void()>;          // right-click anywhere
 
-    // Query callback: TabStrip calls this during OnPaint to ask whether a given
-    // tab index is in broadcast.  Ownership of broadcast state stays in TerminalTile.
-    using BroadcastQueryCallback   = std::function<bool(int tabIndex)>;
-
     void SetHeaderActivateCallback  (HeaderActivateCallback   cb) { headerActivateCb_   = std::move(cb); }
     void SetHeaderDragStartCallback (HeaderDragStartCallback  cb) { headerDragCb_        = std::move(cb); }
     void SetHeaderCtrlClickCallback (HeaderCtrlClickCallback  cb) { headerCtrlClickCb_  = std::move(cb); }
     void SetHeaderRightClickCallback(HeaderRightClickCallback cb) { headerRightClickCb_ = std::move(cb); }
-    void SetBroadcastQueryCallback  (BroadcastQueryCallback   cb) { broadcastQueryCb_   = std::move(cb); }
 
 private:
     // Per-tab geometry computed from current client size.
@@ -83,11 +86,6 @@ private:
     void OnLeftUp     (wxMouseEvent&);
     void OnMouseLeave (wxMouseEvent&);
 
-    std::vector<wxString> labels_;
-    int                   activeIdx_ = -1;
-    wxColour              bgColour_     { 131, 136, 141 };
-    wxColour              colBroadcast_ { 255, 140,   0 };
-
     // Tab drag state (dragging a specific tab)
     int     dragTabIdx_      = -1;
     wxPoint dragAnchor_      { -1, -1 };
@@ -102,6 +100,14 @@ private:
     static constexpr int kMinTabW = 50;
     static constexpr int kMaxTabW = 200;
 
+    // Query callbacks
+    TabCountCallback       tabCountCb_;
+    LabelQueryCallback     labelCb_;
+    ActiveTabCallback      activeTabCb_;
+    BgColourCallback       bgColourCb_;
+    BroadcastQueryCallback broadcastQueryCb_;
+
+    // Notification callbacks
     TabSelectedCallback     selectedCb_;
     TabCloseCallback        closeCb_;
     TabDragStartCallback    tabDragCb_;
@@ -110,5 +116,4 @@ private:
     HeaderDragStartCallback headerDragCb_;
     HeaderCtrlClickCallback  headerCtrlClickCb_;
     HeaderRightClickCallback headerRightClickCb_;
-    BroadcastQueryCallback   broadcastQueryCb_;
 };

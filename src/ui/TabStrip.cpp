@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cmath>
 
+static const wxColour kColBroadcast { 255, 140, 0 };
+
 TabStrip::TabStrip(wxWindow* parent)
     : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE)
 {
@@ -19,62 +21,13 @@ TabStrip::TabStrip(wxWindow* parent)
 }
 
 // ---------------------------------------------------------------------------
-// Tab data management
-// ---------------------------------------------------------------------------
-
-void TabStrip::AddTab(const wxString& label)
-{
-    labels_.push_back(label);
-    if (activeIdx_ < 0)
-        activeIdx_ = 0;
-    Refresh();
-}
-
-void TabStrip::RemoveTab(int index)
-{
-    if (index < 0 || index >= (int)labels_.size()) return;
-    labels_.erase(labels_.begin() + index);
-
-    if (labels_.empty()) {
-        activeIdx_ = -1;
-    } else {
-        activeIdx_ = std::min(activeIdx_, (int)labels_.size() - 1);
-        if (activeIdx_ < 0) activeIdx_ = 0;
-    }
-    Refresh();
-}
-
-void TabStrip::SetTabLabel(int index, const wxString& label)
-{
-    if (index >= 0 && index < (int)labels_.size()) {
-        labels_[index] = label;
-        Refresh();
-    }
-}
-
-
-void TabStrip::SetActiveTab(int index)
-{
-    if (activeIdx_ != index) {
-        activeIdx_ = index;
-        Refresh();
-    }
-}
-
-void TabStrip::SetBgColour(const wxColour& c)
-{
-    bgColour_ = c;
-    Refresh();
-}
-
-// ---------------------------------------------------------------------------
 // Geometry helpers
 // ---------------------------------------------------------------------------
 
 TabStrip::TabGeom TabStrip::ComputeGeom() const
 {
     const int w = GetClientSize().x;
-    const int n = static_cast<int>(labels_.size());
+    const int n = tabCountCb_ ? tabCountCb_() : 0;
 
     TabGeom g;
     g.plusW = kPlusW;
@@ -94,13 +47,13 @@ TabStrip::TabGeom TabStrip::ComputeGeom() const
 int TabStrip::HitTest(int x, bool& closeHit) const
 {
     closeHit = false;
-    const TabGeom g = ComputeGeom();
+    const TabGeom g   = ComputeGeom();
+    const int     n   = tabCountCb_ ? tabCountCb_() : 0;
 
-    // Only consider the tab zone: [0, n * tabW).
-    if (g.tabW <= 0 || x >= (int)labels_.size() * g.tabW) return -1;
+    if (g.tabW <= 0 || x >= n * g.tabW) return -1;
 
     const int idx = x / g.tabW;
-    if (idx < 0 || idx >= (int)labels_.size()) return -1;
+    if (idx < 0 || idx >= n) return -1;
 
     const int tabRight = (idx + 1) * g.tabW;
     closeHit = (x >= tabRight - kCloseW);
@@ -116,43 +69,46 @@ void TabStrip::OnPaint(wxPaintEvent&)
     wxAutoBufferedPaintDC dc(this);
     const wxSize sz = GetClientSize();
 
-    dc.SetBackground(wxBrush(bgColour_));
+    const wxColour bgColour = bgColourCb_ ? bgColourCb_() : wxColour(131, 136, 141);
+    dc.SetBackground(wxBrush(bgColour));
     dc.Clear();
 
     const TabGeom g   = ComputeGeom();
+    const int     n   = tabCountCb_ ? tabCountCb_() : 0;
+    const int     activeIdx = activeTabCb_ ? activeTabCb_() : -1;
     const wxFont  fnt = GetFont();
     dc.SetFont(fnt);
     const int charH = dc.GetCharHeight();
     const int ty    = (sz.y - charH) / 2;
 
-    if (!labels_.empty()) {
+    if (n > 0) {
         // Slightly lighter active-tab colour (brighten each channel by ~35).
         const wxColour activeTabBg(
-            std::min(255, bgColour_.Red()   + 35),
-            std::min(255, bgColour_.Green() + 35),
-            std::min(255, bgColour_.Blue()  + 35));
+            std::min(255, bgColour.Red()   + 35),
+            std::min(255, bgColour.Green() + 35),
+            std::min(255, bgColour.Blue()  + 35));
 
         // Darker separator between tabs.
         const wxColour sepColour(
-            std::max(0, bgColour_.Red()   - 20),
-            std::max(0, bgColour_.Green() - 20),
-            std::max(0, bgColour_.Blue()  - 20));
+            std::max(0, bgColour.Red()   - 20),
+            std::max(0, bgColour.Green() - 20),
+            std::max(0, bgColour.Blue()  - 20));
 
-        for (int i = 0; i < (int)labels_.size(); ++i) {
+        for (int i = 0; i < n; ++i) {
             const int x = i * g.tabW;
             const wxRect tabRect(x, 0, g.tabW, sz.y);
 
             const bool inBroadcast = broadcastQueryCb_ && broadcastQueryCb_(i);
 
             // Tab background: broadcast takes priority; active gets a brightness bump.
-            if (inBroadcast || i == activeIdx_) {
-                wxColour tabBg = inBroadcast ? colBroadcast_ : activeTabBg;
+            if (inBroadcast || i == activeIdx) {
+                wxColour tabBg = inBroadcast ? kColBroadcast : activeTabBg;
                 // Active broadcast tab: darken slightly so it reads as "selected among broadcast".
-                if (inBroadcast && i == activeIdx_) {
+                if (inBroadcast && i == activeIdx) {
                     tabBg = wxColour(
-                        std::max(0, (int)colBroadcast_.Red()   - 30),
-                        std::max(0, (int)colBroadcast_.Green() - 30),
-                        std::max(0, (int)colBroadcast_.Blue()  - 30));
+                        std::max(0, (int)kColBroadcast.Red()   - 30),
+                        std::max(0, (int)kColBroadcast.Green() - 30),
+                        std::max(0, (int)kColBroadcast.Blue()  - 30));
                 }
                 dc.SetBrush(wxBrush(tabBg));
                 dc.SetPen(*wxTRANSPARENT_PEN);
@@ -166,7 +122,7 @@ void TabStrip::OnPaint(wxPaintEvent&)
 
             // Label — truncated with ellipsis to fit label area.
             const int labelAreaW = g.tabW - kCloseW - 10;
-            wxString label       = labels_[i];
+            wxString label       = labelCb_ ? labelCb_(i) : wxString{};
             if (dc.GetTextExtent(label).x > labelAreaW) {
                 while (!label.empty() && dc.GetTextExtent(label + L"…").x > labelAreaW)
                     label.RemoveLast();
@@ -176,7 +132,7 @@ void TabStrip::OnPaint(wxPaintEvent&)
             dc.DrawText(label, x + 6, ty);
 
             // Close "×" — dimmer on inactive non-broadcast tabs.
-            const wxColour closeCol = (i == activeIdx_ || inBroadcast)
+            const wxColour closeCol = (i == activeIdx || inBroadcast)
                 ? wxColour(220, 220, 220)
                 : wxColour(160, 160, 160);
             dc.SetTextForeground(closeCol);
@@ -225,7 +181,8 @@ void TabStrip::OnLeftDown(wxMouseEvent& evt)
             if (closeCb_) closeCb_(idx);
             return;
         }
-        if (idx != activeIdx_) {
+        const int activeIdx = activeTabCb_ ? activeTabCb_() : -1;
+        if (idx != activeIdx) {
             if (selectedCb_) selectedCb_(idx);
         }
         dragTabIdx_  = idx;
