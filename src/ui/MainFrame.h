@@ -1,19 +1,21 @@
 #pragma once
 #include <wx/frame.h>
 #include <wx/menu.h>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
 #include "config/Config.h"
 #include "input/InputRouter.h"
 #include "session/Connection.h"
+#include "ui/ISessionDropTarget.h"
 #include "ui/NewConnectionDialog.h"
 
 namespace term::db { class ConnectionStore; }
 namespace ui { class UIManager; }
 class TerminalTile;
 
-class MainFrame : public wxFrame {
+class MainFrame : public wxFrame, public ui::ISessionDropTarget {
 public:
     MainFrame(const AppConfig& cfg,
               term::input::InputRouter& router,
@@ -45,6 +47,9 @@ public:
 
     // Rebuilds the Window menu to reflect the current set of open frames.
     void RebuildWindowMenu(const std::vector<std::pair<MainFrame*, std::string>>& entries);
+
+    // ISessionDropTarget — no specific tile; App will create a new tile.
+    bool DropSession(std::span<const term::session::SessionId> ids) override;
 
 private:
     void OnClose(wxCloseEvent& event);

@@ -129,7 +129,7 @@ TEST_CASE("given session when ReassignRouter called then session moves between r
     router1.Send(evt);  // should not crash
 
     // Move to router2 — subsequent sends go via router2.
-    sm.ReassignRouter(id, router1, router2);
+    sm.ReassignRouter(id, router2);
     sm.ActivateSession(id, router2);
     router2.Send(evt);  // should not crash
 

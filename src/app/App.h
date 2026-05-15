@@ -1,6 +1,7 @@
 #pragma once
 #include <wx/app.h>
 #include <memory>
+#include <span>
 #include <vector>
 #include "config/Config.h"
 #include "db/ConnectionStore.h"
@@ -31,10 +32,13 @@ public:
         MainFrame*    target,
         TerminalTile* targetTile);
 
-    // Moves a live session from one window's UIManager to another's.
-    // dstTile may be nullptr (creates a new tile in the destination window).
-    void MoveSession(MainFrame* src, term::session::SessionId id, MainFrame* dst,
-                     TerminalTile* dstTile = nullptr);
+    // Transfers sessions to a destination tile/frame.
+    // dstFrame = nullptr → create a new MainFrame.
+    // dstTile  = nullptr → create a new tile in dstFrame.
+    // Returns true if accepted; source should call ReleaseSession on each id.
+    bool DropSession(std::span<const term::session::SessionId> ids,
+                     MainFrame*    dstFrame,
+                     TerminalTile* dstTile);
 
     // Closes every open window and exits the application.
     void QuitAll();
@@ -50,9 +54,12 @@ private:
     };
 
     WindowContext* FindContext(MainFrame* frame);
+    WindowContext* FindContextForSession(term::session::SessionId id);
 
     AppConfig                                      m_cfg;
     std::unique_ptr<term::db::ConnectionStore>     m_connectionStore;
     std::unique_ptr<term::session::SessionManager> m_sessionManager;
     std::vector<std::unique_ptr<WindowContext>>    m_windows;
 };
+
+wxDECLARE_APP(App);

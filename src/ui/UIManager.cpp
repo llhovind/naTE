@@ -1,4 +1,6 @@
 #include "ui/UIManager.h"
+#include "app/App.h"
+#include "ui/ISessionDropTarget.h"
 #include "ui/MainFrame.h"
 #include "ui/TerminalPanel.h"
 #include "ui/TerminalTile.h"
@@ -11,8 +13,6 @@
 #include <wx/brush.h>
 #include <wx/clipbrd.h>
 #include <wx/dataobj.h>
-#include <wx/dcmemory.h>
-#include <wx/generic/dragimgg.h>
 #include <wx/display.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
@@ -151,6 +151,10 @@ void UIManager::WireTileCallbacks(TerminalTile* tile)
     tile->SetTabDragStartCallback([this](term::session::SessionId sid, wxPoint pt) {
         OnTabDragStart(sid, pt);
     });
+    tile->SetDropSessionCallback(
+        [this, tile](std::span<const term::session::SessionId> ids) -> bool {
+            return static_cast<App&>(wxGetApp()).DropSession(ids, frame_, tile);
+        });
 }
 
 void UIManager::TakeSession(term::session::SessionId     id,
@@ -248,6 +252,11 @@ void UIManager::ReleaseSession(term::session::SessionId id)
         ui->notifier.reset();
     }
     TearDownSessionUI(id);
+}
+
+bool UIManager::HasSession(term::session::SessionId id) const
+{
+    return sessions_.count(id) > 0;
 }
 
 void UIManager::CloseAllSessions()
@@ -484,141 +493,73 @@ void UIManager::OnNewTabRequest(TerminalTile* tile)
 // Drag support
 // ---------------------------------------------------------------------------
 
-// Shared helper: create a drag image bitmap and begin the wx drag session.
-static void BeginDragImage(std::unique_ptr<wxGenericDragImage>& dragImage,
-                            MainFrame* frame, const wxString& label,
-                            wxPoint screenAnchor)
+void UIManager::OnTileDragStart(TerminalTile* tile, wxPoint /*screenAnchor*/)
 {
-    const int bmpW = frame->GetTextExtent(label).x + 16;
-    const int bmpH = TerminalTile::kTitleBarHeight;
-    wxBitmap bmp(bmpW, bmpH);
-    {
-        wxMemoryDC dc(bmp);
-        dc.SetBackground(wxBrush(wxColour(60, 100, 160)));
-        dc.Clear();
-        dc.SetTextForeground(*wxWHITE);
-        dc.DrawText(label, 4, 4);
+    if (!tile || dragState_) return;
+
+    DragState state;
+    state.ids.reserve(tile->GetTabCount());
+    for (int i = 0; i < tile->GetTabCount(); ++i) {
+        auto sid = tile->GetSessionIdByTabIndex(i);
+        if (sid != 0) state.ids.push_back(sid);
     }
-    dragImage = std::make_unique<wxGenericDragImage>(bmp, wxCursor(wxCURSOR_HAND));
-    dragImage->BeginDrag(wxPoint(0, 0), frame, true);
-    dragImage->Show();
-    dragImage->Move(frame->ScreenToClient(screenAnchor));
-}
+    if (state.ids.empty()) return;
 
-void UIManager::OnTileDragStart(TerminalTile* tile, wxPoint screenAnchor)
-{
-    if (!tile) return;
-
-    // Build drag label: first tab's label plus tab count suffix when N > 1.
-    wxString label;
-    for (auto& [id, sui] : sessions_) {
-        if (sui.tile == tile && !sui.label.empty()) {
-            label = wxString::FromUTF8(sui.label);
-            break;
-        }
-    }
-    if (tile->GetTabCount() > 1)
-        label += wxString::Format(" (+%d)", tile->GetTabCount() - 1);
-
-    draggingTile_ = tile;
-    draggingId_   = 0;
-
-    BeginDragImage(dragImage_, frame_, label, screenAnchor);
+    dragState_ = std::move(state);
+    frame_->CaptureMouse();
     frame_->Bind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
     frame_->Bind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
 }
 
-void UIManager::OnTabDragStart(term::session::SessionId id, wxPoint screenAnchor)
+void UIManager::OnTabDragStart(term::session::SessionId id, wxPoint /*screenAnchor*/)
 {
-    SessionUI* ui = FindSessionUI(id);
-    if (!ui) return;
+    if (!FindSessionUI(id) || dragState_) return;
 
-    draggingId_   = id;
-    draggingTile_ = nullptr;
-
-    BeginDragImage(dragImage_, frame_, wxString::FromUTF8(ui->label), screenAnchor);
+    dragState_ = DragState{{ id }};
+    frame_->CaptureMouse();
     frame_->Bind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
     frame_->Bind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
 }
 
 void UIManager::OnDragMotion(wxMouseEvent& evt)
 {
-    if (dragImage_)
-        dragImage_->Move(evt.GetPosition());
     evt.Skip();
-}
-
-// Walk up the wx parent chain from `hit` to `stopAt`, returning the first
-// TerminalTile ancestor found, or nullptr.
-static TerminalTile* FindTileAncestor(wxWindow* hit, wxWindow* stopAt)
-{
-    for (wxWindow* w = hit; w && w != stopAt; w = w->GetParent())
-        if (auto* t = dynamic_cast<TerminalTile*>(w)) return t;
-    return nullptr;
 }
 
 void UIManager::OnDragRelease(wxMouseEvent& evt)
 {
-    if (dragImage_) {
-        dragImage_->EndDrag();
-        dragImage_.reset();
-    }
-    frame_->Unbind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
-    frame_->Unbind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
+    if (frame_->HasCapture()) frame_->ReleaseMouse();
 
-    const wxPoint  screenPt = frame_->ClientToScreen(evt.GetPosition());
-    auto* hit      = wxFindWindowAtPoint(screenPt);
-    auto* dstFrame = dynamic_cast<MainFrame*>(wxGetTopLevelParent(hit));
+    // Defer Unbind — calling it here modifies the dynamic event table while
+    // wxEvtHandler::SearchDynamicEventTable is still iterating it, triggering
+    // a wx assertion.  CallAfter defers to the next event loop iteration.
+    frame_->CallAfter([this]() {
+        frame_->Unbind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
+        frame_->Unbind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
+    });
 
-    // ---- Whole-tile drag (title bar) ----------------------------------------
-    if (draggingTile_) {
-        TerminalTile* srcTile = draggingTile_;
-        draggingTile_ = nullptr;
+    if (!dragState_) { evt.Skip(); return; }
+    auto state = std::move(*dragState_);
+    dragState_.reset();
 
-        if (dstFrame && dstFrame != frame_ && moveTileCb_) {
-            // Collect session IDs in tab order before any releases modify the tile.
-            std::vector<term::session::SessionId> ids;
-            ids.reserve(srcTile->GetTabCount());
-            for (int i = 0; i < srcTile->GetTabCount(); ++i) {
-                auto sid = srcTile->GetSessionIdByTabIndex(i);
-                if (sid != 0) ids.push_back(sid);
-            }
-            if (!ids.empty()) moveTileCb_(std::move(ids), dstFrame);
-        }
-        evt.Skip();
-        return;
-    }
+    const wxPoint screenPt = frame_->ClientToScreen(evt.GetPosition());
+    wxWindow* hit = wxFindWindowAtPoint(screenPt);
 
-    // ---- Single-tab drag (TabStrip) -----------------------------------------
-    const auto tabId = draggingId_;
-    draggingId_ = 0;
-    if (tabId == 0) { evt.Skip(); return; }
-
-    if (dstFrame && dstFrame != frame_) {
-        // Cross-window tab move — land in a specific tile if the drop is on one.
-        TerminalTile* dstTile = FindTileAncestor(hit, dstFrame);
-        if (moveTabToTileCb_) {
-            moveTabToTileCb_(tabId, dstFrame, dstTile);
-        } else if (moveSessionCb_) {
-            moveSessionCb_(tabId, dstFrame);
-        }
-    } else if (dstFrame == frame_) {
-        // Same-window tab move — drop on a different tile merges the tab into it.
-        SessionUI* src = FindSessionUI(tabId);
-        TerminalTile* srcTile = src ? src->tile : nullptr;
-        TerminalTile* dstTile = FindTileAncestor(hit, frame_);
-
-        if (dstTile && dstTile != srcTile) {
-            ReleaseSession(tabId);
-            TakeSession(
-                tabId,
-                sm_.MakeTitleGetter(tabId),
-                sm_.GetDocLayout(tabId).GetViewportCols(),
-                sm_.GetLabel(tabId),
-                dstTile);
+    ui::ISessionDropTarget* target = nullptr;
+    for (wxWindow* w = hit; w; w = w->GetParent()) {
+        if (auto* t = dynamic_cast<ui::ISessionDropTarget*>(w)) {
+            target = t;
+            break;
         }
     }
 
+    if (!target) { evt.Skip(); return; }
+
+    const bool accepted = target->DropSession(state.ids);
+    if (accepted) {
+        for (auto id : state.ids)
+            ReleaseSession(id);
+    }
     evt.Skip();
 }
 

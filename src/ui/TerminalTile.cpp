@@ -356,3 +356,12 @@ void TerminalTile::OnTitleRightClick(wxMouseEvent&)
     });
     PopupMenu(&menu);
 }
+
+bool TerminalTile::DropSession(std::span<const term::session::SessionId> ids)
+{
+    for (auto id : ids)
+        for (int i = 0; i < GetTabCount(); ++i)
+            if (GetSessionIdByTabIndex(i) == id) return false;
+    if (dropSessionCb_) return dropSessionCb_(ids);
+    return false;
+}

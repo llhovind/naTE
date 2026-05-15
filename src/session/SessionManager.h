@@ -49,7 +49,6 @@ public:
 
     // Moves the session from one window's router to another's.
     void ReassignRouter(SessionId id,
-                        term::input::InputRouter& oldRouter,
                         term::input::InputRouter& newRouter);
 
     // Sets the focused InputTarget in router to this session.

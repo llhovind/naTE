@@ -3,9 +3,12 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 #include <wx/menu.h>
 
 #include "document/IDocumentListener.h"
@@ -24,7 +27,6 @@ class MainFrame;
 class TerminalPanel;
 class TerminalGrid;
 class TerminalTile;
-class wxGenericDragImage;
 
 namespace ui {
 
@@ -63,6 +65,8 @@ public:
     // Unsubscribe UIManager from a session without closing it (for session moves).
     // Detaches the SessionNotifier, removes the tab, destroys the tile if empty.
     void ReleaseSession(term::session::SessionId id);
+
+    bool HasSession(term::session::SessionId id) const;
 
     // Close every session this UIManager owns (called by MainFrame::OnClose).
     void CloseAllSessions();
@@ -109,21 +113,6 @@ public:
     // Returns the first line of the active session's selection (empty if none).
     std::u32string GetActiveSelectedText() const;
 
-    // -------------------------------------------------------------------------
-    // Drag-to-move callbacks (set by App in CreateNewWindow)
-    // -------------------------------------------------------------------------
-    using MoveSessionCallback = std::function<void(term::session::SessionId, MainFrame*)>;
-    void SetMoveSessionCallback(MoveSessionCallback cb) { moveSessionCb_ = std::move(cb); }
-
-    // Called by App to move a tab to a specific tile in the destination window.
-    using MoveTabToTileCallback =
-        std::function<void(term::session::SessionId, MainFrame*, TerminalTile*)>;
-    void SetMoveTabToTileCallback(MoveTabToTileCallback cb) { moveTabToTileCb_ = std::move(cb); }
-
-    // Called by App to move an entire tile (all sessions, in tab order) to another window.
-    using MoveTileCallback =
-        std::function<void(std::vector<term::session::SessionId>, MainFrame*)>;
-    void SetMoveTileCallback(MoveTileCallback cb) { moveTileCb_ = std::move(cb); }
 
 private:
     // -------------------------------------------------------------------------
@@ -210,16 +199,11 @@ private:
 
     std::string                                      pendingErrorMsg_;
 
-    MoveSessionCallback                              moveSessionCb_;
-    MoveTabToTileCallback                            moveTabToTileCb_;
-    MoveTileCallback                                 moveTileCb_;
-
-    // Drag state — exactly one of draggingTile_ / draggingId_ is set at a time.
-    // draggingTile_: title-bar drag (whole tile move).
-    // draggingId_:   tab drag (single session move).
-    std::unique_ptr<wxGenericDragImage>              dragImage_;
-    TerminalTile*                                    draggingTile_ = nullptr;
-    term::session::SessionId                         draggingId_   = 0;
+    struct DragState {
+        std::vector<term::session::SessionId> ids;
+        // Visual feedback fields go here when drag image is implemented.
+    };
+    std::optional<DragState> dragState_;
 };
 
 } // namespace ui

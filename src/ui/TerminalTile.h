@@ -1,11 +1,13 @@
 #pragma once
 #include <functional>
+#include <span>
 #include <string>
 #include <vector>
 #include <wx/panel.h>
 #include <wx/bmpbuttn.h>
 #include "config/Config.h"
 #include "session/ISessionObserver.h"
+#include "ui/ISessionDropTarget.h"
 #include "ui/TerminalActions.h"
 #include "ui/TileActions.h"
 
@@ -16,7 +18,7 @@ class TabStrip;
 // with only the active session's TerminalPanel visible at a time.
 // UIManager creates TerminalPanel instances externally and registers them
 // via AddTab(); the tile takes wx-ownership (panels are parented to contentArea_).
-class TerminalTile : public wxPanel {
+class TerminalTile : public wxPanel, public ui::ISessionDropTarget {
 public:
     explicit TerminalTile(wxWindow* parent, const AppConfig& cfg);
 
@@ -82,6 +84,14 @@ public:
     using TabDragStartCallback = std::function<void(term::session::SessionId, wxPoint)>;
     void SetTabDragStartCallback(TabDragStartCallback cb) { tabDragStartCb_ = std::move(cb); }
 
+    // Wired by UIManager via WireTileCallbacks; delegates to App::DropSession.
+    using DropSessionCallback =
+        std::function<bool(std::span<const term::session::SessionId>)>;
+    void SetDropSessionCallback(DropSessionCallback cb) { dropSessionCb_ = std::move(cb); }
+
+    // ISessionDropTarget
+    bool DropSession(std::span<const term::session::SessionId> ids) override;
+
     static constexpr int kTitleBarHeight = 28;
 
 private:
@@ -115,6 +125,7 @@ private:
 
     DragStartCallback          dragStartCb_;
     TabDragStartCallback       tabDragStartCb_;
+    DropSessionCallback        dropSessionCb_;
 
     wxPoint                    dragAnchor_  { -1, -1 };
     bool                       dragPending_ = false;

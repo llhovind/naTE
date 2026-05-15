@@ -114,12 +114,11 @@ void SessionManager::RegisterRouter(SessionId id, term::input::InputRouter& rout
 }
 
 void SessionManager::ReassignRouter(SessionId id,
-                                    term::input::InputRouter& oldRouter,
                                     term::input::InputRouter& newRouter)
 {
     SessionRecord* rec = FindRecord(id);
     if (!rec) return;
-    oldRouter.RemoveTarget(rec->session.get());
+    if (rec->router) rec->router->RemoveTarget(rec->session.get());
     rec->router = &newRouter;
     newRouter.AddTarget(rec->session.get());
 }

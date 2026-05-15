@@ -44,43 +44,6 @@ MainFrame* App::CreateNewWindow()
 
     frame->SetUIManager(wc->uiManager.get());
 
-    wc->uiManager->SetMoveSessionCallback(
-        [this, frame](term::session::SessionId id, MainFrame* dstFrame) {
-            MoveSession(frame, id, dstFrame, nullptr);
-        });
-
-    wc->uiManager->SetMoveTabToTileCallback(
-        [this, frame](term::session::SessionId id, MainFrame* dstFrame,
-                      TerminalTile* dstTile) {
-            MoveSession(frame, id, dstFrame, dstTile);
-        });
-
-    wc->uiManager->SetMoveTileCallback(
-        [this, frame](std::vector<term::session::SessionId> ids, MainFrame* dstFrame) {
-            WindowContext* srcCtx = FindContext(frame);
-            WindowContext* dstCtx = FindContext(dstFrame);
-            if (!srcCtx || !dstCtx || srcCtx == dstCtx || ids.empty()) return;
-
-            // Move all sessions in tab order into one new tile at the destination.
-            TerminalTile* newTile = nullptr;
-            for (auto id : ids) {
-                const unsigned short cols =
-                    m_sessionManager->GetDocLayout(id).GetViewportCols();
-                const std::string label = m_sessionManager->GetLabel(id);
-
-                srcCtx->uiManager->ReleaseSession(id);
-                m_sessionManager->SetSessionObserver(id, dstCtx->uiManager.get());
-                m_sessionManager->ReassignRouter(id, *srcCtx->router, *dstCtx->router);
-                dstCtx->uiManager->TakeSession(
-                    id, m_sessionManager->MakeTitleGetter(id), cols, label, newTile);
-                if (!newTile)
-                    newTile = dstCtx->uiManager->GetActiveTile();
-            }
-            m_sessionManager->ActivateSession(ids.back(), *dstCtx->router);
-            dstFrame->Raise();
-            RebuildWindowMenus();
-        });
-
     frame->Bind(wxEVT_DESTROY, [this, frame](wxWindowDestroyEvent& evt) {
         if (evt.GetEventObject() == frame) {
             auto it = std::find_if(m_windows.begin(), m_windows.end(),
@@ -137,29 +100,6 @@ term::session::SessionId App::CreateSessionInTile(
     return id;
 }
 
-void App::MoveSession(MainFrame* src, term::session::SessionId id, MainFrame* dst,
-                      TerminalTile* dstTile)
-{
-    WindowContext* srcCtx = FindContext(src);
-    WindowContext* dstCtx = FindContext(dst);
-    if (!srcCtx || !dstCtx || srcCtx == dstCtx) return;
-
-    srcCtx->uiManager->ReleaseSession(id);
-
-    m_sessionManager->SetSessionObserver(id, dstCtx->uiManager.get());
-    m_sessionManager->ReassignRouter(id, *srcCtx->router, *dstCtx->router);
-
-    dstCtx->uiManager->TakeSession(
-        id,
-        m_sessionManager->MakeTitleGetter(id),
-        m_sessionManager->GetDocLayout(id).GetViewportCols(),
-        m_sessionManager->GetLabel(id),
-        dstTile);
-
-    m_sessionManager->ActivateSession(id, *dstCtx->router);
-    dst->Raise();
-    RebuildWindowMenus();
-}
 
 void App::QuitAll()
 {
@@ -192,4 +132,46 @@ App::WindowContext* App::FindContext(MainFrame* frame)
     for (auto& w : m_windows)
         if (w->frame == frame) return w.get();
     return nullptr;
+}
+
+App::WindowContext* App::FindContextForSession(term::session::SessionId id)
+{
+    for (auto& w : m_windows)
+        if (w->uiManager->HasSession(id)) return w.get();
+    return nullptr;
+}
+
+bool App::DropSession(std::span<const term::session::SessionId> ids,
+                      MainFrame*    dstFrame,
+                      TerminalTile* dstTile)
+{
+    if (ids.empty()) return false;
+
+    if (!dstFrame)
+        dstFrame = CreateNewWindow();
+
+    WindowContext* dstCtx = FindContext(dstFrame);
+    if (!dstCtx) return false;
+
+    TerminalTile* tile = dstTile;
+    for (auto id : ids) {
+        WindowContext* srcCtx = FindContextForSession(id);
+        if (srcCtx && srcCtx != dstCtx) {
+            m_sessionManager->SetSessionObserver(id, dstCtx->uiManager.get());
+            m_sessionManager->ReassignRouter(id, *dstCtx->router);
+        }
+        dstCtx->uiManager->TakeSession(
+            id,
+            m_sessionManager->MakeTitleGetter(id),
+            m_sessionManager->GetDocLayout(id).GetViewportCols(),
+            m_sessionManager->GetLabel(id),
+            tile);
+        if (!tile)
+            tile = dstCtx->uiManager->GetActiveTile();
+    }
+
+    m_sessionManager->ActivateSession(ids.back(), *dstCtx->router);
+    dstFrame->Raise();
+    RebuildWindowMenus();
+    return true;
 }
