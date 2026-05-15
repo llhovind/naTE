@@ -388,7 +388,7 @@ void TerminalTile::OnTitleMotion(wxMouseEvent& evt)
                             ->ClientToScreen(evt.GetPosition());
     const int dx = cur.x - dragAnchor_.x;
     const int dy = cur.y - dragAnchor_.y;
-    if (std::abs(dx) > kDragThreshold || std::abs(dy) > kDragThreshold) {
+    if (std::abs(dx) > ui::kDragThreshold || std::abs(dy) > ui::kDragThreshold) {
         dragPending_ = false;
         if (dragStartCb_) dragStartCb_(this, dragAnchor_);
     }
@@ -425,13 +425,14 @@ void TerminalTile::OnTitleRightClick(wxMouseEvent&)
 }
 
 bool TerminalTile::DropSession(std::span<const term::session::SessionId> ids,
-                               ui::DragIntent intent)
+                               ui::DragIntent intent,
+                               wxPoint screenPt)
 {
     for (auto id : ids) {
         for (int i = 0; i < GetTabCount(); ++i) {
             if (GetSessionIdByTabIndex(i) == id) {
                 if (intent != ui::DragIntent::Tabs) return false;
-                MoveTabToIndex(id, GetDropIndexAt(wxGetMousePosition()));
+                MoveTabToIndex(id, GetDropIndexAt(screenPt));
                 return true;
             }
         }

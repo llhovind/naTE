@@ -50,7 +50,8 @@ public:
 
     // ISessionDropTarget — no specific tile; App will create a new tile.
     bool DropSession(std::span<const term::session::SessionId> ids,
-                     ui::DragIntent intent) override;
+                     ui::DragIntent intent,
+                     wxPoint screenPt) override;
 
 private:
     void OnClose(wxCloseEvent& event);

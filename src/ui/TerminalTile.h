@@ -99,7 +99,8 @@ public:
 
     // ISessionDropTarget
     bool DropSession(std::span<const term::session::SessionId> ids,
-                     ui::DragIntent intent) override;
+                     ui::DragIntent intent,
+                     wxPoint screenPt) override;
 
     static constexpr int kTitleBarHeight = 28;
 
@@ -141,7 +142,6 @@ private:
     bool                       dragPending_ = false;
     bool                       isFocused_   = false;
     bool                       inBroadcast_ = false;
-    static constexpr int       kDragThreshold = 5;
 
     wxColour colActive_    {  45,  57, 160 };
     wxColour colInactive_  { 131, 136, 141 };

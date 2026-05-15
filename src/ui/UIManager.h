@@ -172,7 +172,6 @@ private:
     // Tab drag (OnTabDragStart) moves one session to another tile or window.
     void OnTileDragStart(TerminalTile* tile, wxPoint screenAnchor);
     void OnTabDragStart (term::session::SessionId id, wxPoint screenAnchor);
-    void OnDragMotion   (wxMouseEvent& evt);
     void OnDragRelease  (wxMouseEvent& evt);
 
     void OnTerminalAction(TerminalActionEvent& evt);
@@ -203,7 +202,7 @@ private:
     struct DragState {
         std::vector<term::session::SessionId> ids;
         DragIntent    intent  = DragIntent::Tabs;
-        TerminalTile* srcTile = nullptr;
+        TerminalTile* srcTile = nullptr;  // non-null only when intent == DragIntent::Tile
     };
     std::optional<DragState> dragState_;
 };

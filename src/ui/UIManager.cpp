@@ -534,7 +534,6 @@ void UIManager::OnTileDragStart(TerminalTile* tile, wxPoint /*screenAnchor*/)
     state.srcTile = tile;
     dragState_ = std::move(state);
     frame_->CaptureMouse();
-    frame_->Bind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
     frame_->Bind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
 }
 
@@ -544,13 +543,7 @@ void UIManager::OnTabDragStart(term::session::SessionId id, wxPoint /*screenAnch
 
     dragState_ = DragState{{ id }};
     frame_->CaptureMouse();
-    frame_->Bind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
     frame_->Bind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
-}
-
-void UIManager::OnDragMotion(wxMouseEvent& evt)
-{
-    evt.Skip();
 }
 
 void UIManager::OnDragRelease(wxMouseEvent& evt)
@@ -562,7 +555,6 @@ void UIManager::OnDragRelease(wxMouseEvent& evt)
     // wxEvtHandler::SearchDynamicEventTable is still iterating it, triggering
     // a wx assertion.  CallAfter defers to the next event loop iteration.
     frame_->CallAfter([this]() {
-        frame_->Unbind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
         frame_->Unbind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
     });
 
@@ -597,7 +589,7 @@ void UIManager::OnDragRelease(wxMouseEvent& evt)
 
     // App::DropSession now owns the full transfer atomically (release-then-take),
     // so no post-hoc ReleaseSession is needed here.
-    target->DropSession(state.ids, state.intent);
+    target->DropSession(state.ids, state.intent, screenPt);
     evt.Skip();
 }
 

@@ -1,4 +1,5 @@
 #include "ui/TabStrip.h"
+#include "ui/ISessionDropTarget.h"
 #include <wx/dcclient.h>
 #include <wx/dcbuffer.h>
 #include <algorithm>
@@ -265,7 +266,7 @@ void TabStrip::OnMotion(wxMouseEvent& evt)
         const wxPoint cur = ClientToScreen(evt.GetPosition());
         const int dx = cur.x - dragAnchor_.x;
         const int dy = cur.y - dragAnchor_.y;
-        if (std::abs(dx) > kDragThreshold || std::abs(dy) > kDragThreshold) {
+        if (std::abs(dx) > ui::kDragThreshold || std::abs(dy) > ui::kDragThreshold) {
             dragPending_ = false;
             if (HasCapture()) ReleaseMouse();
             if (tabDragCb_) tabDragCb_(dragTabIdx_, dragAnchor_);
@@ -277,7 +278,7 @@ void TabStrip::OnMotion(wxMouseEvent& evt)
         const wxPoint cur = ClientToScreen(evt.GetPosition());
         const int dx = cur.x - dragAnchor_.x;
         const int dy = cur.y - dragAnchor_.y;
-        if (std::abs(dx) > kDragThreshold || std::abs(dy) > kDragThreshold) {
+        if (std::abs(dx) > ui::kDragThreshold || std::abs(dy) > ui::kDragThreshold) {
             headerDragPending_ = false;
             if (HasCapture()) ReleaseMouse();
             if (headerDragCb_) headerDragCb_(dragAnchor_);
