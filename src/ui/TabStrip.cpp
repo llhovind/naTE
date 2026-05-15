@@ -151,7 +151,10 @@ void TabStrip::OnPaint(wxPaintEvent&)
 
 void TabStrip::OnRightDown(wxMouseEvent& evt)
 {
-    if (headerRightClickCb_) headerRightClickCb_();
+    if (!headerRightClickCb_) return;
+    bool closeHit = false;
+    const int tabIdx = HitTest(evt.GetX(), closeHit);
+    headerRightClickCb_(tabIdx);  // -1 = background; ≥0 = specific tab
     // Do not Skip — prevent titleBar_ from also receiving this click.
 }
 

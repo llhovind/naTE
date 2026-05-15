@@ -8,9 +8,12 @@ class TerminalTile;
 // Tile-level actions emitted by TerminalTile and handled by UIManager.
 // Kept separate from TerminalAction, which is scoped to Session-level operations.
 enum class TileAction {
-    CloseTab,        // close a specific tab's session within this tile
-    NewTabHere,      // open a new connection as a tab in this tile
-    ActivateSession, // tab click, header click, or panel focus
+    CloseTab,           // close a specific tab's session within this tile
+    NewTabHere,         // open a new connection as a tab in this tile
+    ActivateSession,    // tab click, header click, or panel focus
+    MoveToNewTile,      // move one tab's session to a new tile in the current window
+    MoveToNewWindow,    // move one tab's session to a new window
+    MoveAllToNewWindow, // move all sessions in this tile to a new window
 };
 
 class TileActionEvent;

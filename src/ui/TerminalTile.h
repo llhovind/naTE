@@ -114,6 +114,7 @@ private:
     void OnWrapClick(wxCommandEvent& evt);
     void EmitTerminalAction(TerminalAction action);
     void EmitTileAction(TileAction action, term::session::SessionId id);
+    void OnShowTileMenu();
 
     wxPanel*          titleBar_    = nullptr;  // wx-child-owned
     TabStrip*         tabStrip_    = nullptr;  // wx-child-owned by titleBar_

@@ -156,10 +156,17 @@ bool App::DropSession(std::span<const term::session::SessionId> ids,
     TerminalTile* tile = dstTile;
     for (auto id : ids) {
         WindowContext* srcCtx = FindContextForSession(id);
-        if (srcCtx && srcCtx != dstCtx) {
+        if (!srcCtx) continue;
+
+        if (srcCtx != dstCtx) {
             m_sessionManager->SetSessionObserver(id, dstCtx->uiManager.get());
             m_sessionManager->ReassignRouter(id, *dstCtx->router);
         }
+        // Release from source before taking on dest. For same-frame moves
+        // (srcCtx == dstCtx) this prevents sessions_.emplace from silently
+        // no-oping on an existing key. The drag path's post-hoc ReleaseSession
+        // call becomes a safe no-op since FindSessionUI returns null.
+        srcCtx->uiManager->ReleaseSession(id);
         dstCtx->uiManager->TakeSession(
             id,
             m_sessionManager->MakeTitleGetter(id),

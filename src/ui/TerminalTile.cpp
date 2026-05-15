@@ -75,17 +75,32 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
         EmitTerminalAction(TerminalAction::ToggleBroadcast);
     });
 
-    tabStrip_->SetHeaderRightClickCallback([this]() {
-        const bool activeInBroadcast = activeTabIdx_ >= 0
-                                    && activeTabIdx_ < (int)tabs_.size()
-                                    && tabs_[activeTabIdx_].inBroadcast;
-        wxMenu menu;
-        menu.Append(wxID_ANY, activeInBroadcast ? "Remove from Broadcast"
-                                                : "Add to Broadcast");
-        menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
-            EmitTerminalAction(TerminalAction::ToggleBroadcast);
-        });
-        PopupMenu(&menu);
+    tabStrip_->SetHeaderRightClickCallback([this](int tabIdx) {
+        const bool onTab = tabIdx >= 0 && tabIdx < (int)tabs_.size();
+        if (onTab) {
+            // Tab context menu — scoped to the right-clicked tab's session.
+            const auto sid = tabs_[tabIdx].sessionId;
+            wxMenu menu;
+            auto* broadcastItem = menu.Append(wxID_ANY, tabs_[tabIdx].inBroadcast
+                                              ? "Remove from Broadcast" : "Add to Broadcast");
+            menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
+                TerminalActionEvent evt(TerminalAction::ToggleBroadcast, sid);
+                ProcessWindowEvent(evt);
+            }, broadcastItem->GetId());
+            menu.AppendSeparator();
+            auto* newTileItem = menu.Append(wxID_ANY, "Move to New Tile");
+            menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
+                EmitTileAction(TileAction::MoveToNewTile, sid);
+            }, newTileItem->GetId());
+            auto* newWindowItem = menu.Append(wxID_ANY, "Move to New Window");
+            menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
+                EmitTileAction(TileAction::MoveToNewWindow, sid);
+            }, newWindowItem->GetId());
+            PopupMenu(&menu);
+        } else {
+            // Tile context menu — background area, no specific tab.
+            OnShowTileMenu();
+        }
     });
 
     wxBitmap wrapBmp(wxT("./src/ui/icons/text-wrap.png"), wxBITMAP_TYPE_PNG);
@@ -346,15 +361,25 @@ void TerminalTile::OnTitleUp(wxMouseEvent& evt)
     evt.Skip();
 }
 
-void TerminalTile::OnTitleRightClick(wxMouseEvent&)
+void TerminalTile::OnShowTileMenu()
 {
     wxMenu menu;
-    menu.Append(wxID_ANY, inBroadcast_ ? "Remove from Broadcast"
-                                       : "Add to Broadcast");
+    auto* broadcastItem = menu.Append(wxID_ANY, inBroadcast_ ? "Remove from Broadcast"
+                                                              : "Add to Broadcast");
     menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         EmitTerminalAction(TerminalAction::ToggleBroadcast);
-    });
+    }, broadcastItem->GetId());
+    menu.AppendSeparator();
+    auto* newWindowItem = menu.Append(wxID_ANY, "Move to New Window");
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        EmitTileAction(TileAction::MoveAllToNewWindow, 0);
+    }, newWindowItem->GetId());
     PopupMenu(&menu);
+}
+
+void TerminalTile::OnTitleRightClick(wxMouseEvent&)
+{
+    OnShowTileMenu();
 }
 
 bool TerminalTile::DropSession(std::span<const term::session::SessionId> ids)

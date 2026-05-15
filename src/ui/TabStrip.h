@@ -57,7 +57,8 @@ public:
     using HeaderActivateCallback   = std::function<void()>;
     using HeaderDragStartCallback  = std::function<void(wxPoint screenPt)>;
     using HeaderCtrlClickCallback  = std::function<void()>;          // Ctrl+left anywhere
-    using HeaderRightClickCallback = std::function<void()>;          // right-click anywhere
+    // tabIdx >= 0: right-clicked a specific tab; -1: right-clicked background.
+    using HeaderRightClickCallback = std::function<void(int tabIdx)>;
 
     void SetHeaderActivateCallback  (HeaderActivateCallback   cb) { headerActivateCb_   = std::move(cb); }
     void SetHeaderDragStartCallback (HeaderDragStartCallback  cb) { headerDragCb_        = std::move(cb); }

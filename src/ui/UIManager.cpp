@@ -480,6 +480,31 @@ void UIManager::OnTileAction(TileActionEvent& evt)
         case TileAction::ActivateSession:
             RequestActivate(evt.GetSessionId());
             break;
+        case TileAction::MoveToNewTile: {
+            const auto id = evt.GetSessionId();
+            frame_->CallAfter([this, id]() {
+                static_cast<App&>(wxGetApp()).DropSession({&id, 1}, frame_, nullptr);
+            });
+            break;
+        }
+        case TileAction::MoveToNewWindow: {
+            const auto id = evt.GetSessionId();
+            frame_->CallAfter([this, id]() {
+                static_cast<App&>(wxGetApp()).DropSession({&id, 1}, nullptr, nullptr);
+            });
+            break;
+        }
+        case TileAction::MoveAllToNewWindow: {
+            TerminalTile* tile = evt.GetTile();
+            std::vector<term::session::SessionId> ids;
+            ids.reserve(tile->GetTabCount());
+            for (int i = 0; i < tile->GetTabCount(); ++i)
+                ids.push_back(tile->GetSessionIdByTabIndex(i));
+            frame_->CallAfter([this, ids = std::move(ids)]() {
+                static_cast<App&>(wxGetApp()).DropSession(ids, nullptr, nullptr);
+            });
+            break;
+        }
     }
 }
 
@@ -555,11 +580,9 @@ void UIManager::OnDragRelease(wxMouseEvent& evt)
 
     if (!target) { evt.Skip(); return; }
 
-    const bool accepted = target->DropSession(state.ids);
-    if (accepted) {
-        for (auto id : state.ids)
-            ReleaseSession(id);
-    }
+    // App::DropSession now owns the full transfer atomically (release-then-take),
+    // so no post-hoc ReleaseSession is needed here.
+    target->DropSession(state.ids);
     evt.Skip();
 }
 
