@@ -3,6 +3,7 @@
 #include "ui/TabStrip.h"
 #include <wx/menu.h>
 #include <wx/sizer.h>
+#include <wx/utils.h>
 #include <algorithm>
 #include <cmath>
 
@@ -222,6 +223,44 @@ TerminalPanel* TerminalTile::GetActivePanel() const
     return nullptr;
 }
 
+int TerminalTile::GetDropIndexAt(wxPoint screenPt) const
+{
+    return tabStrip_->DropIndexAt(tabStrip_->ScreenToClient(screenPt).x);
+}
+
+void TerminalTile::MoveTabToIndex(term::session::SessionId id, int insertBefore)
+{
+    const auto it = std::find_if(tabs_.begin(), tabs_.end(),
+        [id](const TabEntry& e) { return e.sessionId == id; });
+    if (it == tabs_.end()) return;
+
+    const int fromIdx = static_cast<int>(std::distance(tabs_.begin(), it));
+    const int n       = static_cast<int>(tabs_.size());
+    const int toIdx   = std::clamp(insertBefore, 0, n);
+
+    if (toIdx == fromIdx || toIdx == fromIdx + 1) return;
+
+    if (toIdx < fromIdx) {
+        std::rotate(tabs_.begin() + toIdx,
+                    tabs_.begin() + fromIdx,
+                    tabs_.begin() + fromIdx + 1);
+    } else {
+        std::rotate(tabs_.begin() + fromIdx,
+                    tabs_.begin() + fromIdx + 1,
+                    tabs_.begin() + toIdx);
+    }
+
+    if (activeTabIdx_ == fromIdx) {
+        activeTabIdx_ = (toIdx < fromIdx) ? toIdx : toIdx - 1;
+    } else if (toIdx < fromIdx) {
+        if (activeTabIdx_ >= toIdx && activeTabIdx_ < fromIdx) ++activeTabIdx_;
+    } else {
+        if (activeTabIdx_ > fromIdx && activeTabIdx_ < toIdx) --activeTabIdx_;
+    }
+
+    tabStrip_->Refresh();
+}
+
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
@@ -385,9 +424,15 @@ void TerminalTile::OnTitleRightClick(wxMouseEvent&)
 bool TerminalTile::DropSession(std::span<const term::session::SessionId> ids,
                                ui::DragIntent intent)
 {
-    for (auto id : ids)
-        for (int i = 0; i < GetTabCount(); ++i)
-            if (GetSessionIdByTabIndex(i) == id) return false;
+    for (auto id : ids) {
+        for (int i = 0; i < GetTabCount(); ++i) {
+            if (GetSessionIdByTabIndex(i) == id) {
+                if (intent != ui::DragIntent::Tabs) return false;
+                MoveTabToIndex(id, GetDropIndexAt(wxGetMousePosition()));
+                return true;
+            }
+        }
+    }
     if (!dropSessionCb_) return false;
     TerminalTile* dst = (intent == ui::DragIntent::Tile) ? nullptr : this;
     return dropSessionCb_(ids, dst);

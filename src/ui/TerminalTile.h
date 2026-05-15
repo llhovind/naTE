@@ -75,6 +75,13 @@ public:
     // Used by UIManager to collect the ordered session list before a tile move.
     term::session::SessionId GetSessionIdByTabIndex(int index) const;
 
+    // Returns the insert-before tab index for a drop at the given screen point.
+    int GetDropIndexAt(wxPoint screenPt) const;
+
+    // Reorder tabs_ in-place: move the tab for `id` to position `insertBefore`.
+    // Updates activeTabIdx_ for all move cases; refreshes TabStrip.
+    void MoveTabToIndex(term::session::SessionId id, int insertBefore);
+
     // Fired when the user initiates a whole-tile drag (title bar beyond threshold).
     // Receives a pointer to this tile so UIManager can enumerate all its sessions.
     using DragStartCallback = std::function<void(TerminalTile*, wxPoint)>;

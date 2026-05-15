@@ -65,6 +65,11 @@ public:
     void SetHeaderCtrlClickCallback (HeaderCtrlClickCallback  cb) { headerCtrlClickCb_  = std::move(cb); }
     void SetHeaderRightClickCallback(HeaderRightClickCallback cb) { headerRightClickCb_ = std::move(cb); }
 
+    // Returns the insert-before index (0..n) for a drop at x-coordinate.
+    // Left half of tab i → insert before i; right half → insert after (i+1).
+    // Returns 0 when there are no tabs.
+    int DropIndexAt(int x) const;
+
 private:
     // Per-tab geometry computed from current client size.
     struct TabGeom {

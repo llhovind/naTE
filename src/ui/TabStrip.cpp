@@ -60,6 +60,18 @@ int TabStrip::HitTest(int x, bool& closeHit) const
     return idx;
 }
 
+int TabStrip::DropIndexAt(int x) const
+{
+    const TabGeom g = ComputeGeom();
+    const int     n = tabCountCb_ ? tabCountCb_() : 0;
+    if (n == 0 || g.tabW <= 0) return 0;
+
+    const int clamped     = std::clamp(x, 0, n * g.tabW);
+    const int tabIdx      = std::min(clamped / g.tabW, n - 1);
+    const int offsetInTab = clamped - tabIdx * g.tabW;
+    return (offsetInTab < g.tabW / 2) ? tabIdx : tabIdx + 1;
+}
+
 // ---------------------------------------------------------------------------
 // Paint
 // ---------------------------------------------------------------------------
