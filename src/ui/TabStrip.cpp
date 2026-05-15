@@ -207,6 +207,7 @@ void TabStrip::OnLeftDown(wxMouseEvent& evt)
         dragTabIdx_  = idx;
         dragAnchor_  = ClientToScreen(evt.GetPosition());
         dragPending_ = true;
+        wxSetCursor(wxCursor(wxCURSOR_HAND));
         CaptureMouse();
         return;
     }
@@ -215,6 +216,7 @@ void TabStrip::OnLeftDown(wxMouseEvent& evt)
     if (headerActivateCb_) headerActivateCb_();
     dragAnchor_        = ClientToScreen(evt.GetPosition());
     headerDragPending_ = true;
+    wxSetCursor(wxCursor(wxCURSOR_HAND));
     CaptureMouse();
 }
 
@@ -288,6 +290,8 @@ void TabStrip::OnMotion(wxMouseEvent& evt)
 
 void TabStrip::OnLeftUp(wxMouseEvent& evt)
 {
+    if (dragPending_ || headerDragPending_)
+        wxSetCursor(wxNullCursor);
     dragPending_       = false;
     headerDragPending_ = false;
     if (HasCapture()) ReleaseMouse();
@@ -299,6 +303,7 @@ void TabStrip::OnMouseLeave(wxMouseEvent& evt)
     if (dragPending_ || headerDragPending_) {
         dragPending_       = false;
         headerDragPending_ = false;
+        wxSetCursor(wxNullCursor);
         if (HasCapture()) ReleaseMouse();
     }
     hoverTabIdx_ = -1;

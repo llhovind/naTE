@@ -373,6 +373,7 @@ void TerminalTile::OnTitleDown(wxMouseEvent& evt)
         ? static_cast<wxWindow*>(evt.GetEventObject())->ClientToScreen(evt.GetPosition())
         : evt.GetPosition();
     dragPending_ = true;
+    wxSetCursor(wxCursor(wxCURSOR_HAND));
     evt.Skip();
 }
 
@@ -396,6 +397,8 @@ void TerminalTile::OnTitleMotion(wxMouseEvent& evt)
 
 void TerminalTile::OnTitleUp(wxMouseEvent& evt)
 {
+    if (dragPending_)
+        wxSetCursor(wxNullCursor);
     dragPending_ = false;
     evt.Skip();
 }

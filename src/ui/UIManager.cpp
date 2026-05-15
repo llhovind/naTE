@@ -556,6 +556,7 @@ void UIManager::OnDragMotion(wxMouseEvent& evt)
 void UIManager::OnDragRelease(wxMouseEvent& evt)
 {
     if (frame_->HasCapture()) frame_->ReleaseMouse();
+    wxSetCursor(wxNullCursor);
 
     // Defer Unbind — calling it here modifies the dynamic event table while
     // wxEvtHandler::SearchDynamicEventTable is still iterating it, triggering
