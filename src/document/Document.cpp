@@ -270,13 +270,12 @@ void MainScreenDocument::CarriageReturn()
 {
     const size_t c = static_cast<size_t>(cols_);
     cursor_.col = (cursor_.col / c) * c;
-    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void MainScreenDocument::SetCurrentStyle(const Style& style)
 {
     lines_.back().currentStyle = style;
-    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 
 void MainScreenDocument::MoveCursorLeft(int n)

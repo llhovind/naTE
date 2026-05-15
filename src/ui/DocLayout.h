@@ -90,10 +90,24 @@ public:
 
     void OnDocumentChanged(DocChangeType type, size_t lineIndex) override;
 
+    // Snapshot of which viewport rows need repainting.  Consumed once per frame
+    // by TerminalPanel::OnDocumentUpdate; atomically cleared on read.
+    struct DirtySnapshot {
+        bool              all  = true;
+        std::vector<bool> rows;  // per-viewport-row; meaningful only when !all
+    };
+    DirtySnapshot TakeAndClearDirty();
+
 private:
     // Position in document space: which doc line, and which visual sub-row
     // within that line (always 0 when wrap mode is off).
-    struct ViewportAnchor { int docLine = 0; int subRow = 0; };
+    struct ViewportAnchor {
+        int docLine = 0;
+        int subRow  = 0;
+        bool operator==(const ViewportAnchor& o) const {
+            return docLine == o.docLine && subRow == o.subRow;
+        }
+    };
 
     // All *Locked methods assume mtx_ is already held by the caller.
     ViewportAnchor WalkAnchorBy(ViewportAnchor a, int delta) const;
@@ -105,6 +119,7 @@ private:
     bool           IsAtEndLocked() const;
     void           EnsureCursorVisibleVertically();
     void           EnsureCursorVisibleHorizontally();
+    void           MarkDocLineDirtyLocked(int docLine);
 
     mutable std::mutex mtx_;
 
@@ -117,6 +132,9 @@ private:
     mutable bool   maxVisibleWidthDirty_ = true;
     bool           autoScroll_           = true;
     bool           wrapMode_             = false;
+
+    bool              allViewDirty_  = true;
+    std::vector<bool> viewDirtyRows_;         // size == rows_, protected by mtx_
 
     std::vector<SearchMatch> searchMatches_;
     size_t                   searchCurrentIdx_ = 0;

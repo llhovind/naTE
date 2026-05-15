@@ -100,6 +100,8 @@ void DocLayout::SetViewportSize(int newCols, int newRows)
 
     if (autoScroll_) ScrollToEndLocked();
     ComputeMaxVisibleWidthLocked();
+    viewDirtyRows_.assign(rows_, false);
+    allViewDirty_ = true;
 }
 
 // r is viewport-relative: 0 = topmost visible line.
@@ -540,6 +542,47 @@ std::u32string DocLayout::GetSelectedText() const
     return result;
 }
 
+// Mark the viewport rows that correspond to docLine as dirty.
+// No-op if docLine is not currently visible.  Assumes mtx_ is held.
+void DocLayout::MarkDocLineDirtyLocked(int docLine)
+{
+    if ((int)viewDirtyRows_.size() != rows_)
+        viewDirtyRows_.assign(rows_, false);
+
+    // Non-wrap: each docLine maps to exactly one viewport row (O(1) lookup).
+    if (!wrapMode_) {
+        const int viewRow = docLine - topAnchor_.docLine;
+        if (viewRow >= 0 && viewRow < rows_)
+            viewDirtyRows_[viewRow] = true;
+        return;
+    }
+
+    // Wrap mode: walk the viewport once, marking every visual row that
+    // belongs to the target docLine.  Stop as soon as we pass it.
+    ViewportAnchor pos = topAnchor_;
+    const auto& lines = doc_->GetLines();
+    for (int r = 0; r < rows_; ++r) {
+        if (pos.docLine >= (int)lines.size()) break;
+        if (pos.docLine > docLine) break;
+        if (pos.docLine == docLine)
+            viewDirtyRows_[r] = true;
+        pos = WalkAnchorBy(pos, 1);
+    }
+}
+
+// Called on the UI thread once per frame.  Returns the accumulated dirty state
+// since the last call and atomically resets it to clean.
+DocLayout::DirtySnapshot DocLayout::TakeAndClearDirty()
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    DirtySnapshot snap;
+    snap.all  = allViewDirty_;
+    snap.rows = viewDirtyRows_;
+    allViewDirty_ = false;
+    viewDirtyRows_.assign(rows_, false);
+    return snap;
+}
+
 void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)
 {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -548,6 +591,18 @@ void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)
 
     switch (type) {
     case DocChangeType::CursorMove:
+        // Cursor-only change: no content modified.  If the anchor doesn't move
+        // we only need to repaint the cursor row, but since we don't carry the
+        // old cursor position we conservatively mark the whole viewport dirty.
+        if (autoScroll_) {
+            const ViewportAnchor before = topAnchor_;
+            ScrollToEndLocked();
+            EnsureCursorVisibleHorizontally();
+            if (!(topAnchor_ == before)) { allViewDirty_ = true; return; }
+        }
+        allViewDirty_ = true;
+        return;
+
     case DocChangeType::UpdateLine:
         // Always scroll to end when following output: placing the last visual
         // row at the bottom is the correct invariant for a scrollback terminal.
@@ -555,9 +610,13 @@ void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)
         // leaves the viewport, so it leaves a phantom empty row at the bottom
         // when a wrapped line shrinks — ScrollToEndLocked never does that.
         if (autoScroll_) {
+            const ViewportAnchor before = topAnchor_;
             ScrollToEndLocked();
             EnsureCursorVisibleHorizontally();
+            if (!(topAnchor_ == before)) { allViewDirty_ = true; return; }
         }
+        // Anchor unchanged — only the row(s) for this docLine changed.
+        MarkDocLineDirtyLocked(idx);
         return;
 
     case DocChangeType::InsertLine:
@@ -566,6 +625,7 @@ void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)
             ++topAnchor_.docLine;
         if (autoScroll_)
             ScrollToEndLocked();
+        allViewDirty_ = true;
         break;
 
     case DocChangeType::DeleteLine: {
@@ -578,6 +638,7 @@ void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)
         }
         if (autoScroll_)
             ScrollToEndLocked();
+        allViewDirty_ = true;
         break;
     }
     }

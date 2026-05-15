@@ -170,7 +170,25 @@ void TerminalPanel::OnDocumentUpdate()
     // synchronously rather than waiting for the next keystroke or mouse move.
     m_vScroll->Update();
     m_hScroll->Update();
-    Refresh();
+
+    if (!docLayout_) { Refresh(); return; }
+
+    const DocLayout::DirtySnapshot dirty = docLayout_->TakeAndClearDirty();
+    if (dirty.all || dirty.rows.empty()) {
+        Refresh();
+        return;
+    }
+
+    // Invalidate only the rows that changed, letting OnPaint skip the rest via
+    // GetUpdateClientRect() clipping.  Batching all rects before Update() lets
+    // GTK coalesce them into a single gdk_window_process_updates() flush.
+    const int ch = m_charSize.y;
+    const int w  = GetClientSize().x;
+    for (int r = 0; r < (int)dirty.rows.size(); ++r) {
+        if (dirty.rows[r])
+            RefreshRect(wxRect(0, r * ch + kInnerPad, w, ch), false);
+    }
+    Update();
 }
 
 void TerminalPanel::SyncScrollbars()
@@ -548,25 +566,51 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
         return wxColour(v, v, v);
     };
 
+    // Clip row iteration to the damaged region so that RefreshRect() calls
+    // from OnDocumentUpdate only repaint the rows that actually changed.
+    const wxRect clip     = GetUpdateClientRect();
+    const int firstRow    = std::max(0, (clip.y - kInnerPad) / ch);
+    const int lastRow     = std::min(view.y, (clip.GetBottom() - kInnerPad) / ch + 1);
+
     // GetRenderedLine(r) is viewport-relative: 0 = topmost visible line.
     // It returns an empty RenderedLine (no text, no cursor) once past the
     // end of the document, so we stop early when the document is short.
-    for (int r = 0; r < view.y; ++r) {
+    for (int r = firstRow; r < lastRow; ++r) {
         const RenderedLine row = docLayout_->GetRenderedLine(r);
+        const int rowY = r * ch + kInnerPad;
 
-        for (int col = 0; col < (int)row.text.size(); ++col) {
-            dc.SetTextForeground(resolveColour(row.attrs[col].fg, true));
-            dc.SetTextBackground(resolveColour(row.attrs[col].bg, false));
-            dc.DrawText(wxString(static_cast<wchar_t>(row.text[col])), col * cw + kInnerPad, r * ch + kInnerPad);
+        // Batch consecutive characters that share the same style into a single
+        // DrawText call.  This reduces draw calls from O(cols) to O(style-runs),
+        // typically 1 per row for plain text and 5–10 for colorised prompts.
+        int runStart = 0;
+        const int textLen = static_cast<int>(row.text.size());
+
+        auto flushRun = [&](int start, int end) {
+            if (start >= end) return;
+            dc.SetTextForeground(resolveColour(row.attrs[start].fg, true));
+            dc.SetTextBackground(resolveColour(row.attrs[start].bg, false));
+            std::wstring runStr;
+            runStr.reserve(static_cast<size_t>(end - start));
+            for (int c = start; c < end; ++c)
+                runStr += static_cast<wchar_t>(row.text[c]);
+            dc.DrawText(wxString(runStr), start * cw + kInnerPad, rowY);
+        };
+
+        for (int col = 1; col < textLen; ++col) {
+            if (row.attrs[col] != row.attrs[runStart]) {
+                flushRun(runStart, col);
+                runStart = col;
+            }
         }
+        flushRun(runStart, textLen);
 
         if (row.hasCursor) {
             const int cx = row.cursorCol * cw + kInnerPad;
-            const int cy = r * ch + kInnerPad;
+            const int cy = rowY;
             dc.SetPen(*wxTRANSPARENT_PEN);
             dc.SetBrush(wxBrush(*wxBLUE));
             dc.DrawRectangle(cx, cy, cw, ch);
-            if (row.cursorCol < (int)row.text.size()) {
+            if (row.cursorCol < textLen) {
                 dc.SetTextForeground(wxColour(m_cfg.bgColour.r,   m_cfg.bgColour.g,   m_cfg.bgColour.b));
                 dc.SetTextBackground(wxColour(m_cfg.textColour.r, m_cfg.textColour.g, m_cfg.textColour.b));
                 dc.DrawText(wxString(static_cast<wchar_t>(row.text[row.cursorCol])), cx, cy);
