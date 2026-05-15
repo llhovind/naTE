@@ -100,6 +100,9 @@ private:
     // Header drag state (dragging from blank area → tile move)
     bool    headerDragPending_ = false;
 
+    // Hover tracking for tooltip on truncated labels
+    int     hoverTabIdx_     = -1;
+
     static constexpr int kDragThreshold = 5;
     static constexpr int kCloseW  = 18;   // close "×" width inside each tab
     static constexpr int kPlusW   = 24;   // "+" button width

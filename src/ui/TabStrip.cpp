@@ -235,6 +235,26 @@ void TabStrip::OnMotion(wxMouseEvent& evt)
             headerDragPending_ = false;
             if (HasCapture()) ReleaseMouse();
         }
+
+        bool closeHit  = false;
+        const int idx  = HitTest(evt.GetX(), closeHit);
+        if (idx != hoverTabIdx_) {
+            hoverTabIdx_ = idx;
+            if (idx >= 0 && labelCb_) {
+                const wxString fullLabel = labelCb_(idx);
+                const TabGeom  g         = ComputeGeom();
+                const int      labelAreaW = g.tabW - kCloseW - 10;
+                wxClientDC dc(this);
+                dc.SetFont(GetFont());
+                if (dc.GetTextExtent(fullLabel).x > labelAreaW)
+                    SetToolTip(fullLabel);
+                else
+                    UnsetToolTip();
+            } else {
+                UnsetToolTip();
+            }
+        }
+
         evt.Skip();
         return;
     }
@@ -281,5 +301,7 @@ void TabStrip::OnMouseLeave(wxMouseEvent& evt)
         headerDragPending_ = false;
         if (HasCapture()) ReleaseMouse();
     }
+    hoverTabIdx_ = -1;
+    UnsetToolTip();
     evt.Skip();
 }
