@@ -376,6 +376,9 @@ void UIManager::TearDownSessionUI(term::session::SessionId id)
 
     sessions_.erase(id);
 
+    if (sessions_.empty() && onGridEmptyCb_)
+        onGridEmptyCb_();
+
     if (activeId_ == id)
         activeId_ = 0;
 

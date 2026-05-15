@@ -111,6 +111,8 @@ public:
     void              ShowSearchBarForActive(bool show,
                                              const std::u32string& initialQuery = {});
 
+    void SetOnGridEmptyCallback(std::function<void()> cb) { onGridEmptyCb_ = std::move(cb); }
+
     // Returns the first line of the active session's selection (empty if none).
     std::u32string GetActiveSelectedText() const;
 
@@ -205,6 +207,8 @@ private:
         TerminalTile* srcTile = nullptr;  // non-null only when intent == DragIntent::Tile
     };
     std::optional<DragState> dragState_;
+
+    std::function<void()> onGridEmptyCb_;
 };
 
 } // namespace ui

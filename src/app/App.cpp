@@ -44,6 +44,11 @@ MainFrame* App::CreateNewWindow()
 
     frame->SetUIManager(wc->uiManager.get());
 
+    wc->uiManager->SetOnGridEmptyCallback([this, frame]() {
+        if (m_windows.size() > 1)
+            frame->CallAfter([frame]() { frame->Close(); });
+    });
+
     frame->Bind(wxEVT_DESTROY, [this, frame](wxWindowDestroyEvent& evt) {
         if (evt.GetEventObject() == frame) {
             auto it = std::find_if(m_windows.begin(), m_windows.end(),
