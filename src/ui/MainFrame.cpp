@@ -306,7 +306,8 @@ void MainFrame::OnWindowMenuItem(wxCommandEvent& evt)
         m_windowFrames[idx]->Raise();
 }
 
-bool MainFrame::DropSession(std::span<const term::session::SessionId> ids)
+bool MainFrame::DropSession(std::span<const term::session::SessionId> ids,
+                            ui::DragIntent /*intent*/)
 {
     return static_cast<App&>(wxGetApp()).DropSession(ids, this, nullptr);
 }

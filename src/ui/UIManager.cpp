@@ -152,8 +152,8 @@ void UIManager::WireTileCallbacks(TerminalTile* tile)
         OnTabDragStart(sid, pt);
     });
     tile->SetDropSessionCallback(
-        [this, tile](std::span<const term::session::SessionId> ids) -> bool {
-            return static_cast<App&>(wxGetApp()).DropSession(ids, frame_, tile);
+        [this](std::span<const term::session::SessionId> ids, TerminalTile* dstTile) -> bool {
+            return static_cast<App&>(wxGetApp()).DropSession(ids, frame_, dstTile);
         });
 }
 
@@ -530,6 +530,8 @@ void UIManager::OnTileDragStart(TerminalTile* tile, wxPoint /*screenAnchor*/)
     }
     if (state.ids.empty()) return;
 
+    state.intent  = DragIntent::Tile;
+    state.srcTile = tile;
     dragState_ = std::move(state);
     frame_->CaptureMouse();
     frame_->Bind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
@@ -580,9 +582,21 @@ void UIManager::OnDragRelease(wxMouseEvent& evt)
 
     if (!target) { evt.Skip(); return; }
 
+    if (state.intent == DragIntent::Tile) {
+        auto* dstTile = dynamic_cast<TerminalTile*>(target);
+        bool sameFrame = false;
+        for (wxWindow* w = dynamic_cast<wxWindow*>(target); w; w = w->GetParent())
+            if (w == frame_) { sameFrame = true; break; }
+
+        if (dstTile && sameFrame && state.srcTile != dstTile) {
+            grid_->MoveTileNear(state.srcTile, dstTile, screenPt);
+            evt.Skip(); return;
+        }
+    }
+
     // App::DropSession now owns the full transfer atomically (release-then-take),
     // so no post-hoc ReleaseSession is needed here.
-    target->DropSession(state.ids);
+    target->DropSession(state.ids, state.intent);
     evt.Skip();
 }
 

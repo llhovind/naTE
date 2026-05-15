@@ -26,6 +26,23 @@ void TerminalGrid::RemoveTile(TerminalTile* tile)
     RelayoutTiles();
 }
 
+void TerminalGrid::MoveTileNear(TerminalTile* src, TerminalTile* ref, wxPoint screenPt)
+{
+    auto itSrc = std::find(tiles_.begin(), tiles_.end(), src);
+    auto itRef = std::find(tiles_.begin(), tiles_.end(), ref);
+    if (itSrc == tiles_.end() || itRef == tiles_.end()) return;
+
+    const wxRect r = ref->GetScreenRect();
+    const bool insertBefore = (direction_ == GridDirection::RowFirst)
+        ? screenPt.x < r.GetLeft() + r.GetWidth()  / 2
+        : screenPt.y < r.GetTop()  + r.GetHeight() / 2;
+
+    tiles_.erase(itSrc);
+    itRef = std::find(tiles_.begin(), tiles_.end(), ref);  // re-find after erase
+    tiles_.insert(insertBefore ? itRef : std::next(itRef), src);
+    RelayoutTiles();
+}
+
 void TerminalGrid::SetActiveTile(TerminalTile* active)
 {
     for (TerminalTile* t : tiles_)

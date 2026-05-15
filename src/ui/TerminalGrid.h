@@ -13,6 +13,9 @@ public:
     void AddTile(TerminalTile* tile);
     void RemoveTile(TerminalTile* tile);
 
+    // Reorder: move src to just before or after ref, based on screenPt vs. ref's midpoint.
+    void MoveTileNear(TerminalTile* src, TerminalTile* ref, wxPoint screenPt);
+
     // Marks one tile as focused (blue title bar); clears all others.
     void SetActiveTile(TerminalTile* tile);
 

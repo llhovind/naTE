@@ -49,7 +49,8 @@ public:
     void RebuildWindowMenu(const std::vector<std::pair<MainFrame*, std::string>>& entries);
 
     // ISessionDropTarget — no specific tile; App will create a new tile.
-    bool DropSession(std::span<const term::session::SessionId> ids) override;
+    bool DropSession(std::span<const term::session::SessionId> ids,
+                     ui::DragIntent intent) override;
 
 private:
     void OnClose(wxCloseEvent& event);

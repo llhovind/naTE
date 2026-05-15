@@ -85,12 +85,14 @@ public:
     void SetTabDragStartCallback(TabDragStartCallback cb) { tabDragStartCb_ = std::move(cb); }
 
     // Wired by UIManager via WireTileCallbacks; delegates to App::DropSession.
+    // dstTile is this tile for Tabs intent, nullptr for Tile intent (creates new tile).
     using DropSessionCallback =
-        std::function<bool(std::span<const term::session::SessionId>)>;
+        std::function<bool(std::span<const term::session::SessionId>, TerminalTile*)>;
     void SetDropSessionCallback(DropSessionCallback cb) { dropSessionCb_ = std::move(cb); }
 
     // ISessionDropTarget
-    bool DropSession(std::span<const term::session::SessionId> ids) override;
+    bool DropSession(std::span<const term::session::SessionId> ids,
+                     ui::DragIntent intent) override;
 
     static constexpr int kTitleBarHeight = 28;
 

@@ -18,6 +18,7 @@
 #include "input/InputRouter.h"
 #include "session/ISessionObserver.h"
 #include "session/SessionManager.h"
+#include "ui/ISessionDropTarget.h"
 #include "ui/SearchController.h"
 #include "ui/SelectionActionRegistry.h"
 #include "ui/TerminalActions.h"
@@ -201,7 +202,8 @@ private:
 
     struct DragState {
         std::vector<term::session::SessionId> ids;
-        // Visual feedback fields go here when drag image is implemented.
+        DragIntent    intent  = DragIntent::Tabs;
+        TerminalTile* srcTile = nullptr;
     };
     std::optional<DragState> dragState_;
 };

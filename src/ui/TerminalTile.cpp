@@ -382,11 +382,13 @@ void TerminalTile::OnTitleRightClick(wxMouseEvent&)
     OnShowTileMenu();
 }
 
-bool TerminalTile::DropSession(std::span<const term::session::SessionId> ids)
+bool TerminalTile::DropSession(std::span<const term::session::SessionId> ids,
+                               ui::DragIntent intent)
 {
     for (auto id : ids)
         for (int i = 0; i < GetTabCount(); ++i)
             if (GetSessionIdByTabIndex(i) == id) return false;
-    if (dropSessionCb_) return dropSessionCb_(ids);
-    return false;
+    if (!dropSessionCb_) return false;
+    TerminalTile* dst = (intent == ui::DragIntent::Tile) ? nullptr : this;
+    return dropSessionCb_(ids, dst);
 }
