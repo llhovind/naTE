@@ -92,9 +92,13 @@ public:
     void RequestActivate(term::session::SessionId id);
 
     term::session::SessionId GetActiveSessionId() const { return activeId_; }
+    bool HasAnySessions() const { return !sessions_.empty(); }
 
     // Returns the tile currently hosting the active session (nullptr if none).
     TerminalTile* GetActiveTile() const;
+
+    void MoveActiveSessionToNewTile();
+    void MoveActiveSessionToNewWindow();
 
     // Routed from TerminalPanel callbacks — always on the UI thread.
     void OnScroll(term::session::SessionId id, int topRow);

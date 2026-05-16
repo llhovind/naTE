@@ -407,6 +407,24 @@ TerminalTile* UIManager::GetActiveTile() const
     return ui ? ui->tile : nullptr;
 }
 
+void UIManager::MoveActiveSessionToNewTile()
+{
+    const auto id = activeId_;
+    if (!id) return;
+    frame_->CallAfter([this, id]() {
+        static_cast<App&>(wxGetApp()).DropSession({&id, 1}, frame_, nullptr);
+    });
+}
+
+void UIManager::MoveActiveSessionToNewWindow()
+{
+    const auto id = activeId_;
+    if (!id) return;
+    frame_->CallAfter([this, id]() {
+        static_cast<App&>(wxGetApp()).DropSession({&id, 1}, nullptr, nullptr);
+    });
+}
+
 void UIManager::OnScroll(term::session::SessionId id, int topRow)
 {
     sm_.GetDocLayout(id).SetTopVisualRow(topRow);

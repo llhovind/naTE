@@ -101,9 +101,16 @@ MainFrame* App::CreateNewWindow()
 
     frame->SetUIManager(wc->uiManager.get());
 
-    wc->uiManager->SetOnGridEmptyCallback([this, frame]() {
+    wc->uiManager->SetOnGridEmptyCallback([this, mgr = wc->uiManager.get(), frame]() {
         if (m_windows.size() > 1)
-            frame->CallAfter([frame]() { frame->Close(); });
+            frame->CallAfter([this, mgr, frame]() {
+                // Re-check: a same-window session move temporarily empties
+                // sessions_ between ReleaseSession and TakeSession. By the
+                // time this deferred close runs, TakeSession has already
+                // re-populated sessions_, so abort the close in that case.
+                if (!mgr->HasAnySessions())
+                    frame->Close();
+            });
     });
 
     wc->uiManager->SetSessionListChangedCallback([this]() {

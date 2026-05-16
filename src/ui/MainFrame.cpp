@@ -91,8 +91,8 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_MENU, &MainFrame::OnSaveSessionFileTerminal, this, ID_SAVE_SESSION_FILE_TERM);
 
     termMenu->AppendSeparator();
-    termMenu->Append(ID_OPEN_IN_NEW_TILE,        "Open in New Tile");
-    termMenu->Append(ID_OPEN_IN_NEW_WINDOW_TERM, "Open in New Window");
+    termMenu->Append(ID_OPEN_IN_NEW_TILE,        "Move to New Tile");
+    termMenu->Append(ID_OPEN_IN_NEW_WINDOW_TERM, "Move to New Window");
     Bind(wxEVT_MENU, &MainFrame::OnOpenInNewTile,        this, ID_OPEN_IN_NEW_TILE);
     Bind(wxEVT_MENU, &MainFrame::OnOpenInNewWindowTerminal, this, ID_OPEN_IN_NEW_WINDOW_TERM);
 
@@ -353,8 +353,15 @@ void MainFrame::OnSetGeometry132x24(wxCommandEvent&)     { NotYetImplemented(); 
 void MainFrame::OnSetGeometryCustom(wxCommandEvent&)     { NotYetImplemented(); }
 void MainFrame::OnSetFont(wxCommandEvent&)               { NotYetImplemented(); }
 void MainFrame::OnSaveSessionFileTerminal(wxCommandEvent&) { NotYetImplemented(); }
-void MainFrame::OnOpenInNewTile(wxCommandEvent&)         { NotYetImplemented(); }
-void MainFrame::OnOpenInNewWindowTerminal(wxCommandEvent&) { NotYetImplemented(); }
+void MainFrame::OnOpenInNewTile(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->MoveActiveSessionToNewTile();
+}
+
+void MainFrame::OnOpenInNewWindowTerminal(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->MoveActiveSessionToNewWindow();
+}
 
 void MainFrame::OnWindowMenuItem(wxCommandEvent& evt)
 {
