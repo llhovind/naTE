@@ -153,7 +153,6 @@ private:
 
     SessionUI*       FindSessionUI(term::session::SessionId id);
     const SessionUI* FindSessionUI(term::session::SessionId id) const;
-    void             UpdateStatusBar();
     void             SetupEditMenu(wxMenu* menu);
     void             PasteFromClipboard();
     void             ResizeFrameToFitTiles();
@@ -198,8 +197,6 @@ private:
 
     std::mutex                                       pendingRefreshMtx_;
     std::unordered_set<term::session::SessionId>     pendingRefresh_;
-
-    std::string                                      pendingErrorMsg_;
 
     struct DragState {
         std::vector<term::session::SessionId> ids;

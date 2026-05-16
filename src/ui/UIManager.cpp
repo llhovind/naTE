@@ -35,7 +35,6 @@ void UIManager::SessionNotifier::OnDocumentChanged(DocChangeType type, size_t)
             m->connMenu_->SetLabel(ui->menuId, wxString::FromUTF8(title));
             if (ui->tile)
                 ui->tile->SetTabLabel(sid, wxString::FromUTF8(title));
-            m->UpdateStatusBar();
         });
     } else {
         {
@@ -51,7 +50,6 @@ void UIManager::SessionNotifier::OnDocumentChanged(DocChangeType type, size_t)
             SessionUI* ui = m->FindSessionUI(sid);
             if (ui && ui->panel)
                 ui->panel->OnDocumentUpdate();
-            m->UpdateStatusBar();
         });
     }
 }
@@ -116,13 +114,9 @@ void UIManager::OnSessionError(term::session::SessionId /*id*/,
     const bool isHostKey =
         (error.category == term::transport::TransportError::Category::HostKey);
     std::string msg = error.message;
-    frame_->CallAfter([this, msg, isHostKey]() {
-        if (isHostKey) {
-            wxMessageBox(wxString::FromUTF8(msg), "Host Key Error",
-                         wxICON_ERROR | wxOK, frame_);
-        } else {
-            pendingErrorMsg_ = msg;
-        }
+    const char* title = isHostKey ? "Host Key Error" : "Connection Error";
+    frame_->CallAfter([this, msg, title]() {
+        wxMessageBox(wxString::FromUTF8(msg), title, wxICON_ERROR | wxOK, frame_);
     });
 }
 
@@ -386,12 +380,7 @@ void UIManager::TearDownSessionUI(term::session::SessionId id)
     if (!sessions_.empty())
         RequestActivate(sessions_.begin()->first);
     else
-        UpdateStatusBar();
-
-    if (!pendingErrorMsg_.empty()) {
-        frame_->SetStatusText(wxString::FromUTF8(pendingErrorMsg_), 1);
-        pendingErrorMsg_.clear();
-    }
+        frame_->SyncwrapModeMenuItem(false);
 
     RefreshBroadcastVisuals();
 }
@@ -414,7 +403,7 @@ void UIManager::RequestActivate(term::session::SessionId id)
     }
 
     frame_->Layout();
-    UpdateStatusBar();
+    frame_->SyncwrapModeMenuItem(sm_.GetDocLayout(id).GetWrapMode());
     if (activePanel)
         activePanel->SetFocus();
 }
@@ -642,31 +631,6 @@ const UIManager::SessionUI* UIManager::FindSessionUI(term::session::SessionId id
 {
     auto it = sessions_.find(id);
     return (it != sessions_.end()) ? &it->second : nullptr;
-}
-
-void UIManager::UpdateStatusBar()
-{
-    if (activeId_ == 0 || sessions_.find(activeId_) == sessions_.end()) {
-        frame_->SetStatusText("",    0);
-        frame_->SetStatusText("Ready — use Connection > New Connection to start", 1);
-        frame_->SetStatusText("",    2);
-        frame_->SetStatusText("",    3);
-        return;
-    }
-
-    const SessionUI* ui = FindSessionUI(activeId_);
-
-    frame_->SetStatusText(wxString::Format("ID: %zu", activeId_), 0);
-    frame_->SetStatusText(ui ? wxString::FromUTF8(ui->label) : wxString{}, 1);
-
-    const DocLayout& layout = sm_.GetDocLayout(activeId_);
-    const bool wrap = layout.GetWrapMode();
-    frame_->SetStatusText(wrap ? "Wrap: ON" : "Wrap: OFF", 2);
-    frame_->SyncwrapModeMenuItem(wrap);
-
-    const CursorPos cur = layout.GetCursorDocPos();
-    frame_->SetStatusText(
-        wxString::Format("Ln %zu, Col %zu", cur.line + 1, cur.col + 1), 3);
 }
 
 void UIManager::SetupEditMenu(wxMenu* menu)

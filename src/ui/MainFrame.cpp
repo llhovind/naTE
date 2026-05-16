@@ -76,16 +76,6 @@ MainFrame::MainFrame(const AppConfig& cfg,
     menuBar->Append(m_windowMenu,  "&Window");
     SetMenuBar(menuBar);
 
-    CreateStatusBar(4);
-    {
-        static constexpr int kWidths[] = { 80, -1, 90, 130 };
-        SetStatusWidths(4, kWidths);
-    }
-    SetStatusText("",     0);
-    SetStatusText("Ready — use Connection > Connection Manager to start", 1);
-    SetStatusText("",     2);
-    SetStatusText("",     3);
-
     SetBackgroundColour(wxColour(40, 40, 40));
     SetSizer(new wxBoxSizer(wxVERTICAL));
     SetClientSize(wxSize(1200, 700));
