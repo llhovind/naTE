@@ -8,6 +8,7 @@
 #include "config/Config.h"
 #include "input/InputRouter.h"
 #include "session/Connection.h"
+#include "session/ISessionObserver.h"
 #include "ui/ISessionDropTarget.h"
 #include "ui/NewConnectionDialog.h"
 
@@ -17,11 +18,20 @@ class TerminalTile;
 
 class MainFrame : public wxFrame, public ui::ISessionDropTarget {
 public:
+    struct SessionMenuEntry {
+        term::session::SessionId id;
+        std::string              label;
+    };
+    struct WindowMenuEntry {
+        MainFrame*                   frame;
+        std::string                  title;
+        std::vector<SessionMenuEntry> sessions;
+    };
+
     MainFrame(const AppConfig& cfg,
               term::input::InputRouter& router,
               term::db::ConnectionStore& store);
 
-    wxMenu* GetConnMenu() const { return m_connMenu; }
     wxMenu* GetEditMenu() const { return m_editMenu; }
 
     // Called by App after UIManager construction to wire session/wrap mode calls.
@@ -45,8 +55,11 @@ public:
     // Opens the New Connection dialog and routes the result to targetTile.
     void LaunchNewConnectionInTile(TerminalTile* targetTile);
 
-    // Rebuilds the Window menu to reflect the current set of open frames.
-    void RebuildWindowMenu(const std::vector<std::pair<MainFrame*, std::string>>& entries);
+    // Rebuilds the Window menu to reflect the current set of open frames and their sessions.
+    void RebuildWindowMenu(const std::vector<WindowMenuEntry>& entries);
+
+    // Activates a session owned by this window (called from Window menu lambdas).
+    void ActivateSession(term::session::SessionId id);
 
     // ISessionDropTarget — no specific tile; App will create a new tile.
     bool DropSession(std::span<const term::session::SessionId> ids,
@@ -64,6 +77,18 @@ private:
     void OnTogglewrapMode(wxCommandEvent&);
     void OnToggleBroadcast(wxCommandEvent&);
     void OnWindowMenuItem(wxCommandEvent& evt);
+    void OnWindowSessionMenuItem(wxCommandEvent& evt);
+
+    // Stub handlers — display "Not yet implemented" until wired up.
+    void NotYetImplemented();
+    void OnCloseActiveSession(wxCommandEvent&);
+    void OnSetGeometry80x24(wxCommandEvent&);
+    void OnSetGeometry132x24(wxCommandEvent&);
+    void OnSetGeometryCustom(wxCommandEvent&);
+    void OnSetFont(wxCommandEvent&);
+    void OnSaveSessionFileTerminal(wxCommandEvent&);
+    void OnOpenInNewTile(wxCommandEvent&);
+    void OnOpenInNewWindowTerminal(wxCommandEvent&);
 
     // Shared dialog flow: shows the New Connection dialog and returns a filled
     // Connection, or returns false if the user cancelled.
@@ -81,6 +106,9 @@ private:
     wxMenuItem*                  m_miBroadcast = nullptr;
     int                          m_sessionCount = 0;
 
-    // Parallel to the current window menu items; used by OnWindowMenuItem.
+    // Parallel to window menu items; used by OnWindowMenuItem.
     std::vector<MainFrame*> m_windowFrames;
+
+    // Parallel to session sub-items in Window menu; used by session lambdas.
+    std::vector<std::pair<MainFrame*, term::session::SessionId>> m_windowSessions;
 };

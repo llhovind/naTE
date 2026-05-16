@@ -32,7 +32,7 @@ void UIManager::SessionNotifier::OnDocumentChanged(DocChangeType type, size_t)
             SessionUI* ui = m->FindSessionUI(sid);
             if (!ui) return;
             ui->label = title;
-            m->connMenu_->SetLabel(ui->menuId, wxString::FromUTF8(title));
+            if (m->onSessionListChanged_) m->onSessionListChanged_();
             if (ui->tile)
                 ui->tile->SetTabLabel(sid, wxString::FromUTF8(title));
         });
@@ -59,12 +59,11 @@ void UIManager::SessionNotifier::OnDocumentChanged(DocChangeType type, size_t)
 // ---------------------------------------------------------------------------
 
 UIManager::UIManager(term::session::SessionManager& sm,
-                     wxMenu*                        connMenu,
                      MainFrame*                     frame,
                      const AppConfig&               cfg,
                      term::input::InputRouter&      router,
                      wxMenu*                        editMenu)
-    : sm_(sm), router_(router), connMenu_(connMenu), frame_(frame), cfg_(cfg)
+    : sm_(sm), router_(router), frame_(frame), cfg_(cfg)
 {
     selectionActions_ = std::make_unique<SelectionActionRegistry>();
     selectionActions_->Register(std::make_unique<CopyAction>());
@@ -210,12 +209,6 @@ void UIManager::TakeSession(term::session::SessionId     id,
         ResizeFrameToFitTiles();
     }
 
-    const int menuId = nextMenuId_++;
-    connMenu_->Append(menuId, wxString::FromUTF8(label));
-    frame_->Bind(wxEVT_MENU, [this, id](wxCommandEvent&) {
-        RequestActivate(id);
-    }, menuId);
-
     auto notifier         = std::make_unique<SessionNotifier>();
     notifier->id          = id;
     notifier->mgr         = this;
@@ -225,7 +218,6 @@ void UIManager::TakeSession(term::session::SessionId     id,
     SessionUI sui;
     sui.id         = id;
     sui.label      = label;
-    sui.menuId     = menuId;
     sui.tile       = targetTile;
     sui.tabIndex   = tabIdx;
     sui.panel      = panel;
@@ -233,6 +225,7 @@ void UIManager::TakeSession(term::session::SessionId     id,
     sui.notifier   = std::move(notifier);
     sessions_.emplace(id, std::move(sui));
 
+    if (onSessionListChanged_) onSessionListChanged_();
     RequestActivate(id);
     RefreshBroadcastVisuals();
 }
@@ -354,7 +347,7 @@ void UIManager::TearDownSessionUI(term::session::SessionId id)
     SessionUI* ui = FindSessionUI(id);
     if (!ui) return;
 
-    connMenu_->Delete(ui->menuId);
+    if (onSessionListChanged_) onSessionListChanged_();
 
     if (ui->searchCtrl) ui->searchCtrl->SetBar(nullptr);
 
@@ -633,17 +626,28 @@ const UIManager::SessionUI* UIManager::FindSessionUI(term::session::SessionId id
     return (it != sessions_.end()) ? &it->second : nullptr;
 }
 
+std::vector<std::pair<term::session::SessionId, std::string>>
+UIManager::GetSessionList() const
+{
+    std::vector<std::pair<term::session::SessionId, std::string>> out;
+    out.reserve(sessions_.size());
+    for (const auto& [id, sui] : sessions_)
+        out.emplace_back(id, sui.label);
+    return out;
+}
+
 void UIManager::SetupEditMenu(wxMenu* menu)
 {
-    menu->Append(kEditMenuCopy,      "Copy\tCtrl+Shift+C");
-    menu->Append(kEditMenuPaste,     "Paste\tCtrl+Shift+V");
-    menu->Append(kEditMenuSelectAll, "Select All\tCtrl+Shift+A");
+    menu->Append(kEditMenuCopy,            "Copy\tCtrl+Shift+C");
+    menu->Append(kEditMenuPaste,           "Paste\tCtrl+Shift+V");
+    menu->Append(kEditMenuPasteSel,        "Paste Selection");
     menu->AppendSeparator();
-    menu->Append(kEditMenuPasteSel,  "Paste Selection");
-    menu->Append(kEditMenuFind,      "Find in Terminal\tCtrl+Shift+F");
+    menu->Append(kEditMenuFind,            "Find in Terminal\tCtrl+Shift+F");
+    menu->Append(kEditMenuSelectAll,       "Select All\tCtrl+Shift+A");
     menu->AppendSeparator();
-    menu->Append(kEditMenuSaveFile,  "Save to File...");
-    menu->Append(kEditMenuWebSearch, "Search the Web");
+    menu->Append(kEditMenuSaveFile,        "Save to File...");
+    menu->Append(kEditMenuSaveSessionFile, "Save Session to File...");
+    menu->Append(kEditMenuWebSearch,       "Search the Web");
 
     frame_->Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         const auto text = GetFullActiveSelectedText();
@@ -680,6 +684,10 @@ void UIManager::SetupEditMenu(wxMenu* menu)
         if (!text.empty()) WebSearchAction{}.Execute(text);
     }, kEditMenuWebSearch);
 
+    frame_->Bind(wxEVT_MENU, [](wxCommandEvent&) {
+        wxMessageBox("Not yet implemented", "naTE", wxOK | wxICON_INFORMATION);
+    }, kEditMenuSaveSessionFile);
+
     const auto enableIfSelection = [this](wxUpdateUIEvent& e) {
         e.Enable(HasActiveSelection());
     };
@@ -687,6 +695,10 @@ void UIManager::SetupEditMenu(wxMenu* menu)
                    kEditMenuSaveFile, kEditMenuWebSearch}) {
         frame_->Bind(wxEVT_UPDATE_UI, enableIfSelection, id);
     }
+
+    frame_->Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
+        e.Enable(activeId_ != 0);
+    }, kEditMenuSaveSessionFile);
 }
 
 void UIManager::ResizeFrameToFitTiles()

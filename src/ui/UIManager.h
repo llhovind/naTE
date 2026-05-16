@@ -34,7 +34,6 @@ namespace ui {
 class UIManager : public term::session::ISessionObserver {
 public:
     UIManager(term::session::SessionManager& sm,
-              wxMenu*                        connMenu,
               MainFrame*                     frame,
               const AppConfig&               cfg,
               term::input::InputRouter&      router,
@@ -112,6 +111,10 @@ public:
                                              const std::u32string& initialQuery = {});
 
     void SetOnGridEmptyCallback(std::function<void()> cb) { onGridEmptyCb_ = std::move(cb); }
+    void SetSessionListChangedCallback(std::function<void()> cb) { onSessionListChanged_ = std::move(cb); }
+
+    // Returns all session IDs and their labels (for Window menu population).
+    std::vector<std::pair<term::session::SessionId, std::string>> GetSessionList() const;
 
     // Returns the first line of the active session's selection (empty if none).
     std::u32string GetActiveSelectedText() const;
@@ -134,7 +137,6 @@ private:
     struct SessionUI {
         term::session::SessionId          id       = 0;
         std::string                       label;
-        int                               menuId   = 0;
         TerminalTile*                     tile     = nullptr;
         int                               tabIndex = -1;   // slot within tile
         TerminalPanel*                    panel    = nullptr;
@@ -142,14 +144,14 @@ private:
         std::unique_ptr<SessionNotifier>  notifier;
     };
 
-    static constexpr int kMenuIdBase        = wxID_HIGHEST + 200;
-    static constexpr int kEditMenuCopy      = wxID_HIGHEST + 10;
-    static constexpr int kEditMenuPaste     = wxID_HIGHEST + 11;
-    static constexpr int kEditMenuSelectAll = wxID_HIGHEST + 12;
-    static constexpr int kEditMenuPasteSel  = wxID_HIGHEST + 13;
-    static constexpr int kEditMenuFind      = wxID_HIGHEST + 14;
-    static constexpr int kEditMenuSaveFile  = wxID_HIGHEST + 15;
-    static constexpr int kEditMenuWebSearch = wxID_HIGHEST + 16;
+    static constexpr int kEditMenuCopy            = wxID_HIGHEST + 10;
+    static constexpr int kEditMenuPaste           = wxID_HIGHEST + 11;
+    static constexpr int kEditMenuSelectAll       = wxID_HIGHEST + 12;
+    static constexpr int kEditMenuPasteSel        = wxID_HIGHEST + 13;
+    static constexpr int kEditMenuFind            = wxID_HIGHEST + 14;
+    static constexpr int kEditMenuSaveFile        = wxID_HIGHEST + 15;
+    static constexpr int kEditMenuWebSearch       = wxID_HIGHEST + 16;
+    static constexpr int kEditMenuSaveSessionFile = wxID_HIGHEST + 17;
 
     SessionUI*       FindSessionUI(term::session::SessionId id);
     const SessionUI* FindSessionUI(term::session::SessionId id) const;
@@ -183,7 +185,6 @@ private:
 
     term::session::SessionManager& sm_;
     term::input::InputRouter&      router_;
-    wxMenu*                        connMenu_;
     MainFrame*                     frame_;
     AppConfig                      cfg_;
     TerminalGrid*                  grid_ = nullptr;
@@ -191,7 +192,6 @@ private:
     std::unique_ptr<SelectionActionRegistry> selectionActions_;
 
     std::unordered_map<term::session::SessionId, SessionUI> sessions_;
-    int nextMenuId_ = kMenuIdBase;
 
     term::session::SessionId activeId_ = 0;
 
@@ -206,6 +206,7 @@ private:
     std::optional<DragState> dragState_;
 
     std::function<void()> onGridEmptyCb_;
+    std::function<void()> onSessionListChanged_;
 };
 
 } // namespace ui

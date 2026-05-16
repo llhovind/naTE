@@ -96,7 +96,7 @@ MainFrame* App::CreateNewWindow()
     wc->frame = frame;
 
     wc->uiManager = std::make_unique<ui::UIManager>(
-        *m_sessionManager, frame->GetConnMenu(), frame, m_cfg,
+        *m_sessionManager, frame, m_cfg,
         *wc->router, frame->GetEditMenu());
 
     frame->SetUIManager(wc->uiManager.get());
@@ -104,6 +104,10 @@ MainFrame* App::CreateNewWindow()
     wc->uiManager->SetOnGridEmptyCallback([this, frame]() {
         if (m_windows.size() > 1)
             frame->CallAfter([frame]() { frame->Close(); });
+    });
+
+    wc->uiManager->SetSessionListChangedCallback([this]() {
+        CallAfter([this]() { RebuildWindowMenus(); });
     });
 
     frame->Bind(wxEVT_DESTROY, [this, frame](wxWindowDestroyEvent& evt) {
@@ -176,10 +180,17 @@ void App::QuitAll()
 
 void App::RebuildWindowMenus()
 {
-    std::vector<std::pair<MainFrame*, std::string>> entries;
+    std::vector<MainFrame::WindowMenuEntry> entries;
     entries.reserve(m_windows.size());
-    for (auto& w : m_windows)
-        entries.emplace_back(w->frame, w->frame->GetTitle().ToStdString());
+    for (auto& w : m_windows) {
+        MainFrame::WindowMenuEntry e;
+        e.frame = w->frame;
+        e.title = w->frame->GetTitle().ToStdString();
+        if (w->uiManager)
+            for (auto& [id, label] : w->uiManager->GetSessionList())
+                e.sessions.push_back({id, label});
+        entries.push_back(std::move(e));
+    }
     for (auto& w : m_windows)
         w->frame->RebuildWindowMenu(entries);
 }
