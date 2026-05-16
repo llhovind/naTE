@@ -5,7 +5,8 @@
 #include <algorithm>
 #include <cmath>
 
-static const wxColour kColBroadcast { 255, 140, 0 };
+static const wxColour kColBroadcast { 255, 140,   0 };
+static const wxColour kColInactive  { 131, 136, 141 };
 
 TabStrip::TabStrip(wxWindow* parent)
     : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE)
@@ -107,26 +108,44 @@ void TabStrip::OnPaint(wxPaintEvent&)
             std::max(0, bgColour.Green() - 20),
             std::max(0, bgColour.Blue()  - 20));
 
+        // Pre-scan: does any tab in this strip belong to the broadcast group?
+        // Used below to avoid inheriting the tile's orange background for a
+        // focused-but-not-broadcasting tab.
+        bool anyBroadcast = false;
+        for (int i = 0; i < n && !anyBroadcast; ++i)
+            anyBroadcast = broadcastQueryCb_ && broadcastQueryCb_(i);
+
         for (int i = 0; i < n; ++i) {
             const int x = i * g.tabW;
             const wxRect tabRect(x, 0, g.tabW, sz.y);
 
             const bool inBroadcast = broadcastQueryCb_ && broadcastQueryCb_(i);
 
-            // Tab background: broadcast takes priority; active gets a brightness bump.
-            if (inBroadcast || i == activeIdx) {
-                wxColour tabBg = inBroadcast ? kColBroadcast : activeTabBg;
-                // Active broadcast tab: darken slightly so it reads as "selected among broadcast".
-                if (inBroadcast && i == activeIdx) {
-                    tabBg = wxColour(
-                        std::max(0, (int)kColBroadcast.Red()   - 30),
-                        std::max(0, (int)kColBroadcast.Green() - 30),
-                        std::max(0, (int)kColBroadcast.Blue()  - 30));
-                }
-                dc.SetBrush(wxBrush(tabBg));
-                dc.SetPen(*wxTRANSPARENT_PEN);
-                dc.DrawRectangle(tabRect);
+            // Every tab gets an explicit fill. Tabs that receive input are
+            // coloured; tabs that don't are explicitly gray so the user always
+            // knows where input will go.
+            wxColour tabBg = kColInactive;
+            if (inBroadcast) {
+                // Active broadcast tab darkened slightly so it reads as "selected".
+                tabBg = (i == activeIdx)
+                    ? wxColour(std::max(0, (int)kColBroadcast.Red()   - 30),
+                               std::max(0, (int)kColBroadcast.Green() - 30),
+                               std::max(0, (int)kColBroadcast.Blue()  - 30))
+                    : kColBroadcast;
+            } else if (i == activeIdx) {
+                // When the tile is in broadcast mode the tile background is
+                // orange, so bgColour+35 would produce a misleading orange tint
+                // for a tab that is not receiving any input.  Use a fixed
+                // light-gray instead — it reads as "focused here, not in cast".
+                tabBg = anyBroadcast
+                    ? wxColour(std::min(255, kColInactive.Red()   + 35),
+                               std::min(255, kColInactive.Green() + 35),
+                               std::min(255, kColInactive.Blue()  + 35))
+                    : activeTabBg;  // blue+35 or gray+35 in normal focused mode
             }
+            dc.SetBrush(wxBrush(tabBg));
+            dc.SetPen(*wxTRANSPARENT_PEN);
+            dc.DrawRectangle(tabRect);
 
             if (i > 0) {
                 dc.SetPen(wxPen(sepColour));

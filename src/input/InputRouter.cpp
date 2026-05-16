@@ -36,14 +36,17 @@ InputTarget* InputRouter::GetFocused() const noexcept {
 void InputRouter::Select(InputTarget* target) {
     if (!IsValidTarget(target)) return;
     selected_.insert(target);
+    NotifyStateChanged();
 }
 
 void InputRouter::Deselect(InputTarget* target) {
     selected_.erase(target);
+    NotifyStateChanged();
 }
 
 void InputRouter::ClearSelection() {
     selected_.clear();
+    NotifyStateChanged();
 }
 
 bool InputRouter::IsSelected(InputTarget* target) const {
@@ -58,6 +61,7 @@ bool InputRouter::HasSelection() const noexcept {
 
 void InputRouter::SetMode(InputMode mode) noexcept {
     mode_ = mode;
+    NotifyStateChanged();
 }
 
 InputMode InputRouter::GetMode() const noexcept {
@@ -123,7 +127,17 @@ void InputRouter::Paste(const std::string& utf8) {
     }
 }
 
+// --- Observer ---
+
+void InputRouter::SetOnStateChanged(StateChangedCb cb) noexcept {
+    onStateChanged_ = std::move(cb);
+}
+
 // --- Internal ---
+
+void InputRouter::NotifyStateChanged() {
+    if (onStateChanged_) onStateChanged_();
+}
 
 bool InputRouter::IsValidTarget(InputTarget* target) const {
     return target && targets_.find(target) != targets_.end();

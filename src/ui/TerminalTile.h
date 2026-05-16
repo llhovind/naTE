@@ -57,8 +57,10 @@ public:
     void SetFocused(bool focused);
 
     // Called by UIManager whenever broadcast mode or group membership changes.
-    // Controls the title bar header colour (reflects the active session's state).
-    void SetBroadcastActive(bool active);
+    // modeActive  — broadcast mode is globally on (suppresses the blue "focused" tint
+    //               on tiles that are not in the broadcast group).
+    // tileHasBroadcast — at least one tab in this tile is in the broadcast group.
+    void SetBroadcastState(bool modeActive, bool tileHasBroadcast);
 
     // Colours an individual tab to show whether its session is in broadcast.
     // Must be called for every session in this tile on each broadcast change.
@@ -139,8 +141,9 @@ private:
 
     wxPoint                    dragAnchor_  { -1, -1 };
     bool                       dragPending_ = false;
-    bool                       isFocused_   = false;
-    bool                       inBroadcast_ = false;
+    bool                       isFocused_          = false;
+    bool                       inBroadcast_        = false;
+    bool                       broadcastModeActive_ = false;
 
     wxColour colActive_    {  45,  57, 160 };
     wxColour colInactive_  { 131, 136, 141 };

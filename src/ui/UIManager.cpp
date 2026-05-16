@@ -83,6 +83,8 @@ UIManager::UIManager(term::session::SessionManager& sm,
 
     frame_->Bind(EVT_TERMINAL_ACTION, &UIManager::OnTerminalAction, this);
     frame_->Bind(EVT_TILE_ACTION,     &UIManager::OnTileAction,     this);
+
+    router_.SetOnStateChanged([this] { RefreshBroadcastVisuals(); });
 }
 
 UIManager::~UIManager()
@@ -294,7 +296,6 @@ void UIManager::ToggleBroadcastMode()
     } else {
         router_.SetMode(term::input::InputMode::Focused);
     }
-    RefreshBroadcastVisuals();
     frame_->SyncBroadcastMenuItem(enabling);
 }
 
@@ -317,25 +318,29 @@ void UIManager::ToggleTileBroadcast(term::session::SessionId id)
             frame_->SyncBroadcastMenuItem(true);
         }
     }
-
-    RefreshBroadcastVisuals();
 }
 
 void UIManager::RefreshBroadcastVisuals()
 {
     const bool broadcasting = router_.GetMode() == term::input::InputMode::Broadcast;
+
+    // Accumulate per-tile broadcast state across all sessions.  A tile's title
+    // bar shows the broadcast colour as long as ANY of its tabs is in the
+    // broadcast group — the user sees the alert even after switching to a
+    // non-broadcast tab within that tile.
+    std::unordered_map<TerminalTile*, bool> tileHasBroadcast;
+
     for (auto& [id, sui] : sessions_) {
         if (!sui.tile) continue;
         auto* target = sm_.GetInputTarget(id);
         const bool active = broadcasting && target && router_.IsSelected(target);
 
-        // Per-tab indicator: colour each tab independently based on its session's membership.
         sui.tile->SetTabBroadcast(id, active);
-
-        // Title bar header: reflects the active tab's session state only.
-        if (sui.tile->GetActiveSessionId() == id)
-            sui.tile->SetBroadcastActive(active);
+        tileHasBroadcast[sui.tile] = tileHasBroadcast[sui.tile] || active;
     }
+
+    for (auto& [tile, anyBroadcast] : tileHasBroadcast)
+        tile->SetBroadcastState(broadcasting, anyBroadcast);
 }
 
 // ---------------------------------------------------------------------------
@@ -394,6 +399,8 @@ void UIManager::RequestActivate(term::session::SessionId id)
         grid_->SetActiveTile(ui->tile);
         ui->tile->ActivateTabById(id);  // ensure the correct tab is visible
     }
+
+    RefreshBroadcastVisuals();
 
     frame_->Layout();
     frame_->SyncwrapModeMenuItem(sm_.GetDocLayout(id).GetWrapMode());

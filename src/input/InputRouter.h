@@ -1,8 +1,9 @@
 #pragma once
 
+#include <functional>
+#include <memory>
 #include <unordered_set>
 #include <vector>
-#include <memory>
 
 #include "KeyEvent.hpp"
 
@@ -64,8 +65,17 @@ public:
     void Send(KeyEvent event);
     void Paste(const std::string& utf8);
 
+    // --- Observer ---
+    // Called whenever routing state (mode, selection) changes. Fired
+    // synchronously from the mutating call. Not fired from SetFocused() or
+    // RemoveTarget() — callers that change focused state are responsible for
+    // triggering any needed visual refresh themselves.
+    using StateChangedCb = std::function<void()>;
+    void SetOnStateChanged(StateChangedCb cb) noexcept;
+
 private:
     bool IsValidTarget(InputTarget* target) const;
+    void NotifyStateChanged();
 
 private:
     std::unordered_set<InputTarget*> targets_;
@@ -73,6 +83,7 @@ private:
 
     std::vector<std::shared_ptr<InputFilter>> filters_;
 
+    StateChangedCb onStateChanged_;
     InputTarget* focused_ = nullptr;
     InputMode mode_ = InputMode::Focused;
 };

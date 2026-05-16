@@ -300,9 +300,12 @@ void TerminalTile::OnSize(wxSizeEvent& evt)
 
 void TerminalTile::UpdateTitleBarColor()
 {
-    const wxColour& c = inBroadcast_ ? colBroadcast_
-                        : isFocused_ ? colActive_
-                                     : colInactive_;
+    // isFocused_ only produces the blue "active" tint when broadcast mode is
+    // off — otherwise the focused tile has no more input claim than any other
+    // non-broadcasting tile and should appear inactive.
+    const wxColour& c = inBroadcast_                      ? colBroadcast_
+                        : (isFocused_ && !broadcastModeActive_) ? colActive_
+                                                              : colInactive_;
     titleBar_->SetBackgroundColour(c);
     titleBar_->Refresh();
     if (wrapCtrl_) wrapCtrl_->Refresh();
@@ -314,9 +317,10 @@ void TerminalTile::SetFocused(bool focused)
     UpdateTitleBarColor();
 }
 
-void TerminalTile::SetBroadcastActive(bool active)
+void TerminalTile::SetBroadcastState(bool modeActive, bool tileHasBroadcast)
 {
-    inBroadcast_ = active;
+    broadcastModeActive_ = modeActive;
+    inBroadcast_         = tileHasBroadcast;
     UpdateTitleBarColor();
 }
 
