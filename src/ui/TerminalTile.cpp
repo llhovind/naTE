@@ -104,16 +104,12 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
         }
     });
 
-    wxBitmap wrapBmp(wxT("./src/ui/icons/text-wrap.png"), wxBITMAP_TYPE_PNG);
-    wxASSERT_MSG(wrapBmp.IsOk(), "Failed to load text-wrap.png");
-    wrapBtn_ = new wxBitmapButton(titleBar_, wxID_ANY, wrapBmp,
-                                  wxDefaultPosition, wxSize(16, 16), wxBORDER_NONE);
-    wrapBtn_->SetBackgroundColour(colInactive_);
-    wrapBtn_->Bind(wxEVT_BUTTON, &TerminalTile::OnWrapClick, this);
+    wrapCtrl_ = new WrapControl(titleBar_);
+    wrapCtrl_->SetClickCallback([this] { EmitTerminalAction(TerminalAction::ToggleWrap); });
 
     auto* hSizer = new wxBoxSizer(wxHORIZONTAL);
     hSizer->Add(tabStrip_, 1, wxEXPAND);
-    hSizer->Add(wrapBtn_,  0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+    hSizer->Add(wrapCtrl_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
     titleBar_->SetSizer(hSizer);
 
     // Content area — the active TerminalPanel fills this completely.
@@ -309,10 +305,7 @@ void TerminalTile::UpdateTitleBarColor()
                                      : colInactive_;
     titleBar_->SetBackgroundColour(c);
     titleBar_->Refresh();
-    if (wrapBtn_) {
-        wrapBtn_->SetBackgroundColour(c);
-        wrapBtn_->Refresh();
-    }
+    if (wrapCtrl_) wrapCtrl_->Refresh();
 }
 
 void TerminalTile::SetFocused(bool focused)
@@ -338,10 +331,9 @@ void TerminalTile::SetTabBroadcast(term::session::SessionId id, bool inBroadcast
     }
 }
 
-void TerminalTile::SetWrapMode(bool /*wrap*/)
+void TerminalTile::SetWrapMode(bool wrap)
 {
-    // Visual toggle state for the wrap button can be extended here when a
-    // toggled icon variant is available.
+    if (wrapCtrl_) wrapCtrl_->SetWrapActive(wrap);
 }
 
 void TerminalTile::EmitTerminalAction(TerminalAction action)
@@ -354,11 +346,6 @@ void TerminalTile::EmitTileAction(TileAction action, term::session::SessionId id
 {
     TileActionEvent evt(action, id, this);
     ProcessWindowEvent(evt);
-}
-
-void TerminalTile::OnWrapClick(wxCommandEvent&)
-{
-    EmitTerminalAction(TerminalAction::ToggleWrap);
 }
 
 void TerminalTile::OnTitleDown(wxMouseEvent& evt)

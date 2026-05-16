@@ -208,6 +208,9 @@ void UIManager::TakeSession(term::session::SessionId     id,
 
     const int tabIdx = targetTile->AddTab(id, panel, wxString::FromUTF8(label));
 
+    // Sync the tile's wrap control to the session's persisted wrap state.
+    targetTile->SetWrapMode(sm_.GetDocLayout(id).GetWrapMode());
+
     if (isNewTile) {
         grid_->AddTile(targetTile);
         ResizeFrameToFitTiles();

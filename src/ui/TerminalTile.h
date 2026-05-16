@@ -4,12 +4,12 @@
 #include <string>
 #include <vector>
 #include <wx/panel.h>
-#include <wx/bmpbuttn.h>
 #include "config/Config.h"
 #include "session/ISessionObserver.h"
 #include "ui/ISessionDropTarget.h"
 #include "ui/TerminalActions.h"
 #include "ui/TileActions.h"
+#include "ui/WrapControl.h"
 
 class TerminalPanel;
 class TabStrip;
@@ -121,14 +121,13 @@ private:
     void OnTitleMotion(wxMouseEvent& evt);
     void OnTitleUp(wxMouseEvent& evt);
     void OnTitleRightClick(wxMouseEvent& evt);
-    void OnWrapClick(wxCommandEvent& evt);
     void EmitTerminalAction(TerminalAction action);
     void EmitTileAction(TileAction action, term::session::SessionId id);
     void OnShowTileMenu();
 
     wxPanel*          titleBar_    = nullptr;  // wx-child-owned
     TabStrip*         tabStrip_    = nullptr;  // wx-child-owned by titleBar_
-    wxBitmapButton*   wrapBtn_     = nullptr;  // wx-child-owned by titleBar_
+    WrapControl*      wrapCtrl_    = nullptr;  // wx-child-owned by titleBar_
     wxPanel*          contentArea_ = nullptr;  // wx-child-owned; panels live here
 
     std::vector<TabEntry>      tabs_;
