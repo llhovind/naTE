@@ -36,8 +36,6 @@ void UIManager::SessionNotifier::OnDocumentChanged(DocChangeType type, size_t)
             if (ui->tile)
                 ui->tile->SetTabLabel(sid, wxString::FromUTF8(title));
             m->UpdateStatusBar();
-            if (sid == m->activeId_)
-                m->frame_->SetTitle(wxString::FromUTF8("naTE \xe2\x80\x94 " + title));
         });
     } else {
         {
@@ -384,10 +382,8 @@ void UIManager::TearDownSessionUI(term::session::SessionId id)
 
     if (!sessions_.empty())
         RequestActivate(sessions_.begin()->first);
-    else {
+    else
         UpdateStatusBar();
-        frame_->SetTitle("naTE");
-    }
 
     if (!pendingErrorMsg_.empty()) {
         frame_->SetStatusText(wxString::FromUTF8(pendingErrorMsg_), 1);
@@ -416,8 +412,6 @@ void UIManager::RequestActivate(term::session::SessionId id)
 
     frame_->Layout();
     UpdateStatusBar();
-    if (ui)
-        frame_->SetTitle(wxString::FromUTF8("naTE \xe2\x80\x94 " + ui->label));
     if (activePanel)
         activePanel->SetFocus();
 }

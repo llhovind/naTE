@@ -4,12 +4,68 @@
 #include "ui/TerminalTile.h"
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
+#include <wx/string.h>
 #include <libssh2.h>
+#include <cerrno>
+#include <csignal>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <algorithm>
+#include <sys/stat.h>
+#include <unistd.h>
+
+namespace {
+    std::string NateDir() {
+        const char* home = std::getenv("HOME");
+        return home ? std::string(home) + "/.nate" : std::string(".nate");
+    }
+
+    std::string LockPath(int n) {
+        return NateDir() + "/instance-" + std::to_string(n) + ".lock";
+    }
+
+    bool TryClaimSlot(int n) {
+        const std::string path = LockPath(n);
+
+        // Check for a stale lock from a dead process.
+        std::ifstream in(path);
+        if (in.is_open()) {
+            pid_t pid = 0;
+            in >> pid;
+            in.close();
+            if (pid > 0 && kill(pid, 0) == 0)
+                return false; // process is alive — slot is taken
+            // Stale lock: fall through and overwrite.
+        }
+
+        std::ofstream out(path, std::ios::trunc);
+        if (!out.is_open())
+            return false;
+        out << getpid();
+        return true;
+    }
+} // namespace
+
+int App::AcquireInstanceId() {
+    mkdir(NateDir().c_str(), 0700);
+    for (int n = 0; n < 32; ++n) {
+        if (TryClaimSlot(n))
+            return n;
+    }
+    return 32; // all slots taken — degenerate but non-crashing
+}
+
+void App::ReleaseInstanceId(int id) {
+    if (id < 32)
+        std::remove(LockPath(id).c_str());
+}
 
 bool App::OnInit() {
+    m_instanceId = AcquireInstanceId();
     libssh2_init(0);
 
     const wxString exeDir =
@@ -33,7 +89,8 @@ bool App::OnInit() {
 MainFrame* App::CreateNewWindow()
 {
     auto wc = std::make_unique<WindowContext>();
-    wc->router = std::make_unique<term::input::InputRouter>();
+    wc->router   = std::make_unique<term::input::InputRouter>();
+    wc->windowId = m_nextWindowId++;
 
     auto* frame = new MainFrame(m_cfg, *wc->router, *m_connectionStore);
     wc->frame = frame;
@@ -63,6 +120,7 @@ MainFrame* App::CreateNewWindow()
     });
 
     frame->Show();
+    frame->SetTitle(wxString::Format("naTE %d:%d", m_instanceId, wc->windowId));
     m_windows.push_back(std::move(wc));
 
     RebuildWindowMenus();
@@ -128,6 +186,7 @@ void App::RebuildWindowMenus()
 
 int App::OnExit()
 {
+    ReleaseInstanceId(m_instanceId);
     libssh2_exit();
     return wxApp::OnExit();
 }

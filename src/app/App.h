@@ -50,8 +50,12 @@ private:
     struct WindowContext {
         std::unique_ptr<term::input::InputRouter> router;
         std::unique_ptr<ui::UIManager>            uiManager;
-        MainFrame*                                frame = nullptr; // wx-owned
+        MainFrame*                                frame    = nullptr; // wx-owned
+        int                                       windowId = 0;
     };
+
+    static int  AcquireInstanceId();
+    static void ReleaseInstanceId(int id);
 
     WindowContext* FindContext(MainFrame* frame);
     WindowContext* FindContextForSession(term::session::SessionId id);
@@ -60,6 +64,8 @@ private:
     std::unique_ptr<term::db::ConnectionStore>     m_connectionStore;
     std::unique_ptr<term::session::SessionManager> m_sessionManager;
     std::vector<std::unique_ptr<WindowContext>>    m_windows;
+    int                                            m_instanceId    = 0;
+    int                                            m_nextWindowId  = 0;
 };
 
 wxDECLARE_APP(App);
