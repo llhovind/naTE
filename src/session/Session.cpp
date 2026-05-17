@@ -11,18 +11,19 @@ namespace term::session {
 std::unique_ptr<transport::Transport> Session::MakeTransport(
     transport::ITransportTarget& target,
     const Connection& conn,
-    unsigned short cols,
+    unsigned short ptyCols,
     unsigned short rows,
+    unsigned short viewportCols,
     const AppSessionDefaults& appDefaults)
 {
     return std::visit([&](auto&& desc) -> std::unique_ptr<transport::Transport> {
         using T = std::decay_t<decltype(desc)>;
         if constexpr (std::is_same_v<T, PtyDesc>)
             return std::make_unique<transport::PtyTransport>(
-                target, desc.shell, cols, rows, conn.sessionInit, appDefaults);
+                target, desc.shell, ptyCols, rows, viewportCols, conn.sessionInit, appDefaults);
         else if constexpr (std::is_same_v<T, SshDesc>)
             return std::make_unique<transport::SshTransport>(
-                target, desc, cols, rows, conn.sessionInit, appDefaults);
+                target, desc, ptyCols, rows, viewportCols, conn.sessionInit, appDefaults);
         else if constexpr (std::is_same_v<T, SerialDesc>)
             return std::make_unique<transport::SerialTransport>(
                 target, desc, conn.sessionInit, appDefaults);
@@ -40,7 +41,7 @@ Session::Session(const Connection& conn,
                  AppSessionDefaults appDefaults,
                  unsigned short ptyLineWidth,
                  bool wrapMode)
-    : transport_(MakeTransport(*this, conn, wrapMode ? cols : ptyLineWidth, rows, appDefaults)),
+    : transport_(MakeTransport(*this, conn, wrapMode ? cols : ptyLineWidth, rows, cols, appDefaults)),
       main_doc_(std::make_unique<MainScreenDocument>(scrollbackLines)),
       alt_doc_(std::make_unique<AltScreenDocument>(rows, cols)),
       active_doc_(main_doc_.get()),
@@ -191,6 +192,8 @@ void Session::SetViewportSize(unsigned short cols, unsigned short rows)
 {
     docLayout_->SetViewportSize(static_cast<int>(cols), static_cast<int>(rows));
     if (cols == lastCols_ && rows == lastRows_) return;
+    if (cols != lastCols_)
+        transport_->OnViewportColsChanged(cols);
     lastCols_ = cols;
     lastRows_ = rows;
     if (altScreenActive_) {

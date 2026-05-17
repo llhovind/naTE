@@ -1,9 +1,11 @@
 #include "transport/PtyTransport.h"
 #include "transport/EnvUtils.h"
 
+#include <atomic>
 #include <cerrno>
 #include <csignal>
 #include <cstring>
+#include <fstream>
 #include <stdexcept>
 #include <utility>
 #include <unistd.h>
@@ -20,13 +22,27 @@
 
 namespace term::transport {
 
+namespace {
+
+std::string GenerateVpColumnsFilePath() {
+    static std::atomic<int> counter{0};
+    return "/tmp/nate-vpcolumns-"
+         + std::to_string(::getpid())
+         + "-"
+         + std::to_string(counter.fetch_add(1, std::memory_order_relaxed));
+}
+
+} // namespace
+
 PtyTransport::PtyTransport(ITransportTarget& target,
                            std::string shell,
                            unsigned short cols,
                            unsigned short rows,
+                           unsigned short viewportCols,
                            const term::session::SessionInit& sessionInit,
                            const term::session::AppSessionDefaults& appDefaults)
-    : target_(target), shell_(std::move(shell))
+    : target_(target), shell_(std::move(shell)),
+      vpcolumns_file_(GenerateVpColumnsFilePath())
 {
     struct winsize ws{};
     ws.ws_col = cols;
@@ -49,7 +65,13 @@ PtyTransport::PtyTransport(ITransportTarget& target,
 
         const std::vector<std::string> parentEnv = CaptureParentEnv();
         const std::vector<term::session::EnvVar> fileVars = ParseEnvFile(envFile);
-        EnvBlock envBlock = BuildEnvBlock(parentEnv, appDefaults.envVars, fileVars, sessionInit.envVars);
+
+        // Inject NATE_VPCOLUMNS_FILE alongside the profile vars so the shell
+        // can read the actual viewport width even when COLUMNS is inflated.
+        auto appVars = appDefaults.envVars;
+        appVars.push_back({"NATE_VPCOLUMNS_FILE", vpcolumns_file_});
+
+        EnvBlock envBlock = BuildEnvBlock(parentEnv, appVars, fileVars, sessionInit.envVars);
 
         const std::string resolvedDir = ResolveWorkingDir(
             sessionInit.workingDir, appDefaults.workingDir, homeDir);
@@ -63,12 +85,15 @@ PtyTransport::PtyTransport(ITransportTarget& target,
         execve(shell_.c_str(), const_cast<char* const*>(args), envBlock.ptrs.data());
         _exit(1);
     }
-    // Parent: read thread starts in Start(), called by Session after full construction.
+    // Parent: write the initial viewport width so the file exists before the shell
+    // runs its first command.
+    WriteVpColumns(vpcolumns_file_, viewportCols);
 }
 
 PtyTransport::~PtyTransport()
 {
     Stop();
+    ::unlink(vpcolumns_file_.c_str());
 }
 
 void PtyTransport::Stop()
@@ -108,6 +133,19 @@ void PtyTransport::Resize(unsigned short cols, unsigned short rows)
     ws.ws_col = cols;
     ws.ws_row = rows;
     ioctl(master_fd_, TIOCSWINSZ, &ws);
+}
+
+void PtyTransport::OnViewportColsChanged(unsigned short cols)
+{
+    WriteVpColumns(vpcolumns_file_, cols);
+}
+
+// static
+void PtyTransport::WriteVpColumns(const std::string& path, unsigned short cols)
+{
+    if (path.empty()) return;
+    std::ofstream f(path, std::ios::trunc);
+    if (f) f << cols << '\n';
 }
 
 void PtyTransport::ReadLoop()

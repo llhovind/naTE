@@ -25,6 +25,7 @@ public:
                  const term::session::SshDesc& desc,
                  unsigned short cols,
                  unsigned short rows,
+                 unsigned short viewportCols,
                  const term::session::SessionInit& sessionInit = {},
                  const term::session::AppSessionDefaults& appDefaults = {});
     ~SshTransport() override;
@@ -43,6 +44,9 @@ public:
 
     // Enqueues a PTY resize; worker applies it inside the read/write loop.
     void Resize(unsigned short cols, unsigned short rows) override;
+
+    // Enqueues a remote vpcolumns file update; worker writes it via exec channel.
+    void OnViewportColsChanged(unsigned short cols) override;
 
 private:
     // Worker thread — owns all libssh2 calls.
@@ -75,12 +79,18 @@ private:
     // Returns the path to ~/.nate/known_hosts, creating the directory if needed.
     static std::string KnownHostsPath();
 
+    // Opens a short-lived exec channel and writes cols to vpcolumns_remote_path_.
+    // Must be called only from the worker thread.
+    void RemoteWriteVpCols(unsigned short cols);
+
     ITransportTarget&                    target_;
     term::session::SshDesc               desc_;
     term::session::SessionInit           sessionInit_;
     term::session::AppSessionDefaults    appDefaults_;
     unsigned short                       cols_;
     unsigned short                       rows_;
+    unsigned short                       viewportCols_;
+    std::string                          vpcolumns_remote_path_;
 
     // libssh2 handles — only accessed from worker_.
     _LIBSSH2_SESSION*           session_  = nullptr;
@@ -91,12 +101,14 @@ private:
     std::atomic<bool>           running_{false};
     std::thread                 worker_;
 
-    // Shared between UI thread (Write/Resize) and worker (DrainWriteQueue).
+    // Shared between UI thread (Write/Resize/OnViewportColsChanged) and worker.
     std::mutex                  queue_mutex_;
     std::deque<std::string>     write_queue_;
-    bool                        resize_pending_ = false;
-    unsigned short              pending_cols_   = 0;
-    unsigned short              pending_rows_   = 0;
+    bool                        resize_pending_    = false;
+    unsigned short              pending_cols_      = 0;
+    unsigned short              pending_rows_      = 0;
+    bool                        vpcolumns_pending_ = false;
+    unsigned short              pending_vpcols_    = 0;
 };
 
 } // namespace term::transport

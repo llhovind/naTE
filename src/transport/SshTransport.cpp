@@ -4,6 +4,7 @@
 #include <libssh2.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cstring>
 #include <stdexcept>
@@ -24,6 +25,14 @@ namespace {
 constexpr char kTermType[]     = "xterm-256color";
 constexpr int  kPollTimeoutMs  = 100;
 
+std::string GenerateVpColumnsFilePath() {
+    static std::atomic<int> counter{0};
+    return "/tmp/nate-vpcolumns-"
+         + std::to_string(::getpid())
+         + "-"
+         + std::to_string(counter.fetch_add(1, std::memory_order_relaxed));
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -34,10 +43,13 @@ SshTransport::SshTransport(ITransportTarget& target,
                            const term::session::SshDesc& desc,
                            unsigned short cols,
                            unsigned short rows,
+                           unsigned short viewportCols,
                            const term::session::SessionInit& sessionInit,
                            const term::session::AppSessionDefaults& appDefaults)
     : target_(target), desc_(desc), sessionInit_(sessionInit),
-      appDefaults_(appDefaults), cols_(cols), rows_(rows)
+      appDefaults_(appDefaults), cols_(cols), rows_(rows),
+      viewportCols_(viewportCols),
+      vpcolumns_remote_path_(GenerateVpColumnsFilePath())
 {}
 
 SshTransport::~SshTransport()
@@ -80,6 +92,13 @@ void SshTransport::Resize(unsigned short cols, unsigned short rows)
     resize_pending_ = true;
 }
 
+void SshTransport::OnViewportColsChanged(unsigned short cols)
+{
+    std::lock_guard<std::mutex> lk(queue_mutex_);
+    vpcolumns_pending_ = true;
+    pending_vpcols_    = cols;
+}
+
 // ---------------------------------------------------------------------------
 // Worker thread
 // ---------------------------------------------------------------------------
@@ -101,6 +120,23 @@ void SshTransport::WorkerThread()
         libssh2_session_flag(session_, LIBSSH2_FLAG_COMPRESS, 1);
 
     ReadWriteLoop();
+
+    // Best-effort: remove the remote vpcolumns file before tearing down.
+    // Switch to blocking mode — PollUntilReady returns false once running_ is
+    // cleared, so the non-blocking EAGAIN retry loops don't work here.
+    if (!vpcolumns_remote_path_.empty() && session_) {
+        libssh2_session_set_blocking(session_, 1);
+        LIBSSH2_CHANNEL* ch = libssh2_channel_open_session(session_);
+        if (ch) {
+            const std::string rm = "rm -f '" + vpcolumns_remote_path_ + "'";
+            if (libssh2_channel_exec(ch, rm.c_str()) == 0) {
+                char discard[64];
+                while (libssh2_channel_read(ch, discard, sizeof(discard)) > 0) {}
+            }
+            libssh2_channel_free(ch);
+        }
+        // Session remains in blocking mode — it's freed immediately after.
+    }
 
     // Orderly teardown (best-effort; ignore errors during shutdown).
     if (channel_) {
@@ -474,6 +510,18 @@ bool SshTransport::RequestPty()
             envPrefix += "export " + ev.key + "='" + escaped + "'; ";
         }
 
+        // Inject NATE_VPCOLUMNS_FILE and write the initial viewport width so
+        // the shell can read the actual display columns even when COLUMNS is
+        // inflated by wrap-OFF mode.
+        {
+            std::string escaped = vpcolumns_remote_path_;
+            for (size_t p = 0; (p = escaped.find('\'', p)) != std::string::npos; p += 4)
+                escaped.replace(p, 1, "'\\''");
+            envPrefix += "export NATE_VPCOLUMNS_FILE='" + escaped + "'; ";
+            envPrefix += "printf '%d\\n' " + std::to_string(viewportCols_)
+                       + " > '" + escaped + "'; ";
+        }
+
         // Resolve remote working directory. Do NOT expand ~ locally — the path
         // lives on the remote machine. Replace a leading ~ with $HOME so the
         // remote shell expands it correctly inside double quotes.
@@ -581,9 +629,11 @@ void SshTransport::ReadWriteLoop()
 void SshTransport::DrainWriteQueue()
 {
     // Swap the resize flag and queue out under lock, then act without holding it.
-    bool           doResize = false;
-    unsigned short newCols  = 0;
-    unsigned short newRows  = 0;
+    bool           doResize  = false;
+    unsigned short newCols   = 0;
+    unsigned short newRows   = 0;
+    bool           doVpCols  = false;
+    unsigned short newVpCols = 0;
     std::deque<std::string> local;
 
     {
@@ -596,6 +646,11 @@ void SshTransport::DrainWriteQueue()
             cols_           = newCols;
             rows_           = newRows;
             resize_pending_ = false;
+        }
+        if (vpcolumns_pending_) {
+            doVpCols           = true;
+            newVpCols          = pending_vpcols_;
+            vpcolumns_pending_ = false;
         }
     }
 
@@ -625,6 +680,38 @@ void SshTransport::DrainWriteQueue()
             PollUntilReady(kPollTimeoutMs);
         }
     }
+
+    // Update the remote vpcolumns file if the viewport width changed.
+    if (doVpCols && session_ && !vpcolumns_remote_path_.empty())
+        RemoteWriteVpCols(newVpCols);
+}
+
+void SshTransport::RemoteWriteVpCols(unsigned short cols)
+{
+    const std::string cmd = "printf '%d\\n' " + std::to_string(cols)
+                          + " > '" + vpcolumns_remote_path_ + "'";
+
+    LIBSSH2_CHANNEL* ch = nullptr;
+    while (running_) {
+        ch = libssh2_channel_open_session(session_);
+        if (ch) break;
+        if (libssh2_session_last_error(session_, nullptr, nullptr, 0) != LIBSSH2_ERROR_EAGAIN)
+            return;
+        if (!PollUntilReady(kPollTimeoutMs)) return;
+    }
+    if (!ch) return;
+
+    int rc;
+    while ((rc = libssh2_channel_exec(ch, cmd.c_str())) == LIBSSH2_ERROR_EAGAIN) {
+        if (!running_) break;
+        PollUntilReady(kPollTimeoutMs);
+    }
+
+    libssh2_channel_send_eof(ch);
+    // Drain output so the session multiplexer stays clean.
+    char discard[64];
+    while (libssh2_channel_read(ch, discard, sizeof(discard)) > 0) {}
+    libssh2_channel_free(ch);
 }
 
 // ---------------------------------------------------------------------------

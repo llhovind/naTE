@@ -11,6 +11,7 @@ public:
     virtual void Start() = 0;
     virtual void Stop() {}
     virtual void Resize(unsigned short cols, unsigned short rows) = 0;
+    virtual void OnViewportColsChanged(unsigned short /*cols*/) {}
 };
 
 } // namespace term::transport

@@ -17,6 +17,7 @@ public:
                  std::string shell,
                  unsigned short cols,
                  unsigned short rows,
+                 unsigned short viewportCols,
                  const term::session::SessionInit& sessionInit = {},
                  const term::session::AppSessionDefaults& appDefaults = {});
     ~PtyTransport() override;
@@ -28,12 +29,15 @@ public:
     void Start() override;
     void Stop() override;
     void Resize(unsigned short cols, unsigned short rows) override;
+    void OnViewportColsChanged(unsigned short cols) override;
 
 private:
     void ReadLoop();
+    static void WriteVpColumns(const std::string& path, unsigned short cols);
 
     ITransportTarget& target_;
     std::string       shell_;
+    std::string       vpcolumns_file_;
     int               master_fd_ = -1;
     pid_t             child_pid_ = -1;
     std::atomic<bool> running_{false};

@@ -74,8 +74,9 @@ private:
     static std::unique_ptr<transport::Transport> MakeTransport(
         transport::ITransportTarget& target,
         const Connection& conn,
-        unsigned short cols,
+        unsigned short ptyCols,
         unsigned short rows,
+        unsigned short viewportCols,
         const AppSessionDefaults& appDefaults);
 
 private:
