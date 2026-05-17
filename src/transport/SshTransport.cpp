@@ -1,4 +1,5 @@
 #include "transport/SshTransport.h"
+#include "transport/EnvUtils.h"
 
 #include <libssh2.h>
 
@@ -32,8 +33,11 @@ constexpr int  kPollTimeoutMs  = 100;
 SshTransport::SshTransport(ITransportTarget& target,
                            const term::session::SshDesc& desc,
                            unsigned short cols,
-                           unsigned short rows)
-    : target_(target), desc_(desc), cols_(cols), rows_(rows)
+                           unsigned short rows,
+                           const term::session::SessionInit& sessionInit,
+                           const term::session::AppSessionDefaults& appDefaults)
+    : target_(target), desc_(desc), sessionInit_(sessionInit),
+      appDefaults_(appDefaults), cols_(cols), rows_(rows)
 {}
 
 SshTransport::~SshTransport()
@@ -440,27 +444,78 @@ bool SshTransport::RequestPty()
         return false;
     }
 
-    // Start the shell or a specific command.
-    const bool hasCommand = !desc_.remoteCommand.empty();
-    if (hasCommand) {
-        while ((rc = libssh2_channel_exec(channel_, desc_.remoteCommand.c_str()))
-               == LIBSSH2_ERROR_EAGAIN) {
-            if (!running_) return false;
-            PollUntilReady(kPollTimeoutMs);
-        }
-    } else {
-        while ((rc = libssh2_channel_shell(channel_)) == LIBSSH2_ERROR_EAGAIN) {
-            if (!running_) return false;
-            PollUntilReady(kPollTimeoutMs);
-        }
-    }
+    // Build and launch the effective remote command, injecting env vars and
+    // working directory via the command string. libssh2_channel_setenv_ex() is
+    // not used because AcceptEnv is disabled on most servers.
+    {
+        // Env file path is local — expand tilde against the local HOME.
+        const char* localHomeRaw = getenv("HOME");
+        const std::string localHome = localHomeRaw ? localHomeRaw : "";
 
-    if (rc != 0) {
-        NotifyError(TransportError::Category::Protocol,
-                    "SSH: could not start " +
-                    std::string(hasCommand ? "command" : "shell") +
-                    " — " + LastSshError());
-        return false;
+        const std::string& rawEnvFile = sessionInit_.envFilePath.empty()
+            ? appDefaults_.envFilePath
+            : sessionInit_.envFilePath;
+        const std::vector<term::session::EnvVar> fileVars =
+            ParseEnvFile(ExpandTilde(rawEnvFile, localHome));
+
+        // Merge: app defaults → file vars → profile vars (profile wins)
+        std::vector<term::session::EnvVar> merged = appDefaults_.envVars;
+        for (const auto& ev : fileVars)              merged.push_back(ev);
+        for (const auto& ev : sessionInit_.envVars)  merged.push_back(ev);
+
+        // Build a POSIX-safe export prefix: single-quote each value,
+        // escaping any embedded single quotes as '\''.
+        std::string envPrefix;
+        for (const auto& ev : merged) {
+            if (ev.key.empty()) continue;
+            std::string escaped = ev.value;
+            for (size_t pos = 0; (pos = escaped.find('\'', pos)) != std::string::npos; pos += 4)
+                escaped.replace(pos, 1, "'\\''");
+            envPrefix += "export " + ev.key + "='" + escaped + "'; ";
+        }
+
+        // Resolve remote working directory. Do NOT expand ~ locally — the path
+        // lives on the remote machine. Replace a leading ~ with $HOME so the
+        // remote shell expands it correctly inside double quotes.
+        const std::string& rawDir = sessionInit_.workingDir.empty()
+            ? appDefaults_.workingDir
+            : sessionInit_.workingDir;
+        std::string sshDir = rawDir;
+        if (!sshDir.empty() && sshDir[0] == '~')
+            sshDir = "$HOME" + sshDir.substr(1);
+
+        // Assemble: [exports] [cd "dir" &&] [remoteCommand | exec $SHELL]
+        std::string effectiveCmd = desc_.remoteCommand;
+        if (!sshDir.empty()) {
+            effectiveCmd = envPrefix + "cd \"" + sshDir + "\" && "
+                         + (effectiveCmd.empty() ? "exec $SHELL" : effectiveCmd);
+        } else if (!envPrefix.empty()) {
+            effectiveCmd = envPrefix + (effectiveCmd.empty() ? "exec $SHELL" : effectiveCmd);
+        }
+        // If both are empty, effectiveCmd remains "" → channel_shell() below.
+
+        // Start the shell or effective command.
+        const bool hasCommand = !effectiveCmd.empty();
+        if (hasCommand) {
+            while ((rc = libssh2_channel_exec(channel_, effectiveCmd.c_str()))
+                   == LIBSSH2_ERROR_EAGAIN) {
+                if (!running_) return false;
+                PollUntilReady(kPollTimeoutMs);
+            }
+        } else {
+            while ((rc = libssh2_channel_shell(channel_)) == LIBSSH2_ERROR_EAGAIN) {
+                if (!running_) return false;
+                PollUntilReady(kPollTimeoutMs);
+            }
+        }
+
+        if (rc != 0) {
+            NotifyError(TransportError::Category::Protocol,
+                        "SSH: could not start " +
+                        std::string(hasCommand ? "command" : "shell") +
+                        " — " + LastSshError());
+            return false;
+        }
     }
     return true;
 }

@@ -12,7 +12,9 @@ FetchContent_MakeAvailable(Catch2)
 add_executable(naTE_tests
     main.cpp
     test_config.cpp
+    test_env_utils.cpp
     ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
 )
 target_link_libraries(naTE_tests PRIVATE Catch2::Catch2)
 target_include_directories(naTE_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -30,6 +32,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/session/InputEncoder.cpp
     ${CMAKE_SOURCE_DIR}/src/session/Session.cpp
     ${CMAKE_SOURCE_DIR}/src/session/SessionManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/LoopbackTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/PtyTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SerialTransport.cpp

@@ -558,3 +558,42 @@ TEST_CASE("given line longer than viewport when wrap mode off then horizontal sc
     const RenderedLine row1 = layout.GetRenderedLine(0);
     REQUIRE(row1.text == U"KLMNOPQRSTUVWXYZABCD");
 }
+
+// ---------------------------------------------------------------------------
+// MakeTitleGetter profile-title overload
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given useProfileTitle=true and non-empty profileTitle when MakeTitleGetter called then getter returns profileTitle")
+{
+    SessionManager sm;
+    const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
+
+    auto getter = sm.MakeTitleGetter(id, "My Box", true);
+    CHECK(getter() == "My Box");
+
+    sm.CloseSession(id);
+}
+
+TEST_CASE("given useProfileTitle=false when MakeTitleGetter called then getter returns session document title")
+{
+    SessionManager sm;
+    const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
+
+    auto getter = sm.MakeTitleGetter(id, "Ignored", false);
+    // Loopback session has no title set — empty string expected
+    CHECK(getter() == "");
+
+    sm.CloseSession(id);
+}
+
+TEST_CASE("given useProfileTitle=true but empty profileTitle when MakeTitleGetter called then getter falls back to document title")
+{
+    SessionManager sm;
+    const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
+
+    auto getter = sm.MakeTitleGetter(id, "", true);
+    // Empty profileTitle — should fall through to document title (also empty for loopback)
+    CHECK(getter() == "");
+
+    sm.CloseSession(id);
+}

@@ -29,6 +29,7 @@ set(SOURCES
     src/session/Session.cpp
     src/session/SessionManager.cpp
     src/ui/ConnectionFactory.cpp
+    src/transport/EnvUtils.cpp
     src/transport/LoopbackTransport.cpp
     src/transport/PtyTransport.cpp
     src/transport/SerialTransport.cpp

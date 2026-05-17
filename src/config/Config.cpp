@@ -85,8 +85,38 @@ AppConfig AppConfig::load(const std::string& path) {
             else if (key == "BgR")   cfg.bgColour.r   = clamp(toInt(val, cfg.bgColour.r));
             else if (key == "BgG")   cfg.bgColour.g   = clamp(toInt(val, cfg.bgColour.g));
             else if (key == "BgB")   cfg.bgColour.b   = clamp(toInt(val, cfg.bgColour.b));
+        } else if (section == "Session") {
+            if      (key == "DefaultWorkingDir") cfg.defaultWorkingDir  = val;
+            else if (key == "DefaultEnvFile")    cfg.defaultEnvFilePath = val;
+            else if (key == "DefaultLoginShell") cfg.defaultLoginShell  = (val == "true" || val == "1");
+            else {
+                // Indexed env var pairs: EnvVar0Key / EnvVar0Value, EnvVar1Key / EnvVar1Value, …
+                // Stops at the first index with no Key entry; max 64 pairs.
+                constexpr int kMaxEnvVars = 64;
+                for (int i = 0; i < kMaxEnvVars; ++i) {
+                    const std::string keyKey = "EnvVar" + std::to_string(i) + "Key";
+                    const std::string valKey = "EnvVar" + std::to_string(i) + "Value";
+                    if (key == keyKey) {
+                        if (static_cast<int>(cfg.defaultEnvVars.size()) <= i)
+                            cfg.defaultEnvVars.resize(i + 1);
+                        cfg.defaultEnvVars[i].key = val;
+                        break;
+                    } else if (key == valKey) {
+                        if (static_cast<int>(cfg.defaultEnvVars.size()) <= i)
+                            cfg.defaultEnvVars.resize(i + 1);
+                        cfg.defaultEnvVars[i].value = val;
+                        break;
+                    }
+                }
+            }
         }
     }
+
+    // Remove any env var entries where the key is empty (incomplete pairs).
+    cfg.defaultEnvVars.erase(
+        std::remove_if(cfg.defaultEnvVars.begin(), cfg.defaultEnvVars.end(),
+                       [](const term::session::EnvVar& ev) { return ev.key.empty(); }),
+        cfg.defaultEnvVars.end());
 
     return cfg;
 }

@@ -1,4 +1,5 @@
 #pragma once
+#include "session/EnvVar.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -26,6 +27,12 @@ struct AppConfig {
     Rgb textColour{ 0,   0,   0   };
     Rgb bgColour  { 255, 255, 204 };
     std::vector<GeometryPreset> geometryPresets = {{80, 24}, {132, 24}};
+
+    // [Session] defaults — applied to every new session, overridable per profile
+    std::string                        defaultWorkingDir;
+    std::vector<term::session::EnvVar> defaultEnvVars;
+    std::string                        defaultEnvFilePath;
+    bool                               defaultLoginShell = false;
 
     static AppConfig load(const std::string& path);
 };

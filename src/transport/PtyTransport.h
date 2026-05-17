@@ -1,5 +1,7 @@
 #pragma once
 
+#include "session/AppSessionDefaults.h"
+#include "session/Connection.h"
 #include "transport/Transport.hpp"
 #include "transport/ITransportTarget.h"
 #include <atomic>
@@ -11,8 +13,12 @@ namespace term::transport {
 
 class PtyTransport : public Transport {
 public:
-    PtyTransport(ITransportTarget& target, std::string shell,
-                 unsigned short cols, unsigned short rows);
+    PtyTransport(ITransportTarget& target,
+                 std::string shell,
+                 unsigned short cols,
+                 unsigned short rows,
+                 const term::session::SessionInit& sessionInit = {},
+                 const term::session::AppSessionDefaults& appDefaults = {});
     ~PtyTransport() override;
 
     PtyTransport(const PtyTransport&) = delete;

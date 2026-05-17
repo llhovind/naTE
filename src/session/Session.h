@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "input/InputRouter.h"
+#include "session/AppSessionDefaults.h"
 #include "session/Connection.h"
 #include "session/InputEncoder.h"
 #include "transport/Transport.hpp"
@@ -27,6 +28,7 @@ public:
             unsigned short rows,
             std::function<void()> onDisconnect,
             std::function<void(const transport::TransportError&)> onError,
+            AppSessionDefaults appDefaults = {},
             unsigned short ptyLineWidth = 1024,
             bool wrapMode = false);
     ~Session();
@@ -73,7 +75,8 @@ private:
         transport::ITransportTarget& target,
         const Connection& conn,
         unsigned short cols,
-        unsigned short rows);
+        unsigned short rows,
+        const AppSessionDefaults& appDefaults);
 
 private:
     std::unique_ptr<transport::Transport> transport_;

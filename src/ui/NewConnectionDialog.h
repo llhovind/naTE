@@ -2,14 +2,17 @@
 
 #include "config/Config.h"
 #include "db/ConnectionProfile.h"
+#include "session/EnvVar.h"
 
 #include <wx/dialog.h>
 #include <string>
 #include <variant>
 #include <vector>
 
+class wxButton;
 class wxCheckBox;
 class wxComboBox;
+class wxListBox;
 class wxNotebook;
 class wxPanel;
 class wxRadioBox;
@@ -44,9 +47,17 @@ enum class LaunchPlacement {
 // ---------------------------------------------------------------------------
 struct PtyParams {
     std::string    shell;
-    bool           wrapMode    = false;
-    unsigned short columnWidth = 80;
-    unsigned short rows        = 24;
+    bool           wrapMode       = false;
+    unsigned short columnWidth    = 80;
+    unsigned short rows           = 24;
+    // Session Init
+    std::string                        workingDir;
+    std::vector<term::session::EnvVar> envVars;
+    std::string                        envFilePath;
+    bool                               loginShell     = false;
+    // Profile title override
+    std::string    profileTitle;
+    bool           useProfileTitle = false;
 };
 
 enum class SshAuthChoice { Agent, Password, PrivateKey };
@@ -66,6 +77,13 @@ struct SshParams {
     bool           wrapMode          = false;
     unsigned short columnWidth       = 80;
     unsigned short rows              = 24;
+    // Session Init
+    std::string                        workingDir;
+    std::vector<term::session::EnvVar> envVars;
+    std::string                        envFilePath;
+    // Profile title override
+    std::string    profileTitle;
+    bool           useProfileTitle = false;
 };
 
 struct SerialParams {
@@ -79,6 +97,12 @@ struct SerialParams {
     bool           wrapMode     = false;
     unsigned short columnWidth  = 80;
     unsigned short rows         = 24;
+    // Session Init (env vars only for Serial)
+    std::vector<term::session::EnvVar> envVars;
+    std::string                        envFilePath;
+    // Profile title override
+    std::string    profileTitle;
+    bool           useProfileTitle = false;
 };
 
 using ConnectionParams = std::variant<PtyParams, SshParams, SerialParams>;
@@ -116,8 +140,18 @@ private:
     void OnProfileSelected(wxCommandEvent&);
     void OnProfileTextChanged(wxCommandEvent&);
     void OnOK(wxCommandEvent&);
+    // Env-var list handlers (shared across all tabs via per-tab listbox pointers)
+    void OnBrowseWorkingDir(wxCommandEvent&);
+    void OnAddEnvVar(wxCommandEvent&);
+    void OnEditEnvVar(wxCommandEvent&);
+    void OnRemoveEnvVar(wxCommandEvent&);
+    void OnEnvVarSelected(wxCommandEvent&);
+    void OnUseProfileTitleToggled(wxCommandEvent&);
 
     void ApplyPrefill(const term::db::ConnectionProfile& profile);
+
+    // Helper: return whichever env-var listbox belongs to the currently active tab.
+    wxListBox* ActiveEnvVarList() const;
 
     // Context
     LaunchContext m_context;
@@ -133,9 +167,26 @@ private:
     wxNotebook* m_notebook = nullptr;
 
     // PTY tab fields
-    wxTextCtrl* m_shellCtrl = nullptr;
+    wxTextCtrl*      m_shellCtrl         = nullptr;
+    wxTextCtrl*      m_ptyWorkDirCtrl    = nullptr;
+    wxButton*        m_ptyWorkDirBtn     = nullptr;
+    wxCheckBox*      m_cbPtyLoginShell   = nullptr;
+    wxFilePickerCtrl* m_ptyEnvFileCtrl   = nullptr;
+    wxListBox*       m_ptyEnvVarList     = nullptr;
+    wxButton*        m_ptyBtnAddEnv      = nullptr;
+    wxButton*        m_ptyBtnEditEnv     = nullptr;
+    wxButton*        m_ptyBtnRemoveEnv   = nullptr;
 
-    // SSH tab fields
+    // SSH tab Session Init fields
+    wxTextCtrl*      m_sshWorkDirCtrl   = nullptr;
+    wxButton*        m_sshWorkDirBtn    = nullptr;
+    wxFilePickerCtrl* m_sshEnvFileCtrl  = nullptr;
+    wxListBox*       m_sshEnvVarList    = nullptr;
+    wxButton*        m_sshBtnAddEnv     = nullptr;
+    wxButton*        m_sshBtnEditEnv    = nullptr;
+    wxButton*        m_sshBtnRemoveEnv  = nullptr;
+
+    // SSH tab connection fields
     wxTextCtrl*      m_hostCtrl        = nullptr;
     wxSpinCtrl*      m_portCtrl        = nullptr;
     wxTextCtrl*      m_userCtrl        = nullptr;
@@ -152,7 +203,14 @@ private:
     wxTextCtrl*      m_remoteCmdCtrl   = nullptr;
     wxCheckBox*      m_cbCompress      = nullptr;
 
-    // Serial tab fields
+    // Serial tab Session Init fields
+    wxFilePickerCtrl* m_serialEnvFileCtrl  = nullptr;
+    wxListBox*        m_serialEnvVarList   = nullptr;
+    wxButton*         m_serialBtnAddEnv    = nullptr;
+    wxButton*         m_serialBtnEditEnv   = nullptr;
+    wxButton*         m_serialBtnRemoveEnv = nullptr;
+
+    // Serial tab connection fields
     wxTextCtrl*  m_deviceCtrl     = nullptr;
     wxComboBox*  m_baudCtrl       = nullptr;
     wxComboBox*  m_dataBitsCtrl   = nullptr;
@@ -162,11 +220,13 @@ private:
     wxTextCtrl*  m_dialScriptCtrl = nullptr;
 
     // Shared terminal options
-    wxComboBox*  m_geometryCombo   = nullptr;
-    wxPanel*     m_customGeomPanel = nullptr;
-    wxSpinCtrl*  m_colsCtrl        = nullptr;
-    wxSpinCtrl*  m_rowsCtrl        = nullptr;
-    wxCheckBox*  m_cbWrapMode      = nullptr;
+    wxComboBox*  m_geometryCombo     = nullptr;
+    wxPanel*     m_customGeomPanel   = nullptr;
+    wxSpinCtrl*  m_colsCtrl          = nullptr;
+    wxSpinCtrl*  m_rowsCtrl          = nullptr;
+    wxCheckBox*  m_cbWrapMode        = nullptr;
+    wxTextCtrl*  m_profileTitleCtrl  = nullptr;
+    wxCheckBox*  m_cbUseProfileTitle = nullptr;
 
     // Placement (UserChoice only)
     wxRadioBox* m_placementCtrl = nullptr;

@@ -149,32 +149,67 @@ term::session::TransportDesc DeserialiseTransport(const json& j)
     return term::session::LoopbackDesc{};
 }
 
+// ---- SessionInit serialisation ---------------------------------------------
+
+json SerialiseSessionInit(const term::session::SessionInit& si)
+{
+    json envVars = json::array();
+    for (const auto& ev : si.envVars)
+        envVars.push_back({{"key", ev.key}, {"value", ev.value}});
+
+    return json{
+        {"workingDir",   si.workingDir},
+        {"loginShell",   si.loginShell},
+        {"envFilePath",  si.envFilePath},
+        {"envVars",      std::move(envVars)},
+    };
+}
+
+term::session::SessionInit DeserialiseSessionInit(const json& j)
+{
+    term::session::SessionInit si;
+    si.workingDir   = j.value("workingDir",  std::string{});
+    si.loginShell   = j.value("loginShell",  false);
+    si.envFilePath  = j.value("envFilePath", std::string{});
+    for (const auto& ev : j.value("envVars", json::array()))
+        si.envVars.push_back({ev.value("key", std::string{}),
+                               ev.value("value", std::string{})});
+    return si;
+}
+
 // ---- Profile serialisation -------------------------------------------------
 
 json SerialiseProfile(const ConnectionProfile& p)
 {
     json j = SerialiseTransport(p.transport);
-    j["id"]          = p.id;
-    j["name"]        = p.name;
-    j["wrapMode"]    = p.wrapMode;
-    j["columnWidth"] = p.columnWidth;
-    j["rows"]        = p.rows;
-    j["createdAt"]   = static_cast<long long>(p.createdAt);
-    j["lastUsed"]    = static_cast<long long>(p.lastUsed);
+    j["id"]              = p.id;
+    j["name"]            = p.name;
+    j["wrapMode"]        = p.wrapMode;
+    j["columnWidth"]     = p.columnWidth;
+    j["rows"]            = p.rows;
+    j["createdAt"]       = static_cast<long long>(p.createdAt);
+    j["lastUsed"]        = static_cast<long long>(p.lastUsed);
+    j["sessionInit"]     = SerialiseSessionInit(p.sessionInit);
+    j["profileTitle"]    = p.profileTitle;
+    j["useProfileTitle"] = p.useProfileTitle;
     return j;
 }
 
 ConnectionProfile DeserialiseProfile(const json& j)
 {
     ConnectionProfile p;
-    p.id          = j.value("id",          std::string{});
-    p.name        = j.value("name",        std::string{});
-    p.wrapMode    = j.value("wrapMode",    false);
-    p.columnWidth = j.value("columnWidth", static_cast<unsigned short>(80));
-    p.rows        = j.value("rows",        static_cast<unsigned short>(24));
-    p.createdAt   = static_cast<std::time_t>(j.value("createdAt", 0LL));
-    p.lastUsed    = static_cast<std::time_t>(j.value("lastUsed",  0LL));
-    p.transport   = DeserialiseTransport(j);
+    p.id             = j.value("id",             std::string{});
+    p.name           = j.value("name",           std::string{});
+    p.wrapMode       = j.value("wrapMode",       false);
+    p.columnWidth    = j.value("columnWidth",    static_cast<unsigned short>(80));
+    p.rows           = j.value("rows",           static_cast<unsigned short>(24));
+    p.createdAt      = static_cast<std::time_t>(j.value("createdAt", 0LL));
+    p.lastUsed       = static_cast<std::time_t>(j.value("lastUsed",  0LL));
+    p.profileTitle   = j.value("profileTitle",   std::string{});
+    p.useProfileTitle= j.value("useProfileTitle",false);
+    p.transport      = DeserialiseTransport(j);
+    if (j.contains("sessionInit"))
+        p.sessionInit = DeserialiseSessionInit(j.at("sessionInit"));
     return p;
 }
 

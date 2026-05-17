@@ -17,6 +17,12 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
             conn.wrapMode    = p.wrapMode;
             conn.columnWidth = p.columnWidth;
             conn.rows        = p.rows;
+            conn.sessionInit.workingDir  = p.workingDir;
+            conn.sessionInit.envVars     = p.envVars;
+            conn.sessionInit.envFilePath = p.envFilePath;
+            conn.sessionInit.loginShell  = p.loginShell;
+            conn.profileTitle            = p.profileTitle;
+            conn.useProfileTitle         = p.useProfileTitle;
 
         } else if constexpr (std::is_same_v<T, SshParams>) {
             conn.label       = labelIdx
@@ -43,10 +49,15 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
                 default:
                     d.authMethod = term::session::SshAuthMethod::Agent; break;
             }
-            conn.transport   = d;
-            conn.wrapMode    = p.wrapMode;
-            conn.columnWidth = p.columnWidth;
-            conn.rows        = p.rows;
+            conn.transport               = d;
+            conn.wrapMode                = p.wrapMode;
+            conn.columnWidth             = p.columnWidth;
+            conn.rows                    = p.rows;
+            conn.sessionInit.workingDir  = p.workingDir;
+            conn.sessionInit.envVars     = p.envVars;
+            conn.sessionInit.envFilePath = p.envFilePath;
+            conn.profileTitle            = p.profileTitle;
+            conn.useProfileTitle         = p.useProfileTitle;
 
         } else if constexpr (std::is_same_v<T, SerialParams>) {
             conn.label       = labelIdx
@@ -64,11 +75,15 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
             if      (p.flowControl == "Hardware") d.flowControl = term::session::SerialFlowControl::Hardware;
             else if (p.flowControl == "Software") d.flowControl = term::session::SerialFlowControl::Software;
             else                                  d.flowControl = term::session::SerialFlowControl::None;
-            d.dialScript     = p.dialScript;
-            conn.transport   = d;
-            conn.wrapMode    = p.wrapMode;
-            conn.columnWidth = p.columnWidth;
-            conn.rows        = p.rows;
+            d.dialScript                 = p.dialScript;
+            conn.transport               = d;
+            conn.wrapMode                = p.wrapMode;
+            conn.columnWidth             = p.columnWidth;
+            conn.rows                    = p.rows;
+            conn.sessionInit.envVars     = p.envVars;
+            conn.sessionInit.envFilePath = p.envFilePath;
+            conn.profileTitle            = p.profileTitle;
+            conn.useProfileTitle         = p.useProfileTitle;
         }
     }, params);
 

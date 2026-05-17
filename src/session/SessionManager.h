@@ -10,6 +10,7 @@
 
 #include "document/IDocumentListener.h"
 #include "input/InputRouter.h"
+#include "session/AppSessionDefaults.h"
 #include "session/Connection.h"
 #include "session/ISessionObserver.h"
 #include "session/Session.h"
@@ -32,6 +33,7 @@ public:
                             int scrollbackLines,
                             unsigned short cols,
                             unsigned short rows,
+                            AppSessionDefaults appDefaults = {},
                             unsigned short ptyLineWidth = 1024);
 
     // Stops the transport, fires OnSessionDestroyed on the per-session observer,
@@ -76,6 +78,13 @@ public:
     // function (SessionManager guarantees this while the session is registered).
     std::function<std::string()> MakeTitleGetter(SessionId id) const;
 
+    // Overload that supports a static profile title override. When useProfileTitle
+    // is true and profileTitle is non-empty, the getter always returns profileTitle
+    // regardless of any transport-sent OSC title changes.
+    std::function<std::string()> MakeTitleGetter(SessionId id,
+                                                  const std::string& profileTitle,
+                                                  bool useProfileTitle) const;
+
     // -------------------------------------------------------------------------
     // Viewport control — called by UIManager on the UI thread
     // -------------------------------------------------------------------------
@@ -98,6 +107,10 @@ private:
         // Heap-allocated so lambdas captured in the Session constructor can
         // hold a stable pointer even if sessions_ is rehashed.
         std::shared_ptr<std::atomic<ISessionObserver*>>  uiObserver;
+        // Profile-title override, retained so TakeSession works correctly after
+        // a session is dragged to a new tile/window.
+        std::string                                      profileTitle;
+        bool                                             useProfileTitle = false;
     };
 
     SessionRecord*       FindRecord(SessionId id);

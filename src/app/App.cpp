@@ -1,5 +1,6 @@
 #include "app/App.h"
 #include "db/JsonConnectionRepository.h"
+#include "session/AppSessionDefaults.h"
 #include "ui/MainFrame.h"
 #include "ui/TerminalTile.h"
 #include <wx/filename.h>
@@ -161,6 +162,12 @@ term::session::SessionId App::CreateSessionInTile(
         ? conn.rows
         : static_cast<unsigned short>(m_cfg.rows);
 
+    term::session::AppSessionDefaults appDefaults;
+    appDefaults.workingDir   = m_cfg.defaultWorkingDir;
+    appDefaults.envVars      = m_cfg.defaultEnvVars;
+    appDefaults.envFilePath  = m_cfg.defaultEnvFilePath;
+    appDefaults.loginShell   = m_cfg.defaultLoginShell;
+
     term::session::SessionId id = 0;
     try {
         id = m_sessionManager->CreateSession(
@@ -168,6 +175,7 @@ term::session::SessionId App::CreateSessionInTile(
             m_cfg.scrollbackLines,
             cols,
             rows,
+            std::move(appDefaults),
             static_cast<unsigned short>(m_cfg.ptyLineWidth));
     } catch (const std::exception& e) {
         wxMessageBox(wxString::FromUTF8(e.what()), "Connection Failed",
@@ -179,7 +187,7 @@ term::session::SessionId App::CreateSessionInTile(
     m_sessionManager->RegisterRouter(id, *ctx->router);
     ctx->uiManager->TakeSession(
         id,
-        m_sessionManager->MakeTitleGetter(id),
+        m_sessionManager->MakeTitleGetter(id, conn.profileTitle, conn.useProfileTitle),
         cols,
         rows,
         conn.label,

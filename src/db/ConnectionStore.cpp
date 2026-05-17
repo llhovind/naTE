@@ -21,17 +21,23 @@ const ConnectionProfile& ConnectionStore::Add(const std::string& name,
                                                const term::session::TransportDesc& transport,
                                                bool wrapMode,
                                                unsigned short columnWidth,
-                                               unsigned short rows)
+                                               unsigned short rows,
+                                               term::session::SessionInit sessionInit,
+                                               std::string profileTitle,
+                                               bool useProfileTitle)
 {
     ConnectionProfile p;
-    p.id          = GenerateId();
-    p.name        = name;
-    p.transport   = transport;
-    p.wrapMode    = wrapMode;
-    p.columnWidth = columnWidth;
-    p.rows        = rows;
-    p.createdAt   = std::time(nullptr);
-    p.lastUsed    = 0;
+    p.id             = GenerateId();
+    p.name           = name;
+    p.transport      = transport;
+    p.wrapMode       = wrapMode;
+    p.columnWidth    = columnWidth;
+    p.rows           = rows;
+    p.sessionInit    = std::move(sessionInit);
+    p.profileTitle   = std::move(profileTitle);
+    p.useProfileTitle= useProfileTitle;
+    p.createdAt      = std::time(nullptr);
+    p.lastUsed       = 0;
 
     m_repo->Save(p);
     m_profiles.push_back(p);

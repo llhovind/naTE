@@ -21,7 +21,10 @@ public:
                                  const term::session::TransportDesc& transport,
                                  bool wrapMode,
                                  unsigned short columnWidth,
-                                 unsigned short rows = 24);
+                                 unsigned short rows = 24,
+                                 term::session::SessionInit sessionInit = {},
+                                 std::string profileTitle = {},
+                                 bool useProfileTitle = false);
 
     // Replaces the profile with profile.id; no-op if id not found.
     void Update(const ConnectionProfile& profile);

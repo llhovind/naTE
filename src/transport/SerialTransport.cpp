@@ -1,4 +1,5 @@
 #include "transport/SerialTransport.h"
+#include "transport/EnvUtils.h"
 #include "transport/TransportError.h"
 
 #include <cerrno>
@@ -38,8 +39,10 @@ speed_t BaudToSpeed(unsigned int baud)
 } // namespace
 
 SerialTransport::SerialTransport(ITransportTarget& target,
-                                 const term::session::SerialDesc& desc)
-    : target_(target), desc_(desc)
+                                 const term::session::SerialDesc& desc,
+                                 const term::session::SessionInit& sessionInit,
+                                 const term::session::AppSessionDefaults& appDefaults)
+    : target_(target), desc_(desc), sessionInit_(sessionInit), appDefaults_(appDefaults)
 {
     fd_ = ::open(desc_.device.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (fd_ < 0)
@@ -132,7 +135,21 @@ void SerialTransport::RunDialScript()
         // can read/write the port transparently.
         ::dup2(fd_, STDIN_FILENO);
         ::dup2(fd_, STDOUT_FILENO);
-        ::execl("/bin/sh", "sh", "-c", desc_.dialScript.c_str(), nullptr);
+
+        // Apply merged env block so the dial script inherits session-init env vars.
+        const char* homeRaw = getenv("HOME");
+        const std::string homeDir = homeRaw ? homeRaw : "";
+        const std::string& rawEnvFile = sessionInit_.envFilePath.empty()
+            ? appDefaults_.envFilePath
+            : sessionInit_.envFilePath;
+        const std::vector<term::session::EnvVar> fileVars =
+            ParseEnvFile(ExpandTilde(rawEnvFile, homeDir));
+        const std::vector<std::string> parentEnv = CaptureParentEnv();
+        EnvBlock envBlock = BuildEnvBlock(
+            parentEnv, appDefaults_.envVars, fileVars, sessionInit_.envVars);
+
+        const char* args[] = { "sh", "-c", desc_.dialScript.c_str(), nullptr };
+        ::execve("/bin/sh", const_cast<char* const*>(args), envBlock.ptrs.data());
         ::_exit(127);
     }
 

@@ -1,4 +1,5 @@
 #include "transport/PtyTransport.h"
+#include "transport/EnvUtils.h"
 
 #include <cerrno>
 #include <csignal>
@@ -19,8 +20,12 @@
 
 namespace term::transport {
 
-PtyTransport::PtyTransport(ITransportTarget& target, std::string shell,
-                           unsigned short cols, unsigned short rows)
+PtyTransport::PtyTransport(ITransportTarget& target,
+                           std::string shell,
+                           unsigned short cols,
+                           unsigned short rows,
+                           const term::session::SessionInit& sessionInit,
+                           const term::session::AppSessionDefaults& appDefaults)
     : target_(target), shell_(std::move(shell))
 {
     struct winsize ws{};
@@ -32,7 +37,30 @@ PtyTransport::PtyTransport(ITransportTarget& target, std::string shell,
         throw std::runtime_error(std::string("forkpty failed: ") + std::strerror(errno));
 
     if (child_pid_ == 0) {
-        execl(shell_.c_str(), shell_.c_str(), nullptr);
+        // Child process: apply session initialisation before exec.
+        const char* homeRaw = getenv("HOME");
+        const std::string homeDir = homeRaw ? homeRaw : "";
+
+        // Determine which env file to use: profile wins over app default.
+        const std::string& rawEnvFile = sessionInit.envFilePath.empty()
+            ? appDefaults.envFilePath
+            : sessionInit.envFilePath;
+        const std::string envFile = ExpandTilde(rawEnvFile, homeDir);
+
+        const std::vector<std::string> parentEnv = CaptureParentEnv();
+        const std::vector<term::session::EnvVar> fileVars = ParseEnvFile(envFile);
+        EnvBlock envBlock = BuildEnvBlock(parentEnv, appDefaults.envVars, fileVars, sessionInit.envVars);
+
+        const std::string resolvedDir = ResolveWorkingDir(
+            sessionInit.workingDir, appDefaults.workingDir, homeDir);
+        if (!resolvedDir.empty())
+            chdir(resolvedDir.c_str()); // silent on failure — shell will report its own cwd
+
+        const bool useLogin = sessionInit.loginShell || appDefaults.loginShell;
+        const std::string argv0 = useLogin ? MakeLoginShellArg0(shell_) : shell_;
+
+        const char* args[] = { argv0.c_str(), nullptr };
+        execve(shell_.c_str(), const_cast<char* const*>(args), envBlock.ptrs.data());
         _exit(1);
     }
     // Parent: read thread starts in Start(), called by Session after full construction.

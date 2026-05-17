@@ -2,31 +2,50 @@
 #include "db/ConnectionProfile.h"
 #include "session/Connection.h"
 
+#include <wx/button.h>
 #include <wx/checkbox.h>
 #include <wx/combobox.h>
+#include <wx/dirdlg.h>
 #include <wx/filepicker.h>
+#include <wx/listbox.h>
 #include <wx/msgdlg.h>
 #include <wx/notebook.h>
 #include <wx/panel.h>
 #include <wx/radiobut.h>
 #include <wx/radiobox.h>
+#include <wx/sizer.h>
 #include <wx/spinctrl.h>
+#include <wx/statbox.h>
 #include <wx/statline.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
-#include <wx/sizer.h>
-#include <wx/button.h>
+#include <wx/textdlg.h>
 
 namespace ui
 {
 
 namespace
 {
-    constexpr int ID_RB_AUTH_AGENT  = wxID_HIGHEST + 205;
-    constexpr int ID_RB_AUTH_PASS   = wxID_HIGHEST + 206;
-    constexpr int ID_RB_AUTH_KEY    = wxID_HIGHEST + 207;
-    constexpr int ID_GEOMETRY_COMBO = wxID_HIGHEST + 208;
-    constexpr int ID_PROFILE_COMBO  = wxID_HIGHEST + 209;
+    constexpr int ID_RB_AUTH_AGENT          = wxID_HIGHEST + 205;
+    constexpr int ID_RB_AUTH_PASS           = wxID_HIGHEST + 206;
+    constexpr int ID_RB_AUTH_KEY            = wxID_HIGHEST + 207;
+    constexpr int ID_GEOMETRY_COMBO         = wxID_HIGHEST + 208;
+    constexpr int ID_PROFILE_COMBO          = wxID_HIGHEST + 209;
+    constexpr int ID_BTN_BROWSE_WORKDIR_PTY = wxID_HIGHEST + 210;
+    constexpr int ID_BTN_BROWSE_WORKDIR_SSH = wxID_HIGHEST + 211;
+    constexpr int ID_LIST_ENV_PTY           = wxID_HIGHEST + 212;
+    constexpr int ID_LIST_ENV_SSH           = wxID_HIGHEST + 213;
+    constexpr int ID_LIST_ENV_SERIAL        = wxID_HIGHEST + 214;
+    constexpr int ID_BTN_ADD_ENV_PTY        = wxID_HIGHEST + 215;
+    constexpr int ID_BTN_EDIT_ENV_PTY       = wxID_HIGHEST + 216;
+    constexpr int ID_BTN_REMOVE_ENV_PTY     = wxID_HIGHEST + 217;
+    constexpr int ID_BTN_ADD_ENV_SSH        = wxID_HIGHEST + 218;
+    constexpr int ID_BTN_EDIT_ENV_SSH       = wxID_HIGHEST + 219;
+    constexpr int ID_BTN_REMOVE_ENV_SSH     = wxID_HIGHEST + 220;
+    constexpr int ID_BTN_ADD_ENV_SERIAL     = wxID_HIGHEST + 221;
+    constexpr int ID_BTN_EDIT_ENV_SERIAL    = wxID_HIGHEST + 222;
+    constexpr int ID_BTN_REMOVE_ENV_SERIAL  = wxID_HIGHEST + 223;
+    constexpr int ID_CB_USE_PROFILE_TITLE   = wxID_HIGHEST + 224;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,9 +117,65 @@ NewConnectionDialog::NewConnectionDialog(
         m_shellCtrl = new wxTextCtrl(page, wxID_ANY, defaultShell,
                                      wxDefaultPosition, wxSize(280, -1));
         shellRow->Add(m_shellCtrl, 1, wxEXPAND);
-
         sizer->Add(shellRow, 0, wxEXPAND | wxALL, 12);
-        sizer->AddStretchSpacer(1);
+
+        // Session Init
+        {
+            auto* box = new wxStaticBoxSizer(wxVERTICAL, page, "Session Init");
+
+            auto* dirRow = new wxBoxSizer(wxHORIZONTAL);
+            dirRow->Add(new wxStaticText(page, wxID_ANY, "Working directory:"),
+                        0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+            m_ptyWorkDirCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
+                                              wxDefaultPosition, wxSize(160, -1));
+            dirRow->Add(m_ptyWorkDirCtrl, 1, wxEXPAND | wxRIGHT, 4);
+            m_ptyWorkDirBtn = new wxButton(page, ID_BTN_BROWSE_WORKDIR_PTY, "Browse...",
+                                           wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            dirRow->Add(m_ptyWorkDirBtn, 0);
+            box->Add(dirRow, 0, wxEXPAND | wxALL, 4);
+
+            m_cbPtyLoginShell = new wxCheckBox(page, wxID_ANY,
+                                               "Login shell (sources .profile / .bash_profile)");
+            box->Add(m_cbPtyLoginShell, 0, wxLEFT | wxRIGHT | wxBOTTOM, 6);
+
+            sizer->Add(box, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+        }
+
+        // Environment Variables
+        {
+            auto* box = new wxStaticBoxSizer(wxVERTICAL, page, "Environment Variables");
+
+            auto* fileRow = new wxBoxSizer(wxHORIZONTAL);
+            fileRow->Add(new wxStaticText(page, wxID_ANY, "Env file:"),
+                         0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+            m_ptyEnvFileCtrl = new wxFilePickerCtrl(
+                page, wxID_ANY, wxEmptyString, "Select .env file",
+                "Env files (*.env)|*.env|All files (*)|*",
+                wxDefaultPosition, wxSize(200, -1), wxFLP_OPEN | wxFLP_USE_TEXTCTRL);
+            fileRow->Add(m_ptyEnvFileCtrl, 1, wxEXPAND);
+            box->Add(fileRow, 0, wxEXPAND | wxALL, 4);
+
+            m_ptyEnvVarList = new wxListBox(page, ID_LIST_ENV_PTY,
+                                            wxDefaultPosition, wxSize(-1, 70));
+            box->Add(m_ptyEnvVarList, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 4);
+
+            auto* btnRow = new wxBoxSizer(wxHORIZONTAL);
+            m_ptyBtnAddEnv    = new wxButton(page, ID_BTN_ADD_ENV_PTY,    "Add...",
+                                             wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            m_ptyBtnEditEnv   = new wxButton(page, ID_BTN_EDIT_ENV_PTY,   "Edit...",
+                                             wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            m_ptyBtnRemoveEnv = new wxButton(page, ID_BTN_REMOVE_ENV_PTY, "Remove",
+                                             wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            m_ptyBtnEditEnv->Enable(false);
+            m_ptyBtnRemoveEnv->Enable(false);
+            btnRow->Add(m_ptyBtnAddEnv,    0, wxRIGHT, 4);
+            btnRow->Add(m_ptyBtnEditEnv,   0, wxRIGHT, 4);
+            btnRow->Add(m_ptyBtnRemoveEnv, 0);
+            box->Add(btnRow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 4);
+
+            sizer->Add(box, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+        }
+
         page->SetSizer(sizer);
         m_notebook->AddPage(page, "Local Shell");
     }
@@ -221,6 +296,59 @@ NewConnectionDialog::NewConnectionDialog(
 
         sizer->Add(optRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
+        // Session Init
+        {
+            auto* box = new wxStaticBoxSizer(wxVERTICAL, page, "Session Init");
+
+            auto* dirRow = new wxBoxSizer(wxHORIZONTAL);
+            dirRow->Add(new wxStaticText(page, wxID_ANY, "Working directory:"),
+                        0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+            m_sshWorkDirCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
+                                              wxDefaultPosition, wxSize(160, -1));
+            dirRow->Add(m_sshWorkDirCtrl, 1, wxEXPAND | wxRIGHT, 4);
+            m_sshWorkDirBtn = new wxButton(page, ID_BTN_BROWSE_WORKDIR_SSH, "Browse...",
+                                           wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            dirRow->Add(m_sshWorkDirBtn, 0);
+            box->Add(dirRow, 0, wxEXPAND | wxALL, 4);
+
+            sizer->Add(box, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+        }
+
+        // Environment Variables
+        {
+            auto* box = new wxStaticBoxSizer(wxVERTICAL, page, "Environment Variables");
+
+            auto* fileRow = new wxBoxSizer(wxHORIZONTAL);
+            fileRow->Add(new wxStaticText(page, wxID_ANY, "Env file:"),
+                         0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+            m_sshEnvFileCtrl = new wxFilePickerCtrl(
+                page, wxID_ANY, wxEmptyString, "Select .env file",
+                "Env files (*.env)|*.env|All files (*)|*",
+                wxDefaultPosition, wxSize(200, -1), wxFLP_OPEN | wxFLP_USE_TEXTCTRL);
+            fileRow->Add(m_sshEnvFileCtrl, 1, wxEXPAND);
+            box->Add(fileRow, 0, wxEXPAND | wxALL, 4);
+
+            m_sshEnvVarList = new wxListBox(page, ID_LIST_ENV_SSH,
+                                            wxDefaultPosition, wxSize(-1, 70));
+            box->Add(m_sshEnvVarList, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 4);
+
+            auto* btnRow = new wxBoxSizer(wxHORIZONTAL);
+            m_sshBtnAddEnv    = new wxButton(page, ID_BTN_ADD_ENV_SSH,    "Add...",
+                                             wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            m_sshBtnEditEnv   = new wxButton(page, ID_BTN_EDIT_ENV_SSH,   "Edit...",
+                                             wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            m_sshBtnRemoveEnv = new wxButton(page, ID_BTN_REMOVE_ENV_SSH, "Remove",
+                                             wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            m_sshBtnEditEnv->Enable(false);
+            m_sshBtnRemoveEnv->Enable(false);
+            btnRow->Add(m_sshBtnAddEnv,    0, wxRIGHT, 4);
+            btnRow->Add(m_sshBtnEditEnv,   0, wxRIGHT, 4);
+            btnRow->Add(m_sshBtnRemoveEnv, 0);
+            box->Add(btnRow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 4);
+
+            sizer->Add(box, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+        }
+
         page->SetSizer(sizer);
         m_notebook->AddPage(page, "SSH");
     }
@@ -309,6 +437,42 @@ NewConnectionDialog::NewConnectionDialog(
         grid->Add(m_dialScriptCtrl, 1, wxEXPAND);
 
         sizer->Add(grid, 0, wxEXPAND | wxALL, 12);
+
+        // Environment Variables
+        {
+            auto* box = new wxStaticBoxSizer(wxVERTICAL, page, "Environment Variables");
+
+            auto* fileRow = new wxBoxSizer(wxHORIZONTAL);
+            fileRow->Add(new wxStaticText(page, wxID_ANY, "Env file:"),
+                         0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+            m_serialEnvFileCtrl = new wxFilePickerCtrl(
+                page, wxID_ANY, wxEmptyString, "Select .env file",
+                "Env files (*.env)|*.env|All files (*)|*",
+                wxDefaultPosition, wxSize(200, -1), wxFLP_OPEN | wxFLP_USE_TEXTCTRL);
+            fileRow->Add(m_serialEnvFileCtrl, 1, wxEXPAND);
+            box->Add(fileRow, 0, wxEXPAND | wxALL, 4);
+
+            m_serialEnvVarList = new wxListBox(page, ID_LIST_ENV_SERIAL,
+                                               wxDefaultPosition, wxSize(-1, 70));
+            box->Add(m_serialEnvVarList, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 4);
+
+            auto* btnRow = new wxBoxSizer(wxHORIZONTAL);
+            m_serialBtnAddEnv    = new wxButton(page, ID_BTN_ADD_ENV_SERIAL,    "Add...",
+                                                wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            m_serialBtnEditEnv   = new wxButton(page, ID_BTN_EDIT_ENV_SERIAL,   "Edit...",
+                                                wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            m_serialBtnRemoveEnv = new wxButton(page, ID_BTN_REMOVE_ENV_SERIAL, "Remove",
+                                                wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            m_serialBtnEditEnv->Enable(false);
+            m_serialBtnRemoveEnv->Enable(false);
+            btnRow->Add(m_serialBtnAddEnv,    0, wxRIGHT, 4);
+            btnRow->Add(m_serialBtnEditEnv,   0, wxRIGHT, 4);
+            btnRow->Add(m_serialBtnRemoveEnv, 0);
+            box->Add(btnRow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 4);
+
+            sizer->Add(box, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+        }
+
         page->SetSizer(sizer);
         m_notebook->AddPage(page, "Serial");
     }
@@ -365,6 +529,18 @@ NewConnectionDialog::NewConnectionDialog(
         outer->Add(termRow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
     }
 
+    {
+        auto* titleRow = new wxBoxSizer(wxHORIZONTAL);
+        m_cbUseProfileTitle = new wxCheckBox(this, ID_CB_USE_PROFILE_TITLE, "Override title:");
+        titleRow->Add(m_cbUseProfileTitle, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+        m_profileTitleCtrl = new wxTextCtrl(this, wxID_ANY, wxEmptyString,
+                                            wxDefaultPosition, wxSize(220, -1));
+        m_profileTitleCtrl->SetHint("(empty = transport-provided)");
+        m_profileTitleCtrl->Enable(false);
+        titleRow->Add(m_profileTitleCtrl, 1, wxEXPAND);
+        outer->Add(titleRow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
+    }
+
     // ---- Placement (UserChoice only) ----------------------------------------
     if (context == LaunchContext::UserChoice) {
         wxArrayString opts;
@@ -397,6 +573,31 @@ NewConnectionDialog::NewConnectionDialog(
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_KEY);
     Bind(wxEVT_COMBOBOX,    &NewConnectionDialog::OnGeometryChanged,   this, ID_GEOMETRY_COMBO);
     Bind(wxEVT_BUTTON,      &NewConnectionDialog::OnOK,                this, wxID_OK);
+
+    // Working dir browse
+    Bind(wxEVT_BUTTON, &NewConnectionDialog::OnBrowseWorkingDir, this, ID_BTN_BROWSE_WORKDIR_PTY);
+    Bind(wxEVT_BUTTON, &NewConnectionDialog::OnBrowseWorkingDir, this, ID_BTN_BROWSE_WORKDIR_SSH);
+
+    // Env var buttons — PTY
+    Bind(wxEVT_BUTTON,  &NewConnectionDialog::OnAddEnvVar,      this, ID_BTN_ADD_ENV_PTY);
+    Bind(wxEVT_BUTTON,  &NewConnectionDialog::OnEditEnvVar,     this, ID_BTN_EDIT_ENV_PTY);
+    Bind(wxEVT_BUTTON,  &NewConnectionDialog::OnRemoveEnvVar,   this, ID_BTN_REMOVE_ENV_PTY);
+    Bind(wxEVT_LISTBOX, &NewConnectionDialog::OnEnvVarSelected, this, ID_LIST_ENV_PTY);
+
+    // Env var buttons — SSH
+    Bind(wxEVT_BUTTON,  &NewConnectionDialog::OnAddEnvVar,      this, ID_BTN_ADD_ENV_SSH);
+    Bind(wxEVT_BUTTON,  &NewConnectionDialog::OnEditEnvVar,     this, ID_BTN_EDIT_ENV_SSH);
+    Bind(wxEVT_BUTTON,  &NewConnectionDialog::OnRemoveEnvVar,   this, ID_BTN_REMOVE_ENV_SSH);
+    Bind(wxEVT_LISTBOX, &NewConnectionDialog::OnEnvVarSelected, this, ID_LIST_ENV_SSH);
+
+    // Env var buttons — Serial
+    Bind(wxEVT_BUTTON,  &NewConnectionDialog::OnAddEnvVar,      this, ID_BTN_ADD_ENV_SERIAL);
+    Bind(wxEVT_BUTTON,  &NewConnectionDialog::OnEditEnvVar,     this, ID_BTN_EDIT_ENV_SERIAL);
+    Bind(wxEVT_BUTTON,  &NewConnectionDialog::OnRemoveEnvVar,   this, ID_BTN_REMOVE_ENV_SERIAL);
+    Bind(wxEVT_LISTBOX, &NewConnectionDialog::OnEnvVarSelected, this, ID_LIST_ENV_SERIAL);
+
+    // Profile title toggle
+    Bind(wxEVT_CHECKBOX, &NewConnectionDialog::OnUseProfileTitleToggled, this, ID_CB_USE_PROFILE_TITLE);
 
     if (m_profileCombo) {
         Bind(wxEVT_COMBOBOX, &NewConnectionDialog::OnProfileSelected,   this, ID_PROFILE_COMBO);
@@ -471,6 +672,42 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
         }
     }, profile.transport);
 
+    // Session init — shared across all transports, populate all tabs
+    const auto& si = profile.sessionInit;
+    if (m_ptyWorkDirCtrl)  m_ptyWorkDirCtrl->SetValue(si.workingDir);
+    if (m_cbPtyLoginShell) m_cbPtyLoginShell->SetValue(si.loginShell);
+    if (m_ptyEnvFileCtrl && !si.envFilePath.empty())
+        m_ptyEnvFileCtrl->SetPath(si.envFilePath);
+    if (m_ptyEnvVarList) {
+        m_ptyEnvVarList->Clear();
+        for (const auto& ev : si.envVars)
+            m_ptyEnvVarList->Append(wxString(ev.key + "=" + ev.value));
+    }
+
+    if (m_sshWorkDirCtrl) m_sshWorkDirCtrl->SetValue(si.workingDir);
+    if (m_sshEnvFileCtrl && !si.envFilePath.empty())
+        m_sshEnvFileCtrl->SetPath(si.envFilePath);
+    if (m_sshEnvVarList) {
+        m_sshEnvVarList->Clear();
+        for (const auto& ev : si.envVars)
+            m_sshEnvVarList->Append(wxString(ev.key + "=" + ev.value));
+    }
+
+    if (m_serialEnvFileCtrl && !si.envFilePath.empty())
+        m_serialEnvFileCtrl->SetPath(si.envFilePath);
+    if (m_serialEnvVarList) {
+        m_serialEnvVarList->Clear();
+        for (const auto& ev : si.envVars)
+            m_serialEnvVarList->Append(wxString(ev.key + "=" + ev.value));
+    }
+
+    // Profile title
+    if (m_profileTitleCtrl)   m_profileTitleCtrl->SetValue(profile.profileTitle);
+    if (m_cbUseProfileTitle) {
+        m_cbUseProfileTitle->SetValue(profile.useProfileTitle);
+        if (m_profileTitleCtrl) m_profileTitleCtrl->Enable(profile.useProfileTitle);
+    }
+
     // Wrap mode
     m_cbWrapMode->SetValue(profile.wrapMode);
 
@@ -499,6 +736,92 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
 // ---------------------------------------------------------------------------
 // Event handlers
 // ---------------------------------------------------------------------------
+wxListBox* NewConnectionDialog::ActiveEnvVarList() const
+{
+    switch (m_notebook->GetSelection()) {
+        case kTabPty:    return m_ptyEnvVarList;
+        case kTabSsh:    return m_sshEnvVarList;
+        case kTabSerial: return m_serialEnvVarList;
+        default:         return nullptr;
+    }
+}
+
+void NewConnectionDialog::OnBrowseWorkingDir(wxCommandEvent&)
+{
+    wxDirDialog dlg(this, "Select Working Directory", wxEmptyString,
+                    wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
+    if (dlg.ShowModal() != wxID_OK) return;
+    const wxString path = dlg.GetPath();
+    if (m_notebook->GetSelection() == kTabPty && m_ptyWorkDirCtrl)
+        m_ptyWorkDirCtrl->SetValue(path);
+    else if (m_notebook->GetSelection() == kTabSsh && m_sshWorkDirCtrl)
+        m_sshWorkDirCtrl->SetValue(path);
+}
+
+void NewConnectionDialog::OnAddEnvVar(wxCommandEvent&)
+{
+    wxListBox* list = ActiveEnvVarList();
+    if (!list) return;
+    wxString val = wxGetTextFromUser("Enter KEY=VALUE:", "Add Environment Variable",
+                                     wxEmptyString, this);
+    val.Trim(true).Trim(false);
+    if (val.IsEmpty()) return;
+    if (val.Find('=') == wxNOT_FOUND || val.BeforeFirst('=').IsEmpty()) {
+        wxMessageBox("Format must be KEY=VALUE with a non-empty key.",
+                     "Invalid Entry", wxOK | wxICON_WARNING, this);
+        return;
+    }
+    list->Append(val);
+}
+
+void NewConnectionDialog::OnEditEnvVar(wxCommandEvent&)
+{
+    wxListBox* list = ActiveEnvVarList();
+    if (!list) return;
+    const int sel = list->GetSelection();
+    if (sel == wxNOT_FOUND) return;
+    wxString val = wxGetTextFromUser("Edit KEY=VALUE:", "Edit Environment Variable",
+                                     list->GetString(sel), this);
+    val.Trim(true).Trim(false);
+    if (val.IsEmpty()) return;
+    if (val.Find('=') == wxNOT_FOUND || val.BeforeFirst('=').IsEmpty()) {
+        wxMessageBox("Format must be KEY=VALUE with a non-empty key.",
+                     "Invalid Entry", wxOK | wxICON_WARNING, this);
+        return;
+    }
+    list->SetString(sel, val);
+}
+
+void NewConnectionDialog::OnRemoveEnvVar(wxCommandEvent&)
+{
+    wxListBox* list = ActiveEnvVarList();
+    if (!list) return;
+    const int sel = list->GetSelection();
+    if (sel == wxNOT_FOUND) return;
+    list->Delete(static_cast<unsigned int>(sel));
+    wxCommandEvent dummy;
+    OnEnvVarSelected(dummy);
+}
+
+void NewConnectionDialog::OnEnvVarSelected(wxCommandEvent&)
+{
+    const bool ptyHas    = m_ptyEnvVarList    && m_ptyEnvVarList->GetSelection()    != wxNOT_FOUND;
+    const bool sshHas    = m_sshEnvVarList    && m_sshEnvVarList->GetSelection()    != wxNOT_FOUND;
+    const bool serialHas = m_serialEnvVarList && m_serialEnvVarList->GetSelection() != wxNOT_FOUND;
+    if (m_ptyBtnEditEnv)      m_ptyBtnEditEnv->Enable(ptyHas);
+    if (m_ptyBtnRemoveEnv)    m_ptyBtnRemoveEnv->Enable(ptyHas);
+    if (m_sshBtnEditEnv)      m_sshBtnEditEnv->Enable(sshHas);
+    if (m_sshBtnRemoveEnv)    m_sshBtnRemoveEnv->Enable(sshHas);
+    if (m_serialBtnEditEnv)   m_serialBtnEditEnv->Enable(serialHas);
+    if (m_serialBtnRemoveEnv) m_serialBtnRemoveEnv->Enable(serialHas);
+}
+
+void NewConnectionDialog::OnUseProfileTitleToggled(wxCommandEvent&)
+{
+    if (m_profileTitleCtrl)
+        m_profileTitleCtrl->Enable(m_cbUseProfileTitle->GetValue());
+}
+
 void NewConnectionDialog::OnAuthMethodChanged(wxCommandEvent&)
 {
     m_passPanel->Show(m_rbAuthPass->GetValue());
@@ -601,10 +924,27 @@ ConnectionParams NewConnectionDialog::GetParams() const
 
     const int tab = m_notebook->GetSelection();
 
-    if (tab == kTabPty)
-        return PtyParams{
-            m_shellCtrl->GetValue().ToStdString(),
-            wrapMode, cols, rows};
+    if (tab == kTabPty) {
+        PtyParams p;
+        p.shell       = m_shellCtrl->GetValue().ToStdString();
+        p.wrapMode    = wrapMode;
+        p.columnWidth = cols;
+        p.rows        = rows;
+        if (m_ptyWorkDirCtrl)  p.workingDir  = m_ptyWorkDirCtrl->GetValue().ToStdString();
+        if (m_cbPtyLoginShell) p.loginShell  = m_cbPtyLoginShell->GetValue();
+        if (m_ptyEnvFileCtrl)  p.envFilePath = m_ptyEnvFileCtrl->GetPath().ToStdString();
+        if (m_ptyEnvVarList) {
+            for (unsigned int i = 0; i < m_ptyEnvVarList->GetCount(); ++i) {
+                const std::string kv = m_ptyEnvVarList->GetString(i).ToStdString();
+                const auto eq = kv.find('=');
+                if (eq != std::string::npos)
+                    p.envVars.push_back({kv.substr(0, eq), kv.substr(eq + 1)});
+            }
+        }
+        if (m_profileTitleCtrl)   p.profileTitle    = m_profileTitleCtrl->GetValue().ToStdString();
+        if (m_cbUseProfileTitle)  p.useProfileTitle = m_cbUseProfileTitle->GetValue();
+        return p;
+    }
 
     if (tab == kTabSsh) {
         SshParams p;
@@ -615,9 +955,21 @@ ConnectionParams NewConnectionDialog::GetParams() const
         p.keepaliveSeconds  = m_keepaliveCtrl->GetValue();
         p.remoteCommand     = m_remoteCmdCtrl->GetValue().ToStdString();
         p.compress          = m_cbCompress->GetValue();
-        p.wrapMode          = wrapMode;
-        p.columnWidth       = cols;
-        p.rows              = rows;
+        p.wrapMode    = wrapMode;
+        p.columnWidth = cols;
+        p.rows        = rows;
+        if (m_sshWorkDirCtrl)  p.workingDir  = m_sshWorkDirCtrl->GetValue().ToStdString();
+        if (m_sshEnvFileCtrl)  p.envFilePath = m_sshEnvFileCtrl->GetPath().ToStdString();
+        if (m_sshEnvVarList) {
+            for (unsigned int i = 0; i < m_sshEnvVarList->GetCount(); ++i) {
+                const std::string kv = m_sshEnvVarList->GetString(i).ToStdString();
+                const auto eq = kv.find('=');
+                if (eq != std::string::npos)
+                    p.envVars.push_back({kv.substr(0, eq), kv.substr(eq + 1)});
+            }
+        }
+        if (m_profileTitleCtrl)  p.profileTitle    = m_profileTitleCtrl->GetValue().ToStdString();
+        if (m_cbUseProfileTitle) p.useProfileTitle = m_cbUseProfileTitle->GetValue();
 
         if (m_rbAuthPass->GetValue()) {
             p.authMethod = SshAuthChoice::Password;
@@ -648,6 +1000,17 @@ ConnectionParams NewConnectionDialog::GetParams() const
         p.wrapMode    = wrapMode;
         p.columnWidth = cols;
         p.rows        = rows;
+        if (m_serialEnvFileCtrl)  p.envFilePath = m_serialEnvFileCtrl->GetPath().ToStdString();
+        if (m_serialEnvVarList) {
+            for (unsigned int i = 0; i < m_serialEnvVarList->GetCount(); ++i) {
+                const std::string kv = m_serialEnvVarList->GetString(i).ToStdString();
+                const auto eq = kv.find('=');
+                if (eq != std::string::npos)
+                    p.envVars.push_back({kv.substr(0, eq), kv.substr(eq + 1)});
+            }
+        }
+        if (m_profileTitleCtrl)  p.profileTitle    = m_profileTitleCtrl->GetValue().ToStdString();
+        if (m_cbUseProfileTitle) p.useProfileTitle = m_cbUseProfileTitle->GetValue();
         return p;
     }
 

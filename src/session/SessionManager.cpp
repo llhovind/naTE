@@ -31,13 +31,16 @@ SessionId SessionManager::CreateSession(const Connection& conn,
                                         int scrollbackLines,
                                         unsigned short cols,
                                         unsigned short rows,
+                                        AppSessionDefaults appDefaults,
                                         unsigned short ptyLineWidth)
 {
     const SessionId id = nextId_++;
 
     auto rec = std::make_unique<SessionRecord>();
-    rec->label      = conn.label;
-    rec->uiObserver = std::make_shared<std::atomic<ISessionObserver*>>(nullptr);
+    rec->label          = conn.label;
+    rec->profileTitle   = conn.profileTitle;
+    rec->useProfileTitle= conn.useProfileTitle;
+    rec->uiObserver     = std::make_shared<std::atomic<ISessionObserver*>>(nullptr);
 
     // Capture the shared_ptr so the lambda remains valid even if this record
     // is erased from the map before the session thread fires the callback.
@@ -56,6 +59,7 @@ SessionId SessionManager::CreateSession(const Connection& conn,
             if (auto* obs = uiObs->load(std::memory_order_acquire))
                 obs->OnSessionError(id, err);
         },
+        std::move(appDefaults),
         ptyLineWidth,
         conn.wrapMode);
 
@@ -163,6 +167,19 @@ std::function<std::string()> SessionManager::MakeTitleGetter(SessionId id) const
 {
     const SessionRecord* rec = FindRecord(id);
     if (!rec) return []{ return std::string{}; };
+    return MakeTitleGetter(id, rec->profileTitle, rec->useProfileTitle);
+}
+
+std::function<std::string()> SessionManager::MakeTitleGetter(SessionId id,
+                                                               const std::string& profileTitle,
+                                                               bool useProfileTitle) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    if (!rec) return []{ return std::string{}; };
+
+    if (useProfileTitle && !profileTitle.empty())
+        return [profileTitle]{ return profileTitle; };
+
     Session* sess = rec->session.get();
     return [sess]{ return sess->GetTitle(); };
 }

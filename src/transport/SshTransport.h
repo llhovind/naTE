@@ -1,9 +1,10 @@
 #pragma once
 
+#include "session/AppSessionDefaults.h"
+#include "session/Connection.h"
 #include "transport/Transport.hpp"
 #include "transport/ITransportTarget.h"
 #include "transport/TransportError.h"
-#include "session/Connection.h"
 
 #include <atomic>
 #include <deque>
@@ -23,7 +24,9 @@ public:
     SshTransport(ITransportTarget& target,
                  const term::session::SshDesc& desc,
                  unsigned short cols,
-                 unsigned short rows);
+                 unsigned short rows,
+                 const term::session::SessionInit& sessionInit = {},
+                 const term::session::AppSessionDefaults& appDefaults = {});
     ~SshTransport() override;
 
     SshTransport(const SshTransport&)            = delete;
@@ -72,10 +75,12 @@ private:
     // Returns the path to ~/.nate/known_hosts, creating the directory if needed.
     static std::string KnownHostsPath();
 
-    ITransportTarget&           target_;
-    term::session::SshDesc      desc_;
-    unsigned short              cols_;
-    unsigned short              rows_;
+    ITransportTarget&                    target_;
+    term::session::SshDesc               desc_;
+    term::session::SessionInit           sessionInit_;
+    term::session::AppSessionDefaults    appDefaults_;
+    unsigned short                       cols_;
+    unsigned short                       rows_;
 
     // libssh2 handles — only accessed from worker_.
     _LIBSSH2_SESSION*           session_  = nullptr;
