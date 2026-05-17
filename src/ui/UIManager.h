@@ -131,6 +131,12 @@ public:
     // Returns the first line of the active session's selection (empty if none).
     std::u32string GetActiveSelectedText() const;
 
+    // Force a specific cols×rows on the active session, honouring wrap-mode semantics.
+    void SetGeometryForActive(unsigned short cols, unsigned short rows);
+
+    // Current viewport size of the active session; nullopt when none is active.
+    std::optional<GeometryPreset> GetActiveGeometry() const;
+
 
 private:
     // -------------------------------------------------------------------------

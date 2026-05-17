@@ -38,6 +38,7 @@ set(SOURCES
     src/ui/MainFrame.cpp
     src/ui/NewConnectionDialog.cpp
     src/ui/ConnectionManagerDialog.cpp
+    src/ui/GeometryDialog.cpp
     src/ui/TerminalPanel.cpp
     src/ui/TerminalTile.cpp
     src/ui/WrapControl.cpp

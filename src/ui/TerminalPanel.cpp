@@ -231,6 +231,12 @@ void TerminalPanel::OnResizeTimer(wxTimerEvent&)
                   static_cast<unsigned short>(pendingResize_.y));
 }
 
+wxSize TerminalPanel::ComputeRequiredPanelSize(unsigned short cols, unsigned short rows) const
+{
+    return { static_cast<int>(cols) * m_charSize.x + m_sbThick + 2 * kInnerPad,
+             static_cast<int>(rows) * m_charSize.y + m_sbThick + 2 * kInnerPad };
+}
+
 void TerminalPanel::OnScroll(wxScrollEvent& e)
 {
     if (docLayout_) {

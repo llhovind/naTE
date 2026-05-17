@@ -47,6 +47,10 @@ public:
     // Selection actions — non-owning; UIManager owns the registry.
     void SetActionRegistry(SelectionActionRegistry* reg) { actionRegistry_ = reg; }
 
+    // Pixel size this panel needs to display exactly cols×rows characters.
+    // Use this to size the containing tile before calling ResizeFrameToFitTiles().
+    wxSize ComputeRequiredPanelSize(unsigned short cols, unsigned short rows) const;
+
 private:
     ::DocLayout* docLayout_ = nullptr;
 

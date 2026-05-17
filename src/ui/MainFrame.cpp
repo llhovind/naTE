@@ -1,6 +1,7 @@
 #include "ui/MainFrame.h"
 #include "ui/ConnectionFactory.h"
 #include "ui/ConnectionManagerDialog.h"
+#include "ui/GeometryDialog.h"
 #include "ui/UIManager.h"
 #include "db/ConnectionProfile.h"
 #include "db/ConnectionStore.h"
@@ -324,9 +325,26 @@ void MainFrame::NotYetImplemented()
 }
 
 void MainFrame::OnCloseActiveSession(wxCommandEvent&)    { NotYetImplemented(); }
-void MainFrame::OnSetGeometry80x24(wxCommandEvent&)      { NotYetImplemented(); }
-void MainFrame::OnSetGeometry132x24(wxCommandEvent&)     { NotYetImplemented(); }
-void MainFrame::OnSetGeometryCustom(wxCommandEvent&)     { NotYetImplemented(); }
+void MainFrame::OnSetGeometry80x24(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->SetGeometryForActive(80, 24);
+}
+
+void MainFrame::OnSetGeometry132x24(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->SetGeometryForActive(132, 24);
+}
+
+void MainFrame::OnSetGeometryCustom(wxCommandEvent&)
+{
+    if (!m_uiManager) return;
+    const auto current  = m_uiManager->GetActiveGeometry();
+    const auto defCols  = current ? current->cols : static_cast<unsigned short>(80);
+    const auto defRows  = current ? current->rows : static_cast<unsigned short>(24);
+    GeometryDialog dlg(this, defCols, defRows);
+    if (dlg.ShowModal() == wxID_OK)
+        m_uiManager->SetGeometryForActive(dlg.GetCols(), dlg.GetRows());
+}
 void MainFrame::OnSetFont(wxCommandEvent&)               { NotYetImplemented(); }
 void MainFrame::OnResetTerminal(wxCommandEvent&)
 {

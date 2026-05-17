@@ -479,6 +479,32 @@ void UIManager::OnViewportResize(term::session::SessionId id,
     sm_.OnResize(id, cols, rows);
 }
 
+void UIManager::SetGeometryForActive(unsigned short cols, unsigned short rows)
+{
+    SessionUI* ui = FindSessionUI(activeId_);
+    if (!ui || !ui->panel) return;
+
+    // Size the tile so that its panel content area fits exactly cols×rows chars.
+    // RelayoutTiles() sets every tile to GetMinSize(), so updating the min size
+    // here is sufficient — ResizeFrameToFitTiles() triggers the full cascade:
+    //   frame OnSize → grid RelayoutTiles → tile OnSize → panel OnSize
+    //   → docLayout SetViewportSize + resizeCb (debounced) → Session::SetViewportSize
+    const wxSize panelSz = ui->panel->ComputeRequiredPanelSize(cols, rows);
+    ui->tile->SetMinSize({ panelSz.x, panelSz.y + TerminalTile::kTitleBarHeight });
+    ResizeFrameToFitTiles();
+}
+
+std::optional<GeometryPreset> UIManager::GetActiveGeometry() const
+{
+    const SessionUI* ui = FindSessionUI(activeId_);
+    if (!ui || !ui->panel) return std::nullopt;
+    const DocLayout& dl = sm_.GetDocLayout(activeId_);
+    return GeometryPreset{
+        static_cast<unsigned short>(dl.GetViewportCols()),
+        static_cast<unsigned short>(dl.GetViewportRows())
+    };
+}
+
 void UIManager::EnsureCursorVisibleForActive()
 {
     SessionUI* ui = FindSessionUI(activeId_);
