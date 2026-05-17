@@ -68,6 +68,7 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
     Bind(wxEVT_KEY_DOWN,   &TerminalPanel::OnKeyDown,        this);
     Bind(wxEVT_CHAR,       &TerminalPanel::OnChar,           this);
     Bind(wxEVT_SET_FOCUS,  &TerminalPanel::OnFocus,          this);
+    Bind(wxEVT_KILL_FOCUS, &TerminalPanel::OnKillFocus,      this);
 }
 
 void TerminalPanel::SetDocLayout(::DocLayout* docLayout)
@@ -280,8 +281,25 @@ void TerminalPanel::OnMouseWheel(wxMouseEvent& e)
 
 void TerminalPanel::OnFocus(wxFocusEvent& e)
 {
+    m_hasFocus_ = true;
+    Refresh();
     if (focusCb_) focusCb_();
     e.Skip();
+}
+
+void TerminalPanel::OnKillFocus(wxFocusEvent& e)
+{
+    m_hasFocus_ = false;
+    Refresh();
+    e.Skip();
+}
+
+void TerminalPanel::SetBroadcastCursorState(bool modeActive, bool inGroup)
+{
+    if (m_broadcastModeActive_ == modeActive && m_inBroadcast_ == inGroup) return;
+    m_broadcastModeActive_ = modeActive;
+    m_inBroadcast_         = inGroup;
+    Refresh();
 }
 
 // ---------------------------------------------------------------------------
@@ -614,13 +632,19 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
         if (row.hasCursor) {
             const int cx = row.cursorCol * cw + kInnerPad;
             const int cy = rowY;
-            dc.SetPen(*wxTRANSPARENT_PEN);
-            dc.SetBrush(wxBrush(*wxBLUE));
-            dc.DrawRectangle(cx, cy, cw, ch);
-            if (row.cursorCol < textLen) {
-                dc.SetTextForeground(wxColour(m_cfg.bgColour.r,   m_cfg.bgColour.g,   m_cfg.bgColour.b));
-                dc.SetTextBackground(wxColour(m_cfg.textColour.r, m_cfg.textColour.g, m_cfg.textColour.b));
-                dc.DrawText(wxString(static_cast<wchar_t>(row.text[row.cursorCol])), cx, cy);
+            if (m_inBroadcast_ || (m_hasFocus_ && !m_broadcastModeActive_)) {
+                dc.SetPen(*wxTRANSPARENT_PEN);
+                dc.SetBrush(wxBrush(*wxBLUE));
+                dc.DrawRectangle(cx, cy, cw, ch);
+                if (row.cursorCol < textLen) {
+                    dc.SetTextForeground(wxColour(m_cfg.bgColour.r,   m_cfg.bgColour.g,   m_cfg.bgColour.b));
+                    dc.SetTextBackground(wxColour(m_cfg.textColour.r, m_cfg.textColour.g, m_cfg.textColour.b));
+                    dc.DrawText(wxString(static_cast<wchar_t>(row.text[row.cursorCol])), cx, cy);
+                }
+            } else {
+                dc.SetPen(wxPen(*wxBLUE, 1));
+                dc.SetBrush(*wxTRANSPARENT_BRUSH);
+                dc.DrawRectangle(cx, cy, cw, ch);
             }
         }
     }

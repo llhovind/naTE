@@ -28,6 +28,13 @@ public:
     void SetFocusCallback(FocusCallback  cb) { focusCb_  = std::move(cb); }
     void SetKeyCallback(KeyCallback      cb) { keyCb_    = std::move(cb); }
 
+    // Called by TerminalTile whenever broadcast state changes.
+    // modeActive — broadcast mode is globally on.
+    // inGroup    — this panel's session is a member of the broadcast group.
+    // Cursor is solid only when the panel will actually receive input:
+    //   inGroup, OR (focused AND broadcast mode is off).
+    void SetBroadcastCursorState(bool modeActive, bool inGroup);
+
     // Called by the document-refresh chain after DocLayout has updated topRow_.
     void OnDocumentUpdate();
 
@@ -67,6 +74,7 @@ private:
     void OnKeyDown(wxKeyEvent&);
     void OnChar(wxKeyEvent&);
     void OnFocus(wxFocusEvent&);
+    void OnKillFocus(wxFocusEvent&);
 
     void LayoutScrollbars();
     void UpdateScrollbars();
@@ -100,6 +108,10 @@ private:
     bool    m_selecting_    = false;
     wxTimer m_selScrollTimer_;
     wxPoint m_lastMousePos_{-1, -1};
+
+    bool m_hasFocus_            = false;
+    bool m_inBroadcast_         = false;
+    bool m_broadcastModeActive_ = false;
 
     // Keyboard selection cursor (independent of the PTY document cursor)
     DocLayout::DocPosition m_kbCursor_{0, 0};

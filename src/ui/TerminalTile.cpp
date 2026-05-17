@@ -266,8 +266,10 @@ void TerminalTile::ActivateTab(int index)
     if (index < 0 || index >= (int)tabs_.size()) return;
     if (activeTabIdx_ == index) return;
 
-    if (activeTabIdx_ >= 0 && activeTabIdx_ < (int)tabs_.size())
+    if (activeTabIdx_ >= 0 && activeTabIdx_ < (int)tabs_.size()) {
+        tabs_[activeTabIdx_].panel->SetBroadcastCursorState(broadcastModeActive_, false);
         tabs_[activeTabIdx_].panel->Hide();
+    }
 
     activeTabIdx_ = index;
 
@@ -276,6 +278,7 @@ void TerminalTile::ActivateTab(int index)
     const wxSize contentSz = contentArea_->GetClientSize();
     panel->SetSize(0, 0, contentSz.x, contentSz.y);
     panel->Show();
+    panel->SetBroadcastCursorState(broadcastModeActive_, tabs_[index].inBroadcast);
 
     // Sync header colour with the newly active tab's broadcast state.
     inBroadcast_ = tabs_[index].inBroadcast;
@@ -321,14 +324,19 @@ void TerminalTile::SetBroadcastState(bool modeActive, bool tileHasBroadcast)
 {
     broadcastModeActive_ = modeActive;
     inBroadcast_         = tileHasBroadcast;
+    const bool activeInGroup = activeTabIdx_ >= 0 && activeTabIdx_ < (int)tabs_.size()
+                               && tabs_[activeTabIdx_].inBroadcast;
+    if (auto* p = GetActivePanel()) p->SetBroadcastCursorState(modeActive, activeInGroup);
     UpdateTitleBarColor();
 }
 
 void TerminalTile::SetTabBroadcast(term::session::SessionId id, bool inBroadcast)
 {
-    for (auto& tab : tabs_) {
-        if (tab.sessionId == id) {
-            tab.inBroadcast = inBroadcast;
+    for (int i = 0; i < (int)tabs_.size(); ++i) {
+        if (tabs_[i].sessionId == id) {
+            tabs_[i].inBroadcast = inBroadcast;
+            if (i == activeTabIdx_)
+                if (auto* p = GetActivePanel()) p->SetBroadcastCursorState(broadcastModeActive_, inBroadcast);
             tabStrip_->Refresh();  // TabStrip queries tabs_ via BroadcastQueryCallback on next paint
             return;
         }
