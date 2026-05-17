@@ -123,7 +123,7 @@ NewConnectionDialog::NewConnectionDialog(
         grid->Add(new wxStaticText(page, wxID_ANY, "Port:"),
                   0, wxALIGN_CENTER_VERTICAL);
         m_portCtrl = new wxSpinCtrl(page, wxID_ANY, "22",
-                                    wxDefaultPosition, wxSize(80, -1),
+                                    wxDefaultPosition, wxDefaultSize,
                                     wxSP_ARROW_KEYS, 1, 65535, 22);
         grid->Add(m_portCtrl, 0);
 
@@ -136,7 +136,7 @@ NewConnectionDialog::NewConnectionDialog(
         grid->Add(new wxStaticText(page, wxID_ANY, "Timeout (s):"),
                   0, wxALIGN_CENTER_VERTICAL);
         m_timeoutCtrl = new wxSpinCtrl(page, wxID_ANY, "10",
-                                       wxDefaultPosition, wxSize(80, -1),
+                                       wxDefaultPosition, wxDefaultSize,
                                        wxSP_ARROW_KEYS, 1, 120, 10);
         grid->Add(m_timeoutCtrl, 0);
 
@@ -206,7 +206,7 @@ NewConnectionDialog::NewConnectionDialog(
         optRow->Add(new wxStaticText(page, wxID_ANY, "Keep-alive (s):"),
                     0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
         m_keepaliveCtrl = new wxSpinCtrl(page, wxID_ANY, "30",
-                                         wxDefaultPosition, wxSize(60, -1),
+                                         wxDefaultPosition, wxDefaultSize,
                                          wxSP_ARROW_KEYS, 0, 300, 30);
         optRow->Add(m_keepaliveCtrl, 0, wxRIGHT, 12);
 
@@ -345,13 +345,13 @@ NewConnectionDialog::NewConnectionDialog(
             s->Add(new wxStaticText(m_customGeomPanel, wxID_ANY, "Cols:"),
                    0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
             m_colsCtrl = new wxSpinCtrl(m_customGeomPanel, wxID_ANY, "80",
-                                        wxDefaultPosition, wxSize(60, -1),
+                                        wxDefaultPosition, wxDefaultSize,
                                         wxSP_ARROW_KEYS, 10, 1000, 80);
             s->Add(m_colsCtrl, 0, wxRIGHT, 8);
             s->Add(new wxStaticText(m_customGeomPanel, wxID_ANY, "Rows:"),
                    0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
             m_rowsCtrl = new wxSpinCtrl(m_customGeomPanel, wxID_ANY, "24",
-                                        wxDefaultPosition, wxSize(60, -1),
+                                        wxDefaultPosition, wxDefaultSize,
                                         wxSP_ARROW_KEYS, 1, 200, 24);
             s->Add(m_rowsCtrl, 0);
             m_customGeomPanel->SetSizer(s);

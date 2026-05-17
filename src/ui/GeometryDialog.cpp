@@ -17,7 +17,7 @@ GeometryDialog::GeometryDialog(wxWindow*      parent,
     row->Add(new wxStaticText(this, wxID_ANY, "Cols:"),
              0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
     m_cols = new wxSpinCtrl(this, wxID_ANY, "",
-                            wxDefaultPosition, wxSize(70, -1),
+                            wxDefaultPosition, wxDefaultSize,
                             wxSP_ARROW_KEYS, 10, 999,
                             static_cast<int>(currentCols));
     row->Add(m_cols, 0, wxRIGHT, 16);
@@ -25,7 +25,7 @@ GeometryDialog::GeometryDialog(wxWindow*      parent,
     row->Add(new wxStaticText(this, wxID_ANY, "Rows:"),
              0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
     m_rows = new wxSpinCtrl(this, wxID_ANY, "",
-                            wxDefaultPosition, wxSize(70, -1),
+                            wxDefaultPosition, wxDefaultSize,
                             wxSP_ARROW_KEYS, 1, 200,
                             static_cast<int>(currentRows));
     row->Add(m_rows, 0);
