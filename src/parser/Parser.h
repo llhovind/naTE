@@ -11,6 +11,7 @@ public:
     Parser(IDocumentTarget& docTarget, IScreenTarget& screenTarget);
 
     void Process(const std::string& data);
+    void Reset();
     void SetDocTarget(IDocumentTarget* target) { doc_ = target; }
 
 private:

@@ -89,6 +89,10 @@ void Parser::HandleEscape(unsigned char byte)
         case 'M': doc_->ReverseIndex();  break;  // Reverse Index
         case '7': doc_->SaveCursor();    break;  // DECSC
         case '8': doc_->RestoreCursor(); break;  // DECRC
+        case 'c':                                // RIS — Reset to Initial State
+            screen_.OnResetTerminal();
+            Reset();
+            break;
         default:  break;
         }
         state_ = State::Normal;
@@ -348,6 +352,17 @@ void Parser::DispatchSgr()
     }
 
     doc_->SetCurrentStyle(style);
+}
+
+void Parser::Reset()
+{
+    state_          = State::Normal;
+    params_.clear();
+    privateMode_    = false;
+    osc_payload_.clear();
+    utf8_codepoint_ = 0;
+    utf8_remaining_ = 0;
+    doc_->SetCurrentStyle(Style{});
 }
 
 } // namespace term::parser

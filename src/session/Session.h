@@ -40,9 +40,16 @@ public:
     void OnInput(const input::KeyEvent& event) override;
     void Paste(const std::string& utf8) override;
 
+    // Resets all terminal state (modes, attributes, parser FSM).
+    // If clearScrollback=true, also wipes all content from main_doc_.
+    // Sends \021 (XON) + \033c to the transport to unblock flow control
+    // and notify the running process.
+    void ResetTerminal(bool clearScrollback);
+
     // parser::IScreenTarget
-    void OnEnterAltScreen() override;
-    void OnExitAltScreen()  override;
+    void OnEnterAltScreen()   override;
+    void OnExitAltScreen()    override;
+    void OnResetTerminal()    override;
 
     // transport::ITransportTarget
     void OnData(const std::string& data) override;

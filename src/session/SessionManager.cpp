@@ -210,6 +210,12 @@ term::input::InputTarget* SessionManager::GetInputTarget(SessionId id) const
     return nullptr;
 }
 
+void SessionManager::ResetTerminal(SessionId id, bool clearScrollback)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (rec) rec->session->ResetTerminal(clearScrollback);
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------

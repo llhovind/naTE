@@ -275,6 +275,35 @@ void UIManager::ToggleWrapModeForSession(term::session::SessionId id)
         frame_->SyncwrapModeMenuItem(newWrap);
 }
 
+void UIManager::ResetActiveTerminal()
+{
+    if (activeId_) sm_.ResetTerminal(activeId_, false);
+}
+
+void UIManager::ResetAndClearActiveTerminal()
+{
+    if (!activeId_) return;
+
+    DocLayout& layout = sm_.GetDocLayout(activeId_);
+    if (layout.GetLineCount() > 1) {
+        const int answer = wxMessageBox(
+            "Save scrollback before clearing?",
+            "Reset and Clear",
+            wxYES_NO | wxCANCEL | wxICON_QUESTION);
+
+        if (answer == wxCANCEL) return;
+
+        if (answer == wxYES) {
+            layout.SelectAll();
+            const auto text = layout.GetSelectedText();
+            layout.ClearSelection();
+            SaveToFileAction{}.Execute(text);
+        }
+    }
+
+    sm_.ResetTerminal(activeId_, true);
+}
+
 void UIManager::ToggleBroadcastMode()
 {
     const bool enabling = router_.GetMode() != term::input::InputMode::Broadcast;

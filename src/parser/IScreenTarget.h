@@ -12,6 +12,7 @@ public:
     virtual void OnFunctionKey(int /*n*/)        {}
     virtual void OnScrollUp(int /*count*/)       {}
     virtual void OnScrollDown(int /*count*/)     {}
+    virtual void OnResetTerminal()               {}
 };
 
 } // namespace term::parser

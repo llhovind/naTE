@@ -25,6 +25,8 @@ namespace {
     constexpr int ID_SAVE_SESSION_FILE_TERM  = wxID_HIGHEST + 21;
     constexpr int ID_OPEN_IN_NEW_TILE        = wxID_HIGHEST + 22;
     constexpr int ID_OPEN_IN_NEW_WINDOW_TERM = wxID_HIGHEST + 23;
+    constexpr int ID_RESET_TERMINAL          = wxID_HIGHEST + 24;
+    constexpr int ID_RESET_AND_CLEAR         = wxID_HIGHEST + 25;
 
     // Window menu: window entries occupy [kWindowMenuBase, kWindowMenuBase + kWindowMenuMax).
     constexpr int kWindowMenuBase    = wxID_HIGHEST + 400;
@@ -83,6 +85,12 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_MENU, &MainFrame::OnSetGeometry132x24, this, ID_SET_GEOMETRY_132x24);
     Bind(wxEVT_MENU, &MainFrame::OnSetGeometryCustom, this, ID_SET_GEOMETRY_CUSTOM);
     Bind(wxEVT_MENU, &MainFrame::OnSetFont,           this, ID_SET_FONT);
+
+    termMenu->AppendSeparator();
+    termMenu->Append(ID_RESET_TERMINAL,  "Reset Terminal");
+    termMenu->Append(ID_RESET_AND_CLEAR, "Reset and Clear...");
+    Bind(wxEVT_MENU, &MainFrame::OnResetTerminal,  this, ID_RESET_TERMINAL);
+    Bind(wxEVT_MENU, &MainFrame::OnResetAndClear,  this, ID_RESET_AND_CLEAR);
 
     termMenu->AppendSeparator();
     termMenu->Append(ID_SAVE_SESSION_FILE_TERM, "Save Session to File...");
@@ -320,6 +328,14 @@ void MainFrame::OnSetGeometry80x24(wxCommandEvent&)      { NotYetImplemented(); 
 void MainFrame::OnSetGeometry132x24(wxCommandEvent&)     { NotYetImplemented(); }
 void MainFrame::OnSetGeometryCustom(wxCommandEvent&)     { NotYetImplemented(); }
 void MainFrame::OnSetFont(wxCommandEvent&)               { NotYetImplemented(); }
+void MainFrame::OnResetTerminal(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->ResetActiveTerminal();
+}
+void MainFrame::OnResetAndClear(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->ResetAndClearActiveTerminal();
+}
 void MainFrame::OnSaveSessionFileTerminal(wxCommandEvent&) { NotYetImplemented(); }
 void MainFrame::OnOpenInNewTile(wxCommandEvent&)
 {

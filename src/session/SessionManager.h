@@ -86,6 +86,7 @@ public:
     void OnScroll(SessionId id, int topRow);
     void OnResize(SessionId id, unsigned short cols, unsigned short rows);
     void SetWrapMode(SessionId id, bool wrap);
+    void ResetTerminal(SessionId id, bool clearScrollback);
 
     term::input::InputTarget* GetInputTarget(SessionId id) const;
 

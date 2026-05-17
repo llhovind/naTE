@@ -107,6 +107,7 @@ public:
     virtual void EraseInDisplay(int mode)              = 0;
 
     virtual void Resize(int rows, int cols) {}           // no-op default; AltScreenDocument overrides
+    virtual void FullReset(bool clearContent) = 0;      // RIS: reset modes/attrs; if clearContent wipes all lines
     virtual void ReverseIndex() {}                       // ESC M — scroll region content down
     virtual void SetScrollRegion(int top, int bot) {}    // CSI r — set top/bottom margins (1-indexed)
     virtual void InsertLines(int count) {}               // CSI Ps L — insert blank lines at cursor
@@ -172,6 +173,7 @@ public:
     void InsertLines(int count)                override;
     void DeleteLines(int count)                override;
     void SetPtyCols(int cols)                  override;
+    void FullReset(bool clearContent)          override;
 
 private:
     std::deque<DocLine> lines_;
@@ -213,6 +215,7 @@ public:
     void InsertChar(int count)                  override;
     void InsertLines(int count)                 override;
     void DeleteLines(int count)                 override;
+    void FullReset(bool clearContent)           override;
 
 private:
     int       rows_;

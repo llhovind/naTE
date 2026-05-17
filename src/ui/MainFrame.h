@@ -86,6 +86,8 @@ private:
     void OnSetGeometry132x24(wxCommandEvent&);
     void OnSetGeometryCustom(wxCommandEvent&);
     void OnSetFont(wxCommandEvent&);
+    void OnResetTerminal(wxCommandEvent&);
+    void OnResetAndClear(wxCommandEvent&);
     void OnSaveSessionFileTerminal(wxCommandEvent&);
     void OnOpenInNewTile(wxCommandEvent&);
     void OnOpenInNewWindowTerminal(wxCommandEvent&);

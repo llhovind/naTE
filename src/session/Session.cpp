@@ -96,6 +96,39 @@ void Session::OnDisconnect()
         onDisconnect_();
 }
 
+void Session::ResetTerminal(bool clearScrollback)
+{
+    if (altScreenActive_) {
+        for (auto* l : externalListeners_) alt_doc_->RemoveListener(l);
+        active_doc_ = main_doc_.get();
+        parser_.SetDocTarget(active_doc_);
+        docLayout_->SetDocument(*main_doc_);
+        for (auto* l : externalListeners_) main_doc_->AddListener(l);
+        if (!docLayout_->GetWrapMode())
+            transport_->Resize(ptyLineWidth_, lastRows_);
+        altScreenActive_ = false;
+    }
+    main_doc_->FullReset(clearScrollback);
+    alt_doc_->FullReset(false);
+    parser_.Reset();
+    transport_->Write("\021\033c");
+}
+
+void Session::OnResetTerminal()
+{
+    if (altScreenActive_) {
+        for (auto* l : externalListeners_) alt_doc_->RemoveListener(l);
+        active_doc_ = main_doc_.get();
+        parser_.SetDocTarget(active_doc_);
+        docLayout_->SetDocument(*main_doc_);
+        for (auto* l : externalListeners_) main_doc_->AddListener(l);
+        altScreenActive_ = false;
+    }
+    main_doc_->FullReset(false);
+    alt_doc_->FullReset(false);
+    // parser_.Reset() is called by HandleEscape immediately after this returns
+}
+
 void Session::OnEnterAltScreen()
 {
     alt_doc_->Resize(lastRows_, lastCols_);

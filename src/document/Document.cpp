@@ -520,6 +520,24 @@ void MainScreenDocument::EraseInDisplay(int mode)
     }
 }
 
+void MainScreenDocument::FullReset(bool clearContent)
+{
+    insertMode_         = false;
+    pendingSubRowClear_ = false;
+    title_.clear();
+
+    if (clearContent) {
+        const size_t oldSize = lines_.size();
+        lines_.clear();
+        lines_.emplace_back();
+        cursor_ = {0, 0};
+        for (size_t i = oldSize - 1; i >= 1; --i)
+            NotifyListeners(DocChangeType::DeleteLine, i);
+    }
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+    NotifyListeners(DocChangeType::CursorMove, 0);
+}
+
 // ---------------------------------------------------------------------------
 // AltScreenDocument — fixed-size, fully-addressable grid
 // ---------------------------------------------------------------------------
@@ -865,4 +883,20 @@ void AltScreenDocument::EraseInDisplay(int mode)
         break;
     }
     }
+}
+
+void AltScreenDocument::FullReset(bool /*clearContent*/)
+{
+    scrollTop_   = 0;
+    scrollBot_   = rows_ - 1;
+    savedCursor_ = {};
+    insertMode_  = false;
+    title_.clear();
+    cursor_      = {0, 0};
+    const int n  = static_cast<int>(lines_.size());
+    for (int i = 0; i < n; ++i) {
+        lines_[i].Clear();
+        NotifyListeners(DocChangeType::UpdateLine, i);
+    }
+    NotifyListeners(DocChangeType::CursorMove, 0);
 }

@@ -75,6 +75,11 @@ public:
     void ToggleWrapModeForActive();
     void ToggleWrapModeForSession(term::session::SessionId id);
 
+    // Reset active terminal state (modes/attributes); preserve content.
+    void ResetActiveTerminal();
+    // Reset and clear all content; prompts to save scrollback first.
+    void ResetAndClearActiveTerminal();
+
     // Toggle broadcast mode on/off.
     void ToggleBroadcastMode();
 
