@@ -304,20 +304,12 @@ void UIManager::ToggleTileBroadcast(term::session::SessionId id)
     auto* target = sm_.GetInputTarget(id);
     if (!target) return;
 
-    if (router_.IsSelected(target)) {
+    if (router_.IsSelected(target))
         router_.Deselect(target);
-        if (!router_.HasSelection()) {
-            router_.SetMode(term::input::InputMode::Focused);
-            frame_->SyncBroadcastMenuItem(false);
-        }
-    } else {
+    else
         router_.Select(target);
-        // Enable broadcast mode on first explicit add so the visual is immediate.
-        if (router_.GetMode() != term::input::InputMode::Broadcast) {
-            router_.SetMode(term::input::InputMode::Broadcast);
-            frame_->SyncBroadcastMenuItem(true);
-        }
-    }
+
+    frame_->SyncBroadcastMenuItem(router_.GetMode() == term::input::InputMode::Broadcast);
 }
 
 void UIManager::RefreshBroadcastVisuals()

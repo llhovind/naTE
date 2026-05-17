@@ -36,16 +36,21 @@ InputTarget* InputRouter::GetFocused() const noexcept {
 void InputRouter::Select(InputTarget* target) {
     if (!IsValidTarget(target)) return;
     selected_.insert(target);
+    if (mode_ != InputMode::Broadcast)
+        mode_ = InputMode::Broadcast;
     NotifyStateChanged();
 }
 
 void InputRouter::Deselect(InputTarget* target) {
     selected_.erase(target);
+    if (selected_.empty())
+        mode_ = InputMode::Focused;
     NotifyStateChanged();
 }
 
 void InputRouter::ClearSelection() {
     selected_.clear();
+    mode_ = InputMode::Focused;
     NotifyStateChanged();
 }
 
