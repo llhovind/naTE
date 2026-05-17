@@ -59,6 +59,7 @@ public:
     void TakeSession(term::session::SessionId     id,
                      std::function<std::string()> getTitle,
                      unsigned short               cols,
+                     unsigned short               rows,
                      const std::string&           label,
                      TerminalTile*                targetTile = nullptr);
 

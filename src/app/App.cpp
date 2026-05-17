@@ -157,13 +157,17 @@ term::session::SessionId App::CreateSessionInTile(
         ? conn.columnWidth
         : static_cast<unsigned short>(m_cfg.columns);
 
+    const unsigned short rows = conn.rows
+        ? conn.rows
+        : static_cast<unsigned short>(m_cfg.rows);
+
     term::session::SessionId id = 0;
     try {
         id = m_sessionManager->CreateSession(
             conn,
             m_cfg.scrollbackLines,
             cols,
-            static_cast<unsigned short>(m_cfg.rows),
+            rows,
             static_cast<unsigned short>(m_cfg.ptyLineWidth));
     } catch (const std::exception& e) {
         wxMessageBox(wxString::FromUTF8(e.what()), "Connection Failed",
@@ -177,6 +181,7 @@ term::session::SessionId App::CreateSessionInTile(
         id,
         m_sessionManager->MakeTitleGetter(id),
         cols,
+        rows,
         conn.label,
         targetTile);
     return id;
@@ -261,6 +266,7 @@ bool App::DropSession(std::span<const term::session::SessionId> ids,
             id,
             m_sessionManager->MakeTitleGetter(id),
             m_sessionManager->GetDocLayout(id).GetViewportCols(),
+            m_sessionManager->GetDocLayout(id).GetViewportRows(),
             m_sessionManager->GetLabel(id),
             tile);
         if (!tile)

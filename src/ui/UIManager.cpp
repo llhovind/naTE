@@ -153,6 +153,7 @@ void UIManager::WireTileCallbacks(TerminalTile* tile)
 void UIManager::TakeSession(term::session::SessionId     id,
                              std::function<std::string()> getTitle,
                              unsigned short               cols,
+                             unsigned short               rows,
                              const std::string&           label,
                              TerminalTile*                targetTile)
 {
@@ -163,7 +164,7 @@ void UIManager::TakeSession(term::session::SessionId     id,
     }
 
     // Create the panel parented to the tile's content area.
-    auto* panel = new TerminalPanel(targetTile->GetContentArea(), cfg_, cols);
+    auto* panel = new TerminalPanel(targetTile->GetContentArea(), cfg_, cols, rows);
     panel->SetDocLayout(&sm_.GetDocLayout(id));
 
     panel->SetScrollCallback([this, id](int topRow) { OnScroll(id, topRow); });

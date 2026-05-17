@@ -18,7 +18,7 @@ public:
     using FocusCallback  = std::function<void()>;
     using KeyCallback    = std::function<void(const term::input::KeyEvent&)>;
 
-    TerminalPanel(wxWindow* parent, const AppConfig& cfg, unsigned short cols);
+    TerminalPanel(wxWindow* parent, const AppConfig& cfg, unsigned short cols, unsigned short rows);
 
     void SetDocLayout(::DocLayout* docLayout);
 
