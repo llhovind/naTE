@@ -32,6 +32,49 @@ term::session::SshAuthMethod AuthMethodFromString(const std::string& s)
     return term::session::SshAuthMethod::Agent;
 }
 
+std::string ParityToString(term::session::SerialParity p)
+{
+    switch (p) {
+        case term::session::SerialParity::Even: return "even";
+        case term::session::SerialParity::Odd:  return "odd";
+        default:                                return "none";
+    }
+}
+
+term::session::SerialParity ParityFromString(const std::string& s)
+{
+    if (s == "even") return term::session::SerialParity::Even;
+    if (s == "odd")  return term::session::SerialParity::Odd;
+    return term::session::SerialParity::None;
+}
+
+std::string FlowToString(term::session::SerialFlowControl f)
+{
+    switch (f) {
+        case term::session::SerialFlowControl::Hardware: return "hardware";
+        case term::session::SerialFlowControl::Software: return "software";
+        default:                                         return "none";
+    }
+}
+
+term::session::SerialFlowControl FlowFromString(const std::string& s)
+{
+    if (s == "hardware") return term::session::SerialFlowControl::Hardware;
+    if (s == "software") return term::session::SerialFlowControl::Software;
+    return term::session::SerialFlowControl::None;
+}
+
+std::string StopBitsToString(term::session::SerialStopBits sb)
+{
+    return sb == term::session::SerialStopBits::Two ? "2" : "1";
+}
+
+term::session::SerialStopBits StopBitsFromString(const std::string& s)
+{
+    return s == "2" ? term::session::SerialStopBits::Two
+                    : term::session::SerialStopBits::One;
+}
+
 json SerialiseTransport(const term::session::TransportDesc& transport)
 {
     return std::visit([](const auto& desc) -> json {
@@ -52,6 +95,17 @@ json SerialiseTransport(const term::session::TransportDesc& transport)
                 {"connectTimeoutSec",  desc.connectTimeoutSec},
                 {"remoteCommand",      desc.remoteCommand},
                 {"compress",           desc.compress},
+            };
+        } else if constexpr (std::is_same_v<T, term::session::SerialDesc>) {
+            return json{
+                {"type",        "serial"},
+                {"device",      desc.device},
+                {"baudRate",    desc.baudRate},
+                {"dataBits",    desc.dataBits},
+                {"stopBits",    StopBitsToString(desc.stopBits)},
+                {"parity",      ParityToString(desc.parity)},
+                {"flowControl", FlowToString(desc.flowControl)},
+                {"dialScript",  desc.dialScript},
             };
         } else {
             return json{{"type", "loopback"}};
@@ -79,6 +133,17 @@ term::session::TransportDesc DeserialiseTransport(const json& j)
         d.remoteCommand     = j.value("remoteCommand",     std::string{});
         d.compress          = j.value("compress",          false);
         // password and passphrase are never stored — left at default ""
+        return d;
+    }
+    if (type == "serial") {
+        term::session::SerialDesc d;
+        d.device      = j.value("device",      std::string{});
+        d.baudRate    = j.value("baudRate",    115200u);
+        d.dataBits    = j.value("dataBits",    static_cast<unsigned short>(8));
+        d.stopBits    = StopBitsFromString(j.value("stopBits",    std::string{"1"}));
+        d.parity      = ParityFromString(j.value("parity",      std::string{"none"}));
+        d.flowControl = FlowFromString(j.value("flowControl", std::string{"none"}));
+        d.dialScript  = j.value("dialScript",  std::string{});
         return d;
     }
     return term::session::LoopbackDesc{};

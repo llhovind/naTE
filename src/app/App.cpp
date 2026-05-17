@@ -3,6 +3,7 @@
 #include "ui/MainFrame.h"
 #include "ui/TerminalTile.h"
 #include <wx/filename.h>
+#include <wx/msgdlg.h>
 #include <wx/stdpaths.h>
 #include <wx/string.h>
 #include <libssh2.h>
@@ -156,12 +157,19 @@ term::session::SessionId App::CreateSessionInTile(
         ? conn.columnWidth
         : static_cast<unsigned short>(m_cfg.columns);
 
-    const term::session::SessionId id = m_sessionManager->CreateSession(
-        conn,
-        m_cfg.scrollbackLines,
-        cols,
-        static_cast<unsigned short>(m_cfg.rows),
-        static_cast<unsigned short>(m_cfg.ptyLineWidth));
+    term::session::SessionId id = 0;
+    try {
+        id = m_sessionManager->CreateSession(
+            conn,
+            m_cfg.scrollbackLines,
+            cols,
+            static_cast<unsigned short>(m_cfg.rows),
+            static_cast<unsigned short>(m_cfg.ptyLineWidth));
+    } catch (const std::exception& e) {
+        wxMessageBox(wxString::FromUTF8(e.what()), "Connection Failed",
+                     wxOK | wxICON_ERROR, target);
+        return 0;
+    }
 
     m_sessionManager->SetSessionObserver(id, ctx->uiManager.get());
     m_sessionManager->RegisterRouter(id, *ctx->router);

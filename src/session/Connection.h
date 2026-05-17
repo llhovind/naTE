@@ -25,7 +25,21 @@ struct SshDesc {
     bool           compress          = false;
 };
 
-using TransportDesc = std::variant<PtyDesc, LoopbackDesc, SshDesc>;
+enum class SerialParity      { None, Even, Odd };
+enum class SerialFlowControl { None, Hardware, Software };
+enum class SerialStopBits    { One, Two };
+
+struct SerialDesc {
+    std::string      device;                                // e.g. "/dev/ttyUSB0"
+    unsigned int     baudRate    = 115200;
+    unsigned short   dataBits    = 8;                       // 5 | 6 | 7 | 8
+    SerialStopBits   stopBits    = SerialStopBits::One;
+    SerialParity     parity      = SerialParity::None;
+    SerialFlowControl flowControl = SerialFlowControl::None;
+    std::string      dialScript;                            // empty = raw serial; path to executable run before I/O
+};
+
+using TransportDesc = std::variant<PtyDesc, LoopbackDesc, SshDesc, SerialDesc>;
 
 struct Connection {
     std::string    label;

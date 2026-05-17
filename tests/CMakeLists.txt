@@ -32,6 +32,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/session/SessionManager.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/LoopbackTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/PtyTransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SerialTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/DocLayout.cpp
 )

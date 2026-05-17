@@ -1,4 +1,5 @@
 #include "ui/MainFrame.h"
+#include "ui/ConnectionFactory.h"
 #include "ui/ConnectionManagerDialog.h"
 #include "ui/UIManager.h"
 #include "db/ConnectionStore.h"
@@ -31,10 +32,6 @@ namespace {
     constexpr int kWindowSessionBase = wxID_HIGHEST + 500;
     constexpr int kWindowSessionMax  = 128;
 
-    template<class... Ts>
-    struct overloaded : Ts... { using Ts::operator()...; };
-    template<class... Ts>
-    overloaded(Ts...) -> overloaded<Ts...>;
 }
 
 MainFrame::MainFrame(const AppConfig& cfg,
@@ -52,7 +49,7 @@ MainFrame::MainFrame(const AppConfig& cfg,
 
     // ---- Connection menu -----------------------------------------------------
     m_connMenu = new wxMenu;
-    m_connMenu->Append(ID_NEW_CONNECTION,         "New Connection");
+    m_connMenu->Append(ID_NEW_CONNECTION,         "New Connection\tCtrl+Shift+N");
     m_connMenu->Append(ID_NEW_CONNECTION_IN_TILE, "New Connection in Tab");
     m_connMenu->Append(ID_CONNECTION_MANAGER,     "Connection Manager...\tCtrl+Shift+M");
     m_connMenu->AppendSeparator();
@@ -98,7 +95,7 @@ MainFrame::MainFrame(const AppConfig& cfg,
 
     // ---- Window menu (New Window static; rest populated dynamically) ---------
     m_windowMenu = new wxMenu;
-    m_windowMenu->Append(ID_NEW_WINDOW, "New Window\tCtrl+Shift+N");
+    m_windowMenu->Append(ID_NEW_WINDOW, "New Window");
     m_windowMenu->AppendSeparator();
     Bind(wxEVT_MENU, &MainFrame::OnNewWindow,            this, ID_NEW_WINDOW);
     Bind(wxEVT_MENU, &MainFrame::OnWindowSessionMenuItem, this,
@@ -180,48 +177,7 @@ bool MainFrame::RunNewConnectionDialog(term::session::Connection& conn,
     if (dlg.ShowModal() != wxID_OK)
         return false;
 
-    const int idx = ++m_sessionCount;
-    std::visit(overloaded{
-        [&](const ui::LoopbackParams& p) {
-            conn.label       = wxString::Format("Loopback %d", idx).ToStdString();
-            conn.transport   = term::session::LoopbackDesc{};
-            conn.wrapMode    = p.wrapMode;
-            conn.columnWidth = p.columnWidth;
-        },
-        [&](const ui::PtyParams& p) {
-            conn.label       = wxString::Format("Local Shell %d", idx).ToStdString();
-            conn.transport   = term::session::PtyDesc{ p.shell };
-            conn.wrapMode    = p.wrapMode;
-            conn.columnWidth = p.columnWidth;
-        },
-        [&](const ui::SshParams& p) {
-            term::session::SshDesc d;
-            d.host              = p.host;
-            d.port              = p.port;
-            d.username          = p.username;
-            d.connectTimeoutSec = p.connectTimeoutSec;
-            d.keepaliveSeconds  = p.keepaliveSeconds;
-            d.remoteCommand     = p.remoteCommand;
-            d.compress          = p.compress;
-            d.password          = p.password;
-            d.privateKeyPath    = p.privateKeyPath;
-            d.passphrase        = p.passphrase;
-            switch (p.authMethod) {
-                case ui::SshAuthChoice::Agent:
-                    d.authMethod = term::session::SshAuthMethod::Agent; break;
-                case ui::SshAuthChoice::Password:
-                    d.authMethod = term::session::SshAuthMethod::Password; break;
-                case ui::SshAuthChoice::PrivateKey:
-                    d.authMethod = term::session::SshAuthMethod::PrivateKey; break;
-            }
-            conn.label       = wxString::Format("SSH %s@%s:%d #%d",
-                                                p.username, p.host,
-                                                static_cast<int>(p.port), idx).ToStdString();
-            conn.transport   = d;
-            conn.wrapMode    = p.wrapMode;
-            conn.columnWidth = p.columnWidth;
-        }
-    }, dlg.GetParams());
+    conn = ui::ToConnection(dlg.GetParams(), ++m_sessionCount);
 
     const std::string name = dlg.GetConnectionName();
     if (!name.empty()) {

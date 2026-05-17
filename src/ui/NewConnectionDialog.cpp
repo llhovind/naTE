@@ -23,6 +23,7 @@ namespace
     constexpr int ID_RB_LOOPBACK    = wxID_HIGHEST + 200;
     constexpr int ID_RB_PTY         = wxID_HIGHEST + 201;
     constexpr int ID_RB_SSH         = wxID_HIGHEST + 202;
+    constexpr int ID_RB_SERIAL      = wxID_HIGHEST + 203;
     constexpr int ID_RB_AUTH_AGENT  = wxID_HIGHEST + 205;
     constexpr int ID_RB_AUTH_PASS   = wxID_HIGHEST + 206;
     constexpr int ID_RB_AUTH_KEY    = wxID_HIGHEST + 207;
@@ -56,11 +57,13 @@ NewConnectionDialog::NewConnectionDialog(wxWindow* parent,
                                      wxDefaultPosition, wxDefaultSize, wxRB_GROUP);
     m_rbPty      = new wxRadioButton(this, ID_RB_PTY, "Local Shell (PTY)");
     m_rbSsh      = new wxRadioButton(this, ID_RB_SSH, "SSH");
+    m_rbSerial   = new wxRadioButton(this, ID_RB_SERIAL, "Serial");
     m_rbPty->SetValue(true);
 
     outer->Add(m_rbLoopback, 0, wxLEFT | wxTOP, 4);
     outer->Add(m_rbPty,      0, wxLEFT | wxTOP, 4);
     outer->Add(m_rbSsh,      0, wxLEFT | wxTOP, 4);
+    outer->Add(m_rbSerial,   0, wxLEFT | wxTOP, 4);
 
     // ---- PTY fields ---------------------------------------------------------
     auto* shellRow = new wxBoxSizer(wxHORIZONTAL);
@@ -189,6 +192,94 @@ NewConnectionDialog::NewConnectionDialog(wxWindow* parent,
     m_sshPanel->Show(false);
     outer->Add(m_sshPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
 
+    // ---- Serial panel -------------------------------------------------------
+    m_serialPanel = new wxPanel(this, wxID_ANY);
+    auto* serialSizer = new wxBoxSizer(wxVERTICAL);
+
+    auto* serialGrid = new wxFlexGridSizer(2, wxSize(8, 4));
+    serialGrid->AddGrowableCol(1);
+
+    serialGrid->Add(new wxStaticText(m_serialPanel, wxID_ANY, "Device:"),
+                    0, wxALIGN_CENTER_VERTICAL);
+    m_deviceCtrl = new wxTextCtrl(m_serialPanel, wxID_ANY, "/dev/ttyUSB0",
+                                  wxDefaultPosition, wxSize(200, -1));
+    serialGrid->Add(m_deviceCtrl, 1, wxEXPAND);
+
+    serialGrid->Add(new wxStaticText(m_serialPanel, wxID_ANY, "Baud rate:"),
+                    0, wxALIGN_CENTER_VERTICAL);
+    {
+        wxArrayString bauds;
+        for (const char* b : { "9600", "19200", "38400", "57600",
+                                "115200", "230400", "460800", "921600" })
+            bauds.Add(b);
+        m_baudCtrl = new wxComboBox(m_serialPanel, wxID_ANY, "115200",
+                                    wxDefaultPosition, wxSize(100, -1),
+                                    bauds, wxCB_READONLY);
+        m_baudCtrl->SetStringSelection("115200");
+    }
+    serialGrid->Add(m_baudCtrl, 0);
+
+    serialGrid->Add(new wxStaticText(m_serialPanel, wxID_ANY, "Data bits:"),
+                    0, wxALIGN_CENTER_VERTICAL);
+    {
+        wxArrayString db;
+        for (const char* d : { "5", "6", "7", "8" })
+            db.Add(d);
+        m_dataBitsCtrl = new wxComboBox(m_serialPanel, wxID_ANY, "8",
+                                        wxDefaultPosition, wxSize(60, -1),
+                                        db, wxCB_READONLY);
+        m_dataBitsCtrl->SetStringSelection("8");
+    }
+    serialGrid->Add(m_dataBitsCtrl, 0);
+
+    serialGrid->Add(new wxStaticText(m_serialPanel, wxID_ANY, "Stop bits:"),
+                    0, wxALIGN_CENTER_VERTICAL);
+    {
+        wxArrayString sb;
+        sb.Add("1"); sb.Add("2");
+        m_stopBitsCtrl = new wxComboBox(m_serialPanel, wxID_ANY, "1",
+                                        wxDefaultPosition, wxSize(60, -1),
+                                        sb, wxCB_READONLY);
+        m_stopBitsCtrl->SetStringSelection("1");
+    }
+    serialGrid->Add(m_stopBitsCtrl, 0);
+
+    serialGrid->Add(new wxStaticText(m_serialPanel, wxID_ANY, "Parity:"),
+                    0, wxALIGN_CENTER_VERTICAL);
+    {
+        wxArrayString par;
+        par.Add("None"); par.Add("Even"); par.Add("Odd");
+        m_parityCtrl = new wxComboBox(m_serialPanel, wxID_ANY, "None",
+                                      wxDefaultPosition, wxSize(100, -1),
+                                      par, wxCB_READONLY);
+        m_parityCtrl->SetStringSelection("None");
+    }
+    serialGrid->Add(m_parityCtrl, 0);
+
+    serialGrid->Add(new wxStaticText(m_serialPanel, wxID_ANY, "Flow control:"),
+                    0, wxALIGN_CENTER_VERTICAL);
+    {
+        wxArrayString fc;
+        fc.Add("None"); fc.Add("Hardware"); fc.Add("Software");
+        m_flowCtrlCombo = new wxComboBox(m_serialPanel, wxID_ANY, "None",
+                                         wxDefaultPosition, wxSize(120, -1),
+                                         fc, wxCB_READONLY);
+        m_flowCtrlCombo->SetStringSelection("None");
+    }
+    serialGrid->Add(m_flowCtrlCombo, 0);
+
+    serialGrid->Add(new wxStaticText(m_serialPanel, wxID_ANY, "Dial script:"),
+                    0, wxALIGN_CENTER_VERTICAL);
+    m_dialScriptCtrl = new wxTextCtrl(m_serialPanel, wxID_ANY, wxEmptyString,
+                                      wxDefaultPosition, wxSize(200, -1));
+    m_dialScriptCtrl->SetHint("(optional) path to dial script");
+    serialGrid->Add(m_dialScriptCtrl, 1, wxEXPAND);
+
+    serialSizer->Add(serialGrid, 0, wxEXPAND | wxALL, 4);
+    m_serialPanel->SetSizer(serialSizer);
+    m_serialPanel->Show(false);
+    outer->Add(m_serialPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
+
     // ---- Shared terminal options --------------------------------------------
     outer->AddSpacer(8);
     outer->Add(new wxStaticLine(this), 0, wxEXPAND | wxLEFT | wxRIGHT, 12);
@@ -235,6 +326,7 @@ NewConnectionDialog::NewConnectionDialog(wxWindow* parent,
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnTransportChanged, this, ID_RB_LOOPBACK);
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnTransportChanged, this, ID_RB_PTY);
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnTransportChanged, this, ID_RB_SSH);
+    Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnTransportChanged, this, ID_RB_SERIAL);
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_AGENT);
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_PASS);
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_KEY);
@@ -254,6 +346,7 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
             m_rbPty->SetValue(true);
             m_shellCtrl->SetValue(desc.shell);
             m_sshPanel->Show(false);
+            m_serialPanel->Show(false);
             m_shellCtrl->Enable(true);
         } else if constexpr (std::is_same_v<T, term::session::SshDesc>) {
             m_rbSsh->SetValue(true);
@@ -279,11 +372,37 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
                     break;
             }
             m_sshPanel->Show(true);
+            m_serialPanel->Show(false);
+            m_shellCtrl->Enable(false);
+        } else if constexpr (std::is_same_v<T, term::session::SerialDesc>) {
+            m_rbSerial->SetValue(true);
+            m_deviceCtrl->SetValue(desc.device);
+            m_baudCtrl->SetStringSelection(wxString::Format("%u", desc.baudRate));
+            m_dataBitsCtrl->SetStringSelection(wxString::Format("%u", desc.dataBits));
+            m_stopBitsCtrl->SetStringSelection(
+                desc.stopBits == term::session::SerialStopBits::Two ? "2" : "1");
+            switch (desc.parity) {
+                case term::session::SerialParity::Even: m_parityCtrl->SetStringSelection("Even"); break;
+                case term::session::SerialParity::Odd:  m_parityCtrl->SetStringSelection("Odd");  break;
+                default:                                m_parityCtrl->SetStringSelection("None"); break;
+            }
+            switch (desc.flowControl) {
+                case term::session::SerialFlowControl::Hardware:
+                    m_flowCtrlCombo->SetStringSelection("Hardware"); break;
+                case term::session::SerialFlowControl::Software:
+                    m_flowCtrlCombo->SetStringSelection("Software"); break;
+                default:
+                    m_flowCtrlCombo->SetStringSelection("None"); break;
+            }
+            m_dialScriptCtrl->SetValue(desc.dialScript);
+            m_sshPanel->Show(false);
+            m_serialPanel->Show(true);
             m_shellCtrl->Enable(false);
         } else {
             // Loopback
             m_rbLoopback->SetValue(true);
             m_sshPanel->Show(false);
+            m_serialPanel->Show(false);
             m_shellCtrl->Enable(false);
         }
     }, profile.transport);
@@ -311,9 +430,11 @@ void NewConnectionDialog::OnTransportChanged(wxCommandEvent&)
     const bool isPty      = m_rbPty->GetValue();
     const bool isSsh      = m_rbSsh->GetValue();
     const bool isLoopback = m_rbLoopback->GetValue();
+    const bool isSerial   = m_rbSerial->GetValue();
 
     m_shellCtrl->Enable(isPty);
     m_sshPanel->Show(isSsh);
+    m_serialPanel->Show(isSerial);
 
     // Loopback: wrap mode is always on and not user-adjustable
     m_cbwrapMode->SetValue(isLoopback ? true : m_cbwrapMode->GetValue());
@@ -345,6 +466,12 @@ void NewConnectionDialog::OnOK(wxCommandEvent& evt)
             m_userCtrl->SetFocus();
             return;
         }
+    }
+    if (m_rbSerial->GetValue() && m_deviceCtrl->GetValue().IsEmpty()) {
+        wxMessageBox("Please enter a serial device path (e.g. /dev/ttyUSB0).",
+                     "Serial Connection", wxOK | wxICON_WARNING, this);
+        m_deviceCtrl->SetFocus();
+        return;
     }
     evt.Skip(); // allow default OK processing
 }
@@ -393,6 +520,26 @@ ConnectionParams NewConnectionDialog::GetParams() const
         } else {
             p.authMethod = SshAuthChoice::Agent;
         }
+        return p;
+    }
+
+    if (m_rbSerial->GetValue()) {
+        SerialParams p;
+        p.device      = m_deviceCtrl->GetValue().ToStdString();
+        const wxString baudStr = m_baudCtrl->GetStringSelection();
+        unsigned long baud = 115200;
+        baudStr.ToULong(&baud);
+        p.baudRate    = static_cast<unsigned int>(baud);
+        const wxString dbStr = m_dataBitsCtrl->GetStringSelection();
+        unsigned long db = 8;
+        dbStr.ToULong(&db);
+        p.dataBits    = static_cast<unsigned short>(db);
+        p.stopBits    = m_stopBitsCtrl->GetStringSelection().ToStdString();
+        p.parity      = m_parityCtrl->GetStringSelection().ToStdString();
+        p.flowControl = m_flowCtrlCombo->GetStringSelection().ToStdString();
+        p.dialScript  = m_dialScriptCtrl->GetValue().ToStdString();
+        p.wrapMode    = wrapMode;
+        p.columnWidth = colWidth;
         return p;
     }
 

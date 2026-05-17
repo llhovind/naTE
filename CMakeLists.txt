@@ -28,8 +28,10 @@ set(SOURCES
     src/session/InputEncoder.cpp
     src/session/Session.cpp
     src/session/SessionManager.cpp
+    src/ui/ConnectionFactory.cpp
     src/transport/LoopbackTransport.cpp
     src/transport/PtyTransport.cpp
+    src/transport/SerialTransport.cpp
     src/transport/SshTransport.cpp
     src/parser/Parser.cpp
     src/ui/wxKeyAdapter.cpp

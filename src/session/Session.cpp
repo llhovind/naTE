@@ -1,6 +1,7 @@
 #include "session/Session.h"
 #include "transport/PtyTransport.h"
 #include "transport/LoopbackTransport.h"
+#include "transport/SerialTransport.h"
 #include "transport/SshTransport.h"
 #include <algorithm>
 
@@ -19,6 +20,8 @@ std::unique_ptr<transport::Transport> Session::MakeTransport(
             return std::make_unique<transport::PtyTransport>(target, desc.shell, cols, rows);
         else if constexpr (std::is_same_v<T, SshDesc>)
             return std::make_unique<transport::SshTransport>(target, desc, cols, rows);
+        else if constexpr (std::is_same_v<T, SerialDesc>)
+            return std::make_unique<transport::SerialTransport>(target, desc);
         else
             return std::make_unique<transport::LoopbackTransport>(target);
     }, conn.transport);

@@ -47,7 +47,19 @@ struct SshParams {
     unsigned short columnWidth       = 80;
 };
 
-using ConnectionParams = std::variant<LoopbackParams, PtyParams, SshParams>;
+struct SerialParams {
+    std::string    device;
+    unsigned int   baudRate     = 115200;
+    unsigned short dataBits     = 8;
+    std::string    stopBits     = "1";
+    std::string    parity       = "None";
+    std::string    flowControl  = "None";
+    std::string    dialScript;
+    bool           wrapMode     = false;
+    unsigned short columnWidth  = 80;
+};
+
+using ConnectionParams = std::variant<LoopbackParams, PtyParams, SshParams, SerialParams>;
 
 class NewConnectionDialog : public wxDialog
 {
@@ -80,6 +92,7 @@ private:
     wxRadioButton* m_rbLoopback   = nullptr;
     wxRadioButton* m_rbPty        = nullptr;
     wxRadioButton* m_rbSsh        = nullptr;
+    wxRadioButton* m_rbSerial     = nullptr;
 
     // PTY fields
     wxTextCtrl*    m_shellCtrl    = nullptr;
@@ -111,6 +124,16 @@ private:
     wxSpinCtrl*    m_keepaliveCtrl  = nullptr;
     wxTextCtrl*    m_remoteCmdCtrl  = nullptr;
     wxCheckBox*    m_cbCompress     = nullptr;
+
+    // Serial panel (shown/hidden as a unit)
+    wxPanel*       m_serialPanel       = nullptr;
+    wxTextCtrl*    m_deviceCtrl        = nullptr;
+    wxComboBox*    m_baudCtrl          = nullptr;
+    wxComboBox*    m_dataBitsCtrl      = nullptr;
+    wxComboBox*    m_stopBitsCtrl      = nullptr;
+    wxComboBox*    m_parityCtrl        = nullptr;
+    wxComboBox*    m_flowCtrlCombo     = nullptr;
+    wxTextCtrl*    m_dialScriptCtrl    = nullptr;
 
     // Shared terminal options (all transports)
     wxComboBox*    m_colWidthCtrl   = nullptr;
