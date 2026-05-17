@@ -79,6 +79,8 @@ public:
     void ResetActiveTerminal();
     // Reset and clear all content; prompts to save scrollback first.
     void ResetAndClearActiveTerminal();
+    // Save full scrollback of the active session to a user-chosen file.
+    void SaveActiveSessionToFile();
 
     // Toggle broadcast mode on/off.
     void ToggleBroadcastMode();

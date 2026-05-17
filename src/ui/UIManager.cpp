@@ -304,6 +304,19 @@ void UIManager::ResetAndClearActiveTerminal()
     sm_.ResetTerminal(activeId_, true);
 }
 
+void UIManager::SaveActiveSessionToFile()
+{
+    if (!activeId_) return;
+
+    DocLayout& layout = sm_.GetDocLayout(activeId_);
+    layout.SelectAll();
+    const auto text = layout.GetSelectedText();
+    layout.ClearSelection();
+
+    if (!text.empty())
+        SaveToFileAction{}.Execute(text);
+}
+
 void UIManager::ToggleBroadcastMode()
 {
     const bool enabling = router_.GetMode() != term::input::InputMode::Broadcast;

@@ -336,7 +336,10 @@ void MainFrame::OnResetAndClear(wxCommandEvent&)
 {
     if (m_uiManager) m_uiManager->ResetAndClearActiveTerminal();
 }
-void MainFrame::OnSaveSessionFileTerminal(wxCommandEvent&) { NotYetImplemented(); }
+void MainFrame::OnSaveSessionFileTerminal(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->SaveActiveSessionToFile();
+}
 void MainFrame::OnOpenInNewTile(wxCommandEvent&)
 {
     if (m_uiManager) m_uiManager->MoveActiveSessionToNewTile();
