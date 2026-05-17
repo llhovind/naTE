@@ -20,7 +20,8 @@ const std::vector<ConnectionProfile>& ConnectionStore::GetAll() const
 const ConnectionProfile& ConnectionStore::Add(const std::string& name,
                                                const term::session::TransportDesc& transport,
                                                bool wrapMode,
-                                               unsigned short columnWidth)
+                                               unsigned short columnWidth,
+                                               unsigned short rows)
 {
     ConnectionProfile p;
     p.id          = GenerateId();
@@ -28,6 +29,7 @@ const ConnectionProfile& ConnectionStore::Add(const std::string& name,
     p.transport   = transport;
     p.wrapMode    = wrapMode;
     p.columnWidth = columnWidth;
+    p.rows        = rows;
     p.createdAt   = std::time(nullptr);
     p.lastUsed    = 0;
 

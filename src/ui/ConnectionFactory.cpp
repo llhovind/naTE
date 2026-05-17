@@ -10,19 +10,13 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
     std::visit([&](const auto& p) {
         using T = std::decay_t<decltype(p)>;
 
-        if constexpr (std::is_same_v<T, LoopbackParams>) {
-            conn.label       = labelIdx ? wxString::Format("Loopback %d", labelIdx).ToStdString()
-                                        : "Loopback";
-            conn.transport   = term::session::LoopbackDesc{};
-            conn.wrapMode    = p.wrapMode;
-            conn.columnWidth = p.columnWidth;
-
-        } else if constexpr (std::is_same_v<T, PtyParams>) {
+        if constexpr (std::is_same_v<T, PtyParams>) {
             conn.label       = labelIdx ? wxString::Format("Local Shell %d", labelIdx).ToStdString()
                                         : "Local Shell";
             conn.transport   = term::session::PtyDesc{ p.shell };
             conn.wrapMode    = p.wrapMode;
             conn.columnWidth = p.columnWidth;
+            conn.rows        = p.rows;
 
         } else if constexpr (std::is_same_v<T, SshParams>) {
             conn.label       = labelIdx
@@ -52,6 +46,7 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
             conn.transport   = d;
             conn.wrapMode    = p.wrapMode;
             conn.columnWidth = p.columnWidth;
+            conn.rows        = p.rows;
 
         } else if constexpr (std::is_same_v<T, SerialParams>) {
             conn.label       = labelIdx
@@ -73,6 +68,7 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
             conn.transport   = d;
             conn.wrapMode    = p.wrapMode;
             conn.columnWidth = p.columnWidth;
+            conn.rows        = p.rows;
         }
     }, params);
 

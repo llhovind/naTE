@@ -20,7 +20,8 @@ public:
     const ConnectionProfile& Add(const std::string& name,
                                  const term::session::TransportDesc& transport,
                                  bool wrapMode,
-                                 unsigned short columnWidth);
+                                 unsigned short columnWidth,
+                                 unsigned short rows = 24);
 
     // Replaces the profile with profile.id; no-op if id not found.
     void Update(const ConnectionProfile& profile);

@@ -12,15 +12,20 @@ struct Rgb {
     bool operator!=(const Rgb& o) const { return !(*this == o); }
 };
 
+struct GeometryPreset {
+    unsigned short cols = 80;
+    unsigned short rows = 24;
+};
+
 struct AppConfig {
-    int columns        = 80;
-    int rows           = 24;
-    int fontSize       = 12;
+    int columns         = 80;
+    int rows            = 24;
+    int fontSize        = 12;
     int scrollbackLines = 100'000;
     int ptyLineWidth    = 1024;
     Rgb textColour{ 0,   0,   0   };
     Rgb bgColour  { 255, 255, 204 };
-    std::vector<unsigned short> columnWidths = {80, 132};
+    std::vector<GeometryPreset> geometryPresets = {{80, 24}, {132, 24}};
 
     static AppConfig load(const std::string& path);
 };

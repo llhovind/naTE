@@ -90,10 +90,11 @@ private:
     void OnOpenInNewTile(wxCommandEvent&);
     void OnOpenInNewWindowTerminal(wxCommandEvent&);
 
-    // Shared dialog flow: shows the New Connection dialog and returns a filled
-    // Connection, or returns false if the user cancelled.
-    bool RunNewConnectionDialog(term::session::Connection& conn,
-                                bool& openInNewWindow);
+    // Shows the New Connection dialog with the given context, saves any profile
+    // if requested, then launches the connection according to the chosen placement.
+    // Returns false if the user cancelled.
+    bool RunConnectionDialog(ui::LaunchContext context,
+                             TerminalTile* targetTile = nullptr);
 
     term::input::InputRouter&    m_router;
     term::db::ConnectionStore&   m_store;

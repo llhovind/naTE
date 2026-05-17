@@ -187,6 +187,7 @@ void ConnectionManagerDialog::LaunchProfile(const std::string& id)
     conn.transport   = it->transport;
     conn.wrapMode    = it->wrapMode;
     conn.columnWidth = it->columnWidth;
+    conn.rows        = it->rows;
 
     m_onConnect(conn, m_cbOpenNewWindow->GetValue());
     EndModal(wxID_OK);
@@ -214,13 +215,14 @@ void ConnectionManagerDialog::OnNew(wxCommandEvent&)
         return s ? std::string(s) : std::string("/bin/bash");
     }();
 
-    NewConnectionDialog dlg(this, defaultShell, m_cfg.columnWidths);
+    NewConnectionDialog dlg(this, defaultShell, m_cfg.geometryPresets,
+                            {}, LaunchContext::ProfileOnly);
     if (dlg.ShowModal() != wxID_OK) return;
 
     const term::session::Connection conn = ui::ToConnection(dlg.GetParams());
-    const std::string dlgName = dlg.GetConnectionName();
+    const std::string dlgName = dlg.GetProfileName();
     m_store.Add(dlgName.empty() ? conn.label : dlgName,
-                conn.transport, conn.wrapMode, conn.columnWidth);
+                conn.transport, conn.wrapMode, conn.columnWidth, conn.rows);
     PopulateList();
     UpdateButtonState();
 }
@@ -240,11 +242,12 @@ void ConnectionManagerDialog::OnEdit(wxCommandEvent&)
         return s ? std::string(s) : std::string("/bin/bash");
     }();
 
-    NewConnectionDialog dlg(this, defaultShell, m_cfg.columnWidths, &*it);
+    NewConnectionDialog dlg(this, defaultShell, m_cfg.geometryPresets,
+                            {}, LaunchContext::ProfileOnly, &*it);
     if (dlg.ShowModal() != wxID_OK) return;
 
     term::db::ConnectionProfile updated = *it;
-    const std::string dlgName = dlg.GetConnectionName();
+    const std::string dlgName = dlg.GetProfileName();
     if (!dlgName.empty())
         updated.name = dlgName;
     {
@@ -252,6 +255,7 @@ void ConnectionManagerDialog::OnEdit(wxCommandEvent&)
         updated.transport   = conn.transport;
         updated.wrapMode    = conn.wrapMode;
         updated.columnWidth = conn.columnWidth;
+        updated.rows        = conn.rows;
     }
 
     m_store.Update(updated);
@@ -288,7 +292,7 @@ void ConnectionManagerDialog::OnQuickLocalShell(wxCommandEvent&)
     conn.label     = "Local Shell";
     conn.transport = term::session::PtyDesc{shell};
     conn.wrapMode  = false;
-    conn.columnWidth = m_cfg.columnWidths.empty() ? 80 : m_cfg.columnWidths[0];
+    conn.columnWidth = m_cfg.geometryPresets.empty() ? 80 : m_cfg.geometryPresets[0].cols;
 
     m_onConnect(conn, m_cbOpenNewWindow->GetValue());
     EndModal(wxID_OK);
@@ -300,7 +304,7 @@ void ConnectionManagerDialog::OnQuickLoopback(wxCommandEvent&)
     conn.label     = "Loopback";
     conn.transport = term::session::LoopbackDesc{};
     conn.wrapMode  = true;
-    conn.columnWidth = m_cfg.columnWidths.empty() ? 80 : m_cfg.columnWidths[0];
+    conn.columnWidth = m_cfg.geometryPresets.empty() ? 80 : m_cfg.geometryPresets[0].cols;
 
     m_onConnect(conn, m_cbOpenNewWindow->GetValue());
     EndModal(wxID_OK);

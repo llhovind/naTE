@@ -46,6 +46,7 @@ struct Connection {
     TransportDesc  transport;
     bool           wrapMode    = false;
     unsigned short columnWidth = 0;   // 0 = use app config default
+    unsigned short rows        = 0;   // 0 = use app config default
 
     // Returns the hard-coded set of available connection templates.
     static std::vector<Connection> Defaults(const std::string& shell);

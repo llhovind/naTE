@@ -6,8 +6,10 @@
 #include <wx/combobox.h>
 #include <wx/filepicker.h>
 #include <wx/msgdlg.h>
+#include <wx/notebook.h>
 #include <wx/panel.h>
 #include <wx/radiobut.h>
+#include <wx/radiobox.h>
 #include <wx/spinctrl.h>
 #include <wx/statline.h>
 #include <wx/stattext.h>
@@ -20,336 +22,408 @@ namespace ui
 
 namespace
 {
-    constexpr int ID_RB_LOOPBACK    = wxID_HIGHEST + 200;
-    constexpr int ID_RB_PTY         = wxID_HIGHEST + 201;
-    constexpr int ID_RB_SSH         = wxID_HIGHEST + 202;
-    constexpr int ID_RB_SERIAL      = wxID_HIGHEST + 203;
     constexpr int ID_RB_AUTH_AGENT  = wxID_HIGHEST + 205;
     constexpr int ID_RB_AUTH_PASS   = wxID_HIGHEST + 206;
     constexpr int ID_RB_AUTH_KEY    = wxID_HIGHEST + 207;
+    constexpr int ID_GEOMETRY_COMBO = wxID_HIGHEST + 208;
+    constexpr int ID_PROFILE_COMBO  = wxID_HIGHEST + 209;
 }
 
-NewConnectionDialog::NewConnectionDialog(wxWindow* parent,
-                                         const std::string& defaultShell,
-                                         const std::vector<unsigned short>& columnWidths,
-                                         const term::db::ConnectionProfile* prefill)
+// ---------------------------------------------------------------------------
+// Constructor
+// ---------------------------------------------------------------------------
+NewConnectionDialog::NewConnectionDialog(
+        wxWindow* parent,
+        const std::string& defaultShell,
+        const std::vector<GeometryPreset>& geometryPresets,
+        const std::vector<term::db::ConnectionProfile>& existingProfiles,
+        LaunchContext context,
+        const term::db::ConnectionProfile* prefill)
     : wxDialog(parent, wxID_ANY,
                prefill ? "Edit Connection" : "New Connection",
                wxDefaultPosition, wxDefaultSize,
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
-    , m_columnWidths(columnWidths.empty() ? std::vector<unsigned short>{80, 132} : columnWidths)
+    , m_context(context)
+    , m_existingProfiles(existingProfiles)
+    , m_geometryPresets(geometryPresets.empty()
+          ? std::vector<GeometryPreset>{{80, 24}, {132, 24}}
+          : geometryPresets)
 {
     auto* outer = new wxBoxSizer(wxVERTICAL);
 
-    // ---- Name ---------------------------------------------------------------
-    auto* nameRow = new wxBoxSizer(wxHORIZONTAL);
-    nameRow->Add(new wxStaticText(this, wxID_ANY, "Name:"),
+    // ---- Profile field -------------------------------------------------------
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        row->Add(new wxStaticText(this, wxID_ANY, "Profile:"),
                  0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-    m_nameCtrl = new wxTextCtrl(this, wxID_ANY, wxEmptyString,
-                                wxDefaultPosition, wxSize(280, -1));
-    nameRow->Add(m_nameCtrl, 1, wxEXPAND);
-    outer->Add(nameRow, 0, wxLEFT | wxRIGHT | wxTOP | wxEXPAND, 12);
 
-    // ---- Transport selection ------------------------------------------------
-    outer->Add(new wxStaticText(this, wxID_ANY, "Transport:"), 0, wxLEFT | wxTOP, 12);
+        if (context == LaunchContext::ProfileOnly) {
+            m_profileNameCtrl = new wxTextCtrl(this, wxID_ANY, wxEmptyString,
+                                               wxDefaultPosition, wxSize(280, -1));
+            if (prefill)
+                m_profileNameCtrl->SetValue(prefill->name);
+            row->Add(m_profileNameCtrl, 1, wxEXPAND);
+        } else {
+            wxArrayString names;
+            for (const auto& p : m_existingProfiles)
+                names.Add(p.name);
+            m_profileCombo = new wxComboBox(this, ID_PROFILE_COMBO, wxEmptyString,
+                                            wxDefaultPosition, wxSize(280, -1),
+                                            names, wxCB_DROPDOWN);
+            row->Add(m_profileCombo, 1, wxEXPAND);
+        }
 
-    m_rbLoopback = new wxRadioButton(this, ID_RB_LOOPBACK, "Loopback (local echo)",
-                                     wxDefaultPosition, wxDefaultSize, wxRB_GROUP);
-    m_rbPty      = new wxRadioButton(this, ID_RB_PTY, "Local Shell (PTY)");
-    m_rbSsh      = new wxRadioButton(this, ID_RB_SSH, "SSH");
-    m_rbSerial   = new wxRadioButton(this, ID_RB_SERIAL, "Serial");
-    m_rbPty->SetValue(true);
+        outer->Add(row, 0, wxLEFT | wxRIGHT | wxTOP | wxEXPAND, 12);
+    }
 
-    outer->Add(m_rbLoopback, 0, wxLEFT | wxTOP, 4);
-    outer->Add(m_rbPty,      0, wxLEFT | wxTOP, 4);
-    outer->Add(m_rbSsh,      0, wxLEFT | wxTOP, 4);
-    outer->Add(m_rbSerial,   0, wxLEFT | wxTOP, 4);
+    // Save as Profile checkbox (not for ProfileOnly)
+    if (context != LaunchContext::ProfileOnly) {
+        m_cbSaveProfile = new wxCheckBox(this, wxID_ANY, "Save as Profile");
+        outer->Add(m_cbSaveProfile, 0, wxLEFT | wxTOP, 12);
+    }
 
-    // ---- PTY fields ---------------------------------------------------------
-    auto* shellRow = new wxBoxSizer(wxHORIZONTAL);
-    shellRow->Add(new wxStaticText(this, wxID_ANY, "Shell:"), 0,
-                  wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-    m_shellCtrl = new wxTextCtrl(this, wxID_ANY, defaultShell,
-                                 wxDefaultPosition, wxSize(280, -1));
-    shellRow->Add(m_shellCtrl, 1, wxEXPAND);
-    outer->Add(shellRow, 0, wxLEFT | wxRIGHT | wxTOP | wxEXPAND, 12);
+    outer->AddSpacer(8);
 
-    // ---- SSH panel ----------------------------------------------------------
-    m_sshPanel = new wxPanel(this, wxID_ANY);
-    auto* sshSizer = new wxBoxSizer(wxVERTICAL);
+    // ---- Transport notebook -------------------------------------------------
+    m_notebook = new wxNotebook(this, wxID_ANY);
 
-    // Connection fields grid
-    auto* grid = new wxFlexGridSizer(2, wxSize(8, 4));
-    grid->AddGrowableCol(1);
+    // --- PTY page ---
+    {
+        auto* page = new wxPanel(m_notebook, wxID_ANY);
+        auto* sizer = new wxBoxSizer(wxVERTICAL);
 
-    grid->Add(new wxStaticText(m_sshPanel, wxID_ANY, "Host:"),
-              0, wxALIGN_CENTER_VERTICAL);
-    m_hostCtrl = new wxTextCtrl(m_sshPanel, wxID_ANY, wxEmptyString,
-                                wxDefaultPosition, wxSize(260, -1));
-    grid->Add(m_hostCtrl, 1, wxEXPAND);
+        auto* shellRow = new wxBoxSizer(wxHORIZONTAL);
+        shellRow->Add(new wxStaticText(page, wxID_ANY, "Shell:"),
+                      0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+        m_shellCtrl = new wxTextCtrl(page, wxID_ANY, defaultShell,
+                                     wxDefaultPosition, wxSize(280, -1));
+        shellRow->Add(m_shellCtrl, 1, wxEXPAND);
 
-    grid->Add(new wxStaticText(m_sshPanel, wxID_ANY, "Port:"),
-              0, wxALIGN_CENTER_VERTICAL);
-    m_portCtrl = new wxSpinCtrl(m_sshPanel, wxID_ANY, "22",
-                                wxDefaultPosition, wxSize(80, -1),
-                                wxSP_ARROW_KEYS, 1, 65535, 22);
-    grid->Add(m_portCtrl, 0);
+        sizer->Add(shellRow, 0, wxEXPAND | wxALL, 12);
+        sizer->AddStretchSpacer(1);
+        page->SetSizer(sizer);
+        m_notebook->AddPage(page, "Local Shell");
+    }
 
-    grid->Add(new wxStaticText(m_sshPanel, wxID_ANY, "Username:"),
-              0, wxALIGN_CENTER_VERTICAL);
-    m_userCtrl = new wxTextCtrl(m_sshPanel, wxID_ANY, wxEmptyString,
-                                wxDefaultPosition, wxSize(260, -1));
-    grid->Add(m_userCtrl, 1, wxEXPAND);
+    // --- SSH page ---
+    {
+        auto* page = new wxPanel(m_notebook, wxID_ANY);
+        auto* sizer = new wxBoxSizer(wxVERTICAL);
 
-    grid->Add(new wxStaticText(m_sshPanel, wxID_ANY, "Timeout (s):"),
-              0, wxALIGN_CENTER_VERTICAL);
-    m_timeoutCtrl = new wxSpinCtrl(m_sshPanel, wxID_ANY, "10",
-                                   wxDefaultPosition, wxSize(80, -1),
-                                   wxSP_ARROW_KEYS, 1, 120, 10);
-    grid->Add(m_timeoutCtrl, 0);
+        // Connection fields grid
+        auto* grid = new wxFlexGridSizer(2, wxSize(8, 4));
+        grid->AddGrowableCol(1);
 
-    sshSizer->Add(grid, 0, wxEXPAND | wxALL, 4);
-    sshSizer->AddSpacer(6);
+        grid->Add(new wxStaticText(page, wxID_ANY, "Host:"),
+                  0, wxALIGN_CENTER_VERTICAL);
+        m_hostCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
+                                    wxDefaultPosition, wxSize(260, -1));
+        grid->Add(m_hostCtrl, 1, wxEXPAND);
 
-    // Authentication box
-    auto* authBox = new wxStaticBoxSizer(wxVERTICAL, m_sshPanel, "Authentication");
+        grid->Add(new wxStaticText(page, wxID_ANY, "Port:"),
+                  0, wxALIGN_CENTER_VERTICAL);
+        m_portCtrl = new wxSpinCtrl(page, wxID_ANY, "22",
+                                    wxDefaultPosition, wxSize(80, -1),
+                                    wxSP_ARROW_KEYS, 1, 65535, 22);
+        grid->Add(m_portCtrl, 0);
 
-    m_rbAuthAgent = new wxRadioButton(m_sshPanel, ID_RB_AUTH_AGENT,
-                                      "SSH Agent (SSH_AUTH_SOCK)",
-                                      wxDefaultPosition, wxDefaultSize, wxRB_GROUP);
-    m_rbAuthPass  = new wxRadioButton(m_sshPanel, ID_RB_AUTH_PASS, "Password");
-    m_rbAuthKey   = new wxRadioButton(m_sshPanel, ID_RB_AUTH_KEY,  "Private Key File");
-    m_rbAuthAgent->SetValue(true);
+        grid->Add(new wxStaticText(page, wxID_ANY, "Username:"),
+                  0, wxALIGN_CENTER_VERTICAL);
+        m_userCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
+                                    wxDefaultPosition, wxSize(260, -1));
+        grid->Add(m_userCtrl, 1, wxEXPAND);
 
-    authBox->Add(m_rbAuthAgent, 0, wxALL, 4);
+        grid->Add(new wxStaticText(page, wxID_ANY, "Timeout (s):"),
+                  0, wxALIGN_CENTER_VERTICAL);
+        m_timeoutCtrl = new wxSpinCtrl(page, wxID_ANY, "10",
+                                       wxDefaultPosition, wxSize(80, -1),
+                                       wxSP_ARROW_KEYS, 1, 120, 10);
+        grid->Add(m_timeoutCtrl, 0);
 
-    // Password sub-panel
-    m_passPanel = new wxPanel(m_sshPanel, wxID_ANY);
-    auto* passSizer = new wxBoxSizer(wxHORIZONTAL);
-    passSizer->Add(new wxStaticText(m_passPanel, wxID_ANY, "Password:"),
+        sizer->Add(grid, 0, wxEXPAND | wxALL, 8);
+
+        // Authentication box
+        auto* authBox = new wxStaticBoxSizer(wxVERTICAL, page, "Authentication");
+
+        m_rbAuthAgent = new wxRadioButton(page, ID_RB_AUTH_AGENT,
+                                          "SSH Agent (SSH_AUTH_SOCK)",
+                                          wxDefaultPosition, wxDefaultSize, wxRB_GROUP);
+        m_rbAuthPass  = new wxRadioButton(page, ID_RB_AUTH_PASS, "Password");
+        m_rbAuthKey   = new wxRadioButton(page, ID_RB_AUTH_KEY,  "Private Key File");
+        m_rbAuthAgent->SetValue(true);
+
+        authBox->Add(m_rbAuthAgent, 0, wxALL, 4);
+
+        // Password sub-panel
+        m_passPanel = new wxPanel(page, wxID_ANY);
+        {
+            auto* s = new wxBoxSizer(wxHORIZONTAL);
+            s->Add(new wxStaticText(m_passPanel, wxID_ANY, "Password:"),
                    0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-    m_passCtrl = new wxTextCtrl(m_passPanel, wxID_ANY, wxEmptyString,
-                                wxDefaultPosition, wxSize(220, -1), wxTE_PASSWORD);
-    passSizer->Add(m_passCtrl, 1, wxEXPAND);
-    m_passPanel->SetSizer(passSizer);
-    m_passPanel->Show(false);
+            m_passCtrl = new wxTextCtrl(m_passPanel, wxID_ANY, wxEmptyString,
+                                        wxDefaultPosition, wxSize(220, -1), wxTE_PASSWORD);
+            s->Add(m_passCtrl, 1, wxEXPAND);
+            m_passPanel->SetSizer(s);
+        }
+        m_passPanel->Show(false);
 
-    authBox->Add(m_rbAuthPass,  0, wxLEFT | wxRIGHT | wxBOTTOM, 4);
-    authBox->Add(m_passPanel,   0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+        authBox->Add(m_rbAuthPass,  0, wxLEFT | wxRIGHT | wxBOTTOM, 4);
+        authBox->Add(m_passPanel,   0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
-    // Private key sub-panel
-    m_keyPanel = new wxPanel(m_sshPanel, wxID_ANY);
-    auto* keySizer = new wxBoxSizer(wxVERTICAL);
+        // Private key sub-panel
+        m_keyPanel = new wxPanel(page, wxID_ANY);
+        {
+            auto* s = new wxBoxSizer(wxVERTICAL);
 
-    auto* keyRow = new wxBoxSizer(wxHORIZONTAL);
-    keyRow->Add(new wxStaticText(m_keyPanel, wxID_ANY, "Key file:"),
-                0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-    m_keyPicker = new wxFilePickerCtrl(m_keyPanel, wxID_ANY, wxEmptyString,
-                                       "Select private key",
-                                       "All files (*)|*",
-                                       wxDefaultPosition, wxSize(240, -1),
-                                       wxFLP_OPEN | wxFLP_FILE_MUST_EXIST | wxFLP_USE_TEXTCTRL);
-    keyRow->Add(m_keyPicker, 1, wxEXPAND);
-    keySizer->Add(keyRow, 0, wxEXPAND | wxBOTTOM, 4);
+            auto* keyRow = new wxBoxSizer(wxHORIZONTAL);
+            keyRow->Add(new wxStaticText(m_keyPanel, wxID_ANY, "Key file:"),
+                        0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+            m_keyPicker = new wxFilePickerCtrl(m_keyPanel, wxID_ANY, wxEmptyString,
+                                               "Select private key", "All files (*)|*",
+                                               wxDefaultPosition, wxSize(240, -1),
+                                               wxFLP_OPEN | wxFLP_FILE_MUST_EXIST | wxFLP_USE_TEXTCTRL);
+            keyRow->Add(m_keyPicker, 1, wxEXPAND);
+            s->Add(keyRow, 0, wxEXPAND | wxBOTTOM, 4);
 
-    auto* ppRow = new wxBoxSizer(wxHORIZONTAL);
-    ppRow->Add(new wxStaticText(m_keyPanel, wxID_ANY, "Passphrase:"),
-               0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-    m_passphraseCtrl = new wxTextCtrl(m_keyPanel, wxID_ANY, wxEmptyString,
-                                      wxDefaultPosition, wxSize(220, -1), wxTE_PASSWORD);
-    ppRow->Add(m_passphraseCtrl, 1, wxEXPAND);
-    keySizer->Add(ppRow, 0, wxEXPAND);
-    m_keyPanel->SetSizer(keySizer);
-    m_keyPanel->Show(false);
+            auto* ppRow = new wxBoxSizer(wxHORIZONTAL);
+            ppRow->Add(new wxStaticText(m_keyPanel, wxID_ANY, "Passphrase:"),
+                       0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+            m_passphraseCtrl = new wxTextCtrl(m_keyPanel, wxID_ANY, wxEmptyString,
+                                              wxDefaultPosition, wxSize(220, -1), wxTE_PASSWORD);
+            ppRow->Add(m_passphraseCtrl, 1, wxEXPAND);
+            s->Add(ppRow, 0, wxEXPAND);
+            m_keyPanel->SetSizer(s);
+        }
+        m_keyPanel->Show(false);
 
-    authBox->Add(m_rbAuthKey,  0, wxLEFT | wxRIGHT | wxBOTTOM, 4);
-    authBox->Add(m_keyPanel,   0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+        authBox->Add(m_rbAuthKey,  0, wxLEFT | wxRIGHT | wxBOTTOM, 4);
+        authBox->Add(m_keyPanel,   0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
-    sshSizer->Add(authBox, 0, wxEXPAND | wxALL, 4);
-    sshSizer->AddSpacer(4);
+        sizer->Add(authBox, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
-    // SSH options row
-    auto* optRow = new wxBoxSizer(wxHORIZONTAL);
-    optRow->Add(new wxStaticText(m_sshPanel, wxID_ANY, "Keep-alive (s):"),
-                0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
-    m_keepaliveCtrl = new wxSpinCtrl(m_sshPanel, wxID_ANY, "30",
-                                     wxDefaultPosition, wxSize(60, -1),
-                                     wxSP_ARROW_KEYS, 0, 300, 30);
-    optRow->Add(m_keepaliveCtrl, 0, wxRIGHT, 12);
+        // SSH options row
+        auto* optRow = new wxBoxSizer(wxHORIZONTAL);
+        optRow->Add(new wxStaticText(page, wxID_ANY, "Keep-alive (s):"),
+                    0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+        m_keepaliveCtrl = new wxSpinCtrl(page, wxID_ANY, "30",
+                                         wxDefaultPosition, wxSize(60, -1),
+                                         wxSP_ARROW_KEYS, 0, 300, 30);
+        optRow->Add(m_keepaliveCtrl, 0, wxRIGHT, 12);
 
-    optRow->Add(new wxStaticText(m_sshPanel, wxID_ANY, "Command:"),
-                0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
-    m_remoteCmdCtrl = new wxTextCtrl(m_sshPanel, wxID_ANY, wxEmptyString,
-                                     wxDefaultPosition, wxSize(140, -1));
-    optRow->Add(m_remoteCmdCtrl, 1, wxRIGHT, 12);
+        optRow->Add(new wxStaticText(page, wxID_ANY, "Command:"),
+                    0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+        m_remoteCmdCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
+                                         wxDefaultPosition, wxSize(140, -1));
+        optRow->Add(m_remoteCmdCtrl, 1, wxRIGHT, 12);
 
-    m_cbCompress = new wxCheckBox(m_sshPanel, wxID_ANY, "Compress");
-    optRow->Add(m_cbCompress, 0, wxALIGN_CENTER_VERTICAL);
+        m_cbCompress = new wxCheckBox(page, wxID_ANY, "Compress");
+        optRow->Add(m_cbCompress, 0, wxALIGN_CENTER_VERTICAL);
 
-    sshSizer->Add(optRow, 0, wxEXPAND | wxALL, 4);
+        sizer->Add(optRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
-    m_sshPanel->SetSizer(sshSizer);
-    m_sshPanel->Show(false);
-    outer->Add(m_sshPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
-
-    // ---- Serial panel -------------------------------------------------------
-    m_serialPanel = new wxPanel(this, wxID_ANY);
-    auto* serialSizer = new wxBoxSizer(wxVERTICAL);
-
-    auto* serialGrid = new wxFlexGridSizer(2, wxSize(8, 4));
-    serialGrid->AddGrowableCol(1);
-
-    serialGrid->Add(new wxStaticText(m_serialPanel, wxID_ANY, "Device:"),
-                    0, wxALIGN_CENTER_VERTICAL);
-    m_deviceCtrl = new wxTextCtrl(m_serialPanel, wxID_ANY, "/dev/ttyUSB0",
-                                  wxDefaultPosition, wxSize(200, -1));
-    serialGrid->Add(m_deviceCtrl, 1, wxEXPAND);
-
-    serialGrid->Add(new wxStaticText(m_serialPanel, wxID_ANY, "Baud rate:"),
-                    0, wxALIGN_CENTER_VERTICAL);
-    {
-        wxArrayString bauds;
-        for (const char* b : { "9600", "19200", "38400", "57600",
-                                "115200", "230400", "460800", "921600" })
-            bauds.Add(b);
-        m_baudCtrl = new wxComboBox(m_serialPanel, wxID_ANY, "115200",
-                                    wxDefaultPosition, wxSize(100, -1),
-                                    bauds, wxCB_READONLY);
-        m_baudCtrl->SetStringSelection("115200");
+        page->SetSizer(sizer);
+        m_notebook->AddPage(page, "SSH");
     }
-    serialGrid->Add(m_baudCtrl, 0);
 
-    serialGrid->Add(new wxStaticText(m_serialPanel, wxID_ANY, "Data bits:"),
-                    0, wxALIGN_CENTER_VERTICAL);
+    // --- Serial page ---
     {
-        wxArrayString db;
-        for (const char* d : { "5", "6", "7", "8" })
-            db.Add(d);
-        m_dataBitsCtrl = new wxComboBox(m_serialPanel, wxID_ANY, "8",
-                                        wxDefaultPosition, wxSize(60, -1),
-                                        db, wxCB_READONLY);
-        m_dataBitsCtrl->SetStringSelection("8");
-    }
-    serialGrid->Add(m_dataBitsCtrl, 0);
+        auto* page = new wxPanel(m_notebook, wxID_ANY);
+        auto* sizer = new wxBoxSizer(wxVERTICAL);
 
-    serialGrid->Add(new wxStaticText(m_serialPanel, wxID_ANY, "Stop bits:"),
-                    0, wxALIGN_CENTER_VERTICAL);
-    {
-        wxArrayString sb;
-        sb.Add("1"); sb.Add("2");
-        m_stopBitsCtrl = new wxComboBox(m_serialPanel, wxID_ANY, "1",
-                                        wxDefaultPosition, wxSize(60, -1),
-                                        sb, wxCB_READONLY);
-        m_stopBitsCtrl->SetStringSelection("1");
-    }
-    serialGrid->Add(m_stopBitsCtrl, 0);
+        auto* grid = new wxFlexGridSizer(2, wxSize(8, 4));
+        grid->AddGrowableCol(1);
 
-    serialGrid->Add(new wxStaticText(m_serialPanel, wxID_ANY, "Parity:"),
-                    0, wxALIGN_CENTER_VERTICAL);
-    {
-        wxArrayString par;
-        par.Add("None"); par.Add("Even"); par.Add("Odd");
-        m_parityCtrl = new wxComboBox(m_serialPanel, wxID_ANY, "None",
-                                      wxDefaultPosition, wxSize(100, -1),
-                                      par, wxCB_READONLY);
-        m_parityCtrl->SetStringSelection("None");
-    }
-    serialGrid->Add(m_parityCtrl, 0);
-
-    serialGrid->Add(new wxStaticText(m_serialPanel, wxID_ANY, "Flow control:"),
-                    0, wxALIGN_CENTER_VERTICAL);
-    {
-        wxArrayString fc;
-        fc.Add("None"); fc.Add("Hardware"); fc.Add("Software");
-        m_flowCtrlCombo = new wxComboBox(m_serialPanel, wxID_ANY, "None",
-                                         wxDefaultPosition, wxSize(120, -1),
-                                         fc, wxCB_READONLY);
-        m_flowCtrlCombo->SetStringSelection("None");
-    }
-    serialGrid->Add(m_flowCtrlCombo, 0);
-
-    serialGrid->Add(new wxStaticText(m_serialPanel, wxID_ANY, "Dial script:"),
-                    0, wxALIGN_CENTER_VERTICAL);
-    m_dialScriptCtrl = new wxTextCtrl(m_serialPanel, wxID_ANY, wxEmptyString,
+        grid->Add(new wxStaticText(page, wxID_ANY, "Device:"),
+                  0, wxALIGN_CENTER_VERTICAL);
+        m_deviceCtrl = new wxTextCtrl(page, wxID_ANY, "/dev/ttyUSB0",
                                       wxDefaultPosition, wxSize(200, -1));
-    m_dialScriptCtrl->SetHint("(optional) path to dial script");
-    serialGrid->Add(m_dialScriptCtrl, 1, wxEXPAND);
+        grid->Add(m_deviceCtrl, 1, wxEXPAND);
 
-    serialSizer->Add(serialGrid, 0, wxEXPAND | wxALL, 4);
-    m_serialPanel->SetSizer(serialSizer);
-    m_serialPanel->Show(false);
-    outer->Add(m_serialPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
+        grid->Add(new wxStaticText(page, wxID_ANY, "Baud rate:"),
+                  0, wxALIGN_CENTER_VERTICAL);
+        {
+            wxArrayString bauds;
+            for (const char* b : {"9600","19200","38400","57600",
+                                   "115200","230400","460800","921600"})
+                bauds.Add(b);
+            m_baudCtrl = new wxComboBox(page, wxID_ANY, "115200",
+                                        wxDefaultPosition, wxSize(100, -1),
+                                        bauds, wxCB_READONLY);
+            m_baudCtrl->SetStringSelection("115200");
+        }
+        grid->Add(m_baudCtrl, 0);
+
+        grid->Add(new wxStaticText(page, wxID_ANY, "Data bits:"),
+                  0, wxALIGN_CENTER_VERTICAL);
+        {
+            wxArrayString db;
+            for (const char* d : {"5","6","7","8"}) db.Add(d);
+            m_dataBitsCtrl = new wxComboBox(page, wxID_ANY, "8",
+                                            wxDefaultPosition, wxSize(60, -1),
+                                            db, wxCB_READONLY);
+            m_dataBitsCtrl->SetStringSelection("8");
+        }
+        grid->Add(m_dataBitsCtrl, 0);
+
+        grid->Add(new wxStaticText(page, wxID_ANY, "Stop bits:"),
+                  0, wxALIGN_CENTER_VERTICAL);
+        {
+            wxArrayString sb;
+            sb.Add("1"); sb.Add("2");
+            m_stopBitsCtrl = new wxComboBox(page, wxID_ANY, "1",
+                                            wxDefaultPosition, wxSize(60, -1),
+                                            sb, wxCB_READONLY);
+            m_stopBitsCtrl->SetStringSelection("1");
+        }
+        grid->Add(m_stopBitsCtrl, 0);
+
+        grid->Add(new wxStaticText(page, wxID_ANY, "Parity:"),
+                  0, wxALIGN_CENTER_VERTICAL);
+        {
+            wxArrayString par;
+            par.Add("None"); par.Add("Even"); par.Add("Odd");
+            m_parityCtrl = new wxComboBox(page, wxID_ANY, "None",
+                                          wxDefaultPosition, wxSize(100, -1),
+                                          par, wxCB_READONLY);
+            m_parityCtrl->SetStringSelection("None");
+        }
+        grid->Add(m_parityCtrl, 0);
+
+        grid->Add(new wxStaticText(page, wxID_ANY, "Flow control:"),
+                  0, wxALIGN_CENTER_VERTICAL);
+        {
+            wxArrayString fc;
+            fc.Add("None"); fc.Add("Hardware"); fc.Add("Software");
+            m_flowCtrlCombo = new wxComboBox(page, wxID_ANY, "None",
+                                             wxDefaultPosition, wxSize(120, -1),
+                                             fc, wxCB_READONLY);
+            m_flowCtrlCombo->SetStringSelection("None");
+        }
+        grid->Add(m_flowCtrlCombo, 0);
+
+        grid->Add(new wxStaticText(page, wxID_ANY, "Dial script:"),
+                  0, wxALIGN_CENTER_VERTICAL);
+        m_dialScriptCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
+                                          wxDefaultPosition, wxSize(200, -1));
+        m_dialScriptCtrl->SetHint("(optional) path to dial script");
+        grid->Add(m_dialScriptCtrl, 1, wxEXPAND);
+
+        sizer->Add(grid, 0, wxEXPAND | wxALL, 12);
+        page->SetSizer(sizer);
+        m_notebook->AddPage(page, "Serial");
+    }
+
+    m_notebook->SetSelection(kTabPty);
+    outer->Add(m_notebook, 1, wxEXPAND | wxLEFT | wxRIGHT, 12);
 
     // ---- Shared terminal options --------------------------------------------
     outer->AddSpacer(8);
     outer->Add(new wxStaticLine(this), 0, wxEXPAND | wxLEFT | wxRIGHT, 12);
     outer->AddSpacer(6);
 
-    auto* termOptRow = new wxBoxSizer(wxHORIZONTAL);
-    termOptRow->Add(new wxStaticText(this, wxID_ANY, "Column width:"),
-                    0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+    {
+        auto* termRow = new wxBoxSizer(wxHORIZONTAL);
+        termRow->Add(new wxStaticText(this, wxID_ANY, "Geometry:"),
+                     0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
 
-    wxArrayString widthChoices;
-    for (unsigned short w : m_columnWidths)
-        widthChoices.Add(wxString::Format("%d", static_cast<int>(w)));
-    m_colWidthCtrl = new wxComboBox(this, wxID_ANY, widthChoices.empty() ? "80" : widthChoices[0],
-                                    wxDefaultPosition, wxSize(80, -1),
-                                    widthChoices, wxCB_READONLY);
-    if (!widthChoices.IsEmpty())
-        m_colWidthCtrl->SetSelection(0);
-    termOptRow->Add(m_colWidthCtrl, 0, wxRIGHT, 20);
+        wxArrayString geoChoices;
+        for (const auto& g : m_geometryPresets)
+            geoChoices.Add(wxString::Format("%dx%d", g.cols, g.rows));
+        geoChoices.Add("Custom");
 
-    m_cbwrapMode = new wxCheckBox(this, wxID_ANY, "Wrap mode");
-    m_cbwrapMode->SetValue(false);
-    termOptRow->Add(m_cbwrapMode, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 20);
+        m_geometryCombo = new wxComboBox(this, ID_GEOMETRY_COMBO,
+                                         geoChoices.IsEmpty() ? "80x24" : geoChoices[0],
+                                         wxDefaultPosition, wxSize(100, -1),
+                                         geoChoices, wxCB_READONLY);
+        m_geometryCombo->SetSelection(0);
+        termRow->Add(m_geometryCombo, 0, wxRIGHT, 8);
 
-    // Hidden when editing a saved profile (prefill path).
-    m_cbOpenNewWindow = new wxCheckBox(this, wxID_ANY, "Open in New Window");
-    m_cbOpenNewWindow->SetValue(false);
-    m_cbOpenNewWindow->Show(prefill == nullptr);
-    termOptRow->Add(m_cbOpenNewWindow, 0, wxALIGN_CENTER_VERTICAL);
+        // Custom geometry sub-panel (hidden until "Custom" selected)
+        m_customGeomPanel = new wxPanel(this, wxID_ANY);
+        {
+            auto* s = new wxBoxSizer(wxHORIZONTAL);
+            s->Add(new wxStaticText(m_customGeomPanel, wxID_ANY, "Cols:"),
+                   0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+            m_colsCtrl = new wxSpinCtrl(m_customGeomPanel, wxID_ANY, "80",
+                                        wxDefaultPosition, wxSize(60, -1),
+                                        wxSP_ARROW_KEYS, 10, 1000, 80);
+            s->Add(m_colsCtrl, 0, wxRIGHT, 8);
+            s->Add(new wxStaticText(m_customGeomPanel, wxID_ANY, "Rows:"),
+                   0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+            m_rowsCtrl = new wxSpinCtrl(m_customGeomPanel, wxID_ANY, "24",
+                                        wxDefaultPosition, wxSize(60, -1),
+                                        wxSP_ARROW_KEYS, 1, 200, 24);
+            s->Add(m_rowsCtrl, 0);
+            m_customGeomPanel->SetSizer(s);
+        }
+        m_customGeomPanel->Show(false);
+        termRow->Add(m_customGeomPanel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 20);
 
-    outer->Add(termOptRow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
+        m_cbWrapMode = new wxCheckBox(this, wxID_ANY, "Wrap mode");
+        termRow->Add(m_cbWrapMode, 0, wxALIGN_CENTER_VERTICAL);
+
+        outer->Add(termRow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
+    }
+
+    // ---- Placement (UserChoice only) ----------------------------------------
+    if (context == LaunchContext::UserChoice) {
+        wxArrayString opts;
+        opts.Add("Current Tile"); opts.Add("New Tile"); opts.Add("New Window");
+        m_placementCtrl = new wxRadioBox(this, wxID_ANY, "Open in",
+                                         wxDefaultPosition, wxDefaultSize,
+                                         opts, 3, wxRA_SPECIFY_COLS);
+        m_placementCtrl->SetSelection(1);  // default: New Tile
+        outer->Add(m_placementCtrl, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 12);
+    }
 
     // ---- Footer -------------------------------------------------------------
     outer->Add(new wxStaticLine(this), 0, wxEXPAND | wxLEFT | wxRIGHT, 12);
-    outer->Add(CreateButtonSizer(wxOK | wxCANCEL), 0,
-               wxALIGN_RIGHT | wxALL, 10);
+    outer->Add(CreateButtonSizer(wxOK | wxCANCEL), 0, wxALIGN_RIGHT | wxALL, 10);
 
-    if (auto* btn = dynamic_cast<wxButton*>(FindWindow(wxID_OK)))
-        btn->SetLabel(prefill ? "Save" : "Connect");
+    // Label the OK button based on context + prefill
+    if (auto* btn = dynamic_cast<wxButton*>(FindWindow(wxID_OK))) {
+        if (context == LaunchContext::ProfileOnly)
+            btn->SetLabel(prefill ? "Save" : "Add");
+        else
+            btn->SetLabel("Connect");
+    }
 
     SetSizerAndFit(outer);
     SetMinSize(GetSize());
 
     // Events
-    Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnTransportChanged, this, ID_RB_LOOPBACK);
-    Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnTransportChanged, this, ID_RB_PTY);
-    Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnTransportChanged, this, ID_RB_SSH);
-    Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnTransportChanged, this, ID_RB_SERIAL);
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_AGENT);
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_PASS);
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_KEY);
-    Bind(wxEVT_BUTTON, &NewConnectionDialog::OnOK, this, wxID_OK);
+    Bind(wxEVT_COMBOBOX,    &NewConnectionDialog::OnGeometryChanged,   this, ID_GEOMETRY_COMBO);
+    Bind(wxEVT_BUTTON,      &NewConnectionDialog::OnOK,                this, wxID_OK);
+
+    if (m_profileCombo) {
+        Bind(wxEVT_COMBOBOX, &NewConnectionDialog::OnProfileSelected,   this, ID_PROFILE_COMBO);
+        Bind(wxEVT_TEXT,     &NewConnectionDialog::OnProfileTextChanged, this, ID_PROFILE_COMBO);
+    }
 
     if (prefill)
         ApplyPrefill(*prefill);
 }
 
+// ---------------------------------------------------------------------------
+// ApplyPrefill
+// ---------------------------------------------------------------------------
 void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profile)
 {
-    m_nameCtrl->SetValue(profile.name);
+    // Name field
+    if (m_profileNameCtrl)
+        m_profileNameCtrl->SetValue(profile.name);
 
+    // Transport settings
     std::visit([this](const auto& desc) {
         using T = std::decay_t<decltype(desc)>;
         if constexpr (std::is_same_v<T, term::session::PtyDesc>) {
-            m_rbPty->SetValue(true);
+            m_notebook->SetSelection(kTabPty);
             m_shellCtrl->SetValue(desc.shell);
-            m_sshPanel->Show(false);
-            m_serialPanel->Show(false);
-            m_shellCtrl->Enable(true);
         } else if constexpr (std::is_same_v<T, term::session::SshDesc>) {
-            m_rbSsh->SetValue(true);
+            m_notebook->SetSelection(kTabSsh);
             m_hostCtrl->SetValue(desc.host);
             m_portCtrl->SetValue(desc.port);
             m_userCtrl->SetValue(desc.username);
@@ -371,11 +445,8 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
                     m_rbAuthAgent->SetValue(true);
                     break;
             }
-            m_sshPanel->Show(true);
-            m_serialPanel->Show(false);
-            m_shellCtrl->Enable(false);
         } else if constexpr (std::is_same_v<T, term::session::SerialDesc>) {
-            m_rbSerial->SetValue(true);
+            m_notebook->SetSelection(kTabSerial);
             m_deviceCtrl->SetValue(desc.device);
             m_baudCtrl->SetStringSelection(wxString::Format("%u", desc.baudRate));
             m_dataBitsCtrl->SetStringSelection(wxString::Format("%u", desc.dataBits));
@@ -395,65 +466,94 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
                     m_flowCtrlCombo->SetStringSelection("None"); break;
             }
             m_dialScriptCtrl->SetValue(desc.dialScript);
-            m_sshPanel->Show(false);
-            m_serialPanel->Show(true);
-            m_shellCtrl->Enable(false);
         } else {
-            // Loopback
-            m_rbLoopback->SetValue(true);
-            m_sshPanel->Show(false);
-            m_serialPanel->Show(false);
-            m_shellCtrl->Enable(false);
+            m_notebook->SetSelection(kTabPty);
         }
     }, profile.transport);
 
-    // Apply shared settings
-    m_cbwrapMode->SetValue(profile.wrapMode);
-    for (int i = 0; i < static_cast<int>(m_columnWidths.size()); ++i) {
-        if (m_columnWidths[i] == profile.columnWidth) {
-            m_colWidthCtrl->SetSelection(i);
+    // Wrap mode
+    m_cbWrapMode->SetValue(profile.wrapMode);
+
+    // Geometry — find matching preset or fall back to Custom
+    bool matched = false;
+    for (int i = 0; i < static_cast<int>(m_geometryPresets.size()); ++i) {
+        if (m_geometryPresets[i].cols == profile.columnWidth &&
+            m_geometryPresets[i].rows == profile.rows) {
+            m_geometryCombo->SetSelection(i);
+            m_customGeomPanel->Show(false);
+            matched = true;
             break;
         }
     }
-
-    // Sync wrap mode state for Loopback
-    if (m_rbLoopback->GetValue()) {
-        m_cbwrapMode->SetValue(true);
-        m_cbwrapMode->Enable(false);
+    if (!matched) {
+        m_geometryCombo->SetSelection(static_cast<int>(m_geometryPresets.size())); // "Custom"
+        m_customGeomPanel->Show(true);
+        m_colsCtrl->SetValue(profile.columnWidth);
+        m_rowsCtrl->SetValue(profile.rows);
+        Layout();
+        Fit();
+        SetMinSize(GetSize());
     }
-
-    UpdateLayout();
 }
 
-void NewConnectionDialog::OnTransportChanged(wxCommandEvent&)
-{
-    const bool isPty      = m_rbPty->GetValue();
-    const bool isSsh      = m_rbSsh->GetValue();
-    const bool isLoopback = m_rbLoopback->GetValue();
-    const bool isSerial   = m_rbSerial->GetValue();
-
-    m_shellCtrl->Enable(isPty);
-    m_sshPanel->Show(isSsh);
-    m_serialPanel->Show(isSerial);
-
-    // Loopback: wrap mode is always on and not user-adjustable
-    m_cbwrapMode->SetValue(isLoopback ? true : m_cbwrapMode->GetValue());
-    m_cbwrapMode->Enable(!isLoopback);
-
-    UpdateLayout();
-}
-
+// ---------------------------------------------------------------------------
+// Event handlers
+// ---------------------------------------------------------------------------
 void NewConnectionDialog::OnAuthMethodChanged(wxCommandEvent&)
 {
     m_passPanel->Show(m_rbAuthPass->GetValue());
     m_keyPanel->Show(m_rbAuthKey->GetValue());
-    m_sshPanel->Layout();
-    UpdateLayout();
+    // SSH panel's sizer needs a re-layout to accommodate the shown/hidden sub-panels.
+    if (m_notebook->GetSelection() == kTabSsh)
+        m_notebook->GetCurrentPage()->Layout();
+}
+
+void NewConnectionDialog::OnGeometryChanged(wxCommandEvent&)
+{
+    const bool isCustom =
+        (m_geometryCombo->GetSelection() == static_cast<int>(m_geometryPresets.size()));
+    m_customGeomPanel->Show(isCustom);
+    Layout();
+    Fit();
+    SetMinSize(GetSize());
+}
+
+void NewConnectionDialog::OnProfileSelected(wxCommandEvent&)
+{
+    if (!m_profileCombo) return;
+    const wxString sel = m_profileCombo->GetStringSelection();
+    for (const auto& p : m_existingProfiles) {
+        if (p.name == sel.ToStdString()) {
+            m_selectedProfileId = p.id;
+            ApplyPrefill(p);
+            // Reset placement to default
+            if (m_placementCtrl)
+                m_placementCtrl->SetSelection(0);
+            return;
+        }
+    }
+    m_selectedProfileId.clear();
+}
+
+void NewConnectionDialog::OnProfileTextChanged(wxCommandEvent&)
+{
+    // User typed manually — they are no longer bound to the selected profile.
+    m_selectedProfileId.clear();
 }
 
 void NewConnectionDialog::OnOK(wxCommandEvent& evt)
 {
-    if (m_rbSsh->GetValue()) {
+    // Validate: "Save as Profile" requires a name
+    if (m_cbSaveProfile && m_cbSaveProfile->GetValue() && GetProfileName().empty()) {
+        wxMessageBox("Enter a profile name before saving.", "Save as Profile",
+                     wxOK | wxICON_WARNING, this);
+        if (m_profileCombo) m_profileCombo->SetFocus();
+        return;
+    }
+
+    const int tab = m_notebook->GetSelection();
+
+    if (tab == kTabSsh) {
         if (m_hostCtrl->GetValue().IsEmpty()) {
             wxMessageBox("Please enter a hostname.", "SSH Connection",
                          wxOK | wxICON_WARNING, this);
@@ -467,38 +567,46 @@ void NewConnectionDialog::OnOK(wxCommandEvent& evt)
             return;
         }
     }
-    if (m_rbSerial->GetValue() && m_deviceCtrl->GetValue().IsEmpty()) {
+    if (tab == kTabSerial && m_deviceCtrl->GetValue().IsEmpty()) {
         wxMessageBox("Please enter a serial device path (e.g. /dev/ttyUSB0).",
                      "Serial Connection", wxOK | wxICON_WARNING, this);
         m_deviceCtrl->SetFocus();
         return;
     }
-    evt.Skip(); // allow default OK processing
+
+    evt.Skip();
 }
 
-void NewConnectionDialog::UpdateLayout()
+// ---------------------------------------------------------------------------
+// Getters
+// ---------------------------------------------------------------------------
+static std::pair<unsigned short, unsigned short> resolveGeometry(
+        wxComboBox* combo,
+        wxSpinCtrl* colsCtrl,
+        wxSpinCtrl* rowsCtrl,
+        const std::vector<GeometryPreset>& presets)
 {
-    Layout();
-    Fit();
-    SetMinSize(GetSize());
+    const int sel = combo->GetSelection();
+    if (sel >= 0 && sel < static_cast<int>(presets.size()))
+        return {presets[sel].cols, presets[sel].rows};
+    // Custom
+    return {static_cast<unsigned short>(colsCtrl->GetValue()),
+            static_cast<unsigned short>(rowsCtrl->GetValue())};
 }
 
 ConnectionParams NewConnectionDialog::GetParams() const
 {
-    const int selIdx = m_colWidthCtrl->GetSelection();
-    const unsigned short colWidth =
-        (selIdx >= 0 && selIdx < static_cast<int>(m_columnWidths.size()))
-        ? m_columnWidths[selIdx]
-        : 80;
-    const bool wrapMode = m_cbwrapMode->GetValue();
+    const bool wrapMode = m_cbWrapMode->GetValue();
+    auto [cols, rows] = resolveGeometry(m_geometryCombo, m_colsCtrl, m_rowsCtrl, m_geometryPresets);
 
-    if (m_rbPty->GetValue())
+    const int tab = m_notebook->GetSelection();
+
+    if (tab == kTabPty)
         return PtyParams{
             m_shellCtrl->GetValue().ToStdString(),
-            wrapMode,
-            colWidth};
+            wrapMode, cols, rows};
 
-    if (m_rbSsh->GetValue()) {
+    if (tab == kTabSsh) {
         SshParams p;
         p.host              = m_hostCtrl->GetValue().ToStdString();
         p.port              = static_cast<unsigned short>(m_portCtrl->GetValue());
@@ -508,52 +616,72 @@ ConnectionParams NewConnectionDialog::GetParams() const
         p.remoteCommand     = m_remoteCmdCtrl->GetValue().ToStdString();
         p.compress          = m_cbCompress->GetValue();
         p.wrapMode          = wrapMode;
-        p.columnWidth       = colWidth;
+        p.columnWidth       = cols;
+        p.rows              = rows;
 
         if (m_rbAuthPass->GetValue()) {
             p.authMethod = SshAuthChoice::Password;
             p.password   = m_passCtrl->GetValue().ToStdString();
         } else if (m_rbAuthKey->GetValue()) {
-            p.authMethod      = SshAuthChoice::PrivateKey;
-            p.privateKeyPath  = m_keyPicker->GetPath().ToStdString();
-            p.passphrase      = m_passphraseCtrl->GetValue().ToStdString();
+            p.authMethod     = SshAuthChoice::PrivateKey;
+            p.privateKeyPath = m_keyPicker->GetPath().ToStdString();
+            p.passphrase     = m_passphraseCtrl->GetValue().ToStdString();
         } else {
             p.authMethod = SshAuthChoice::Agent;
         }
         return p;
     }
 
-    if (m_rbSerial->GetValue()) {
+    if (tab == kTabSerial) {
         SerialParams p;
-        p.device      = m_deviceCtrl->GetValue().ToStdString();
-        const wxString baudStr = m_baudCtrl->GetStringSelection();
+        p.device = m_deviceCtrl->GetValue().ToStdString();
         unsigned long baud = 115200;
-        baudStr.ToULong(&baud);
-        p.baudRate    = static_cast<unsigned int>(baud);
-        const wxString dbStr = m_dataBitsCtrl->GetStringSelection();
+        m_baudCtrl->GetStringSelection().ToULong(&baud);
+        p.baudRate = static_cast<unsigned int>(baud);
         unsigned long db = 8;
-        dbStr.ToULong(&db);
+        m_dataBitsCtrl->GetStringSelection().ToULong(&db);
         p.dataBits    = static_cast<unsigned short>(db);
         p.stopBits    = m_stopBitsCtrl->GetStringSelection().ToStdString();
         p.parity      = m_parityCtrl->GetStringSelection().ToStdString();
         p.flowControl = m_flowCtrlCombo->GetStringSelection().ToStdString();
         p.dialScript  = m_dialScriptCtrl->GetValue().ToStdString();
         p.wrapMode    = wrapMode;
-        p.columnWidth = colWidth;
+        p.columnWidth = cols;
+        p.rows        = rows;
         return p;
     }
 
-    return LoopbackParams{true, colWidth};
+    // Fallback (should not be reached)
+    return PtyParams{};
 }
 
-std::string NewConnectionDialog::GetConnectionName() const
+std::string NewConnectionDialog::GetProfileName() const
 {
-    return m_nameCtrl->GetValue().Trim().ToStdString();
+    if (m_profileCombo)
+        return m_profileCombo->GetValue().Trim().ToStdString();
+    if (m_profileNameCtrl)
+        return m_profileNameCtrl->GetValue().Trim().ToStdString();
+    return {};
 }
 
-bool NewConnectionDialog::GetOpenInNewWindow() const
+bool NewConnectionDialog::GetSaveAsProfile() const
 {
-    return m_cbOpenNewWindow->IsShown() && m_cbOpenNewWindow->GetValue();
+    return m_cbSaveProfile && m_cbSaveProfile->GetValue();
+}
+
+std::string NewConnectionDialog::GetSelectedProfileId() const
+{
+    return m_selectedProfileId;
+}
+
+LaunchPlacement NewConnectionDialog::GetLaunchPlacement() const
+{
+    if (!m_placementCtrl) return LaunchPlacement::ActiveTile;
+    switch (m_placementCtrl->GetSelection()) {
+        case 1: return LaunchPlacement::NewTile;
+        case 2: return LaunchPlacement::NewWindow;
+        default: return LaunchPlacement::ActiveTile;
+    }
 }
 
 } // namespace ui

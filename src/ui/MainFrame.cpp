@@ -2,6 +2,7 @@
 #include "ui/ConnectionFactory.h"
 #include "ui/ConnectionManagerDialog.h"
 #include "ui/UIManager.h"
+#include "db/ConnectionProfile.h"
 #include "db/ConnectionStore.h"
 #include "app/App.h"
 #include <wx/msgdlg.h>
@@ -50,7 +51,7 @@ MainFrame::MainFrame(const AppConfig& cfg,
     // ---- Connection menu -----------------------------------------------------
     m_connMenu = new wxMenu;
     m_connMenu->Append(ID_NEW_CONNECTION,         "New Connection\tCtrl+Shift+N");
-    m_connMenu->Append(ID_NEW_CONNECTION_IN_TILE, "New Connection in Tab");
+    m_connMenu->Append(ID_NEW_CONNECTION_IN_TILE, "New Connection in Tab\tCtrl+Shift+T");
     m_connMenu->Append(ID_CONNECTION_MANAGER,     "Connection Manager...\tCtrl+Shift+M");
     m_connMenu->AppendSeparator();
     m_connMenu->Append(ID_CLOSE_ACTIVE_SESSION,   "Close Active Session");
@@ -152,72 +153,83 @@ void MainFrame::LaunchSessionInTile(const term::session::Connection& conn,
 
 void MainFrame::LaunchNewConnectionInTile(TerminalTile* targetTile)
 {
-    term::session::Connection conn;
-    bool openInNewWindow = false;
-    if (!RunNewConnectionDialog(conn, openInNewWindow))
-        return;
-
-    if (openInNewWindow) {
-        auto* newFrame = static_cast<App*>(wxTheApp)->CreateNewWindow();
-        newFrame->LaunchSession(conn);
-    } else {
-        LaunchSessionInTile(conn, targetTile);
-    }
+    RunConnectionDialog(ui::LaunchContext::ActiveTile, targetTile);
 }
 
-bool MainFrame::RunNewConnectionDialog(term::session::Connection& conn,
-                                       bool& openInNewWindow)
+bool MainFrame::RunConnectionDialog(ui::LaunchContext context,
+                                    TerminalTile* targetTile)
 {
     const std::string defaultShell = [] {
         const char* s = std::getenv("SHELL");
         return s ? std::string(s) : std::string("/bin/bash");
     }();
 
-    ui::NewConnectionDialog dlg(this, defaultShell, m_cfg.columnWidths);
+    ui::NewConnectionDialog dlg(this, defaultShell,
+                                m_cfg.geometryPresets,
+                                m_store.GetAll(),
+                                context);
     if (dlg.ShowModal() != wxID_OK)
         return false;
 
-    conn = ui::ToConnection(dlg.GetParams(), ++m_sessionCount);
+    term::session::Connection conn = ui::ToConnection(dlg.GetParams(), ++m_sessionCount);
 
-    const std::string name = dlg.GetConnectionName();
-    if (!name.empty()) {
-        conn.label = name;
-        m_store.Add(name, conn.transport, conn.wrapMode, conn.columnWidth);
+    // Honour "Save as Profile" if requested
+    const std::string profileName = dlg.GetProfileName();
+    if (dlg.GetSaveAsProfile() && !profileName.empty()) {
+        conn.label = profileName;
+        const std::string existingId = dlg.GetSelectedProfileId();
+        if (!existingId.empty()) {
+            const auto& profiles = m_store.GetAll();
+            auto it = std::find_if(profiles.begin(), profiles.end(),
+                                   [&](const term::db::ConnectionProfile& p){
+                                       return p.id == existingId; });
+            if (it != profiles.end()) {
+                term::db::ConnectionProfile upd = *it;
+                upd.name        = profileName;
+                upd.transport   = conn.transport;
+                upd.wrapMode    = conn.wrapMode;
+                upd.columnWidth = conn.columnWidth;
+                upd.rows        = conn.rows;
+                m_store.Update(upd);
+            }
+        } else {
+            m_store.Add(profileName, conn.transport,
+                        conn.wrapMode, conn.columnWidth, conn.rows);
+        }
+    } else if (!profileName.empty()) {
+        conn.label = profileName;
     }
 
-    openInNewWindow = dlg.GetOpenInNewWindow();
+    // Launch per placement choice
+    switch (dlg.GetLaunchPlacement()) {
+        case ui::LaunchPlacement::NewWindow:
+            static_cast<App*>(wxTheApp)->CreateNewWindow()->LaunchSession(conn);
+            break;
+        case ui::LaunchPlacement::NewTile:
+            LaunchSession(conn);
+            break;
+        default: {  // ActiveTile
+            TerminalTile* tile = targetTile
+                ? targetTile
+                : (m_uiManager ? m_uiManager->GetActiveTile() : nullptr);
+            LaunchSessionInTile(conn, tile);
+            break;
+        }
+    }
     return true;
 }
 
 void MainFrame::OnNewConnection(wxCommandEvent&)
 {
-    term::session::Connection conn;
-    bool openInNewWindow = false;
-    if (!RunNewConnectionDialog(conn, openInNewWindow))
-        return;
-
-    if (openInNewWindow) {
-        auto* newFrame = static_cast<App*>(wxTheApp)->CreateNewWindow();
-        newFrame->LaunchSession(conn);
-    } else {
-        LaunchSession(conn);
-    }
+    const bool hasTiles = m_uiManager && m_uiManager->GetActiveTile() != nullptr;
+    const auto ctx = hasTiles ? ui::LaunchContext::UserChoice
+                              : ui::LaunchContext::ActiveTile;
+    RunConnectionDialog(ctx);
 }
 
 void MainFrame::OnNewConnectionInActiveTile(wxCommandEvent&)
 {
-    term::session::Connection conn;
-    bool openInNewWindow = false;
-    if (!RunNewConnectionDialog(conn, openInNewWindow))
-        return;
-
-    if (openInNewWindow) {
-        auto* newFrame = static_cast<App*>(wxTheApp)->CreateNewWindow();
-        newFrame->LaunchSession(conn);
-    } else {
-        TerminalTile* activeTile = m_uiManager ? m_uiManager->GetActiveTile() : nullptr;
-        LaunchSessionInTile(conn, activeTile);
-    }
+    RunConnectionDialog(ui::LaunchContext::ActiveTile);
 }
 
 void MainFrame::OnConnectionManager(wxCommandEvent&)
