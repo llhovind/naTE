@@ -49,7 +49,12 @@ void UIManager::SessionNotifier::OnDocumentChanged(DocChangeType type, size_t)
                 m->pendingRefresh_.erase(sid);
             }
             SessionUI* ui = m->FindSessionUI(sid);
-            if (ui && ui->panel)
+            if (!ui) return;
+
+            if (ui->tile && ui->tile->GetActiveSessionId() != sid)
+                ui->tile->SetTabUnread(sid, true);
+
+            if (ui->panel)
                 ui->panel->OnDocumentUpdate();
         });
     }

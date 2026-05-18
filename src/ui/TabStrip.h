@@ -36,6 +36,11 @@ public:
     using BroadcastQueryCallback = std::function<bool(int tabIndex)>;
     void SetBroadcastQueryCallback(BroadcastQueryCallback cb) { broadcastQueryCb_ = std::move(cb); }
 
+    // Query callback: returns true if the tab has received output while hidden.
+    // Cleared by TerminalTile when the tab is activated.
+    using UnreadQueryCallback = std::function<bool(int tabIndex)>;
+    void SetUnreadQueryCallback(UnreadQueryCallback cb) { unreadQueryCb_ = std::move(cb); }
+
     // -------------------------------------------------------------------------
     // Tab-level callbacks wired by TerminalTile
     // -------------------------------------------------------------------------
@@ -114,6 +119,7 @@ private:
     ActiveTabCallback      activeTabCb_;
     BgColourCallback       bgColourCb_;
     BroadcastQueryCallback broadcastQueryCb_;
+    UnreadQueryCallback    unreadQueryCb_;
 
     // Notification callbacks
     TabSelectedCallback     selectedCb_;

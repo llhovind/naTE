@@ -70,6 +70,10 @@ public:
     // Must be called for every session in this tile on each broadcast change.
     void SetTabBroadcast(term::session::SessionId id, bool inBroadcast);
 
+    // Marks a tab as having unread output (content arrived while the tab was hidden).
+    // Cleared automatically when the tab is activated.
+    void SetTabUnread(term::session::SessionId id, bool hasUnread);
+
     // Called by UIManager to reflect wrap mode changes originating outside this tile.
     void SetWrapMode(bool wrap);
 
@@ -112,10 +116,11 @@ public:
 
 private:
     struct TabEntry {
-        term::session::SessionId sessionId   = 0;
-        TerminalPanel*           panel       = nullptr;  // wx-child-owned by contentArea_
+        term::session::SessionId sessionId      = 0;
+        TerminalPanel*           panel          = nullptr;  // wx-child-owned by contentArea_
         wxString                 label;
-        bool                     inBroadcast = false;
+        bool                     inBroadcast    = false;
+        bool                     hasUnreadOutput = false;
     };
 
     // Show the panel at index; hide the previous one. Does not emit ActivateSession — programmatic activation only.

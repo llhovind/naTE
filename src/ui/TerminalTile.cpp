@@ -72,6 +72,10 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
         return i >= 0 && i < (int)tabs_.size() && tabs_[i].inBroadcast;
     });
 
+    tabStrip_->SetUnreadQueryCallback([this](int i) {
+        return i >= 0 && i < (int)tabs_.size() && tabs_[i].hasUnreadOutput;
+    });
+
     tabStrip_->SetHeaderCtrlClickCallback([this]() {
         EmitTerminalAction(TerminalAction::ToggleBroadcast);
     });
@@ -281,6 +285,7 @@ void TerminalTile::ActivateTab(int index)
     }
 
     activeTabIdx_ = index;
+    tabs_[index].hasUnreadOutput = false;
 
     auto* panel = tabs_[index].panel;
     // Size the panel to fill the content area before showing to prevent flicker.
@@ -347,6 +352,18 @@ void TerminalTile::SetTabBroadcast(term::session::SessionId id, bool inBroadcast
             if (i == activeTabIdx_)
                 if (auto* p = GetActivePanel()) p->SetBroadcastCursorState(broadcastModeActive_, inBroadcast);
             tabStrip_->Refresh();  // TabStrip queries tabs_ via BroadcastQueryCallback on next paint
+            return;
+        }
+    }
+}
+
+void TerminalTile::SetTabUnread(term::session::SessionId id, bool hasUnread)
+{
+    for (int i = 0; i < (int)tabs_.size(); ++i) {
+        if (tabs_[i].sessionId == id) {
+            if (tabs_[i].hasUnreadOutput == hasUnread) return;
+            tabs_[i].hasUnreadOutput = hasUnread;
+            tabStrip_->Refresh();
             return;
         }
     }

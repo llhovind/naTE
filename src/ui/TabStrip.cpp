@@ -7,6 +7,7 @@
 
 static const wxColour kColBroadcast { 255, 140,   0 };
 static const wxColour kColInactive  { 131, 136, 141 };
+static const wxColour kColUnread    { 100, 200, 255 };
 
 TabStrip::TabStrip(wxWindow* parent)
     : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE)
@@ -162,6 +163,13 @@ void TabStrip::OnPaint(wxPaintEvent&)
             }
             dc.SetTextForeground(*wxWHITE);
             dc.DrawText(label, x + 6, ty);
+
+            // Unread output dot — shown when background content arrived on this tab.
+            if (unreadQueryCb_ && unreadQueryCb_(i)) {
+                dc.SetBrush(wxBrush(kColUnread));
+                dc.SetPen(*wxTRANSPARENT_PEN);
+                dc.DrawCircle(x + g.tabW - kCloseW - 10, sz.y / 2, 3);
+            }
 
             // Close "×" — dimmer on inactive non-broadcast tabs.
             const wxColour closeCol = (i == activeIdx || inBroadcast)
