@@ -18,7 +18,9 @@ LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/co
 LINUXDEPLOY_GTK_URL="https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh"
 
 find_or_download() {
-    local name="$1" url="$2" dest="${PROJECT_ROOT}/${name}"
+    local name="$1"
+    local url="$2"
+    local dest="${PROJECT_ROOT}/${name}"
     if command -v "${name}" &>/dev/null; then echo "${name}"; return; fi
     if [[ -x "${dest}" ]];              then echo "${dest}";  return; fi
     echo "Downloading ${name}..." >&2
@@ -37,18 +39,21 @@ if [[ "${1:-}" == "--skip-configure" ]] && [[ -f "${BUILD_DIR}/build.ninja" || -
 fi
 
 if $needs_configure; then
-    echo "==> Configuring (appimage preset)..."
-    cmake --preset appimage -S "${PROJECT_ROOT}"
+    echo "==> Configuring..."
+    cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr
 fi
 
 echo "==> Building..."
-cmake --build --preset appimage --parallel "$(nproc)"
+cmake --build "${BUILD_DIR}" --parallel "$(nproc)"
 
 echo "==> Installing into AppDir (${APP_DIR})..."
 rm -rf "${APP_DIR}"
-cmake --install "${BUILD_DIR}" --destdir "${APP_DIR}" --strip
+DESTDIR="${APP_DIR}" cmake --install "${BUILD_DIR}" --strip
 
 echo "==> Packaging AppImage..."
+export APPIMAGE_EXTRACT_AND_RUN=1
 export DEPLOY_GTK_VERSION=3
 export OUTPUT="${OUTPUT_APPIMAGE}"
 "${LINUXDEPLOY}" --appdir "${APP_DIR}" --plugin gtk --output appimage
