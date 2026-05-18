@@ -58,7 +58,9 @@ endif()
 # ---------------------------------------------------------------------------
 add_executable(naTE_restore_tests
     test_session_restore.cpp
+    test_named_snapshot.cpp
     ${CMAKE_SOURCE_DIR}/src/db/JsonSessionRestoreRepository.cpp
+    ${CMAKE_SOURCE_DIR}/src/db/JsonNamedSnapshotRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/session/Connection.cpp
 )
 target_link_libraries(naTE_restore_tests PRIVATE Catch2::Catch2WithMain nlohmann_json::nlohmann_json)

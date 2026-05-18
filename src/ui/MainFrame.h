@@ -75,6 +75,8 @@ private:
     void OnNewConnectionInActiveTile(wxCommandEvent&);
     void OnConnectionManager(wxCommandEvent&);
     void OnRestoreSessions(wxCommandEvent&);
+    void OnSaveAsSnapshot(wxCommandEvent&);
+    void OnOpenSnapshot(wxCommandEvent&);
     void OnTogglewrapMode(wxCommandEvent&);
     void OnToggleBroadcast(wxCommandEvent&);
     void OnWindowMenuItem(wxCommandEvent& evt);

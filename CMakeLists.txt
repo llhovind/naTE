@@ -41,6 +41,7 @@ set(SOURCES
     src/ui/ConnectionManagerDialog.cpp
     src/ui/FileTransferDialog.cpp
     src/ui/RemoteFileBrowserDialog.cpp
+    src/ui/SnapshotManagerDialog.cpp
     src/ui/GeometryDialog.cpp
     src/ui/TerminalPanel.cpp
     src/ui/TerminalTile.cpp
@@ -55,6 +56,7 @@ set(SOURCES
     src/ui/SelectionActions.cpp
     src/db/JsonConnectionRepository.cpp
     src/db/JsonSessionRestoreRepository.cpp
+    src/db/JsonNamedSnapshotRepository.cpp
     src/db/ConnectionStore.cpp
 )
 

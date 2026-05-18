@@ -2,12 +2,16 @@
 #include "ui/ConnectionFactory.h"
 #include "ui/ConnectionManagerDialog.h"
 #include "ui/GeometryDialog.h"
+#include "ui/SnapshotManagerDialog.h"
 #include "ui/UIManager.h"
 #include "db/ConnectionProfile.h"
 #include "db/ConnectionStore.h"
 #include "app/App.h"
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
+#include <wx/textdlg.h>
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 
 namespace {
@@ -31,6 +35,16 @@ namespace {
     constexpr int ID_SEND_FILES              = wxID_HIGHEST + 26;
     constexpr int ID_RECEIVE_FILES           = wxID_HIGHEST + 27;
     constexpr int ID_RESTORE_SESSIONS        = wxID_HIGHEST + 28;
+    constexpr int ID_SAVE_AS_SNAPSHOT        = wxID_HIGHEST + 29;
+    constexpr int ID_OPEN_SNAPSHOT           = wxID_HIGHEST + 30;
+
+    static bool IsValidSnapshotName(const std::string& s)
+    {
+        if (s.empty() || s.size() > 64) return false;
+        return std::all_of(s.begin(), s.end(), [](unsigned char c) {
+            return std::isalnum(c) || c == '-' || c == '_' || c == ' ';
+        });
+    }
 
     // Window menu: window entries occupy [kWindowMenuBase, kWindowMenuBase + kWindowMenuMax).
     constexpr int kWindowMenuBase    = wxID_HIGHEST + 400;
@@ -60,6 +74,8 @@ MainFrame::MainFrame(const AppConfig& cfg,
     m_connMenu->Append(ID_NEW_CONNECTION_IN_TILE, "New Connection in Tab\tCtrl+Shift+T");
     m_connMenu->Append(ID_CONNECTION_MANAGER,     "Connection Manager...\tCtrl+Shift+M");
     m_connMenu->Append(ID_RESTORE_SESSIONS,       "Restore Previous Session(s)");
+    m_connMenu->Append(ID_SAVE_AS_SNAPSHOT,       "Save Session As...");
+    m_connMenu->Append(ID_OPEN_SNAPSHOT,          "Open Saved Snapshot...");
     m_connMenu->AppendSeparator();
     m_connMenu->Append(ID_CLOSE_ACTIVE_SESSION,   "Close Active Session");
     m_connMenu->Append(wxID_CLOSE,                "Close This Window\tCtrl+Shift+Q");
@@ -72,6 +88,11 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
         e.Enable(static_cast<App*>(wxTheApp)->HasRestoreSnapshot());
     }, ID_RESTORE_SESSIONS);
+    Bind(wxEVT_MENU, &MainFrame::OnSaveAsSnapshot,            this, ID_SAVE_AS_SNAPSHOT);
+    Bind(wxEVT_MENU, &MainFrame::OnOpenSnapshot,              this, ID_OPEN_SNAPSHOT);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
+        e.Enable(static_cast<App*>(wxTheApp)->HasNamedSnapshots());
+    }, ID_OPEN_SNAPSHOT);
     Bind(wxEVT_MENU, &MainFrame::OnCloseActiveSession,        this, ID_CLOSE_ACTIVE_SESSION);
     Bind(wxEVT_MENU, &MainFrame::OnCloseThisWindow,           this, wxID_CLOSE);
     Bind(wxEVT_MENU, &MainFrame::OnQuitAll,                   this, ID_QUIT_ALL);
@@ -273,6 +294,44 @@ void MainFrame::OnConnectionManager(wxCommandEvent&)
 void MainFrame::OnRestoreSessions(wxCommandEvent&)
 {
     static_cast<App*>(wxTheApp)->RestoreSessionsFromMenu(this);
+}
+
+void MainFrame::OnSaveAsSnapshot(wxCommandEvent&)
+{
+    wxTextEntryDialog dlg(this, "Snapshot name:", "Save Session As");
+    if (dlg.ShowModal() != wxID_OK) return;
+
+    const std::string name = dlg.GetValue().Strip(wxString::both).ToStdString();
+    if (!IsValidSnapshotName(name)) {
+        wxMessageBox(
+            "Name must be 1–64 characters: letters, digits, spaces, hyphens, underscores.",
+            "Invalid Name", wxOK | wxICON_WARNING, this);
+        return;
+    }
+
+    auto* app = static_cast<App*>(wxTheApp);
+    if (app->HasNamedSnapshot(name)) {
+        if (wxMessageBox("Overwrite existing snapshot '" + name + "'?",
+                         "Confirm", wxYES_NO | wxICON_QUESTION, this) != wxYES)
+            return;
+    }
+    app->SaveNamedSnapshot(name);
+}
+
+void MainFrame::OnOpenSnapshot(wxCommandEvent&)
+{
+    auto* app = static_cast<App*>(wxTheApp);
+    const auto names = app->GetNamedSnapshotNames();
+    if (names.empty()) return;
+
+    ui::SnapshotManagerDialog dlg(this, names);
+    const int result = dlg.ShowModal();
+
+    for (const auto& n : dlg.GetDeletedNames())
+        app->DeleteNamedSnapshot(n);
+
+    if (result == wxID_OK)
+        app->RestoreNamedSnapshot(dlg.GetSelectedName(), this);
 }
 
 void MainFrame::OnTogglewrapMode(wxCommandEvent&)

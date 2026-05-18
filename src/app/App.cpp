@@ -1,5 +1,6 @@
 #include "app/App.h"
 #include "db/JsonConnectionRepository.h"
+#include "db/JsonNamedSnapshotRepository.h"
 #include "db/JsonSessionRestoreRepository.h"
 #include "session/AppSessionDefaults.h"
 #include "session/RestoreState.h"
@@ -88,6 +89,7 @@ bool App::OnInit() {
 
     const std::string restorePath = NateDir() + "/session-restore.json";
     m_restoreRepo = std::make_unique<term::db::JsonSessionRestoreRepository>(restorePath);
+    m_namedRepo   = std::make_unique<term::db::JsonNamedSnapshotRepository>(NateDir() + "/snapshots");
 
     // Parse --no-restore CLI flag (overrides AutoRestoreSession in config).
     bool noRestoreFlag = false;
@@ -278,12 +280,10 @@ bool App::HasRestoreSnapshot() const
     return m_restoreRepo && m_restoreRepo->HasSnapshot();
 }
 
-void App::SaveRestoreSnapshot()
+term::session::RestoreState App::BuildCurrentState() const
 {
-    if (!m_restoreRepo) return;
-
     term::session::RestoreState state;
-    for (auto& wc : m_windows) {
+    for (const auto& wc : m_windows) {
         if (!wc->uiManager) continue;
         term::session::RestoreWindow rw;
         const wxRect r = wc->frame->GetRect();
@@ -314,9 +314,13 @@ void App::SaveRestoreSnapshot()
         if (!rw.tiles.empty())
             state.windows.push_back(std::move(rw));
     }
+    return state;
+}
 
-    // Save if non-empty; Delete cleans up stale files on an all-sessions-closed exit.
-    m_restoreRepo->Save(state);
+void App::SaveRestoreSnapshot()
+{
+    if (!m_restoreRepo) return;
+    m_restoreRepo->Save(BuildCurrentState());
 }
 
 void App::RestoreStateImpl(const term::session::RestoreState& state, MainFrame* firstFrame)
@@ -371,6 +375,52 @@ void App::RestoreSessionsFromMenu(MainFrame* callerFrame)
     }
 
     m_restoreRepo->Delete();  // Remove before restoring so snapshot reflects new state.
+    RestoreStateImpl(state, firstFrame);
+}
+
+bool App::HasNamedSnapshots() const
+{
+    return m_namedRepo && !m_namedRepo->List().empty();
+}
+
+std::vector<std::string> App::GetNamedSnapshotNames() const
+{
+    return m_namedRepo ? m_namedRepo->List() : std::vector<std::string>{};
+}
+
+bool App::HasNamedSnapshot(const std::string& name) const
+{
+    return m_namedRepo && m_namedRepo->Exists(name);
+}
+
+void App::SaveNamedSnapshot(const std::string& name)
+{
+    if (m_namedRepo)
+        m_namedRepo->Save(name, BuildCurrentState());
+}
+
+void App::DeleteNamedSnapshot(const std::string& name)
+{
+    if (m_namedRepo)
+        m_namedRepo->Delete(name);
+}
+
+void App::RestoreNamedSnapshot(const std::string& name, MainFrame* callerFrame)
+{
+    if (!m_namedRepo || !m_namedRepo->Exists(name)) return;
+
+    auto state = m_namedRepo->Load(name);
+    if (state.windows.empty()) return;
+
+    // Reuse the calling frame if it currently has no sessions.
+    MainFrame* firstFrame = nullptr;
+    if (callerFrame) {
+        WindowContext* ctx = FindContext(callerFrame);
+        if (ctx && !ctx->uiManager->HasAnySessions())
+            firstFrame = callerFrame;
+    }
+
+    // Named snapshots are persistent — NOT deleted after loading.
     RestoreStateImpl(state, firstFrame);
 }
 

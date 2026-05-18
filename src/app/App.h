@@ -6,6 +6,7 @@
 #include <vector>
 #include "config/Config.h"
 #include "db/ConnectionStore.h"
+#include "db/INamedSnapshotRepository.h"
 #include "db/ISessionRestoreRepository.h"
 #include "input/InputRouter.h"
 #include "session/Connection.h"
@@ -60,6 +61,15 @@ public:
     // as the first restored window if it currently has no sessions.
     void RestoreSessionsFromMenu(MainFrame* callerFrame);
 
+    // Named snapshot operations (Save Session As… / Open Saved Snapshot…).
+    bool                     HasNamedSnapshots()                           const;
+    std::vector<std::string> GetNamedSnapshotNames()                       const;
+    bool                     HasNamedSnapshot(const std::string& name)     const;
+    void                     SaveNamedSnapshot(const std::string& name);
+    void                     RestoreNamedSnapshot(const std::string& name,
+                                                  MainFrame* callerFrame);
+    void                     DeleteNamedSnapshot(const std::string& name);
+
 private:
     struct WindowContext {
         std::unique_ptr<term::input::InputRouter> router;
@@ -77,11 +87,14 @@ private:
     void RestoreStateImpl(const term::session::RestoreState& state,
                           MainFrame* firstFrame);
 
-    AppConfig                                          m_cfg;
-    std::unique_ptr<term::db::ConnectionStore>         m_connectionStore;
-    std::unique_ptr<term::session::SessionManager>     m_sessionManager;
+    term::session::RestoreState BuildCurrentState() const;
+
+    AppConfig                                           m_cfg;
+    std::unique_ptr<term::db::ConnectionStore>          m_connectionStore;
+    std::unique_ptr<term::session::SessionManager>      m_sessionManager;
     std::unique_ptr<term::db::ISessionRestoreRepository> m_restoreRepo;
-    wxTimer                                            m_saveTimer;
+    std::unique_ptr<term::db::INamedSnapshotRepository>  m_namedRepo;
+    wxTimer                                             m_saveTimer;
     std::vector<std::unique_ptr<WindowContext>>        m_windows;
     int                                                m_instanceId    = 0;
     int                                                m_nextWindowId  = 0;
