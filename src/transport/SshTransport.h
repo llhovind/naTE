@@ -54,6 +54,12 @@ public:
     void        TransferFile(const std::string& localPath,
                              const std::string& remoteDir,
                              std::function<void(bool, std::string)> onDone) override;
+    void        ReceiveFile(const std::string& remotePath,
+                            const std::string& localDir,
+                            std::function<void(bool, std::string)> onDone) override;
+    void        ListRemoteDirectory(
+                    const std::string& remotePath,
+                    std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone) override;
 
 private:
     // Worker thread — owns all libssh2 calls.
@@ -97,6 +103,16 @@ private:
     void DoTransferFile(std::string localPath,
                         std::string remoteDir,
                         std::function<void(bool, std::string)> onDone);
+
+    // Receives one remote file into localDir via SCP on a fresh session.
+    void DoReceiveFile(std::string remotePath,
+                       std::string localDir,
+                       std::function<void(bool, std::string)> onDone);
+
+    // Lists remotePath via an SSH exec channel on a fresh session.
+    void DoListRemoteDirectory(
+             std::string remotePath,
+             std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone);
 
     ITransportTarget&                    target_;
     term::session::SshDesc               desc_;

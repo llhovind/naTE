@@ -85,6 +85,8 @@ public:
 
     // Open the file transfer dialog for the active session (SSH only).
     void TransferFilesForActive();
+    // Open the file receive dialog for the active session (SSH only).
+    void ReceiveFilesForActive();
 
     // Toggle broadcast mode on/off.
     void ToggleBroadcastMode();

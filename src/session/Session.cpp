@@ -234,4 +234,18 @@ void Session::TransferFile(const std::string& localPath,
     transport_->TransferFile(localPath, remoteDir, std::move(onDone));
 }
 
+void Session::ReceiveFile(const std::string& remotePath,
+                          const std::string& localDir,
+                          std::function<void(bool, std::string)> onDone)
+{
+    transport_->ReceiveFile(remotePath, localDir, std::move(onDone));
+}
+
+void Session::ListRemoteDirectory(
+    const std::string& remotePath,
+    std::function<void(std::vector<transport::RemoteDirEntry>, std::string)> onDone)
+{
+    transport_->ListRemoteDirectory(remotePath, std::move(onDone));
+}
+
 } // namespace term::session

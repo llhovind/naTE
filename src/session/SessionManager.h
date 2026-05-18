@@ -103,6 +103,15 @@ public:
                              const std::string& localPath,
                              const std::string& remoteDir,
                              std::function<void(bool, std::string)> onDone);
+    void        ReceiveFile(SessionId id,
+                            const std::string& remotePath,
+                            const std::string& localDir,
+                            std::function<void(bool, std::string)> onDone);
+    void        ListRemoteDirectory(
+                    SessionId id,
+                    const std::string& remotePath,
+                    std::function<void(std::vector<transport::RemoteDirEntry>,
+                                       std::string)> onDone);
 
     term::input::InputTarget* GetInputTarget(SessionId id) const;
 

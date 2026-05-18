@@ -8,6 +8,7 @@
 #include <cerrno>
 #include <cstring>
 #include <fstream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -971,6 +972,391 @@ void SshTransport::DoTransferFile(std::string localPath,
     }
 
     onDone(true, {});
+}
+
+// ---------------------------------------------------------------------------
+// SshSession — RAII helper shared by receive and list operations
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Wraps the connection + session lifecycle for short-lived auxiliary sessions.
+// Does NOT own the worker thread state; designed for detached-thread use only.
+struct SshSession {
+    LIBSSH2_SESSION* session = nullptr;
+    int              fd      = -1;
+
+    ~SshSession()
+    {
+        if (session) {
+            libssh2_session_disconnect(session, "done");
+            libssh2_session_free(session);
+        }
+        if (fd >= 0) ::close(fd);
+    }
+
+    // Non-copyable, movable.
+    SshSession(const SshSession&)            = delete;
+    SshSession& operator=(const SshSession&) = delete;
+    SshSession(SshSession&&)                 = default;
+    SshSession& operator=(SshSession&&)      = default;
+    SshSession()                             = default;
+};
+
+// Shell-quotes a path for safe use as a command argument.
+std::string ShellQuote(const std::string& s)
+{
+    std::string r = "'";
+    for (char c : s) {
+        if (c == '\'') r += "'\\''";
+        else           r += c;
+    }
+    r += "'";
+    return r;
+}
+
+// Parses the stdout of "ls -la" into RemoteDirEntry values.
+// Skips the "total" header line and the "." / ".." entries.
+std::vector<term::transport::RemoteDirEntry> ParseLsOutput(const std::string& output)
+{
+    std::vector<term::transport::RemoteDirEntry> entries;
+    std::istringstream ss(output);
+    std::string line;
+    while (std::getline(ss, line)) {
+        if (line.empty() || line.compare(0, 6, "total ") == 0) continue;
+
+        std::istringstream ls(line);
+        std::vector<std::string> toks;
+        std::string tok;
+        while (ls >> tok) toks.push_back(tok);
+        if (toks.size() < 9) continue;
+
+        // Build name from field 8 onwards (handles spaces in filenames).
+        std::string name;
+        for (size_t i = 8; i < toks.size(); ++i) {
+            if (!name.empty()) name += ' ';
+            name += toks[i];
+        }
+        // Strip symlink target (" -> dest").
+        if (const auto pos = name.find(" -> "); pos != std::string::npos)
+            name = name.substr(0, pos);
+
+        if (name == "." || name == "..") continue;
+
+        term::transport::RemoteDirEntry e;
+        e.name        = std::move(name);
+        e.permissions = toks[0];
+        e.isDir       = (toks[0][0] == 'd');
+        try { e.size = std::stoull(toks[4]); } catch (...) {}
+        entries.push_back(std::move(e));
+    }
+    return entries;
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// OpenAuxSession — shared setup for ReceiveFile and ListRemoteDirectory
+// ---------------------------------------------------------------------------
+
+// Returns true and populates *out on success; returns false and sets *outErr
+// on any failure. Does not call onDone — that is the caller's responsibility.
+// knownHostsPath must be provided by the caller (use SshTransport::KnownHostsPath()).
+static bool OpenAuxSession(const term::session::SshDesc& desc,
+                           const std::string& knownHostsPath,
+                           SshSession* out, std::string* outErr)
+{
+    using AM = term::session::SshAuthMethod;
+
+    const std::string portStr = std::to_string(desc.port);
+    addrinfo hints{};
+    hints.ai_family   = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* res = nullptr;
+    if (::getaddrinfo(desc.host.c_str(), portStr.c_str(), &hints, &res) != 0) {
+        *outErr = "SSH: name resolution failed for " + desc.host;
+        return false;
+    }
+    int fd = -1;
+    for (addrinfo* ai = res; ai; ai = ai->ai_next) {
+        fd = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (fd < 0) continue;
+        if (desc.connectTimeoutSec > 0) {
+            timeval tv{};
+            tv.tv_sec = desc.connectTimeoutSec;
+            ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+            ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        }
+        if (::connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
+        ::close(fd);
+        fd = -1;
+    }
+    ::freeaddrinfo(res);
+    if (fd < 0) {
+        *outErr = "SSH: could not connect to " + desc.host + ":" + portStr;
+        return false;
+    }
+
+    LIBSSH2_SESSION* session = libssh2_session_init();
+    if (!session) {
+        ::close(fd);
+        *outErr = "SSH: libssh2_session_init failed";
+        return false;
+    }
+    libssh2_session_set_blocking(session, 1);
+
+    if (libssh2_session_handshake(session, fd) != 0) {
+        char* msg = nullptr; int len = 0;
+        libssh2_session_last_error(session, &msg, &len, 0);
+        *outErr = "SSH: handshake failed — ";
+        if (msg) outErr->append(msg, static_cast<size_t>(len));
+        else     *outErr += "unknown";
+        libssh2_session_free(session);
+        ::close(fd);
+        return false;
+    }
+
+    // Host key verification reuses the same TOFU store as the main session.
+    // We need to call VerifyHostKey, but it's a member function. Duplicate the
+    // TOFU check inline using the same known_hosts file.
+    {
+        LIBSSH2_KNOWNHOSTS* kh = libssh2_knownhost_init(session);
+        if (kh) {
+            const std::string& khPath = knownHostsPath;
+            libssh2_knownhost_readfile(kh, khPath.c_str(), LIBSSH2_KNOWNHOST_FILE_OPENSSH);
+
+            size_t keyLen = 0; int keyType = 0;
+            const char* key = libssh2_session_hostkey(session, &keyLen, &keyType);
+            const int khType = (keyType == LIBSSH2_HOSTKEY_TYPE_RSA)
+                               ? LIBSSH2_KNOWNHOST_KEY_SSHRSA
+                               : LIBSSH2_KNOWNHOST_KEY_SSHDSS;
+
+            libssh2_knownhost* found = nullptr;
+            const int chk = key
+                ? libssh2_knownhost_checkp(kh, desc.host.c_str(),
+                                           static_cast<int>(desc.port),
+                                           key, keyLen,
+                                           LIBSSH2_KNOWNHOST_TYPE_PLAIN |
+                                           LIBSSH2_KNOWNHOST_KEYENC_RAW | khType,
+                                           &found)
+                : LIBSSH2_KNOWNHOST_CHECK_FAILURE;
+
+            if (chk == LIBSSH2_KNOWNHOST_CHECK_NOTFOUND && key) {
+                libssh2_knownhost_addc(kh, desc.host.c_str(), nullptr,
+                                       key, keyLen, nullptr, 0,
+                                       LIBSSH2_KNOWNHOST_TYPE_PLAIN |
+                                       LIBSSH2_KNOWNHOST_KEYENC_RAW | khType,
+                                       nullptr);
+                libssh2_knownhost_writefile(kh, khPath.c_str(),
+                                            LIBSSH2_KNOWNHOST_FILE_OPENSSH);
+            } else if (chk == LIBSSH2_KNOWNHOST_CHECK_MISMATCH) {
+                libssh2_knownhost_free(kh);
+                *outErr = "SSH: host key mismatch for " + desc.host;
+                libssh2_session_free(session);
+                ::close(fd);
+                return false;
+            }
+            libssh2_knownhost_free(kh);
+        }
+    }
+
+    // Authentication.
+    bool authenticated = false;
+    if (desc.authMethod == AM::Agent) {
+        LIBSSH2_AGENT* agent = libssh2_agent_init(session);
+        if (agent && libssh2_agent_connect(agent) == 0 &&
+            libssh2_agent_list_identities(agent) == 0) {
+            libssh2_agent_publickey* id = nullptr;
+            libssh2_agent_publickey* prev = nullptr;
+            while (libssh2_agent_get_identity(agent, &id, prev) == 0) {
+                if (libssh2_agent_userauth(agent, desc.username.c_str(), id) == 0) {
+                    authenticated = true;
+                    break;
+                }
+                prev = id;
+            }
+        }
+        if (agent) { libssh2_agent_disconnect(agent); libssh2_agent_free(agent); }
+        if (!authenticated) *outErr = "SSH: agent authentication failed";
+
+    } else if (desc.authMethod == AM::Password) {
+        authenticated = libssh2_userauth_password(
+            session, desc.username.c_str(), desc.password.c_str()) == 0;
+        if (!authenticated) *outErr = "SSH: password authentication failed";
+
+    } else {
+        const char* pub = desc.publicKeyPath.empty()  ? nullptr : desc.publicKeyPath.c_str();
+        const char* pp  = desc.passphrase.empty()     ? nullptr : desc.passphrase.c_str();
+        authenticated = libssh2_userauth_publickey_fromfile(
+            session, desc.username.c_str(),
+            pub, desc.privateKeyPath.c_str(), pp) == 0;
+        if (!authenticated) *outErr = "SSH: private key authentication failed";
+    }
+
+    if (!authenticated) {
+        libssh2_session_disconnect(session, "Authentication failed");
+        libssh2_session_free(session);
+        ::close(fd);
+        return false;
+    }
+
+    out->session = session;
+    out->fd      = fd;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// ReceiveFile — public + DoReceiveFile
+// ---------------------------------------------------------------------------
+
+void SshTransport::ReceiveFile(const std::string& remotePath,
+                               const std::string& localDir,
+                               std::function<void(bool, std::string)> onDone)
+{
+    std::thread(&SshTransport::DoReceiveFile, this,
+                remotePath, localDir, std::move(onDone)).detach();
+}
+
+void SshTransport::DoReceiveFile(std::string remotePath,
+                                 std::string localDir,
+                                 std::function<void(bool, std::string)> onDone)
+{
+    const auto fail = [&onDone](std::string msg) {
+        onDone(false, std::move(msg));
+    };
+
+    SshSession aux;
+    std::string authErr;
+    if (!OpenAuxSession(desc_, KnownHostsPath(), &aux, &authErr)) {
+        fail(std::move(authErr));
+        return;
+    }
+
+    // Derive local filename from the last path component of remotePath.
+    std::string filename = remotePath;
+    if (const auto pos = filename.rfind('/'); pos != std::string::npos)
+        filename = filename.substr(pos + 1);
+
+    std::string localPath = localDir;
+    if (!localPath.empty() && localPath.back() != '/') localPath += '/';
+    localPath += filename;
+
+    libssh2_struct_stat sb{};
+    LIBSSH2_CHANNEL* channel = libssh2_scp_recv2(
+        aux.session, remotePath.c_str(), &sb);
+    if (!channel) {
+        char* msg = nullptr; int len = 0;
+        libssh2_session_last_error(aux.session, &msg, &len, 0);
+        std::string err = "SCP: could not open remote file '" + remotePath + "' — ";
+        if (msg) err.append(msg, static_cast<size_t>(len));
+        else     err += "unknown";
+        fail(std::move(err));
+        return;
+    }
+
+    std::ofstream out(localPath, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        libssh2_channel_close(channel);
+        libssh2_channel_free(channel);
+        fail("Cannot create local file: " + localPath);
+        return;
+    }
+
+    // Read exactly sb.st_size bytes. Reading until n==0 causes a protocol
+    // deadlock: after sending the file data, scp(1) sends a trailing '\0'
+    // and then blocks in response() waiting for our '\0' acknowledgment.
+    // Our loop would read the server's '\0' and then block waiting for
+    // another byte that never arrives — neither side progresses.
+    constexpr size_t kChunk = 32768;
+    std::vector<char> buf(kChunk);
+    bool readError = false;
+    auto remaining = static_cast<libssh2_uint64_t>(sb.st_size);
+    while (remaining > 0) {
+        const size_t toRead = static_cast<size_t>(
+            remaining < static_cast<libssh2_uint64_t>(kChunk) ? remaining : kChunk);
+        ssize_t n = libssh2_channel_read(channel, buf.data(), toRead);
+        if (n < 0) { readError = true; break; }
+        if (n == 0) continue;
+        out.write(buf.data(), n);
+        remaining -= static_cast<libssh2_uint64_t>(n);
+    }
+    out.close();
+
+    // Send our '\0' ack so the remote scp's response() call unblocks and the
+    // server can close its end cleanly.
+    if (!readError) {
+        const char ack = '\0';
+        libssh2_channel_write(channel, &ack, 1);
+    }
+
+    libssh2_channel_close(channel);
+    libssh2_channel_wait_closed(channel);
+    libssh2_channel_free(channel);
+
+    if (readError) {
+        fail("SCP: read error while receiving '" + filename + "'");
+        return;
+    }
+
+    onDone(true, {});
+}
+
+// ---------------------------------------------------------------------------
+// ListRemoteDirectory — public + DoListRemoteDirectory
+// ---------------------------------------------------------------------------
+
+void SshTransport::ListRemoteDirectory(
+    const std::string& remotePath,
+    std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone)
+{
+    std::thread(&SshTransport::DoListRemoteDirectory, this,
+                remotePath, std::move(onDone)).detach();
+}
+
+void SshTransport::DoListRemoteDirectory(
+    std::string remotePath,
+    std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone)
+{
+    const auto fail = [&onDone](std::string msg) {
+        onDone({}, std::move(msg));
+    };
+
+    SshSession aux;
+    std::string authErr;
+    if (!OpenAuxSession(desc_, KnownHostsPath(), &aux, &authErr)) {
+        fail(std::move(authErr));
+        return;
+    }
+
+    LIBSSH2_CHANNEL* channel = libssh2_channel_open_session(aux.session);
+    if (!channel) {
+        fail("SSH: could not open exec channel");
+        return;
+    }
+
+    const std::string cmd = "ls -la " + ShellQuote(remotePath);
+    if (libssh2_channel_exec(channel, cmd.c_str()) != 0) {
+        libssh2_channel_close(channel);
+        libssh2_channel_free(channel);
+        fail("SSH: exec failed for: " + cmd);
+        return;
+    }
+
+    std::string output;
+    constexpr size_t kChunk = 32768;
+    std::vector<char> buf(kChunk);
+    while (true) {
+        ssize_t n = libssh2_channel_read(channel, buf.data(), kChunk);
+        if (n == 0) break;
+        if (n < 0) break;
+        output.append(buf.data(), static_cast<size_t>(n));
+    }
+    libssh2_channel_close(channel);
+    libssh2_channel_wait_closed(channel);
+    libssh2_channel_free(channel);
+
+    auto entries = ParseLsOutput(output);
+    onDone(std::move(entries), {});
 }
 
 } // namespace term::transport

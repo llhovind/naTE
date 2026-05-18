@@ -310,7 +310,15 @@ void UIManager::TransferFilesForActive()
 {
     if (!activeId_ || !sm_.SupportsFileTransfer(activeId_)) return;
     const std::string remote = sm_.GetRemoteDescription(activeId_);
-    ui::FileTransferDialog dlg(frame_, activeId_, sm_, remote);
+    ui::FileTransferDialog dlg(frame_, activeId_, sm_, remote, ui::TransferDirection::Send);
+    dlg.ShowModal();
+}
+
+void UIManager::ReceiveFilesForActive()
+{
+    if (!activeId_ || !sm_.SupportsFileTransfer(activeId_)) return;
+    const std::string remote = sm_.GetRemoteDescription(activeId_);
+    ui::FileTransferDialog dlg(frame_, activeId_, sm_, remote, ui::TransferDirection::Receive);
     dlg.ShowModal();
 }
 

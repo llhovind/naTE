@@ -90,6 +90,7 @@ private:
     void OnResetAndClear(wxCommandEvent&);
     void OnSaveSessionFileTerminal(wxCommandEvent&);
     void OnTransferFiles(wxCommandEvent&);
+    void OnReceiveFiles(wxCommandEvent&);
     void OnOpenInNewTile(wxCommandEvent&);
     void OnOpenInNewWindowTerminal(wxCommandEvent&);
 

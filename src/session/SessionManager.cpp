@@ -254,6 +254,24 @@ void SessionManager::TransferFile(SessionId id,
     if (rec) rec->session->TransferFile(localPath, remoteDir, std::move(onDone));
 }
 
+void SessionManager::ReceiveFile(SessionId id,
+                                 const std::string& remotePath,
+                                 const std::string& localDir,
+                                 std::function<void(bool, std::string)> onDone)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (rec) rec->session->ReceiveFile(remotePath, localDir, std::move(onDone));
+}
+
+void SessionManager::ListRemoteDirectory(
+    SessionId id,
+    const std::string& remotePath,
+    std::function<void(std::vector<transport::RemoteDirEntry>, std::string)> onDone)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (rec) rec->session->ListRemoteDirectory(remotePath, std::move(onDone));
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------

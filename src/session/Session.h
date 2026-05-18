@@ -76,6 +76,13 @@ public:
     void        TransferFile(const std::string& localPath,
                              const std::string& remoteDir,
                              std::function<void(bool, std::string)> onDone);
+    void        ReceiveFile(const std::string& remotePath,
+                            const std::string& localDir,
+                            std::function<void(bool, std::string)> onDone);
+    void        ListRemoteDirectory(
+                    const std::string& remotePath,
+                    std::function<void(std::vector<transport::RemoteDirEntry>,
+                                       std::string)> onDone);
 
 private:
     static std::unique_ptr<transport::Transport> MakeTransport(

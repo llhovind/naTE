@@ -29,6 +29,7 @@ namespace {
     constexpr int ID_RESET_TERMINAL          = wxID_HIGHEST + 24;
     constexpr int ID_RESET_AND_CLEAR         = wxID_HIGHEST + 25;
     constexpr int ID_TRANSFER_FILES          = wxID_HIGHEST + 26;
+    constexpr int ID_RECEIVE_FILES           = wxID_HIGHEST + 27;
 
     // Window menu: window entries occupy [kWindowMenuBase, kWindowMenuBase + kWindowMenuMax).
     constexpr int kWindowMenuBase    = wxID_HIGHEST + 400;
@@ -96,9 +97,11 @@ MainFrame::MainFrame(const AppConfig& cfg,
 
     termMenu->AppendSeparator();
     termMenu->Append(ID_SAVE_SESSION_FILE_TERM, "Save Session to File...");
-    termMenu->Append(ID_TRANSFER_FILES,          "Transfer Files...");
+    termMenu->Append(ID_TRANSFER_FILES,          "Transfer Files to Remote...");
+    termMenu->Append(ID_RECEIVE_FILES,           "Receive Files from Remote...");
     Bind(wxEVT_MENU, &MainFrame::OnSaveSessionFileTerminal, this, ID_SAVE_SESSION_FILE_TERM);
     Bind(wxEVT_MENU, &MainFrame::OnTransferFiles,           this, ID_TRANSFER_FILES);
+    Bind(wxEVT_MENU, &MainFrame::OnReceiveFiles,            this, ID_RECEIVE_FILES);
 
     termMenu->AppendSeparator();
     termMenu->Append(ID_OPEN_IN_NEW_TILE,        "Move to New Tile");
@@ -365,6 +368,11 @@ void MainFrame::OnSaveSessionFileTerminal(wxCommandEvent&)
 void MainFrame::OnTransferFiles(wxCommandEvent&)
 {
     if (m_uiManager) m_uiManager->TransferFilesForActive();
+}
+
+void MainFrame::OnReceiveFiles(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->ReceiveFilesForActive();
 }
 
 void MainFrame::OnOpenInNewTile(wxCommandEvent&)

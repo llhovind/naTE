@@ -40,6 +40,7 @@ set(SOURCES
     src/ui/NewConnectionDialog.cpp
     src/ui/ConnectionManagerDialog.cpp
     src/ui/FileTransferDialog.cpp
+    src/ui/RemoteFileBrowserDialog.cpp
     src/ui/GeometryDialog.cpp
     src/ui/TerminalPanel.cpp
     src/ui/TerminalTile.cpp
