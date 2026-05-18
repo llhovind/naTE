@@ -32,7 +32,11 @@ struct AppConfig {
     std::string                        defaultWorkingDir;
     std::vector<term::session::EnvVar> defaultEnvVars;
     std::string                        defaultEnvFilePath;
-    bool                               defaultLoginShell = false;
+    bool                               defaultLoginShell    = false;
+
+    // [Restore] session-restore behaviour
+    bool                               autoRestoreSession   = false;
+    int                                sessionSaveInterval  = 300;  // seconds; 0 = disabled
 
     static AppConfig load(const std::string& path);
 };

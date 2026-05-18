@@ -88,7 +88,9 @@ AppConfig AppConfig::load(const std::string& path) {
         } else if (section == "Session") {
             if      (key == "DefaultWorkingDir") cfg.defaultWorkingDir  = val;
             else if (key == "DefaultEnvFile")    cfg.defaultEnvFilePath = val;
-            else if (key == "DefaultLoginShell") cfg.defaultLoginShell  = (val == "true" || val == "1");
+            else if (key == "DefaultLoginShell")    cfg.defaultLoginShell   = (val == "true" || val == "1");
+            else if (key == "AutoRestoreSession")   cfg.autoRestoreSession  = (val == "true" || val == "1");
+            else if (key == "SessionSaveInterval")  cfg.sessionSaveInterval = toInt(val, cfg.sessionSaveInterval);
             else {
                 // Indexed env var pairs: EnvVar0Key / EnvVar0Value, EnvVar1Key / EnvVar1Value, …
                 // Stops at the first index with no Key entry; max 64 pairs.

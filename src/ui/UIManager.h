@@ -129,6 +129,20 @@ public:
 
     void SetOnGridEmptyCallback(std::function<void()> cb) { onGridEmptyCb_ = std::move(cb); }
     void SetSessionListChangedCallback(std::function<void()> cb) { onSessionListChanged_ = std::move(cb); }
+    void SetOnBeforeCloseCallback(std::function<void()> cb) { onBeforeClose_ = std::move(cb); }
+
+    // Called from MainFrame::OnClose before CloseAllSessions, allowing App to
+    // snapshot session state while sessions are still alive.
+    void FireBeforeClose() { if (onBeforeClose_) onBeforeClose_(); }
+
+    struct TileSnapshot {
+        std::vector<term::session::SessionId> tabOrder;
+        int activeTabIndex = -1;
+    };
+
+    // Returns one TileSnapshot per tile in grid-insertion order.
+    // Must be called on the UI thread; sessions must still be alive.
+    std::vector<TileSnapshot> GetTileSnapshots() const;
 
     // Returns all session IDs and their labels (for Window menu population).
     std::vector<std::pair<term::session::SessionId, std::string>> GetSessionList() const;
@@ -230,6 +244,7 @@ private:
 
     std::function<void()> onGridEmptyCb_;
     std::function<void()> onSessionListChanged_;
+    std::function<void()> onBeforeClose_;
 };
 
 } // namespace ui

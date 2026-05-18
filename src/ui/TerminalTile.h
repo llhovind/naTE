@@ -45,9 +45,13 @@ public:
     // Update the label shown on a specific tab (called when document title changes).
     void SetTabLabel(term::session::SessionId id, const wxString& label);
 
-    int                      GetTabCount()      const { return static_cast<int>(tabs_.size()); }
-    term::session::SessionId GetActiveSessionId() const;
-    TerminalPanel*           GetActivePanel()    const;
+    int                      GetTabCount()         const { return static_cast<int>(tabs_.size()); }
+    term::session::SessionId GetActiveSessionId()  const;
+    TerminalPanel*           GetActivePanel()       const;
+    int                      GetActiveTabIndex()    const { return activeTabIdx_; }
+
+    // Returns session IDs in tab-insertion order for session-restore snapshots.
+    std::vector<term::session::SessionId> GetTabOrder() const;
 
     // -------------------------------------------------------------------------
     // Tile state (mirrors existing interface used by UIManager / TerminalGrid)

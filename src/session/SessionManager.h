@@ -115,6 +115,14 @@ public:
 
     term::input::InputTarget* GetInputTarget(SessionId id) const;
 
+    // Returns a snapshot of the Connection used to create this session.
+    // Returns a default-constructed Connection if the id is unknown.
+    Connection GetConnection(SessionId id) const;
+
+    // Returns the current working directory of the session's transport process.
+    // Non-empty only for PTY sessions on Linux (/proc/<pid>/cwd).
+    std::string GetCurrentWorkingDir(SessionId id) const;
+
 private:
     struct SessionRecord {
         std::unique_ptr<Session>                         session;
@@ -127,6 +135,9 @@ private:
         // a session is dragged to a new tile/window.
         std::string                                      profileTitle;
         bool                                             useProfileTitle = false;
+        // Snapshot of the Connection used to create this session; used by
+        // App::SaveRestoreSnapshot to persist session state on exit.
+        Connection                                       connection;
     };
 
     SessionRecord*       FindRecord(SessionId id);

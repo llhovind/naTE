@@ -30,6 +30,7 @@ namespace {
     constexpr int ID_RESET_AND_CLEAR         = wxID_HIGHEST + 25;
     constexpr int ID_SEND_FILES              = wxID_HIGHEST + 26;
     constexpr int ID_RECEIVE_FILES           = wxID_HIGHEST + 27;
+    constexpr int ID_RESTORE_SESSIONS        = wxID_HIGHEST + 28;
 
     // Window menu: window entries occupy [kWindowMenuBase, kWindowMenuBase + kWindowMenuMax).
     constexpr int kWindowMenuBase    = wxID_HIGHEST + 400;
@@ -58,6 +59,7 @@ MainFrame::MainFrame(const AppConfig& cfg,
     m_connMenu->Append(ID_NEW_CONNECTION,         "New Connection\tCtrl+Shift+N");
     m_connMenu->Append(ID_NEW_CONNECTION_IN_TILE, "New Connection in Tab\tCtrl+Shift+T");
     m_connMenu->Append(ID_CONNECTION_MANAGER,     "Connection Manager...\tCtrl+Shift+M");
+    m_connMenu->Append(ID_RESTORE_SESSIONS,       "Restore Previous Session(s)");
     m_connMenu->AppendSeparator();
     m_connMenu->Append(ID_CLOSE_ACTIVE_SESSION,   "Close Active Session");
     m_connMenu->Append(wxID_CLOSE,                "Close This Window\tCtrl+Shift+Q");
@@ -66,6 +68,10 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_MENU, &MainFrame::OnNewConnection,             this, ID_NEW_CONNECTION);
     Bind(wxEVT_MENU, &MainFrame::OnNewConnectionInActiveTile, this, ID_NEW_CONNECTION_IN_TILE);
     Bind(wxEVT_MENU, &MainFrame::OnConnectionManager,         this, ID_CONNECTION_MANAGER);
+    Bind(wxEVT_MENU, &MainFrame::OnRestoreSessions,           this, ID_RESTORE_SESSIONS);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
+        e.Enable(static_cast<App*>(wxTheApp)->HasRestoreSnapshot());
+    }, ID_RESTORE_SESSIONS);
     Bind(wxEVT_MENU, &MainFrame::OnCloseActiveSession,        this, ID_CLOSE_ACTIVE_SESSION);
     Bind(wxEVT_MENU, &MainFrame::OnCloseThisWindow,           this, wxID_CLOSE);
     Bind(wxEVT_MENU, &MainFrame::OnQuitAll,                   this, ID_QUIT_ALL);
@@ -131,8 +137,10 @@ MainFrame::MainFrame(const AppConfig& cfg,
 
 void MainFrame::OnClose(wxCloseEvent& event)
 {
-    if (m_uiManager)
+    if (m_uiManager) {
+        m_uiManager->FireBeforeClose();
         m_uiManager->CloseAllSessions();
+    }
     event.Skip();
 }
 
@@ -260,6 +268,11 @@ void MainFrame::OnConnectionManager(wxCommandEvent&)
             }
         });
     dlg.ShowModal();
+}
+
+void MainFrame::OnRestoreSessions(wxCommandEvent&)
+{
+    static_cast<App*>(wxTheApp)->RestoreSessionsFromMenu(this);
 }
 
 void MainFrame::OnTogglewrapMode(wxCommandEvent&)

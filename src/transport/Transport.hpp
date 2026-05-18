@@ -23,6 +23,10 @@ public:
     virtual void Resize(unsigned short cols, unsigned short rows) = 0;
     virtual void OnViewportColsChanged(unsigned short /*cols*/) {}
 
+    // Returns the current working directory of the transport's child process, if
+    // accessible. PTY transports read this from /proc/<pid>/cwd; all others return "".
+    virtual std::string GetCurrentWorkingDir() const { return {}; }
+
     virtual bool SupportsFileTransfer() const noexcept { return false; }
     virtual std::string GetRemoteDescription() const { return {}; }
 

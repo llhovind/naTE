@@ -71,6 +71,7 @@ public:
     void SetViewportSize(unsigned short cols, unsigned short rows);
     void SetWrapMode(bool wrap);
 
+    std::string GetCurrentWorkingDir() const;
     bool        SupportsFileTransfer() const;
     std::string GetTransportRemoteDescription() const;
     void        SendFile(const std::string& localPath,

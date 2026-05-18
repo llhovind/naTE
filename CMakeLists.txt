@@ -54,6 +54,7 @@ set(SOURCES
     src/ui/SelectionActionRegistry.cpp
     src/ui/SelectionActions.cpp
     src/db/JsonConnectionRepository.cpp
+    src/db/JsonSessionRestoreRepository.cpp
     src/db/ConnectionStore.cpp
 )
 

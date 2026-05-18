@@ -1,6 +1,8 @@
 #include "app/App.h"
 #include "db/JsonConnectionRepository.h"
+#include "db/JsonSessionRestoreRepository.h"
 #include "session/AppSessionDefaults.h"
+#include "session/RestoreState.h"
 #include "ui/MainFrame.h"
 #include "ui/TerminalTile.h"
 #include <wx/filename.h>
@@ -84,7 +86,36 @@ bool App::OnInit() {
 
     m_sessionManager = std::make_unique<term::session::SessionManager>();
 
-    CreateNewWindow();
+    const std::string restorePath = NateDir() + "/session-restore.json";
+    m_restoreRepo = std::make_unique<term::db::JsonSessionRestoreRepository>(restorePath);
+
+    // Parse --no-restore CLI flag (overrides AutoRestoreSession in config).
+    bool noRestoreFlag = false;
+    for (int i = 1; i < argc; ++i) {
+        if (argv[i].ToStdString() == "--no-restore") {
+            noRestoreFlag = true;
+            break;
+        }
+    }
+
+    const bool autoRestore = m_cfg.autoRestoreSession
+                             && !noRestoreFlag
+                             && m_restoreRepo->HasSnapshot();
+    if (!autoRestore) {
+        CreateNewWindow();
+    } else {
+        auto state = m_restoreRepo->Load();
+        RestoreStateImpl(state, nullptr);
+        m_restoreRepo->Delete();
+    }
+
+    if (m_cfg.sessionSaveInterval > 0) {
+        m_saveTimer.Bind(wxEVT_TIMER, [this](wxTimerEvent&) {
+            SaveRestoreSnapshot();
+        });
+        m_saveTimer.Start(m_cfg.sessionSaveInterval * 1000);
+    }
+
     return true;
 }
 
@@ -117,6 +148,13 @@ MainFrame* App::CreateNewWindow()
 
     wc->uiManager->SetSessionListChangedCallback([this]() {
         CallAfter([this]() { RebuildWindowMenus(); });
+    });
+
+    wc->uiManager->SetOnBeforeCloseCallback([this]() {
+        // Only save when this is the last window being closed (QuitAll handles
+        // the multi-window case by calling SaveRestoreSnapshot() before Close()).
+        if (m_windows.size() == 1)
+            SaveRestoreSnapshot();
     });
 
     frame->Bind(wxEVT_DESTROY, [this, frame](wxWindowDestroyEvent& evt) {
@@ -198,6 +236,10 @@ term::session::SessionId App::CreateSessionInTile(
 
 void App::QuitAll()
 {
+    // Snapshot before any windows are closed (FireBeforeClose only handles the
+    // single-window case; QuitAll must save the full multi-window state here).
+    SaveRestoreSnapshot();
+
     std::vector<MainFrame*> frames;
     frames.reserve(m_windows.size());
     for (auto& w : m_windows)
@@ -225,9 +267,111 @@ void App::RebuildWindowMenus()
 
 int App::OnExit()
 {
+    m_saveTimer.Stop();
     ReleaseInstanceId(m_instanceId);
     libssh2_exit();
     return wxApp::OnExit();
+}
+
+bool App::HasRestoreSnapshot() const
+{
+    return m_restoreRepo && m_restoreRepo->HasSnapshot();
+}
+
+void App::SaveRestoreSnapshot()
+{
+    if (!m_restoreRepo) return;
+
+    term::session::RestoreState state;
+    for (auto& wc : m_windows) {
+        if (!wc->uiManager) continue;
+        term::session::RestoreWindow rw;
+        const wxRect r = wc->frame->GetRect();
+        rw.x      = r.x;
+        rw.y      = r.y;
+        rw.width  = r.width;
+        rw.height = r.height;
+
+        for (const auto& ts : wc->uiManager->GetTileSnapshots()) {
+            term::session::RestoreTile rt;
+            rt.activeTabIndex = ts.activeTabIndex;
+            for (auto sid : ts.tabOrder) {
+                term::session::Connection conn = m_sessionManager->GetConnection(sid);
+                // Enrich PTY sessions with their live working directory.
+                const std::string liveDir = m_sessionManager->GetCurrentWorkingDir(sid);
+                if (!liveDir.empty())
+                    conn.sessionInit.workingDir = liveDir;
+                // Never persist passwords or passphrases.
+                if (auto* ssh = std::get_if<term::session::SshDesc>(&conn.transport)) {
+                    ssh->password   = {};
+                    ssh->passphrase = {};
+                }
+                rt.sessions.push_back({std::move(conn)});
+            }
+            if (!rt.sessions.empty())
+                rw.tiles.push_back(std::move(rt));
+        }
+        if (!rw.tiles.empty())
+            state.windows.push_back(std::move(rw));
+    }
+
+    // Save if non-empty; Delete cleans up stale files on an all-sessions-closed exit.
+    m_restoreRepo->Save(state);
+}
+
+void App::RestoreStateImpl(const term::session::RestoreState& state, MainFrame* firstFrame)
+{
+    for (std::size_t wi = 0; wi < state.windows.size(); ++wi) {
+        const auto& rw = state.windows[wi];
+
+        MainFrame* frame = (wi == 0 && firstFrame) ? firstFrame : CreateNewWindow();
+        frame->SetSize(rw.x, rw.y, rw.width, rw.height);
+
+        for (const auto& rt : rw.tiles) {
+            TerminalTile* currentTile = nullptr;
+            for (std::size_t si = 0; si < rt.sessions.size(); ++si) {
+                const auto& rs = rt.sessions[si];
+                CreateSessionInTile(rs.conn, frame, currentTile);
+                if (si == 0) {
+                    // Record the newly created tile so subsequent sessions land in it.
+                    WindowContext* ctx = FindContext(frame);
+                    if (ctx)
+                        currentTile = ctx->uiManager->GetActiveTile();
+                }
+            }
+            // Restore active tab within the tile.
+            if (currentTile && rt.activeTabIndex >= 0
+                    && rt.activeTabIndex < static_cast<int>(rt.sessions.size())) {
+                const term::session::SessionId activeId =
+                    currentTile->GetSessionIdByTabIndex(rt.activeTabIndex);
+                if (activeId) {
+                    WindowContext* ctx = FindContext(frame);
+                    if (ctx)
+                        ctx->uiManager->RequestActivate(activeId);
+                }
+            }
+        }
+    }
+    RebuildWindowMenus();
+}
+
+void App::RestoreSessionsFromMenu(MainFrame* callerFrame)
+{
+    if (!m_restoreRepo || !m_restoreRepo->HasSnapshot()) return;
+
+    auto state = m_restoreRepo->Load();
+    if (state.windows.empty()) return;
+
+    // Reuse the calling frame if it is currently empty (no sessions).
+    MainFrame* firstFrame = nullptr;
+    if (callerFrame) {
+        WindowContext* ctx = FindContext(callerFrame);
+        if (ctx && !ctx->uiManager->HasAnySessions())
+            firstFrame = callerFrame;
+    }
+
+    m_restoreRepo->Delete();  // Remove before restoring so snapshot reflects new state.
+    RestoreStateImpl(state, firstFrame);
 }
 
 App::WindowContext* App::FindContext(MainFrame* frame)

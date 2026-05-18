@@ -739,6 +739,21 @@ UIManager::GetSessionList() const
     return out;
 }
 
+std::vector<ui::UIManager::TileSnapshot> UIManager::GetTileSnapshots() const
+{
+    std::vector<TileSnapshot> result;
+    if (!grid_)
+        return result;
+    for (TerminalTile* tile : grid_->GetTiles()) {
+        TileSnapshot snap;
+        snap.tabOrder      = tile->GetTabOrder();
+        snap.activeTabIndex = tile->GetActiveTabIndex();
+        if (!snap.tabOrder.empty())
+            result.push_back(std::move(snap));
+    }
+    return result;
+}
+
 void UIManager::SetupEditMenu(wxMenu* menu)
 {
     menu->Append(kEditMenuCopy,            "Copy\tCtrl+Shift+C");

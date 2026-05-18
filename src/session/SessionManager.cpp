@@ -40,6 +40,7 @@ SessionId SessionManager::CreateSession(const Connection& conn,
     rec->label          = conn.label;
     rec->profileTitle   = conn.profileTitle;
     rec->useProfileTitle= conn.useProfileTitle;
+    rec->connection     = conn;
     rec->uiObserver     = std::make_shared<std::atomic<ISessionObserver*>>(nullptr);
 
     // Capture the shared_ptr so the lambda remains valid even if this record
@@ -286,6 +287,20 @@ const SessionManager::SessionRecord* SessionManager::FindRecord(SessionId id) co
 {
     auto it = sessions_.find(id);
     return (it != sessions_.end()) ? it->second.get() : nullptr;
+}
+
+Connection SessionManager::GetConnection(SessionId id) const
+{
+    if (const SessionRecord* rec = FindRecord(id))
+        return rec->connection;
+    return {};
+}
+
+std::string SessionManager::GetCurrentWorkingDir(SessionId id) const
+{
+    if (const SessionRecord* rec = FindRecord(id))
+        return rec->session->GetCurrentWorkingDir();
+    return {};
 }
 
 } // namespace term::session

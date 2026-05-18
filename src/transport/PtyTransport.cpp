@@ -182,4 +182,17 @@ void PtyTransport::ReadLoop()
     target_.OnDisconnect();
 }
 
+std::string PtyTransport::GetCurrentWorkingDir() const
+{
+    if (child_pid_ <= 0)
+        return {};
+    const std::string link = "/proc/" + std::to_string(child_pid_) + "/cwd";
+    char buf[4096];
+    const ssize_t n = ::readlink(link.c_str(), buf, sizeof(buf) - 1);
+    if (n <= 0)
+        return {};
+    buf[n] = '\0';
+    return std::string(buf);
+}
+
 } // namespace term::transport

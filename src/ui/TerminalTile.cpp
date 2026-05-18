@@ -212,6 +212,15 @@ term::session::SessionId TerminalTile::GetActiveSessionId() const
     return 0;
 }
 
+std::vector<term::session::SessionId> TerminalTile::GetTabOrder() const
+{
+    std::vector<term::session::SessionId> ids;
+    ids.reserve(tabs_.size());
+    for (const auto& t : tabs_)
+        ids.push_back(t.sessionId);
+    return ids;
+}
+
 TerminalPanel* TerminalTile::GetActivePanel() const
 {
     if (activeTabIdx_ >= 0 && activeTabIdx_ < (int)tabs_.size())

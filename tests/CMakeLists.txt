@@ -53,7 +53,20 @@ if(UNIX AND NOT APPLE)
 endif()
 
 # ---------------------------------------------------------------------------
+# naTE_restore_tests — headless unit tests for session restore persistence.
+#                      No wx or libssh2 dependency.
+# ---------------------------------------------------------------------------
+add_executable(naTE_restore_tests
+    test_session_restore.cpp
+    ${CMAKE_SOURCE_DIR}/src/db/JsonSessionRestoreRepository.cpp
+    ${CMAKE_SOURCE_DIR}/src/session/Connection.cpp
+)
+target_link_libraries(naTE_restore_tests PRIVATE Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+target_include_directories(naTE_restore_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# ---------------------------------------------------------------------------
 include(CTest)
 include(Catch)
 catch_discover_tests(naTE_tests)
 catch_discover_tests(naTE_core_tests)
+catch_discover_tests(naTE_restore_tests)

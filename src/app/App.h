@@ -1,10 +1,12 @@
 #pragma once
 #include <wx/app.h>
+#include <wx/timer.h>
 #include <memory>
 #include <span>
 #include <vector>
 #include "config/Config.h"
 #include "db/ConnectionStore.h"
+#include "db/ISessionRestoreRepository.h"
 #include "input/InputRouter.h"
 #include "session/Connection.h"
 #include "session/ISessionObserver.h"
@@ -46,6 +48,18 @@ public:
     // Notifies all open windows to rebuild their Window menu.
     void RebuildWindowMenus();
 
+    // Returns true if a valid session restore snapshot exists.
+    bool HasRestoreSnapshot() const;
+
+    // Saves the current session layout as a restore snapshot.
+    // Safe to call from any context (timer, close hook, or menu).
+    void SaveRestoreSnapshot();
+
+    // Called from the "Restore Previous Session(s)" menu item.
+    // callerFrame is the frame that triggered the action; it will be reused
+    // as the first restored window if it currently has no sessions.
+    void RestoreSessionsFromMenu(MainFrame* callerFrame);
+
 private:
     struct WindowContext {
         std::unique_ptr<term::input::InputRouter> router;
@@ -60,12 +74,17 @@ private:
     WindowContext* FindContext(MainFrame* frame);
     WindowContext* FindContextForSession(term::session::SessionId id);
 
-    AppConfig                                      m_cfg;
-    std::unique_ptr<term::db::ConnectionStore>     m_connectionStore;
-    std::unique_ptr<term::session::SessionManager> m_sessionManager;
-    std::vector<std::unique_ptr<WindowContext>>    m_windows;
-    int                                            m_instanceId    = 0;
-    int                                            m_nextWindowId  = 0;
+    void RestoreStateImpl(const term::session::RestoreState& state,
+                          MainFrame* firstFrame);
+
+    AppConfig                                          m_cfg;
+    std::unique_ptr<term::db::ConnectionStore>         m_connectionStore;
+    std::unique_ptr<term::session::SessionManager>     m_sessionManager;
+    std::unique_ptr<term::db::ISessionRestoreRepository> m_restoreRepo;
+    wxTimer                                            m_saveTimer;
+    std::vector<std::unique_ptr<WindowContext>>        m_windows;
+    int                                                m_instanceId    = 0;
+    int                                                m_nextWindowId  = 0;
 };
 
 wxDECLARE_APP(App);

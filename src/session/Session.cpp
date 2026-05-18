@@ -217,6 +217,11 @@ void Session::SetWrapMode(bool wrap)
     }
 }
 
+std::string Session::GetCurrentWorkingDir() const
+{
+    return transport_->GetCurrentWorkingDir();
+}
+
 bool Session::SupportsFileTransfer() const
 {
     return transport_->SupportsFileTransfer();

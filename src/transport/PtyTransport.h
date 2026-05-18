@@ -25,11 +25,12 @@ public:
     PtyTransport(const PtyTransport&) = delete;
     PtyTransport& operator=(const PtyTransport&) = delete;
 
-    void Write(const std::string& data) override;
-    void Start() override;
-    void Stop() override;
-    void Resize(unsigned short cols, unsigned short rows) override;
-    void OnViewportColsChanged(unsigned short cols) override;
+    void        Write(const std::string& data) override;
+    void        Start() override;
+    void        Stop() override;
+    void        Resize(unsigned short cols, unsigned short rows) override;
+    void        OnViewportColsChanged(unsigned short cols) override;
+    std::string GetCurrentWorkingDir() const override;
 
 private:
     void ReadLoop();
