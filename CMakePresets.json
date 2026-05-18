@@ -1,0 +1,38 @@
+{
+  "version": 2,
+  "configurePresets": [
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "description": "Debug build with symbols, no optimization",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release",
+      "description": "Optimized release build with LTO",
+      "binaryDir": "${sourceDir}/build-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "appimage",
+      "displayName": "AppImage",
+      "description": "Release build configured for AppDir installation (prefix=/usr)",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build-appimage",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "/usr"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "debug",    "configurePreset": "debug"    },
+    { "name": "release",  "configurePreset": "release"  },
+    { "name": "appimage", "configurePreset": "appimage" }
+  ]
+}

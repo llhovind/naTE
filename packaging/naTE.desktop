@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=naTE
+Comment=SSH and serial terminal emulator
+Exec=naTE
+Icon=nate
+Type=Application
+Categories=Network;TerminalEmulator;
+Terminal=false

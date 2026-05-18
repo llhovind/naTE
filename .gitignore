@@ -1,5 +1,12 @@
 # Build directories (CMakePresets.json binaryDir pattern)
 build/
+build-release/
+build-appimage/
+install/
+
+# Packaging artifacts
+*.AppImage
+linuxdeploy*
 
 # CMake generated files
 CMakeCache.txt

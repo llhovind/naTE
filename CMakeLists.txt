@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(naTE VERSION 0.1.0 LANGUAGES CXX)
 
+include(GNUInstallDirs)
+
 execute_process(
     COMMAND git rev-list --count HEAD
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -28,6 +30,16 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+include(CheckIPOSupported)
+check_ipo_supported(RESULT _ipo_supported OUTPUT _ipo_output)
+if(_ipo_supported)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+else()
+    message(STATUS "IPO/LTO not supported by this toolchain: ${_ipo_output}")
+endif()
+
+option(NATE_SYSTEM_DEPS "Use system-installed nlohmann_json instead of FetchContent" OFF)
+
 find_package(wxWidgets REQUIRED COMPONENTS core base)
 include(${wxWidgets_USE_FILE})
 
@@ -35,11 +47,15 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
 pkg_check_modules(LIBSSH2 REQUIRED libssh2)
 
-include(FetchContent)
-FetchContent_Declare(nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3)
-FetchContent_MakeAvailable(nlohmann_json)
+if(NATE_SYSTEM_DEPS)
+    find_package(nlohmann_json REQUIRED)
+else()
+    include(FetchContent)
+    FetchContent_Declare(nlohmann_json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG        v3.11.3)
+    FetchContent_MakeAvailable(nlohmann_json)
+endif()
 
 set(SOURCES
     src/main.cpp
@@ -105,3 +121,51 @@ add_custom_command(TARGET naTE POST_BUILD
         ${CMAKE_SOURCE_DIR}/config.ini $<TARGET_FILE_DIR:naTE>/config.ini
     COMMENT "Copying config.ini"
 )
+
+# ---------------------------------------------------------------------------
+# Installation rules (AppImage pipeline and system-wide install)
+# ---------------------------------------------------------------------------
+install(TARGETS naTE
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(FILES packaging/naTE.desktop
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
+)
+
+install(FILES packaging/nate.svg
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
+)
+
+install(FILES packaging/io.github.lhovind.naTE.metainfo.xml
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
+)
+
+install(FILES config.ini
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/nate
+)
+
+# ---------------------------------------------------------------------------
+# CPack packaging (distro starting point: cpack -G DEB / RPM / TGZ)
+# ---------------------------------------------------------------------------
+set(CPACK_PACKAGE_NAME                "nate")
+set(CPACK_PACKAGE_VENDOR              "Lawrence Hovind")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "SSH and serial terminal emulator")
+set(CPACK_PACKAGE_VERSION             "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_CONTACT             "lawrence.hovind@gmail.com")
+if(EXISTS "${CMAKE_SOURCE_DIR}/LICENSE")
+    set(CPACK_RESOURCE_FILE_LICENSE   "${CMAKE_SOURCE_DIR}/LICENSE")
+endif()
+set(CPACK_STRIP_FILES                 TRUE)
+
+set(CPACK_DEBIAN_PACKAGE_DEPENDS
+    "libwxgtk3.2-dev | libwxgtk3.0-gtk3-0v5, libssh2-1, libgtk-3-0")
+set(CPACK_DEBIAN_PACKAGE_SECTION      "net")
+set(CPACK_DEBIAN_PACKAGE_PRIORITY     "optional")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE     "https://github.com/lhovind/naTE")
+
+set(CPACK_RPM_PACKAGE_LICENSE         "MIT")
+set(CPACK_RPM_PACKAGE_GROUP           "Applications/Internet")
+set(CPACK_RPM_PACKAGE_REQUIRES        "wxGTK3, libssh2, gtk3")
+
+include(CPack)

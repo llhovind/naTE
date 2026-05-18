@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect width="256" height="256" rx="20" ry="20" fill="#1a1a2e"/>
+  <text x="28"  y="148" font-family="monospace" font-size="72" font-weight="bold" fill="#39ff14">&#x276F;</text>
+  <text x="100" y="148" font-family="monospace" font-size="72" font-weight="bold" fill="#39ff14">naTE</text>
+  <rect x="100" y="160" width="14" height="8" fill="#39ff14" opacity="0.85"/>
+</svg>

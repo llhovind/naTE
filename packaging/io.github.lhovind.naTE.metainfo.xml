@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.lhovind.naTE</id>
+  <name>naTE</name>
+  <summary>SSH and serial terminal emulator</summary>
+  <description>
+    <p>
+      naTE is a graphical terminal emulator with first-class support for SSH and
+      serial connections. It provides tiling layouts, session save/restore, file
+      transfer, and a built-in remote file browser.
+    </p>
+  </description>
+  <launchable type="desktop-id">naTE.desktop</launchable>
+  <url type="homepage">https://github.com/lhovind/naTE</url>
+  <url type="bugtracker">https://github.com/lhovind/naTE/issues</url>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <categories>
+    <category>Network</category>
+    <category>TerminalEmulator</category>
+  </categories>
+  <releases>
+    <release version="0.1.0" date="2026-05-18">
+      <description><p>Initial public release.</p></description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>
