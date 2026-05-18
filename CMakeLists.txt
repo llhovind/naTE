@@ -40,8 +40,27 @@ endif()
 
 option(NATE_SYSTEM_DEPS "Use system-installed nlohmann_json instead of FetchContent" OFF)
 
-find_package(wxWidgets REQUIRED COMPONENTS core base)
-include(${wxWidgets_USE_FILE})
+include(FetchContent)
+FetchContent_Declare(wxWidgets
+    GIT_REPOSITORY https://github.com/wxWidgets/wxWidgets.git
+    GIT_TAG        v3.2.6
+    GIT_SHALLOW    TRUE
+)
+set(wxBUILD_SHARED    OFF CACHE BOOL "" FORCE)
+set(wxBUILD_TESTS     OFF CACHE BOOL "" FORCE)
+set(wxBUILD_DEMOS     OFF CACHE BOOL "" FORCE)
+set(wxBUILD_SAMPLES   OFF CACHE BOOL "" FORCE)
+set(wxUSE_OPENGL      OFF CACHE BOOL "" FORCE)
+set(wxUSE_WEBVIEW     OFF CACHE BOOL "" FORCE)
+set(wxUSE_MEDIACTRL   OFF CACHE BOOL "" FORCE)
+set(wxUSE_RICHTEXT    OFF CACHE BOOL "" FORCE)
+set(wxUSE_AUI         OFF CACHE BOOL "" FORCE)
+set(wxUSE_HTML        OFF CACHE BOOL "" FORCE)
+set(wxUSE_XRC         OFF CACHE BOOL "" FORCE)
+set(wxUSE_STC         OFF CACHE BOOL "" FORCE)
+set(wxUSE_HELP        OFF CACHE BOOL "" FORCE)
+set(wxUSE_WXHTML_HELP OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(wxWidgets)
 
 find_package(PkgConfig)
 if(UNIX AND NOT APPLE)
@@ -66,7 +85,6 @@ endif()
 if(NATE_SYSTEM_DEPS)
     find_package(nlohmann_json REQUIRED)
 else()
-    include(FetchContent)
     FetchContent_Declare(nlohmann_json
         GIT_REPOSITORY https://github.com/nlohmann/json.git
         GIT_TAG        v3.11.3)
@@ -122,7 +140,7 @@ else()
     add_executable(naTE ${SOURCES})
 endif()
 
-target_link_libraries(naTE PRIVATE ${wxWidgets_LIBRARIES} ${LIBSSH2_LIBRARIES} nlohmann_json::nlohmann_json)
+target_link_libraries(naTE PRIVATE wx::core wx::base ${LIBSSH2_LIBRARIES} nlohmann_json::nlohmann_json)
 if(UNIX AND NOT APPLE)
     target_link_libraries(naTE PRIVATE ${GTK3_LIBRARIES} util)
 endif()
@@ -181,13 +199,13 @@ endif()
 set(CPACK_STRIP_FILES                 TRUE)
 
 set(CPACK_DEBIAN_PACKAGE_DEPENDS
-    "libwxgtk3.2-dev | libwxgtk3.0-gtk3-0v5, libssh2-1, libgtk-3-0")
+    "libssh2-1, libgtk-3-0")
 set(CPACK_DEBIAN_PACKAGE_SECTION      "net")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY     "optional")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE     "https://github.com/lhovind/naTE")
 
 set(CPACK_RPM_PACKAGE_LICENSE         "MIT")
 set(CPACK_RPM_PACKAGE_GROUP           "Applications/Internet")
-set(CPACK_RPM_PACKAGE_REQUIRES        "wxGTK3, libssh2, gtk3")
+set(CPACK_RPM_PACKAGE_REQUIRES        "libssh2, gtk3")
 
 include(CPack)

@@ -2,7 +2,7 @@
 # scripts/build-appimage.sh — configure → build → install → AppImage
 # Usage: ./scripts/build-appimage.sh [--skip-configure]
 #
-# Requirements: cmake, a C++ toolchain, GTK3/libssh2/wxWidgets dev headers.
+# Requirements: cmake, a C++ toolchain, GTK3/libssh2 dev headers.
 # linuxdeploy and linuxdeploy-plugin-gtk are downloaded automatically if not
 # found in PATH or the project root.
 
