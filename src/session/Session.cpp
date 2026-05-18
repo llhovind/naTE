@@ -217,4 +217,21 @@ void Session::SetWrapMode(bool wrap)
     }
 }
 
+bool Session::SupportsFileTransfer() const
+{
+    return transport_->SupportsFileTransfer();
+}
+
+std::string Session::GetTransportRemoteDescription() const
+{
+    return transport_->GetRemoteDescription();
+}
+
+void Session::TransferFile(const std::string& localPath,
+                           const std::string& remoteDir,
+                           std::function<void(bool, std::string)> onDone)
+{
+    transport_->TransferFile(localPath, remoteDir, std::move(onDone));
+}
+
 } // namespace term::session

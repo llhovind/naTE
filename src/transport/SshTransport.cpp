@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cerrno>
 #include <cstring>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 
@@ -108,7 +109,12 @@ void SshTransport::WorkerThread()
     sock_fd_ = ConnectSocket();
     if (sock_fd_ < 0)                   return;
     if (!PerformHandshake(sock_fd_))    return;
-    if (!VerifyHostKey())               return;
+    { std::string khErr;
+      if (!VerifyHostKey(session_, khErr)) {
+          NotifyError(TransportError::Category::HostKey, khErr);
+          return;
+      }
+    }
     if (!Authenticate())                return;
     if (!OpenChannel())                 return;
     if (!RequestPty())                  return;
@@ -247,21 +253,19 @@ bool SshTransport::PerformHandshake(int fd)
 // VerifyHostKey — silent TOFU
 // ---------------------------------------------------------------------------
 
-bool SshTransport::VerifyHostKey()
+bool SshTransport::VerifyHostKey(_LIBSSH2_SESSION* session, std::string& outError)
 {
     size_t keyLen  = 0;
     int    keyType = 0;
-    const char* key = libssh2_session_hostkey(session_, &keyLen, &keyType);
+    const char* key = libssh2_session_hostkey(session, &keyLen, &keyType);
     if (!key) {
-        NotifyError(TransportError::Category::Protocol,
-                    "SSH: could not retrieve server host key");
+        outError = "SSH: could not retrieve server host key";
         return false;
     }
 
-    LIBSSH2_KNOWNHOSTS* hosts = libssh2_knownhost_init(session_);
+    LIBSSH2_KNOWNHOSTS* hosts = libssh2_knownhost_init(session);
     if (!hosts) {
-        NotifyError(TransportError::Category::Protocol,
-                    "SSH: libssh2_knownhost_init failed");
+        outError = "SSH: libssh2_knownhost_init failed";
         return false;
     }
 
@@ -309,17 +313,15 @@ bool SshTransport::VerifyHostKey()
             break;
 
         case LIBSSH2_KNOWNHOST_CHECK_MISMATCH:
-            NotifyError(TransportError::Category::HostKey,
-                        "SSH: HOST KEY MISMATCH for " + desc_.host +
-                        " — possible man-in-the-middle attack.\n"
-                        "Remove the entry from " + khPath + " to proceed.");
+            outError = "SSH: HOST KEY MISMATCH for " + desc_.host +
+                       " — possible man-in-the-middle attack.\n"
+                       "Remove the entry from " + khPath + " to proceed.";
             ok = false;
             break;
 
         default:
-            NotifyError(TransportError::Category::HostKey,
-                        "SSH: host key check failed (code " +
-                        std::to_string(check) + ")");
+            outError = "SSH: host key check failed (code " +
+                       std::to_string(check) + ")";
             ok = false;
             break;
     }
@@ -760,6 +762,215 @@ std::string SshTransport::KnownHostsPath()
     ::mkdir(dir.c_str(), 0700);
 
     return path;
+}
+
+// ---------------------------------------------------------------------------
+// File transfer — public interface
+// ---------------------------------------------------------------------------
+
+std::string SshTransport::GetRemoteDescription() const
+{
+    return desc_.username + "@" + desc_.host;
+}
+
+void SshTransport::TransferFile(const std::string& localPath,
+                                const std::string& remoteDir,
+                                std::function<void(bool, std::string)> onDone)
+{
+    std::thread(&SshTransport::DoTransferFile, this,
+                localPath, remoteDir, std::move(onDone)).detach();
+}
+
+// ---------------------------------------------------------------------------
+// DoTransferFile — runs on a detached thread, uses a fresh blocking session
+// ---------------------------------------------------------------------------
+
+void SshTransport::DoTransferFile(std::string localPath,
+                                  std::string remoteDir,
+                                  std::function<void(bool, std::string)> onDone)
+{
+    const auto fail = [&onDone](std::string msg) {
+        onDone(false, std::move(msg));
+    };
+
+    // --- Open local file and get size ---
+    std::ifstream file(localPath, std::ios::binary | std::ios::ate);
+    if (!file) {
+        fail("Cannot open local file: " + localPath);
+        return;
+    }
+    const auto fileSize = static_cast<libssh2_uint64_t>(file.tellg());
+    file.seekg(0);
+
+    // Extract the base filename for the remote path.
+    std::string filename = localPath;
+    if (const auto pos = filename.rfind('/'); pos != std::string::npos)
+        filename = filename.substr(pos + 1);
+
+    // Ensure remoteDir ends with '/'.
+    if (!remoteDir.empty() && remoteDir.back() != '/')
+        remoteDir += '/';
+    const std::string remotePath = remoteDir + filename;
+
+    // --- TCP connect ---
+    const std::string portStr = std::to_string(desc_.port);
+    addrinfo hints{};
+    hints.ai_family   = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* res = nullptr;
+    if (::getaddrinfo(desc_.host.c_str(), portStr.c_str(), &hints, &res) != 0) {
+        fail("SCP: name resolution failed for " + desc_.host);
+        return;
+    }
+    int fd = -1;
+    for (addrinfo* ai = res; ai; ai = ai->ai_next) {
+        fd = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (fd < 0) continue;
+        if (desc_.connectTimeoutSec > 0) {
+            timeval tv{};
+            tv.tv_sec = desc_.connectTimeoutSec;
+            ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+            ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        }
+        if (::connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
+        ::close(fd);
+        fd = -1;
+    }
+    ::freeaddrinfo(res);
+    if (fd < 0) {
+        fail("SCP: could not connect to " + desc_.host + ":" + portStr);
+        return;
+    }
+
+    // --- libssh2 session (blocking mode) ---
+    LIBSSH2_SESSION* session = libssh2_session_init();
+    if (!session) {
+        ::close(fd);
+        fail("SCP: libssh2_session_init failed");
+        return;
+    }
+    libssh2_session_set_blocking(session, 1);
+
+    if (libssh2_session_handshake(session, fd) != 0) {
+        char* msg = nullptr; int len = 0;
+        libssh2_session_last_error(session, &msg, &len, 0);
+        const std::string err = msg ? std::string(msg, static_cast<size_t>(len)) : "unknown";
+        libssh2_session_free(session);
+        ::close(fd);
+        fail("SCP: handshake failed — " + err);
+        return;
+    }
+
+    // --- Host key verification (reuse existing TOFU logic) ---
+    {
+        std::string khErr;
+        if (!VerifyHostKey(session, khErr)) {
+            libssh2_session_disconnect(session, "Host key check failed");
+            libssh2_session_free(session);
+            ::close(fd);
+            fail(khErr);
+            return;
+        }
+    }
+
+    // --- Authentication (blocking — no EAGAIN loops needed) ---
+    using AM = term::session::SshAuthMethod;
+    bool authenticated = false;
+    std::string authError;
+
+    if (desc_.authMethod == AM::Agent) {
+        LIBSSH2_AGENT* agent = libssh2_agent_init(session);
+        if (agent && libssh2_agent_connect(agent) == 0 &&
+            libssh2_agent_list_identities(agent) == 0) {
+            libssh2_agent_publickey* id = nullptr;
+            libssh2_agent_publickey* prev = nullptr;
+            while (libssh2_agent_get_identity(agent, &id, prev) == 0) {
+                if (libssh2_agent_userauth(agent, desc_.username.c_str(), id) == 0) {
+                    authenticated = true;
+                    break;
+                }
+                prev = id;
+            }
+        }
+        if (agent) {
+            libssh2_agent_disconnect(agent);
+            libssh2_agent_free(agent);
+        }
+        if (!authenticated)
+            authError = "SCP: agent authentication failed";
+
+    } else if (desc_.authMethod == AM::Password) {
+        authenticated = libssh2_userauth_password(
+            session, desc_.username.c_str(), desc_.password.c_str()) == 0;
+        if (!authenticated)
+            authError = "SCP: password authentication failed";
+
+    } else { // PrivateKey
+        const char* pubkey = desc_.publicKeyPath.empty()
+                             ? nullptr : desc_.publicKeyPath.c_str();
+        const char* passphrase = desc_.passphrase.empty()
+                                 ? nullptr : desc_.passphrase.c_str();
+        authenticated = libssh2_userauth_publickey_fromfile(
+            session, desc_.username.c_str(),
+            pubkey, desc_.privateKeyPath.c_str(), passphrase) == 0;
+        if (!authenticated)
+            authError = "SCP: private key authentication failed";
+    }
+
+    if (!authenticated) {
+        libssh2_session_disconnect(session, "Authentication failed");
+        libssh2_session_free(session);
+        ::close(fd);
+        fail(authError);
+        return;
+    }
+
+    // --- SCP send ---
+    LIBSSH2_CHANNEL* channel = libssh2_scp_send64(
+        session, remotePath.c_str(), 0644, fileSize, 0, 0);
+    if (!channel) {
+        char* msg = nullptr; int len = 0;
+        libssh2_session_last_error(session, &msg, &len, 0);
+        const std::string err = msg ? std::string(msg, static_cast<size_t>(len)) : "unknown";
+        libssh2_session_disconnect(session, "SCP open failed");
+        libssh2_session_free(session);
+        ::close(fd);
+        fail("SCP: could not open remote file '" + remotePath + "' — " + err);
+        return;
+    }
+
+    constexpr size_t kChunk = 32768;
+    std::vector<char> buf(kChunk);
+    bool writeError = false;
+    while (file) {
+        file.read(buf.data(), static_cast<std::streamsize>(kChunk));
+        const std::streamsize nRead = file.gcount();
+        if (nRead == 0) break;
+        size_t sent = 0;
+        while (sent < static_cast<size_t>(nRead)) {
+            ssize_t n = libssh2_channel_write(
+                channel, buf.data() + sent,
+                static_cast<size_t>(nRead) - sent);
+            if (n < 0) { writeError = true; break; }
+            sent += static_cast<size_t>(n);
+        }
+        if (writeError) break;
+    }
+
+    libssh2_channel_send_eof(channel);
+    libssh2_channel_wait_eof(channel);
+    libssh2_channel_wait_closed(channel);
+    libssh2_channel_free(channel);
+    libssh2_session_disconnect(session, "SCP complete");
+    libssh2_session_free(session);
+    ::close(fd);
+
+    if (writeError) {
+        fail("SCP: write error while sending '" + filename + "'");
+        return;
+    }
+
+    onDone(true, {});
 }
 
 } // namespace term::transport

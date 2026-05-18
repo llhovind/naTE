@@ -83,6 +83,9 @@ public:
     // Save full scrollback of the active session to a user-chosen file.
     void SaveActiveSessionToFile();
 
+    // Open the file transfer dialog for the active session (SSH only).
+    void TransferFilesForActive();
+
     // Toggle broadcast mode on/off.
     void ToggleBroadcastMode();
 

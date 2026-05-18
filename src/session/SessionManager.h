@@ -97,6 +97,13 @@ public:
     void SetWrapMode(SessionId id, bool wrap);
     void ResetTerminal(SessionId id, bool clearScrollback);
 
+    bool        SupportsFileTransfer(SessionId id) const;
+    std::string GetRemoteDescription(SessionId id) const;
+    void        TransferFile(SessionId id,
+                             const std::string& localPath,
+                             const std::string& remoteDir,
+                             std::function<void(bool, std::string)> onDone);
+
     term::input::InputTarget* GetInputTarget(SessionId id) const;
 
 private:

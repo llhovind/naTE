@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "input/InputRouter.h"
@@ -69,6 +70,12 @@ public:
     void SetTopRow(int row);
     void SetViewportSize(unsigned short cols, unsigned short rows);
     void SetWrapMode(bool wrap);
+
+    bool        SupportsFileTransfer() const;
+    std::string GetTransportRemoteDescription() const;
+    void        TransferFile(const std::string& localPath,
+                             const std::string& remoteDir,
+                             std::function<void(bool, std::string)> onDone);
 
 private:
     static std::unique_ptr<transport::Transport> MakeTransport(

@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -48,6 +49,12 @@ public:
     // Enqueues a remote vpcolumns file update; worker writes it via exec channel.
     void OnViewportColsChanged(unsigned short cols) override;
 
+    bool        SupportsFileTransfer() const noexcept override { return true; }
+    std::string GetRemoteDescription() const override;
+    void        TransferFile(const std::string& localPath,
+                             const std::string& remoteDir,
+                             std::function<void(bool, std::string)> onDone) override;
+
 private:
     // Worker thread — owns all libssh2 calls.
     void WorkerThread();
@@ -55,7 +62,9 @@ private:
     // Connection sub-steps.  Each returns false and calls NotifyError on failure.
     int  ConnectSocket();
     bool PerformHandshake(int fd);
-    bool VerifyHostKey();
+    // Accepts an explicit session so it can be shared with the SCP transfer path.
+    // Returns false and sets outError on failure; does NOT call NotifyError.
+    bool VerifyHostKey(_LIBSSH2_SESSION* session, std::string& outError);
     bool Authenticate();
     bool AuthViaAgent();
     bool AuthViaPassword();
@@ -82,6 +91,12 @@ private:
     // Opens a short-lived exec channel and writes cols to vpcolumns_remote_path_.
     // Must be called only from the worker thread.
     void RemoteWriteVpCols(unsigned short cols);
+
+    // Opens a fresh libssh2 session, authenticates, and transfers one file via
+    // SCP. Runs on a detached thread; delivers result via wxTheApp->CallAfter.
+    void DoTransferFile(std::string localPath,
+                        std::string remoteDir,
+                        std::function<void(bool, std::string)> onDone);
 
     ITransportTarget&                    target_;
     term::session::SshDesc               desc_;

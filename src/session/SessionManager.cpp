@@ -233,6 +233,27 @@ void SessionManager::ResetTerminal(SessionId id, bool clearScrollback)
     if (rec) rec->session->ResetTerminal(clearScrollback);
 }
 
+bool SessionManager::SupportsFileTransfer(SessionId id) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    return rec && rec->session->SupportsFileTransfer();
+}
+
+std::string SessionManager::GetRemoteDescription(SessionId id) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    return rec ? rec->session->GetTransportRemoteDescription() : std::string{};
+}
+
+void SessionManager::TransferFile(SessionId id,
+                                  const std::string& localPath,
+                                  const std::string& remoteDir,
+                                  std::function<void(bool, std::string)> onDone)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (rec) rec->session->TransferFile(localPath, remoteDir, std::move(onDone));
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------

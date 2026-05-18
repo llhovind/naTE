@@ -28,6 +28,7 @@ namespace {
     constexpr int ID_OPEN_IN_NEW_WINDOW_TERM = wxID_HIGHEST + 23;
     constexpr int ID_RESET_TERMINAL          = wxID_HIGHEST + 24;
     constexpr int ID_RESET_AND_CLEAR         = wxID_HIGHEST + 25;
+    constexpr int ID_TRANSFER_FILES          = wxID_HIGHEST + 26;
 
     // Window menu: window entries occupy [kWindowMenuBase, kWindowMenuBase + kWindowMenuMax).
     constexpr int kWindowMenuBase    = wxID_HIGHEST + 400;
@@ -95,7 +96,9 @@ MainFrame::MainFrame(const AppConfig& cfg,
 
     termMenu->AppendSeparator();
     termMenu->Append(ID_SAVE_SESSION_FILE_TERM, "Save Session to File...");
+    termMenu->Append(ID_TRANSFER_FILES,          "Transfer Files...");
     Bind(wxEVT_MENU, &MainFrame::OnSaveSessionFileTerminal, this, ID_SAVE_SESSION_FILE_TERM);
+    Bind(wxEVT_MENU, &MainFrame::OnTransferFiles,           this, ID_TRANSFER_FILES);
 
     termMenu->AppendSeparator();
     termMenu->Append(ID_OPEN_IN_NEW_TILE,        "Move to New Tile");
@@ -358,6 +361,12 @@ void MainFrame::OnSaveSessionFileTerminal(wxCommandEvent&)
 {
     if (m_uiManager) m_uiManager->SaveActiveSessionToFile();
 }
+
+void MainFrame::OnTransferFiles(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->TransferFilesForActive();
+}
+
 void MainFrame::OnOpenInNewTile(wxCommandEvent&)
 {
     if (m_uiManager) m_uiManager->MoveActiveSessionToNewTile();

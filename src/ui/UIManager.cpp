@@ -1,5 +1,6 @@
 #include "ui/UIManager.h"
 #include "app/App.h"
+#include "ui/FileTransferDialog.h"
 #include "ui/ISessionDropTarget.h"
 #include "ui/MainFrame.h"
 #include "ui/TerminalPanel.h"
@@ -303,6 +304,14 @@ void UIManager::ResetAndClearActiveTerminal()
     }
 
     sm_.ResetTerminal(activeId_, true);
+}
+
+void UIManager::TransferFilesForActive()
+{
+    if (!activeId_ || !sm_.SupportsFileTransfer(activeId_)) return;
+    const std::string remote = sm_.GetRemoteDescription(activeId_);
+    ui::FileTransferDialog dlg(frame_, activeId_, sm_, remote);
+    dlg.ShowModal();
 }
 
 void UIManager::SaveActiveSessionToFile()
