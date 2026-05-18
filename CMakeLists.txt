@@ -43,9 +43,25 @@ option(NATE_SYSTEM_DEPS "Use system-installed nlohmann_json instead of FetchCont
 find_package(wxWidgets REQUIRED COMPONENTS core base)
 include(${wxWidgets_USE_FILE})
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
-pkg_check_modules(LIBSSH2 REQUIRED libssh2)
+find_package(PkgConfig)
+if(UNIX AND NOT APPLE)
+    if(NOT PkgConfig_FOUND)
+        message(FATAL_ERROR "PkgConfig is required on Linux")
+    endif()
+    pkg_check_modules(GTK3   REQUIRED gtk+-3.0)
+    pkg_check_modules(LIBSSH2 REQUIRED libssh2)
+else()
+    # macOS: prefer pkg-config (available when Homebrew is set up), fall back to find_library
+    if(PkgConfig_FOUND)
+        pkg_check_modules(LIBSSH2 libssh2)
+    endif()
+    if(NOT LIBSSH2_FOUND)
+        find_library(LIBSSH2_LIB  NAMES ssh2  REQUIRED)
+        find_path   (LIBSSH2_INC  NAMES libssh2.h REQUIRED)
+        set(LIBSSH2_LIBRARIES    "${LIBSSH2_LIB}")
+        set(LIBSSH2_INCLUDE_DIRS "${LIBSSH2_INC}")
+    endif()
+endif()
 
 if(NATE_SYSTEM_DEPS)
     find_package(nlohmann_json REQUIRED)
@@ -106,12 +122,18 @@ else()
     add_executable(naTE ${SOURCES})
 endif()
 
-target_link_libraries(naTE PRIVATE ${wxWidgets_LIBRARIES} ${GTK3_LIBRARIES} ${LIBSSH2_LIBRARIES} nlohmann_json::nlohmann_json)
-
+target_link_libraries(naTE PRIVATE ${wxWidgets_LIBRARIES} ${LIBSSH2_LIBRARIES} nlohmann_json::nlohmann_json)
 if(UNIX AND NOT APPLE)
-    target_link_libraries(naTE PRIVATE util)
+    target_link_libraries(naTE PRIVATE ${GTK3_LIBRARIES} util)
 endif()
-target_include_directories(naTE PRIVATE src ${CMAKE_CURRENT_BINARY_DIR} ${GTK3_INCLUDE_DIRS} ${LIBSSH2_INCLUDE_DIRS})
+if(APPLE)
+    target_link_libraries(naTE PRIVATE proc)
+endif()
+
+target_include_directories(naTE PRIVATE src ${CMAKE_CURRENT_BINARY_DIR} ${LIBSSH2_INCLUDE_DIRS})
+if(UNIX AND NOT APPLE)
+    target_include_directories(naTE PRIVATE ${GTK3_INCLUDE_DIRS})
+endif()
 
 enable_testing()
 add_subdirectory(tests)
@@ -129,17 +151,17 @@ install(TARGETS naTE
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-install(FILES packaging/naTE.desktop
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
-)
-
-install(FILES packaging/nate.svg
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
-)
-
-install(FILES packaging/io.github.lhovind.naTE.metainfo.xml
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
-)
+if(UNIX AND NOT APPLE)
+    install(FILES packaging/naTE.desktop
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
+    )
+    install(FILES packaging/nate.svg
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
+    )
+    install(FILES packaging/io.github.lhovind.naTE.metainfo.xml
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
+    )
+endif()
 
 install(FILES config.ini
     DESTINATION ${CMAKE_INSTALL_DATADIR}/nate

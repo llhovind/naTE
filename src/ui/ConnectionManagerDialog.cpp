@@ -215,7 +215,7 @@ void ConnectionManagerDialog::OnNew(wxCommandEvent&)
 {
     const std::string defaultShell = [] {
         const char* s = std::getenv("SHELL");
-        return s ? std::string(s) : std::string("/bin/bash");
+        return s ? std::string(s) : std::string("/bin/sh");
     }();
 
     NewConnectionDialog dlg(this, defaultShell, m_cfg.geometryPresets,
@@ -243,7 +243,7 @@ void ConnectionManagerDialog::OnEdit(wxCommandEvent&)
 
     const std::string defaultShell = [] {
         const char* s = std::getenv("SHELL");
-        return s ? std::string(s) : std::string("/bin/bash");
+        return s ? std::string(s) : std::string("/bin/sh");
     }();
 
     NewConnectionDialog dlg(this, defaultShell, m_cfg.geometryPresets,
@@ -293,7 +293,7 @@ void ConnectionManagerDialog::OnDelete(wxCommandEvent&)
 void ConnectionManagerDialog::OnQuickLocalShell(wxCommandEvent&)
 {
     const char* s = std::getenv("SHELL");
-    const std::string shell = s ? s : "/bin/bash";
+    const std::string shell = s ? s : "/bin/sh";
 
     term::session::Connection conn;
     conn.label     = "Local Shell";

@@ -16,6 +16,7 @@
 
 #ifdef __APPLE__
 #  include <util.h>
+#  include <libproc.h>
 #else
 #  include <pty.h>
 #endif
@@ -186,6 +187,12 @@ std::string PtyTransport::GetCurrentWorkingDir() const
 {
     if (child_pid_ <= 0)
         return {};
+#ifdef __APPLE__
+    struct proc_vnodepathinfo info{};
+    if (proc_pidinfo(child_pid_, PROC_PIDVNODEPATHINFO, 0, &info, sizeof(info)) <= 0)
+        return {};
+    return std::string(info.pvi_cdir.vip_path);
+#else
     const std::string link = "/proc/" + std::to_string(child_pid_) + "/cwd";
     char buf[4096];
     const ssize_t n = ::readlink(link.c_str(), buf, sizeof(buf) - 1);
@@ -193,6 +200,7 @@ std::string PtyTransport::GetCurrentWorkingDir() const
         return {};
     buf[n] = '\0';
     return std::string(buf);
+#endif
 }
 
 } // namespace term::transport

@@ -212,7 +212,7 @@ bool MainFrame::RunConnectionDialog(ui::LaunchContext context,
 {
     const std::string defaultShell = [] {
         const char* s = std::getenv("SHELL");
-        return s ? std::string(s) : std::string("/bin/bash");
+        return s ? std::string(s) : std::string("/bin/sh");
     }();
 
     ui::NewConnectionDialog dlg(this, defaultShell,
