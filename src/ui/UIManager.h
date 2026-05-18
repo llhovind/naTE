@@ -83,8 +83,8 @@ public:
     // Save full scrollback of the active session to a user-chosen file.
     void SaveActiveSessionToFile();
 
-    // Open the file transfer dialog for the active session (SSH only).
-    void TransferFilesForActive();
+    // Open the send-file dialog for the active session (SSH only).
+    void SendFilesForActive();
     // Open the file receive dialog for the active session (SSH only).
     void ReceiveFilesForActive();
 

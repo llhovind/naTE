@@ -227,11 +227,11 @@ std::string Session::GetTransportRemoteDescription() const
     return transport_->GetRemoteDescription();
 }
 
-void Session::TransferFile(const std::string& localPath,
-                           const std::string& remoteDir,
-                           std::function<void(bool, std::string)> onDone)
+void Session::SendFile(const std::string& localPath,
+                       const std::string& remoteDir,
+                       std::function<void(bool, std::string)> onDone)
 {
-    transport_->TransferFile(localPath, remoteDir, std::move(onDone));
+    transport_->SendFile(localPath, remoteDir, std::move(onDone));
 }
 
 void Session::ReceiveFile(const std::string& remotePath,

@@ -220,7 +220,7 @@ void FileTransferDialog::TransferNext()
     };
 
     if (direction_ == TransferDirection::Send)
-        sm_.TransferFile(sessionId_, itemPath, destPath, callback);
+        sm_.SendFile(sessionId_, itemPath, destPath, callback);
     else
         sm_.ReceiveFile(sessionId_, itemPath, destPath, callback);
 }

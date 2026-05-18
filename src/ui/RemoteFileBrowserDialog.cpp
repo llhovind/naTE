@@ -22,7 +22,7 @@ RemoteFileBrowserDialog::RemoteFileBrowserDialog(
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
     , sessionId_(sessionId)
     , sm_(sm)
-    , currentPath_("~")
+    , currentPath_(".")
 {
     auto* outer = new wxBoxSizer(wxVERTICAL);
 
@@ -132,9 +132,9 @@ std::string RemoteFileBrowserDialog::FullPath(const std::string& name) const
 std::string RemoteFileBrowserDialog::ParentPath() const
 {
     const auto& p = currentPath_;
-    if (p == "~" || p == "/") return "/";
+    if (p == "." || p == "/") return "/";
     const auto pos = p.rfind('/');
-    if (pos == std::string::npos) return "~";
+    if (pos == std::string::npos) return ".";
     if (pos == 0) return "/";
     return p.substr(0, pos);
 }

@@ -766,7 +766,7 @@ std::string SshTransport::KnownHostsPath()
 }
 
 // ---------------------------------------------------------------------------
-// File transfer — public interface
+// File send/receive — public interface
 // ---------------------------------------------------------------------------
 
 std::string SshTransport::GetRemoteDescription() const
@@ -774,19 +774,19 @@ std::string SshTransport::GetRemoteDescription() const
     return desc_.username + "@" + desc_.host;
 }
 
-void SshTransport::TransferFile(const std::string& localPath,
-                                const std::string& remoteDir,
-                                std::function<void(bool, std::string)> onDone)
+void SshTransport::SendFile(const std::string& localPath,
+                            const std::string& remoteDir,
+                            std::function<void(bool, std::string)> onDone)
 {
-    std::thread(&SshTransport::DoTransferFile, this,
+    std::thread(&SshTransport::DoSendFile, this,
                 localPath, remoteDir, std::move(onDone)).detach();
 }
 
 // ---------------------------------------------------------------------------
-// DoTransferFile — runs on a detached thread, uses a fresh blocking session
+// DoSendFile — runs on a detached thread, uses a fresh blocking session
 // ---------------------------------------------------------------------------
 
-void SshTransport::DoTransferFile(std::string localPath,
+void SshTransport::DoSendFile(std::string localPath,
                                   std::string remoteDir,
                                   std::function<void(bool, std::string)> onDone)
 {

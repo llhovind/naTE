@@ -245,13 +245,13 @@ std::string SessionManager::GetRemoteDescription(SessionId id) const
     return rec ? rec->session->GetTransportRemoteDescription() : std::string{};
 }
 
-void SessionManager::TransferFile(SessionId id,
-                                  const std::string& localPath,
-                                  const std::string& remoteDir,
-                                  std::function<void(bool, std::string)> onDone)
+void SessionManager::SendFile(SessionId id,
+                              const std::string& localPath,
+                              const std::string& remoteDir,
+                              std::function<void(bool, std::string)> onDone)
 {
     SessionRecord* rec = FindRecord(id);
-    if (rec) rec->session->TransferFile(localPath, remoteDir, std::move(onDone));
+    if (rec) rec->session->SendFile(localPath, remoteDir, std::move(onDone));
 }
 
 void SessionManager::ReceiveFile(SessionId id,

@@ -51,9 +51,9 @@ public:
 
     bool        SupportsFileTransfer() const noexcept override { return true; }
     std::string GetRemoteDescription() const override;
-    void        TransferFile(const std::string& localPath,
-                             const std::string& remoteDir,
-                             std::function<void(bool, std::string)> onDone) override;
+    void        SendFile(const std::string& localPath,
+                        const std::string& remoteDir,
+                        std::function<void(bool, std::string)> onDone) override;
     void        ReceiveFile(const std::string& remotePath,
                             const std::string& localDir,
                             std::function<void(bool, std::string)> onDone) override;
@@ -100,9 +100,9 @@ private:
 
     // Opens a fresh libssh2 session, authenticates, and transfers one file via
     // SCP. Runs on a detached thread; delivers result via wxTheApp->CallAfter.
-    void DoTransferFile(std::string localPath,
-                        std::string remoteDir,
-                        std::function<void(bool, std::string)> onDone);
+    void DoSendFile(std::string localPath,
+                    std::string remoteDir,
+                    std::function<void(bool, std::string)> onDone);
 
     // Receives one remote file into localDir via SCP on a fresh session.
     void DoReceiveFile(std::string remotePath,

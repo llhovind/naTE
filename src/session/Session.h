@@ -73,9 +73,9 @@ public:
 
     bool        SupportsFileTransfer() const;
     std::string GetTransportRemoteDescription() const;
-    void        TransferFile(const std::string& localPath,
-                             const std::string& remoteDir,
-                             std::function<void(bool, std::string)> onDone);
+    void        SendFile(const std::string& localPath,
+                        const std::string& remoteDir,
+                        std::function<void(bool, std::string)> onDone);
     void        ReceiveFile(const std::string& remotePath,
                             const std::string& localDir,
                             std::function<void(bool, std::string)> onDone);

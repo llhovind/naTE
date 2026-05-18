@@ -99,10 +99,10 @@ public:
 
     bool        SupportsFileTransfer(SessionId id) const;
     std::string GetRemoteDescription(SessionId id) const;
-    void        TransferFile(SessionId id,
-                             const std::string& localPath,
-                             const std::string& remoteDir,
-                             std::function<void(bool, std::string)> onDone);
+    void        SendFile(SessionId id,
+                        const std::string& localPath,
+                        const std::string& remoteDir,
+                        std::function<void(bool, std::string)> onDone);
     void        ReceiveFile(SessionId id,
                             const std::string& remotePath,
                             const std::string& localDir,

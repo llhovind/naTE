@@ -306,7 +306,7 @@ void UIManager::ResetAndClearActiveTerminal()
     sm_.ResetTerminal(activeId_, true);
 }
 
-void UIManager::TransferFilesForActive()
+void UIManager::SendFilesForActive()
 {
     if (!activeId_ || !sm_.SupportsFileTransfer(activeId_)) return;
     const std::string remote = sm_.GetRemoteDescription(activeId_);

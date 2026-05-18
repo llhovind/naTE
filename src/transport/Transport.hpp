@@ -26,9 +26,9 @@ public:
     virtual bool SupportsFileTransfer() const noexcept { return false; }
     virtual std::string GetRemoteDescription() const { return {}; }
 
-    // Transfers localPath into remoteDir via SCP. onDone is invoked on the UI
+    // Sends localPath into remoteDir via SCP. onDone is invoked on the UI
     // thread (via wxTheApp->CallAfter). Default no-op for PTY and Serial.
-    virtual void TransferFile(
+    virtual void SendFile(
         const std::string& /*localPath*/,
         const std::string& /*remoteDir*/,
         std::function<void(bool success, std::string error)> /*onDone*/) {}
