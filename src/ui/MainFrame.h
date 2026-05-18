@@ -96,6 +96,7 @@ private:
     void OnReceiveFiles(wxCommandEvent&);
     void OnOpenInNewTile(wxCommandEvent&);
     void OnOpenInNewWindowTerminal(wxCommandEvent&);
+    void OnAbout(wxCommandEvent&);
 
     // Shows the New Connection dialog with the given context, saves any profile
     // if requested, then launches the connection according to the chosen placement.

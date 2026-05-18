@@ -1,4 +1,5 @@
 #include "ui/MainFrame.h"
+#include "ui/AboutDialog.h"
 #include "ui/ConnectionFactory.h"
 #include "ui/ConnectionManagerDialog.h"
 #include "ui/GeometryDialog.h"
@@ -37,6 +38,7 @@ namespace {
     constexpr int ID_RESTORE_SESSIONS        = wxID_HIGHEST + 28;
     constexpr int ID_SAVE_AS_SNAPSHOT        = wxID_HIGHEST + 29;
     constexpr int ID_OPEN_SNAPSHOT           = wxID_HIGHEST + 30;
+    constexpr int ID_ABOUT                   = wxID_HIGHEST + 31;
 
     static bool IsValidSnapshotName(const std::string& s)
     {
@@ -144,11 +146,16 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_MENU, &MainFrame::OnWindowSessionMenuItem, this,
          kWindowSessionBase, kWindowSessionBase + kWindowSessionMax - 1);
 
+    auto* helpMenu = new wxMenu;
+    helpMenu->Append(ID_ABOUT, "&About naTE...");
+    Bind(wxEVT_MENU, &MainFrame::OnAbout, this, ID_ABOUT);
+
     auto* menuBar = new wxMenuBar;
     menuBar->Append(m_connMenu,   "&Connection");
     menuBar->Append(m_editMenu,   "&Edit");
     menuBar->Append(termMenu,     "&Terminal");
     menuBar->Append(m_windowMenu, "&Window");
+    menuBar->Append(helpMenu,     "&Help");
     SetMenuBar(menuBar);
 
     SetBackgroundColour(wxColour(40, 40, 40));
@@ -472,6 +479,12 @@ void MainFrame::OnWindowSessionMenuItem(wxCommandEvent& evt)
         ownerFrame->Raise();
         ownerFrame->ActivateSession(id);
     }
+}
+
+void MainFrame::OnAbout(wxCommandEvent&)
+{
+    AboutDialog dlg(this);
+    dlg.ShowModal();
 }
 
 bool MainFrame::DropSession(std::span<const term::session::SessionId> ids,

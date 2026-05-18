@@ -1,5 +1,28 @@
 cmake_minimum_required(VERSION 3.20)
-project(naTE LANGUAGES CXX)
+project(naTE VERSION 0.1.0 LANGUAGES CXX)
+
+execute_process(
+    COMMAND git rev-list --count HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_BUILD_NUMBER
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_COMMIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT GIT_BUILD_NUMBER)
+    set(GIT_BUILD_NUMBER "0")
+endif()
+if(NOT GIT_COMMIT_HASH)
+    set(GIT_COMMIT_HASH "unknown")
+endif()
+
+configure_file(src/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/version.h @ONLY)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -58,6 +81,7 @@ set(SOURCES
     src/db/JsonSessionRestoreRepository.cpp
     src/db/JsonNamedSnapshotRepository.cpp
     src/db/ConnectionStore.cpp
+    src/ui/AboutDialog.cpp
 )
 
 if(APPLE)
@@ -71,7 +95,7 @@ target_link_libraries(naTE PRIVATE ${wxWidgets_LIBRARIES} ${GTK3_LIBRARIES} ${LI
 if(UNIX AND NOT APPLE)
     target_link_libraries(naTE PRIVATE util)
 endif()
-target_include_directories(naTE PRIVATE src ${GTK3_INCLUDE_DIRS} ${LIBSSH2_INCLUDE_DIRS})
+target_include_directories(naTE PRIVATE src ${CMAKE_CURRENT_BINARY_DIR} ${GTK3_INCLUDE_DIRS} ${LIBSSH2_INCLUDE_DIRS})
 
 enable_testing()
 add_subdirectory(tests)
