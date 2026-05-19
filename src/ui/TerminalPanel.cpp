@@ -529,6 +529,12 @@ void TerminalPanel::OnChar(wxKeyEvent& e)
         e.Skip();
         return;
     }
+    // Let Alt+letter propagate to the frame so menu mnemonics fire.
+    // Terminal Alt sequences (readline Alt+b/f etc.) remain accessible via ESC+letter.
+    if (e.AltDown() && !e.ControlDown()) {
+        e.Skip();
+        return;
+    }
     if (keyCb_) {
         term::input::KeyEvent evt;
         evt.key   = term::input::Key::Character;

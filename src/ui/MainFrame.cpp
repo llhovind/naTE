@@ -78,7 +78,8 @@ MainFrame::MainFrame(const AppConfig& cfg,
     m_connMenu->Append(ID_NEW_CONNECTION,         "New Connection\tCtrl+Shift+N");
     m_connMenu->Append(ID_NEW_CONNECTION_IN_TILE, "New Connection in Tab\tCtrl+Shift+T");
     m_connMenu->Append(ID_CONNECTION_MANAGER,     "Connection Manager...\tCtrl+Shift+M");
-    m_connMenu->Append(ID_RESTORE_SESSIONS,       "Restore Previous Session(s)");
+    m_connMenu->AppendSeparator();
+    m_connMenu->Append(ID_RESTORE_SESSIONS,       "Restore Previous Session(s)\tCtrl+Shift+R");
     m_connMenu->Append(ID_SAVE_AS_SNAPSHOT,       "Save Session As...");
     m_connMenu->Append(ID_OPEN_SNAPSHOT,          "Open Saved Snapshot...");
     m_connMenu->AppendSeparator();
@@ -129,6 +130,7 @@ MainFrame::MainFrame(const AppConfig& cfg,
 
     termMenu->AppendSeparator();
     termMenu->Append(ID_SAVE_SESSION_FILE_TERM, "Save Session to File...");
+    termMenu->AppendSeparator();
     termMenu->Append(ID_SEND_FILES,              "Send Files to Remote...");
     termMenu->Append(ID_RECEIVE_FILES,           "Receive Files from Remote...");
     Bind(wxEVT_MENU, &MainFrame::OnSaveSessionFileTerminal, this, ID_SAVE_SESSION_FILE_TERM);
@@ -170,7 +172,7 @@ void MainFrame::SetUIManager(ui::UIManager* ui)
 {
     m_uiManager = ui;
     m_editMenu->AppendSeparator();
-    m_editMenu->Append(ID_PREFERENCES, "Preferences...\tCtrl+,");
+    m_editMenu->Append(ID_PREFERENCES, "Preferences...");
     Bind(wxEVT_MENU, &MainFrame::OnPreferences, this, ID_PREFERENCES);
 }
 
@@ -410,16 +412,18 @@ void MainFrame::RebuildWindowMenu(const std::vector<WindowMenuEntry>& entries)
     int sessionId = kWindowSessionBase;
 
     for (const auto& entry : entries) {
-        auto* item = m_windowMenu->AppendCheckItem(windowId,
-                         entry.title.empty() ? "naTE" : entry.title);
-        if (entry.frame == this)
-            item->Check(true);
+        const wxString label = entry.title.empty() ? "naTE" : entry.title;
+        const wxString prefixed = entry.frame == this ? "* " + label : "  " + label;
+        m_windowMenu->Append(windowId, prefixed);
         Bind(wxEVT_MENU, &MainFrame::OnWindowMenuItem, this, windowId);
         m_windowFrames.push_back(entry.frame);
         ++windowId;
 
-        for (const auto& sess : entry.sessions) {
-            m_windowMenu->Append(sessionId, "  " + sess.label);
+        for (size_t si = 0; si < entry.sessions.size(); ++si) {
+            const auto& sess = entry.sessions[si];
+            const wxString branch = wxString::FromUTF8(
+                si + 1 < entry.sessions.size() ? "  \xe2\x94\x9c " : "  \xe2\x94\x94 ");
+            m_windowMenu->Append(sessionId, branch + sess.label);
             m_windowSessions.push_back({entry.frame, sess.id});
             ++sessionId;
         }
