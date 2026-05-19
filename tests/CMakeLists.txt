@@ -14,6 +14,7 @@ add_executable(naTE_tests
     test_config.cpp
     test_env_utils.cpp
     ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
+    ${CMAKE_SOURCE_DIR}/src/config/ColorScheme.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
 )
 target_link_libraries(naTE_tests PRIVATE Catch2::Catch2)
@@ -25,6 +26,7 @@ target_include_directories(naTE_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # ---------------------------------------------------------------------------
 set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
+    ${CMAKE_SOURCE_DIR}/src/config/ColorScheme.cpp
     ${CMAKE_SOURCE_DIR}/src/document/Document.cpp
     ${CMAKE_SOURCE_DIR}/src/input/InputRouter.cpp
     ${CMAKE_SOURCE_DIR}/src/parser/Parser.cpp

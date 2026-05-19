@@ -1,20 +1,23 @@
 #include "config/Config.h"
+#include "config/ColorScheme.h"
+#include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <sstream>
 #include <string>
-#include <algorithm>
-#include <cctype>
 
 namespace {
 
-std::string trim(std::string_view sv) {
+std::string trim(std::string_view sv)
+{
     const auto first = sv.find_first_not_of(" \t\r\n");
     if (first == std::string_view::npos) return {};
     const auto last = sv.find_last_not_of(" \t\r\n");
     return std::string(sv.substr(first, last - first + 1));
 }
 
-std::vector<GeometryPreset> parseGeometryPresets(const std::string& val) {
+std::vector<GeometryPreset> parseGeometryPresets(const std::string& val)
+{
     std::vector<GeometryPreset> result;
     std::istringstream ss(val);
     std::string token;
@@ -31,69 +34,75 @@ std::vector<GeometryPreset> parseGeometryPresets(const std::string& val) {
                                   static_cast<unsigned short>(rows)});
         } catch (...) {}
     }
-    if (result.empty())
-        result = {{80, 24}, {132, 24}};
+    if (result.empty()) result = {{80, 24}, {132, 24}};
     return result;
+}
+
+// Map legacy enum names written by earlier versions to the new file stems.
+std::string normalizeLegacyThemeName(const std::string& val)
+{
+    if (val == "SolarizedDark")  return "solarized-dark";
+    if (val == "SolarizedLight") return "solarized-light";
+    if (val == "Custom")         return "";   // no file; keep fallback colours
+    return val;
 }
 
 } // namespace
 
-AppConfig AppConfig::load(const std::string& path) {
+AppConfig AppConfig::load(const std::string& configPath, const std::string& themesDir)
+{
     AppConfig cfg;
 
-    std::ifstream file(path);
+    std::ifstream file(configPath);
     if (!file.is_open()) return cfg;
+
+    struct KV { std::string section, key, val; };
+    std::vector<KV> entries;
 
     std::string section;
     std::string line;
-
     while (std::getline(file, line)) {
         const std::string t = trim(line);
         if (t.empty() || t[0] == ';' || t[0] == '#') continue;
-
         if (t[0] == '[') {
             const auto end = t.find(']');
-            if (end != std::string::npos)
-                section = trim(t.substr(1, end - 1));
+            if (end != std::string::npos) section = trim(t.substr(1, end - 1));
             continue;
         }
-
         const auto eq = t.find('=');
         if (eq == std::string::npos) continue;
+        entries.push_back({ section, trim(t.substr(0, eq)), trim(t.substr(eq + 1)) });
+    }
 
-        const std::string key = trim(t.substr(0, eq));
-        const std::string val = trim(t.substr(eq + 1));
+    auto toInt = [](const std::string& s, int def) -> int {
+        try { return std::stoi(s); } catch (...) { return def; }
+    };
 
-        auto toInt = [](const std::string& s, int def) -> int {
-            try { return std::stoi(s); } catch (...) { return def; }
-        };
+    for (const auto& e : entries) {
+        const auto& sec = e.section;
+        const auto& key = e.key;
+        const auto& val = e.val;
 
-        if (section == "Panel") {
+        if (sec == "Panel") {
             if      (key == "Columns")      cfg.columns      = toInt(val, cfg.columns);
             else if (key == "Rows")         cfg.rows         = toInt(val, cfg.rows);
             else if (key == "FontSize")     cfg.fontSize     = toInt(val, cfg.fontSize);
             else if (key == "PtyLineWidth") cfg.ptyLineWidth = toInt(val, cfg.ptyLineWidth);
-        } else if (section == "Terminal") {
-            if (key == "GeometryPresets")   cfg.geometryPresets = parseGeometryPresets(val);
-        } else if (section == "Colors") {
-            auto clamp = [](int v) -> uint8_t {
-                return static_cast<uint8_t>(std::max(0, std::min(255, v)));
-            };
-            if      (key == "TextR") cfg.textColour.r = clamp(toInt(val, cfg.textColour.r));
-            else if (key == "TextG") cfg.textColour.g = clamp(toInt(val, cfg.textColour.g));
-            else if (key == "TextB") cfg.textColour.b = clamp(toInt(val, cfg.textColour.b));
-            else if (key == "BgR")   cfg.bgColour.r   = clamp(toInt(val, cfg.bgColour.r));
-            else if (key == "BgG")   cfg.bgColour.g   = clamp(toInt(val, cfg.bgColour.g));
-            else if (key == "BgB")   cfg.bgColour.b   = clamp(toInt(val, cfg.bgColour.b));
-        } else if (section == "Session") {
-            if      (key == "DefaultWorkingDir") cfg.defaultWorkingDir  = val;
-            else if (key == "DefaultEnvFile")    cfg.defaultEnvFilePath = val;
-            else if (key == "DefaultLoginShell")    cfg.defaultLoginShell   = (val == "true" || val == "1");
-            else if (key == "AutoRestoreSession")   cfg.autoRestoreSession  = (val == "true" || val == "1");
-            else if (key == "SessionSaveInterval")  cfg.sessionSaveInterval = toInt(val, cfg.sessionSaveInterval);
+        } else if (sec == "Appearance") {
+            if      (key == "ColorTheme")  cfg.themeName  = normalizeLegacyThemeName(val);
+            else if (key == "FontFamily")  cfg.fontFamily = val;
+            else if (key == "Padding")     cfg.padding    = toInt(val, cfg.padding);
+        } else if (sec == "Behavior") {
+            if (key == "Encoding" && !val.empty()) cfg.encoding = val;
+        } else if (sec == "Terminal") {
+            if (key == "GeometryPresets") cfg.geometryPresets = parseGeometryPresets(val);
+        } else if (sec == "Session") {
+            if      (key == "DefaultWorkingDir")   cfg.defaultWorkingDir  = val;
+            else if (key == "DefaultEnvFile")      cfg.defaultEnvFilePath = val;
+            else if (key == "DefaultLoginShell")   cfg.defaultLoginShell   = (val == "true" || val == "1");
+            else if (key == "AutoRestoreSession")  cfg.autoRestoreSession  = (val == "true" || val == "1");
+            else if (key == "SessionSaveInterval") cfg.sessionSaveInterval = toInt(val, cfg.sessionSaveInterval);
             else {
-                // Indexed env var pairs: EnvVar0Key / EnvVar0Value, EnvVar1Key / EnvVar1Value, …
-                // Stops at the first index with no Key entry; max 64 pairs.
                 constexpr int kMaxEnvVars = 64;
                 for (int i = 0; i < kMaxEnvVars; ++i) {
                     const std::string keyKey = "EnvVar" + std::to_string(i) + "Key";
@@ -114,11 +123,62 @@ AppConfig AppConfig::load(const std::string& path) {
         }
     }
 
-    // Remove any env var entries where the key is empty (incomplete pairs).
     cfg.defaultEnvVars.erase(
         std::remove_if(cfg.defaultEnvVars.begin(), cfg.defaultEnvVars.end(),
                        [](const term::session::EnvVar& ev) { return ev.key.empty(); }),
         cfg.defaultEnvVars.end());
 
+    // Resolve theme colours from file; keep struct defaults if unavailable.
+    if (!cfg.themeName.empty() && !themesDir.empty()) {
+        const std::string themePath = themesDir + "/" + cfg.themeName + ".ini";
+        if (auto scheme = ColorScheme::loadFromFile(themePath)) {
+            cfg.textColour = scheme->foreground;
+            cfg.bgColour   = scheme->background;
+            if (scheme->hasPalette)
+                cfg.ansiColors = scheme->ansiColors;
+        }
+    }
+
     return cfg;
+}
+
+void AppConfig::save(const std::string& configPath) const
+{
+    std::ofstream f(configPath, std::ios::trunc);
+    if (!f.is_open()) return;
+
+    f << "[Appearance]\n"
+      << "ColorTheme=" << themeName  << "\n"
+      << "FontFamily=" << fontFamily << "\n"
+      << "Padding="    << padding    << "\n"
+      << "\n"
+      << "[Behavior]\n"
+      << "Encoding=" << encoding << "\n"
+      << "\n"
+      << "[Panel]\n"
+      << "Columns="      << columns      << "\n"
+      << "Rows="         << rows         << "\n"
+      << "FontSize="     << fontSize     << "\n"
+      << "PtyLineWidth=" << ptyLineWidth << "\n"
+      << "\n"
+      << "[Terminal]\n"
+      << "GeometryPresets=";
+
+    for (std::size_t i = 0; i < geometryPresets.size(); ++i) {
+        if (i) f << ",";
+        f << geometryPresets[i].cols << "x" << geometryPresets[i].rows;
+    }
+
+    f << "\n\n"
+      << "[Session]\n"
+      << "DefaultWorkingDir="   << defaultWorkingDir  << "\n"
+      << "DefaultEnvFile="      << defaultEnvFilePath << "\n"
+      << "DefaultLoginShell="   << (defaultLoginShell  ? "true" : "false") << "\n"
+      << "AutoRestoreSession="  << (autoRestoreSession ? "true" : "false") << "\n"
+      << "SessionSaveInterval=" << sessionSaveInterval << "\n";
+
+    for (std::size_t i = 0; i < defaultEnvVars.size(); ++i) {
+        f << "EnvVar" << i << "Key="   << defaultEnvVars[i].key   << "\n"
+          << "EnvVar" << i << "Value=" << defaultEnvVars[i].value << "\n";
+    }
 }

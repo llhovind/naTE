@@ -35,7 +35,12 @@ public:
     wxMenu* GetEditMenu() const { return m_editMenu; }
 
     // Called by App after UIManager construction to wire session/wrap mode calls.
-    void SetUIManager(ui::UIManager* ui) { m_uiManager = ui; }
+    // Also appends the Preferences item to the Edit menu (which UIManager
+    // has already populated by this point).
+    void SetUIManager(ui::UIManager* ui);
+
+    // Called by App::ApplyPreferences to keep the frame's config copy current.
+    void UpdateConfig(const AppConfig& cfg) { m_cfg = cfg; }
 
     // Called by UIManager to keep the wrap mode menu check in sync.
     void SyncwrapModeMenuItem(bool checked);
@@ -81,6 +86,8 @@ private:
     void OnToggleBroadcast(wxCommandEvent&);
     void OnWindowMenuItem(wxCommandEvent& evt);
     void OnWindowSessionMenuItem(wxCommandEvent& evt);
+
+    void OnPreferences(wxCommandEvent&);
 
     // Stub handlers — display "Not yet implemented" until wired up.
     void NotYetImplemented();

@@ -156,6 +156,10 @@ public:
     // Current viewport size of the active session; nullopt when none is active.
     std::optional<GeometryPreset> GetActiveGeometry() const;
 
+    // Replaces the stored config so subsequently created tiles and panels pick
+    // up the new appearance settings.
+    void UpdateConfig(const AppConfig& cfg) { cfg_ = cfg; }
+
 
 private:
     // -------------------------------------------------------------------------

@@ -18,13 +18,24 @@ static int QueryScrollbarThickness()
 }
 
 static constexpr int kResizeDebounceMs = 80;
-static constexpr int kInnerPad         = 4;   // px inset between content and panel/scrollbar edges
+
+static wxFont BuildFont(const AppConfig& cfg)
+{
+    if (!cfg.fontFamily.empty()) {
+        wxFont f(cfg.fontSize, wxFONTFAMILY_TELETYPE,
+                 wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL,
+                 false, wxString::FromUTF8(cfg.fontFamily));
+        if (f.IsOk()) return f;
+    }
+    return wxFont(cfg.fontSize, wxFONTFAMILY_TELETYPE,
+                  wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+}
 
 TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
                              unsigned short cols, unsigned short rows)
     : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE | wxWANTS_CHARS),
       m_cfg(cfg),
-      m_font(cfg.fontSize, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL),
+      m_font(BuildFont(cfg)),
       m_sbThick(QueryScrollbarThickness()),
       resizeTimer_(this),
       m_selScrollTimer_(this)
@@ -53,8 +64,8 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
 
     SetBackgroundColour(wxColour(cfg.bgColour.r, cfg.bgColour.g, cfg.bgColour.b));
     SetBackgroundStyle(wxBG_STYLE_PAINT);
-    SetMinClientSize({cols  * m_charSize.x + m_sbThick + 2 * kInnerPad,
-                      rows  * m_charSize.y + m_sbThick + 2 * kInnerPad});
+    SetMinClientSize({cols  * m_charSize.x + m_sbThick + 2 * m_cfg.padding,
+                      rows  * m_charSize.y + m_sbThick + 2 * m_cfg.padding});
 
     Bind(wxEVT_PAINT,      &TerminalPanel::OnPaint,          this);
     Bind(wxEVT_SIZE,       &TerminalPanel::OnSize,           this);
@@ -86,8 +97,8 @@ void TerminalPanel::SetDocLayout(::DocLayout* docLayout)
 wxSize TerminalPanel::ViewportChars() const
 {
     const wxSize sz = GetClientSize();
-    return {std::max(1, (sz.x - m_sbThick - 2 * kInnerPad) / m_charSize.x),
-            std::max(1, (sz.y - m_sbThick - 2 * kInnerPad) / m_charSize.y)};
+    return {std::max(1, (sz.x - m_sbThick - 2 * m_cfg.padding) / m_charSize.x),
+            std::max(1, (sz.y - m_sbThick - 2 * m_cfg.padding) / m_charSize.y)};
 }
 
 void TerminalPanel::SetSearchBar(SearchBar* bar)
@@ -188,7 +199,7 @@ void TerminalPanel::OnDocumentUpdate()
     const int w  = GetClientSize().x;
     for (int r = 0; r < (int)dirty.rows.size(); ++r) {
         if (dirty.rows[r])
-            RefreshRect(wxRect(0, r * ch + kInnerPad, w, ch), false);
+            RefreshRect(wxRect(0, r * ch + m_cfg.padding, w, ch), false);
     }
     Update();
 }
@@ -234,8 +245,8 @@ void TerminalPanel::OnResizeTimer(wxTimerEvent&)
 
 wxSize TerminalPanel::ComputeRequiredPanelSize(unsigned short cols, unsigned short rows) const
 {
-    return { static_cast<int>(cols) * m_charSize.x + m_sbThick + 2 * kInnerPad,
-             static_cast<int>(rows) * m_charSize.y + m_sbThick + 2 * kInnerPad };
+    return { static_cast<int>(cols) * m_charSize.x + m_sbThick + 2 * m_cfg.padding,
+             static_cast<int>(rows) * m_charSize.y + m_sbThick + 2 * m_cfg.padding };
 }
 
 void TerminalPanel::OnScroll(wxScrollEvent& e)
@@ -309,8 +320,8 @@ void TerminalPanel::SetBroadcastCursorState(bool modeActive, bool inGroup)
 std::pair<int, int> TerminalPanel::PixelToViewportChar(wxPoint px) const
 {
     const wxSize view = ViewportChars();
-    const int col = std::clamp((px.x - kInnerPad) / m_charSize.x, 0, view.x - 1);
-    const int row = std::clamp((px.y - kInnerPad) / m_charSize.y, 0, view.y - 1);
+    const int col = std::clamp((px.x - m_cfg.padding) / m_charSize.x, 0, view.x - 1);
+    const int row = std::clamp((px.y - m_cfg.padding) / m_charSize.y, 0, view.y - 1);
     return {row, col};
 }
 
@@ -395,10 +406,10 @@ void TerminalPanel::OnSelScrollTimer(wxTimerEvent&)
     }
 
     const wxSize clientSz = GetClientSize();
-    const int    top      = kInnerPad;
-    const int    bottom   = clientSz.y - m_sbThick - kInnerPad;
-    const int    left     = kInnerPad;
-    const int    right    = clientSz.x - m_sbThick - kInnerPad;
+    const int    top      = m_cfg.padding;
+    const int    bottom   = clientSz.y - m_sbThick - m_cfg.padding;
+    const int    left     = m_cfg.padding;
+    const int    right    = clientSz.x - m_sbThick - m_cfg.padding;
 
     bool scrolled = false;
 
@@ -551,30 +562,13 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
     // Indices 16–231: 6×6×6 colour cube (xterm-256 formula).
     // Indices 232–255: 24-step greyscale ramp.
     auto resolveColour = [this](int index, bool isFg) -> wxColour {
-        static const wxColour kAnsi16[16] = {
-            {  0,   0,   0},  //  0 black
-            {170,   0,   0},  //  1 red
-            {  0, 170,   0},  //  2 green
-            {170, 170,   0},  //  3 yellow
-            {  0,   0, 170},  //  4 blue
-            {170,   0, 170},  //  5 magenta
-            {  0, 170, 170},  //  6 cyan
-            {170, 170, 170},  //  7 white
-            { 85,  85,  85},  //  8 bright black
-            {255,  85,  85},  //  9 bright red
-            { 85, 255,  85},  // 10 bright green
-            {255, 255,  85},  // 11 bright yellow
-            { 85,  85, 255},  // 12 bright blue
-            {255,  85, 255},  // 13 bright magenta
-            { 85, 255, 255},  // 14 bright cyan
-            {255, 255, 255},  // 15 bright white
-        };
         if (index < 0) {
             const Rgb& c = isFg ? m_cfg.textColour : m_cfg.bgColour;
             return wxColour(c.r, c.g, c.b);
         }
         if (index < 16) {
-            return kAnsi16[index];
+            const Rgb& c = m_cfg.ansiColors[index];
+            return wxColour(c.r, c.g, c.b);
         }
         if (index < 232) {
             const int n = index - 16;
@@ -594,15 +588,15 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
     // Clip row iteration to the damaged region so that RefreshRect() calls
     // from OnDocumentUpdate only repaint the rows that actually changed.
     const wxRect clip     = GetUpdateClientRect();
-    const int firstRow    = std::max(0, (clip.y - kInnerPad) / ch);
-    const int lastRow     = std::min(view.y, (clip.GetBottom() - kInnerPad) / ch + 1);
+    const int firstRow    = std::max(0, (clip.y - m_cfg.padding) / ch);
+    const int lastRow     = std::min(view.y, (clip.GetBottom() - m_cfg.padding) / ch + 1);
 
     // GetRenderedLine(r) is viewport-relative: 0 = topmost visible line.
     // It returns an empty RenderedLine (no text, no cursor) once past the
     // end of the document, so we stop early when the document is short.
     for (int r = firstRow; r < lastRow; ++r) {
         const RenderedLine row = docLayout_->GetRenderedLine(r);
-        const int rowY = r * ch + kInnerPad;
+        const int rowY = r * ch + m_cfg.padding;
 
         // Batch consecutive characters that share the same style into a single
         // DrawText call.  This reduces draw calls from O(cols) to O(style-runs),
@@ -618,7 +612,7 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
             runStr.reserve(static_cast<size_t>(end - start));
             for (int c = start; c < end; ++c)
                 runStr += static_cast<wchar_t>(row.text[c]);
-            dc.DrawText(wxString(runStr), start * cw + kInnerPad, rowY);
+            dc.DrawText(wxString(runStr), start * cw + m_cfg.padding, rowY);
         };
 
         for (int col = 1; col < textLen; ++col) {
@@ -630,7 +624,7 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
         flushRun(runStart, textLen);
 
         if (row.hasCursor) {
-            const int cx = row.cursorCol * cw + kInnerPad;
+            const int cx = row.cursorCol * cw + m_cfg.padding;
             const int cy = rowY;
             if (m_inBroadcast_ || (m_hasFocus_ && !m_broadcastModeActive_)) {
                 dc.SetPen(*wxTRANSPARENT_PEN);

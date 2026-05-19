@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <fstream>
 #include "config/Config.h"
+#include "config/ColorScheme.h"
 
 namespace {
 
@@ -17,9 +18,51 @@ struct TempIni {
     std::string stdPath() const { return path.string(); }
 };
 
+// A temporary directory that holds a small set of theme files for tests that
+// exercise theme resolution.
+struct TempThemeDir {
+    std::filesystem::path dir;
+
+    TempThemeDir() {
+        dir = std::filesystem::temp_directory_path() / "nate_test_themes";
+        std::filesystem::create_directories(dir);
+
+        std::ofstream(dir / "solarized-dark.ini")
+            << "[Meta]\nName=Solarized Dark\n\n"
+            << "[Colors]\nForeground=147,161,161\nBackground=0,43,54\n\n"
+            << "[Palette]\n"
+            << "base00=002b36\nbase01=073642\nbase02=586e75\nbase03=657b83\n"
+            << "base04=839496\nbase05=93a1a1\nbase06=eee8d5\nbase07=fdf6e3\n"
+            << "base08=dc322f\nbase09=cb4b16\nbase0A=b58900\nbase0B=859900\n"
+            << "base0C=2aa198\nbase0D=268bd2\nbase0E=6c71c4\nbase0F=d33682\n";
+
+        std::ofstream(dir / "solarized-light.ini")
+            << "[Meta]\nName=Solarized Light\n\n"
+            << "[Colors]\nForeground=88,110,117\nBackground=253,246,227\n\n"
+            << "[Palette]\n"
+            << "base00=fdf6e3\nbase01=eee8d5\nbase02=93a1a1\nbase03=839496\n"
+            << "base04=657b83\nbase05=586e75\nbase06=073642\nbase07=002b36\n"
+            << "base08=dc322f\nbase09=cb4b16\nbase0A=b58900\nbase0B=859900\n"
+            << "base0C=2aa198\nbase0D=268bd2\nbase0E=6c71c4\nbase0F=d33682\n";
+    }
+    ~TempThemeDir() { std::filesystem::remove_all(dir); }
+
+    std::string stdPath() const { return dir.string(); }
+};
+
 const AppConfig kDefaults;
 
+// Solarized colour constants for test assertions.
+constexpr Rgb kSolDarkFg  { 147, 161, 161 };  // base05 of Solarized Dark
+constexpr Rgb kSolDarkBg  {   0,  43,  54 };  // base00
+constexpr Rgb kSolLightFg {  88, 110, 117 };  // base05 of Solarized Light
+constexpr Rgb kSolLightBg { 253, 246, 227 };  // base00
+
 } // namespace
+
+// ---------------------------------------------------------------------------
+// Basic load / defaults
+// ---------------------------------------------------------------------------
 
 TEST_CASE("given missing file when AppConfig loaded then returns defaults") {
     const auto cfg = AppConfig::load("/nonexistent/path/config.ini");
@@ -31,40 +74,28 @@ TEST_CASE("given missing file when AppConfig loaded then returns defaults") {
     REQUIRE(cfg.bgColour   == kDefaults.bgColour);
 }
 
-TEST_CASE("given valid ini when AppConfig loaded then all values are read") {
+TEST_CASE("given valid ini when AppConfig loaded then panel values are read") {
     const TempIni ini{
         "[Panel]\n"
         "Columns=100\nRows=40\nFontSize=14\n"
-        "[Colors]\n"
-        "TextR=255\nTextG=128\nTextB=0\n"
-        "BgR=20\nBgG=30\nBgB=40\n"
     };
-
     const auto cfg = AppConfig::load(ini.stdPath());
-
-    REQUIRE(cfg.columns   == 100);
-    REQUIRE(cfg.rows      == 40);
-    REQUIRE(cfg.fontSize  == 14);
-    REQUIRE(cfg.textColour == (Rgb{255, 128, 0}));
-    REQUIRE(cfg.bgColour   == (Rgb{20, 30, 40}));
+    REQUIRE(cfg.columns  == 100);
+    REQUIRE(cfg.rows     == 40);
+    REQUIRE(cfg.fontSize == 14);
 }
 
 TEST_CASE("given partial ini when AppConfig loaded then unspecified values remain defaults") {
     const TempIni ini{"[Panel]\nColumns=132\n"};
-
     const auto cfg = AppConfig::load(ini.stdPath());
-
     REQUIRE(cfg.columns  == 132);
     REQUIRE(cfg.rows     == kDefaults.rows);
     REQUIRE(cfg.fontSize == kDefaults.fontSize);
-    REQUIRE(cfg.bgColour  == kDefaults.bgColour);
 }
 
 TEST_CASE("given empty ini when AppConfig loaded then returns defaults") {
     const TempIni ini{""};
-
     const auto cfg = AppConfig::load(ini.stdPath());
-
     REQUIRE(cfg.columns   == kDefaults.columns);
     REQUIRE(cfg.rows      == kDefaults.rows);
     REQUIRE(cfg.fontSize  == kDefaults.fontSize);
@@ -143,4 +174,339 @@ TEST_CASE("given ini without [Session] section when loaded then session defaults
     REQUIRE(cfg.defaultEnvFilePath.empty());
     REQUIRE(cfg.defaultLoginShell == false);
     REQUIRE(cfg.defaultEnvVars.empty());
+}
+
+// ---------------------------------------------------------------------------
+// [Appearance] — theme resolution
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given default AppConfig then themeName is solarized-dark and colors are Solarized Dark fallback")
+{
+    const AppConfig cfg;
+    REQUIRE(cfg.themeName  == "solarized-dark");
+    REQUIRE(cfg.textColour == kSolDarkFg);
+    REQUIRE(cfg.bgColour   == kSolDarkBg);
+}
+
+TEST_CASE("given ini with ColorTheme=solarized-dark and themes dir when loaded then colors are Solarized Dark")
+{
+    const TempIni      ini{"[Appearance]\nColorTheme=solarized-dark\n"};
+    const TempThemeDir themes;
+    const auto cfg = AppConfig::load(ini.stdPath(), themes.stdPath());
+    REQUIRE(cfg.themeName  == "solarized-dark");
+    REQUIRE(cfg.textColour == kSolDarkFg);
+    REQUIRE(cfg.bgColour   == kSolDarkBg);
+}
+
+TEST_CASE("given ini with ColorTheme=solarized-light and themes dir when loaded then colors are Solarized Light")
+{
+    const TempIni      ini{"[Appearance]\nColorTheme=solarized-light\n"};
+    const TempThemeDir themes;
+    const auto cfg = AppConfig::load(ini.stdPath(), themes.stdPath());
+    REQUIRE(cfg.themeName  == "solarized-light");
+    REQUIRE(cfg.textColour == kSolLightFg);
+    REQUIRE(cfg.bgColour   == kSolLightBg);
+}
+
+TEST_CASE("given ini with legacy ColorTheme=SolarizedDark when loaded then stem is normalised")
+{
+    const TempIni      ini{"[Appearance]\nColorTheme=SolarizedDark\n"};
+    const TempThemeDir themes;
+    const auto cfg = AppConfig::load(ini.stdPath(), themes.stdPath());
+    REQUIRE(cfg.themeName  == "solarized-dark");
+    REQUIRE(cfg.textColour == kSolDarkFg);
+}
+
+TEST_CASE("given ini with legacy ColorTheme=SolarizedLight when loaded then stem is normalised")
+{
+    const TempIni      ini{"[Appearance]\nColorTheme=SolarizedLight\n"};
+    const TempThemeDir themes;
+    const auto cfg = AppConfig::load(ini.stdPath(), themes.stdPath());
+    REQUIRE(cfg.themeName  == "solarized-light");
+    REQUIRE(cfg.textColour == kSolLightFg);
+}
+
+TEST_CASE("given ini with unknown theme name when loaded then fallback colors are used")
+{
+    const TempIni      ini{"[Appearance]\nColorTheme=nonexistent-theme\n"};
+    const TempThemeDir themes;
+    const auto cfg = AppConfig::load(ini.stdPath(), themes.stdPath());
+    REQUIRE(cfg.themeName  == "nonexistent-theme");
+    REQUIRE(cfg.textColour == kDefaults.textColour);
+    REQUIRE(cfg.bgColour   == kDefaults.bgColour);
+}
+
+TEST_CASE("given ini with [Appearance] FontFamily and Padding when loaded then values are set")
+{
+    const TempIni ini{"[Appearance]\nFontFamily=Fira Code\nPadding=8\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.fontFamily == "Fira Code");
+    REQUIRE(cfg.padding    == 8);
+}
+
+TEST_CASE("given ini with [Behavior] Encoding when loaded then encoding is set")
+{
+    const TempIni ini{"[Behavior]\nEncoding=UTF-8\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.encoding == "UTF-8");
+}
+
+TEST_CASE("given AppConfig when saved and reloaded with themes dir then all fields round-trip")
+{
+    const TempThemeDir themes;
+
+    AppConfig original;
+    original.themeName  = "solarized-light";
+    original.fontFamily = "Inconsolata";
+    original.padding    = 6;
+    original.encoding   = "UTF-8";
+    original.fontSize   = 14;
+    original.columns    = 100;
+    original.rows       = 40;
+
+    const auto savePath = (std::filesystem::temp_directory_path()
+                           / "nate_test_roundtrip.ini").string();
+    original.save(savePath);
+
+    const auto loaded = AppConfig::load(savePath, themes.stdPath());
+    std::filesystem::remove(savePath);
+
+    REQUIRE(loaded.themeName  == "solarized-light");
+    REQUIRE(loaded.textColour == kSolLightFg);
+    REQUIRE(loaded.bgColour   == kSolLightBg);
+    REQUIRE(loaded.fontFamily == "Inconsolata");
+    REQUIRE(loaded.padding    == 6);
+    REQUIRE(loaded.encoding   == "UTF-8");
+    REQUIRE(loaded.fontSize   == 14);
+    REQUIRE(loaded.columns    == 100);
+    REQUIRE(loaded.rows       == 40);
+}
+
+TEST_CASE("given ini with solarized-dark theme when loaded then ansiColors are set from palette")
+{
+    const TempIni      ini{"[Appearance]\nColorTheme=solarized-dark\n"};
+    const TempThemeDir themes;
+    const auto cfg = AppConfig::load(ini.stdPath(), themes.stdPath());
+
+    // ANSI 0 = base00 = #002b36
+    CHECK(cfg.ansiColors[0] == (Rgb{  0,  43,  54}));
+    // ANSI 1 = base08 = #dc322f
+    CHECK(cfg.ansiColors[1] == (Rgb{220,  50,  47}));
+    // ANSI 7 = base05 = #93a1a1
+    CHECK(cfg.ansiColors[7] == (Rgb{147, 161, 161}));
+    // ANSI 15 = base07 = #fdf6e3
+    CHECK(cfg.ansiColors[15] == (Rgb{253, 246, 227}));
+}
+
+// ---------------------------------------------------------------------------
+// ColorScheme — load / save / scan
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given valid theme file when loaded then fields are parsed correctly")
+{
+    const auto path = (std::filesystem::temp_directory_path()
+                       / "nate_test_theme.ini").string();
+    std::ofstream{path}
+        << "[Meta]\nName=My Theme\n\n"
+        << "[Colors]\nForeground=10,20,30\nBackground=40,50,60\n";
+
+    const auto scheme = ColorScheme::loadFromFile(path);
+    std::filesystem::remove(path);
+
+    REQUIRE(scheme.has_value());
+    CHECK(scheme->stem        == "nate_test_theme");
+    CHECK(scheme->displayName == "My Theme");
+    CHECK(scheme->foreground  == (Rgb{10, 20, 30}));
+    CHECK(scheme->background  == (Rgb{40, 50, 60}));
+}
+
+TEST_CASE("given theme file without [Meta] Name when loaded then stem is used as display name")
+{
+    const auto path = (std::filesystem::temp_directory_path()
+                       / "nate_unnamed.ini").string();
+    std::ofstream{path} << "[Colors]\nForeground=1,2,3\nBackground=4,5,6\n";
+
+    const auto scheme = ColorScheme::loadFromFile(path);
+    std::filesystem::remove(path);
+
+    REQUIRE(scheme.has_value());
+    CHECK(scheme->displayName == "nate_unnamed");
+}
+
+TEST_CASE("given missing theme file when loaded then nullopt is returned")
+{
+    const auto scheme = ColorScheme::loadFromFile("/nonexistent/theme.ini");
+    REQUIRE_FALSE(scheme.has_value());
+}
+
+TEST_CASE("given theme file with no color entries when loaded then nullopt is returned")
+{
+    const auto path = (std::filesystem::temp_directory_path()
+                       / "nate_empty_theme.ini").string();
+    std::ofstream{path} << "[Meta]\nName=Empty\n";
+
+    const auto scheme = ColorScheme::loadFromFile(path);
+    std::filesystem::remove(path);
+
+    REQUIRE_FALSE(scheme.has_value());
+}
+
+TEST_CASE("given ColorScheme when saved then file round-trips correctly")
+{
+    ColorScheme original;
+    original.stem        = "my-theme";
+    original.displayName = "My Theme";
+    original.foreground  = {10, 20, 30};
+    original.background  = {40, 50, 60};
+
+    const auto path = (std::filesystem::temp_directory_path()
+                       / "my-theme.ini").string();
+    original.saveToFile(path);
+    const auto loaded = ColorScheme::loadFromFile(path);
+    std::filesystem::remove(path);
+
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->displayName == "My Theme");
+    CHECK(loaded->foreground  == (Rgb{10, 20, 30}));
+    CHECK(loaded->background  == (Rgb{40, 50, 60}));
+}
+
+TEST_CASE("given themes directory when scanned then all valid themes are returned sorted")
+{
+    const TempThemeDir themes;
+    const auto result = ColorScheme::scanDirectory(themes.stdPath());
+
+    REQUIRE(result.size() == 2);
+    // scanDirectory sorts by displayName; "Solarized Dark" < "Solarized Light"
+    CHECK(result[0].stem        == "solarized-dark");
+    CHECK(result[0].displayName == "Solarized Dark");
+    CHECK(result[1].stem        == "solarized-light");
+    CHECK(result[1].displayName == "Solarized Light");
+}
+
+TEST_CASE("given empty directory when scanned then empty vector is returned")
+{
+    const auto dir = std::filesystem::temp_directory_path() / "nate_empty_themes";
+    std::filesystem::create_directories(dir);
+    const auto result = ColorScheme::scanDirectory(dir.string());
+    std::filesystem::remove_all(dir);
+    REQUIRE(result.empty());
+}
+
+// ---------------------------------------------------------------------------
+// ColorScheme — base16 [Palette] support
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given theme file with [Palette] section when loaded then palette is parsed")
+{
+    const auto path = (std::filesystem::temp_directory_path()
+                       / "nate_test_palette.ini").string();
+    std::ofstream{path}
+        << "[Meta]\nName=Palette Theme\n\n"
+        << "[Palette]\n"
+        << "base00=002b36\nbase01=073642\nbase02=586e75\nbase03=657b83\n"
+        << "base04=839496\nbase05=93a1a1\nbase06=eee8d5\nbase07=fdf6e3\n"
+        << "base08=dc322f\nbase09=cb4b16\nbase0A=b58900\nbase0B=859900\n"
+        << "base0C=2aa198\nbase0D=268bd2\nbase0E=6c71c4\nbase0F=d33682\n";
+
+    const auto scheme = ColorScheme::loadFromFile(path);
+    std::filesystem::remove(path);
+
+    REQUIRE(scheme.has_value());
+    CHECK(scheme->hasPalette == true);
+    CHECK(scheme->palette[0]  == (Rgb{  0,  43,  54}));  // base00
+    CHECK(scheme->palette[5]  == (Rgb{147, 161, 161}));  // base05
+    CHECK(scheme->palette[8]  == (Rgb{220,  50,  47}));  // base08
+    CHECK(scheme->palette[15] == (Rgb{211,  54, 130}));  // base0F
+}
+
+TEST_CASE("given theme file with [Palette] when loaded then fg/bg derived from base05/base00")
+{
+    const auto path = (std::filesystem::temp_directory_path()
+                       / "nate_test_palette_fgbg.ini").string();
+    std::ofstream{path}
+        << "[Palette]\n"
+        << "base00=002b36\nbase01=073642\nbase02=586e75\nbase03=657b83\n"
+        << "base04=839496\nbase05=93a1a1\nbase06=eee8d5\nbase07=fdf6e3\n"
+        << "base08=dc322f\nbase09=cb4b16\nbase0A=b58900\nbase0B=859900\n"
+        << "base0C=2aa198\nbase0D=268bd2\nbase0E=6c71c4\nbase0F=d33682\n";
+
+    const auto scheme = ColorScheme::loadFromFile(path);
+    std::filesystem::remove(path);
+
+    REQUIRE(scheme.has_value());
+    CHECK(scheme->background == (Rgb{  0,  43,  54}));  // base00
+    CHECK(scheme->foreground == (Rgb{147, 161, 161}));  // base05
+}
+
+TEST_CASE("given theme file with [Palette] and [Colors] when loaded then Colors overrides derived fg/bg")
+{
+    const auto path = (std::filesystem::temp_directory_path()
+                       / "nate_test_palette_override.ini").string();
+    std::ofstream{path}
+        << "[Colors]\nForeground=10,20,30\nBackground=40,50,60\n\n"
+        << "[Palette]\n"
+        << "base00=002b36\nbase01=073642\nbase02=586e75\nbase03=657b83\n"
+        << "base04=839496\nbase05=93a1a1\nbase06=eee8d5\nbase07=fdf6e3\n"
+        << "base08=dc322f\nbase09=cb4b16\nbase0A=b58900\nbase0B=859900\n"
+        << "base0C=2aa198\nbase0D=268bd2\nbase0E=6c71c4\nbase0F=d33682\n";
+
+    const auto scheme = ColorScheme::loadFromFile(path);
+    std::filesystem::remove(path);
+
+    REQUIRE(scheme.has_value());
+    CHECK(scheme->foreground == (Rgb{10, 20, 30}));
+    CHECK(scheme->background == (Rgb{40, 50, 60}));
+}
+
+TEST_CASE("given ColorScheme with palette when saved then palette round-trips correctly")
+{
+    ColorScheme original;
+    original.stem        = "pal-theme";
+    original.displayName = "Pal Theme";
+    original.foreground  = {147, 161, 161};
+    original.background  = {  0,  43,  54};
+    original.hasPalette  = true;
+    original.palette[0]  = {  0,  43,  54};
+    original.palette[5]  = {147, 161, 161};
+    original.palette[8]  = {220,  50,  47};
+    original.palette[15] = {253, 246, 227};
+
+    const auto path = (std::filesystem::temp_directory_path()
+                       / "pal-theme.ini").string();
+    original.saveToFile(path);
+    const auto loaded = ColorScheme::loadFromFile(path);
+    std::filesystem::remove(path);
+
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->hasPalette  == true);
+    CHECK(loaded->palette[0]  == (Rgb{  0,  43,  54}));
+    CHECK(loaded->palette[5]  == (Rgb{147, 161, 161}));
+    CHECK(loaded->palette[8]  == (Rgb{220,  50,  47}));
+    CHECK(loaded->palette[15] == (Rgb{253, 246, 227}));
+}
+
+TEST_CASE("given ColorScheme with palette when computeAnsiColors called then ANSI mapping is correct")
+{
+    ColorScheme scheme;
+    scheme.hasPalette = true;
+    // Set only the slots we care about for the canonical mapping.
+    scheme.palette[0]  = {  0,  43,  54};  // base00 → ANSI 0
+    scheme.palette[3]  = {101, 123, 131};  // base03 → ANSI 8
+    scheme.palette[5]  = {147, 161, 161};  // base05 → ANSI 7
+    scheme.palette[7]  = {253, 246, 227};  // base07 → ANSI 15
+    scheme.palette[8]  = {220,  50,  47};  // base08 → ANSI 1, 9
+    scheme.palette[10] = {181, 137,   0};  // base0A → ANSI 3, 11
+    scheme.palette[11] = {133, 153,   0};  // base0B → ANSI 2, 10
+    scheme.palette[12] = { 42, 161, 152};  // base0C → ANSI 6, 14
+    scheme.palette[13] = { 38, 139, 210};  // base0D → ANSI 4, 12
+    scheme.palette[14] = {108, 113, 196};  // base0E → ANSI 5, 13
+    scheme.computeAnsiColors();
+
+    CHECK(scheme.ansiColors[0]  == (Rgb{  0,  43,  54}));  // black  = base00
+    CHECK(scheme.ansiColors[1]  == (Rgb{220,  50,  47}));  // red    = base08
+    CHECK(scheme.ansiColors[7]  == (Rgb{147, 161, 161}));  // white  = base05
+    CHECK(scheme.ansiColors[8]  == (Rgb{101, 123, 131}));  // br.blk = base03
+    CHECK(scheme.ansiColors[9]  == (Rgb{220,  50,  47}));  // br.red = base08
+    CHECK(scheme.ansiColors[15] == (Rgb{253, 246, 227}));  // br.wht = base07
 }

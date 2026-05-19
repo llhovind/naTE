@@ -96,6 +96,7 @@ set(SOURCES
     src/app/App.cpp
     src/input/InputRouter.cpp
     src/config/Config.cpp
+    src/config/ColorScheme.cpp
     src/document/Document.cpp
     src/session/Connection.cpp
     src/session/InputEncoder.cpp
@@ -116,6 +117,7 @@ set(SOURCES
     src/ui/RemoteFileBrowserDialog.cpp
     src/ui/SnapshotManagerDialog.cpp
     src/ui/GeometryDialog.cpp
+    src/ui/PreferencesDialog.cpp
     src/ui/TerminalPanel.cpp
     src/ui/TerminalTile.cpp
     src/ui/WrapControl.cpp
@@ -159,7 +161,9 @@ add_subdirectory(tests)
 add_custom_command(TARGET naTE POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_SOURCE_DIR}/config.ini $<TARGET_FILE_DIR:naTE>/config.ini
-    COMMENT "Copying config.ini"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/themes $<TARGET_FILE_DIR:naTE>/themes
+    COMMENT "Copying config.ini and themes/"
 )
 
 # ---------------------------------------------------------------------------
@@ -183,6 +187,9 @@ endif()
 
 install(FILES config.ini
     DESTINATION ${CMAKE_INSTALL_DATADIR}/nate
+)
+install(DIRECTORY themes/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/nate/themes
 )
 
 # ---------------------------------------------------------------------------

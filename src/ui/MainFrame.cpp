@@ -3,6 +3,8 @@
 #include "ui/ConnectionFactory.h"
 #include "ui/ConnectionManagerDialog.h"
 #include "ui/GeometryDialog.h"
+#include "ui/PreferencesDialog.h"
+#include "config/ColorScheme.h"
 #include "ui/SnapshotManagerDialog.h"
 #include "ui/UIManager.h"
 #include "db/ConnectionProfile.h"
@@ -39,6 +41,7 @@ namespace {
     constexpr int ID_SAVE_AS_SNAPSHOT        = wxID_HIGHEST + 29;
     constexpr int ID_OPEN_SNAPSHOT           = wxID_HIGHEST + 30;
     constexpr int ID_ABOUT                   = wxID_HIGHEST + 31;
+    constexpr int ID_PREFERENCES             = wxID_HIGHEST + 32;
 
     static bool IsValidSnapshotName(const std::string& s)
     {
@@ -161,6 +164,29 @@ MainFrame::MainFrame(const AppConfig& cfg,
     SetBackgroundColour(wxColour(40, 40, 40));
     SetSizer(new wxBoxSizer(wxVERTICAL));
     SetClientSize(wxSize(1200, 700));
+}
+
+void MainFrame::SetUIManager(ui::UIManager* ui)
+{
+    m_uiManager = ui;
+    m_editMenu->AppendSeparator();
+    m_editMenu->Append(ID_PREFERENCES, "Preferences...\tCtrl+,");
+    Bind(wxEVT_MENU, &MainFrame::OnPreferences, this, ID_PREFERENCES);
+}
+
+void MainFrame::OnPreferences(wxCommandEvent&)
+{
+    auto* app = static_cast<App*>(wxTheApp);
+    const auto themes = ColorScheme::scanDirectory(app->GetThemesDir());
+    PreferencesDialog dlg(this, m_cfg, themes);
+    if (dlg.ShowModal() != wxID_OK) return;
+    // ApplyPreferences saves to disk and propagates to all windows via UpdateConfig.
+    app->ApplyPreferences(dlg.GetResult());
+    wxMessageBox(
+        "Preferences saved.\n\n"
+        "New connections will use the updated settings.\n"
+        "Existing terminals will apply changes when reopened.",
+        "Preferences", wxOK | wxICON_INFORMATION, this);
 }
 
 void MainFrame::OnClose(wxCloseEvent& event)

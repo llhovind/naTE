@@ -61,6 +61,16 @@ public:
     // as the first restored window if it currently has no sessions.
     void RestoreSessionsFromMenu(MainFrame* callerFrame);
 
+    // Returns the absolute path to config.ini used at startup.
+    const std::string& GetConfigPath() const { return m_configPath; }
+
+    // Returns the user themes directory (~/.nate/themes).
+    const std::string& GetThemesDir() const { return m_themesDir; }
+
+    // Persists updated config to disk and replaces the in-memory copy.
+    // New connections and tiles will use the updated settings.
+    void ApplyPreferences(const AppConfig& cfg);
+
     // Named snapshot operations (Save Session As… / Open Saved Snapshot…).
     bool                     HasNamedSnapshots()                           const;
     std::vector<std::string> GetNamedSnapshotNames()                       const;
@@ -90,6 +100,8 @@ private:
     term::session::RestoreState BuildCurrentState() const;
 
     AppConfig                                           m_cfg;
+    std::string                                         m_configPath;
+    std::string                                         m_themesDir;
     std::unique_ptr<term::db::ConnectionStore>          m_connectionStore;
     std::unique_ptr<term::session::SessionManager>      m_sessionManager;
     std::unique_ptr<term::db::ISessionRestoreRepository> m_restoreRepo;

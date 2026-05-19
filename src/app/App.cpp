@@ -1,4 +1,5 @@
 #include "app/App.h"
+#include "config/ColorScheme.h"
 #include "db/JsonConnectionRepository.h"
 #include "db/JsonNamedSnapshotRepository.h"
 #include "db/JsonSessionRestoreRepository.h"
@@ -75,7 +76,33 @@ bool App::OnInit() {
 
     const wxString exeDir =
         wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath();
-    m_cfg = AppConfig::load((exeDir + wxFileName::GetPathSeparator() + "config.ini").ToStdString());
+
+    m_configPath = NateDir() + "/config.ini";
+    m_themesDir  = NateDir() + "/themes";
+    mkdir(m_themesDir.c_str(), 0700);
+
+    // Seed user config from factory default on first run.
+    if (!std::ifstream(m_configPath).is_open()) {
+        const std::string factoryPath =
+            (exeDir + wxFileName::GetPathSeparator() + "config.ini").ToStdString();
+        if (std::ifstream src{factoryPath, std::ios::binary}) {
+            std::ofstream dst{m_configPath, std::ios::binary | std::ios::trunc};
+            dst << src.rdbuf();
+        }
+    }
+
+    // Copy any factory theme files not yet present in the user themes dir.
+    {
+        const std::string factoryThemes =
+            (exeDir + wxFileName::GetPathSeparator() + "themes").ToStdString();
+        for (const auto& scheme : ColorScheme::scanDirectory(factoryThemes)) {
+            const std::string dst = m_themesDir + "/" + scheme.stem + ".ini";
+            if (!std::ifstream(dst).is_open())
+                scheme.saveToFile(dst);
+        }
+    }
+
+    m_cfg = AppConfig::load(m_configPath, m_themesDir);
 
     const std::string connectionsPath = [] {
         const char* home = std::getenv("HOME");
@@ -273,6 +300,17 @@ int App::OnExit()
     ReleaseInstanceId(m_instanceId);
     libssh2_exit();
     return wxApp::OnExit();
+}
+
+void App::ApplyPreferences(const AppConfig& cfg)
+{
+    m_cfg = cfg;
+    m_cfg.save(m_configPath);
+
+    for (auto& wc : m_windows) {
+        if (wc->uiManager) wc->uiManager->UpdateConfig(m_cfg);
+        if (wc->frame)     wc->frame->UpdateConfig(m_cfg);
+    }
 }
 
 bool App::HasRestoreSnapshot() const
