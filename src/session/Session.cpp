@@ -41,7 +41,8 @@ Session::Session(const Connection& conn,
                  AppSessionDefaults appDefaults,
                  unsigned short ptyLineWidth,
                  bool wrapMode,
-                 std::function<void(bool)> onAltScreenChanged)
+                 std::function<void(bool)> onAltScreenChanged,
+                 std::function<void(bool)> onX11FwdChanged)
     : transport_(MakeTransport(*this, conn, wrapMode ? cols : ptyLineWidth, rows, cols, appDefaults)),
       main_doc_(std::make_unique<MainScreenDocument>(scrollbackLines)),
       alt_doc_(std::make_unique<AltScreenDocument>(rows, cols)),
@@ -51,6 +52,7 @@ Session::Session(const Connection& conn,
       onDisconnect_(std::move(onDisconnect)),
       onError_(std::move(onError)),
       onAltScreenChanged_(std::move(onAltScreenChanged)),
+      onX11FwdChanged_(std::move(onX11FwdChanged)),
       lastCols_(cols),
       lastRows_(rows),
       ptyLineWidth_(ptyLineWidth)
@@ -109,6 +111,17 @@ void Session::OnDisconnect()
 {
     if (onDisconnect_)
         onDisconnect_();
+}
+
+void Session::OnX11StateChanged(bool active)
+{
+    if (onX11FwdChanged_)
+        onX11FwdChanged_(active);
+}
+
+void Session::RequestX11Forwarding()
+{
+    transport_->RequestX11Forwarding();
 }
 
 void Session::ResetTerminal(bool clearScrollback)
@@ -245,6 +258,12 @@ bool Session::SupportsFileTransfer() const
 {
     return transport_->SupportsFileTransfer();
 }
+
+bool Session::SupportsX11Forwarding() const
+{
+    return transport_->SupportsX11Forwarding();
+}
+
 
 std::string Session::GetTransportRemoteDescription() const
 {

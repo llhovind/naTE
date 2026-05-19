@@ -12,6 +12,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 // Forward-declare libssh2 types to keep this header libssh2-free.
 struct _LIBSSH2_SESSION;
@@ -46,10 +47,15 @@ public:
     // Enqueues a PTY resize; worker applies it inside the read/write loop.
     void Resize(unsigned short cols, unsigned short rows) override;
 
+    // Enqueues an X11 forwarding request; worker calls libssh2_channel_request_x11_ex
+    // inside the read/write loop. No-op if already active or not an SSH channel.
+    void RequestX11Forwarding() override;
+
     // Enqueues a remote vpcolumns file update; worker writes it via exec channel.
     void OnViewportColsChanged(unsigned short cols) override;
 
-    bool        SupportsFileTransfer() const noexcept override { return true; }
+    bool        SupportsFileTransfer()   const noexcept override { return true; }
+    bool        SupportsX11Forwarding()  const noexcept override { return true; }
     std::string GetRemoteDescription() const override;
     void        SendFile(const std::string& localPath,
                         const std::string& remoteDir,
@@ -61,7 +67,17 @@ public:
                     const std::string& remotePath,
                     std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone) override;
 
+    // Called by the static X11 callback when the server opens an X11 channel.
+    // Worker-thread-only; accesses x11_channels_ without locking.
+    void AcceptX11Channel(_LIBSSH2_CHANNEL* ch);
+
 private:
+    struct X11Channel {
+        _LIBSSH2_CHANNEL* channel  = nullptr;
+        int               local_fd = -1;   // socket connected to local X11 server
+        bool              closed   = false;
+    };
+
     // Worker thread — owns all libssh2 calls.
     void WorkerThread();
 
@@ -77,6 +93,8 @@ private:
     bool AuthViaPrivateKey();
     bool OpenChannel();
     bool RequestPty();
+    bool SetupX11Forwarding();
+    bool StartShell();
     void ReadWriteLoop();
 
     // Drains write_queue_ without holding queue_mutex_.
@@ -97,6 +115,16 @@ private:
     // Opens a short-lived exec channel and writes cols to vpcolumns_remote_path_.
     // Must be called only from the worker thread.
     void RemoteWriteVpCols(unsigned short cols);
+
+    // Connects a Unix or TCP socket to the local X11 server (parses $DISPLAY).
+    // Returns the socket fd on success, -1 if no display is available.
+    // Worker-thread-only.
+    static int ConnectToLocalX11Display();
+
+    // Proxy data between all active X11 channels and their local X11 sockets.
+    // Appends to pfds the local X11 socket FDs for poll(); caller provides pfds
+    // with the SSH socket already at index 0.
+    void ServiceX11Channels(char* buf, size_t bufLen);
 
     // Opens a fresh libssh2 session, authenticates, and transfers one file via
     // SCP. Runs on a detached thread; delivers result via wxTheApp->CallAfter.
@@ -131,6 +159,11 @@ private:
 
     std::atomic<bool>           running_{false};
     std::thread                 worker_;
+
+    // X11 forwarding — worker-thread-only after Start().
+    std::vector<X11Channel>     x11_channels_;
+    std::atomic<bool>           x11_request_pending_{false};
+    bool                        x11_active_ = false;
 
     // Shared between UI thread (Write/Resize/OnViewportColsChanged) and worker.
     std::mutex                  queue_mutex_;

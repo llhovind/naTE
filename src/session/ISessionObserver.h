@@ -25,6 +25,10 @@ public:
     // Fired whenever the session enters or exits alt-screen (both program-driven
     // and user-forced via ForceAltScreen).
     virtual void OnAltScreenChanged(SessionId, bool /*active*/) {}
+
+    // Session thread — implementations MUST CallAfter before touching wx.
+    // Fired once when X11 forwarding becomes active on the SSH channel.
+    virtual void OnX11FwdChanged(SessionId, bool /*active*/) {}
 };
 
 } // namespace term::session

@@ -1,5 +1,6 @@
 #include "transport/SshTransport.h"
 #include "transport/EnvUtils.h"
+#include "transport/X11Utils.h"
 
 #include <libssh2.h>
 
@@ -26,6 +27,18 @@ namespace {
 
 constexpr char kTermType[]     = "xterm-256color";
 constexpr int  kPollTimeoutMs  = 100;
+
+// libssh2 X11 channel-open callback — invoked on the worker thread from within
+// libssh2_channel_read() when the server opens a reverse X11 channel.
+// abstract is the session's user pointer, which WorkerThread sets to `this`.
+void X11OpenCallback(LIBSSH2_SESSION* /*session*/,
+                     LIBSSH2_CHANNEL* channel,
+                     char* /*shost*/, int /*sport*/,
+                     void** abstract)
+{
+    auto* self = static_cast<term::transport::SshTransport*>(*abstract);
+    self->AcceptX11Channel(channel);
+}
 
 std::string GenerateVpColumnsFilePath() {
     static std::atomic<int> counter{0};
@@ -94,6 +107,11 @@ void SshTransport::Resize(unsigned short cols, unsigned short rows)
     resize_pending_ = true;
 }
 
+void SshTransport::RequestX11Forwarding()
+{
+    x11_request_pending_.store(true);
+}
+
 void SshTransport::OnViewportColsChanged(unsigned short cols)
 {
     std::lock_guard<std::mutex> lk(queue_mutex_);
@@ -117,8 +135,19 @@ void SshTransport::WorkerThread()
       }
     }
     if (!Authenticate())                return;
-    if (!OpenChannel())                 return;
-    if (!RequestPty())                  return;
+
+    // Register X11 callback and store `this` in the session abstract slot so
+    // AcceptX11Channel() can be reached from the static callback.
+    *libssh2_session_abstract(session_) = this;
+    libssh2_session_callback_set(session_, LIBSSH2_CALLBACK_X11,
+                                 reinterpret_cast<void*>(X11OpenCallback));
+    if (!OpenChannel())    return;
+    if (!RequestPty())     return;
+    // X11 forwarding request MUST precede shell start; the server sets $DISPLAY
+    // in the shell's environment only if x11-req arrives before SSH_MSG_CHANNEL_REQUEST
+    // for "shell"/"exec".
+    if (desc_.x11Forwarding) SetupX11Forwarding();
+    if (!StartShell())     return;
 
     if (desc_.keepaliveSeconds > 0)
         libssh2_keepalive_config(session_, 1, static_cast<unsigned>(desc_.keepaliveSeconds));
@@ -466,7 +495,6 @@ bool SshTransport::OpenChannel()
 
 bool SshTransport::RequestPty()
 {
-    // Request a PTY.
     int rc;
     while ((rc = libssh2_channel_request_pty_ex(
                 channel_,
@@ -482,91 +510,124 @@ bool SshTransport::RequestPty()
                     "SSH: PTY request failed — " + LastSshError());
         return false;
     }
+    return true;
+}
 
+// SSH protocol requires x11-req to be sent BEFORE starting the shell so the
+// server can set $DISPLAY in the shell's environment.  Returns true on success;
+// on failure logs to the terminal and returns false (session continues without X11).
+bool SshTransport::SetupX11Forwarding()
+{
+    const char* disp = ::getenv("DISPLAY");
+    const auto [authName, authCookie] = term::transport::ReadXauthorityData(disp);
+    const char* authNamePtr   = authName.empty()   ? nullptr : authName.c_str();
+    const char* authCookiePtr = authCookie.empty() ? nullptr : authCookie.c_str();
+
+    int rc;
+    while ((rc = libssh2_channel_x11_req_ex(
+                    channel_, 0, authNamePtr, authCookiePtr, 0))
+           == LIBSSH2_ERROR_EAGAIN) {
+        if (!running_) return false;
+        PollUntilReady(kPollTimeoutMs);
+    }
+    if (rc != 0) {
+        target_.OnData("\r\n\x1b[33mX11 forwarding: server denied the request "
+                       "(check X11Forwarding in sshd_config).\x1b[0m\r\n");
+        return false;
+    }
+    x11_active_ = true;
+    target_.OnX11StateChanged(true);
+    return true;
+}
+
+// Builds and launches the effective remote command (env vars + working dir +
+// shell or remoteCommand).  Must be called after RequestPty() and, if X11
+// forwarding is wanted, after SetupX11Forwarding().
+bool SshTransport::StartShell()
+{
     // Build and launch the effective remote command, injecting env vars and
     // working directory via the command string. libssh2_channel_setenv_ex() is
     // not used because AcceptEnv is disabled on most servers.
+
+    // Env file path is local — expand tilde against the local HOME.
+    const char* localHomeRaw = getenv("HOME");
+    const std::string localHome = localHomeRaw ? localHomeRaw : "";
+
+    const std::string& rawEnvFile = sessionInit_.envFilePath.empty()
+        ? appDefaults_.envFilePath
+        : sessionInit_.envFilePath;
+    const std::vector<term::session::EnvVar> fileVars =
+        ParseEnvFile(ExpandTilde(rawEnvFile, localHome));
+
+    // Merge: app defaults → file vars → profile vars (profile wins)
+    std::vector<term::session::EnvVar> merged = appDefaults_.envVars;
+    for (const auto& ev : fileVars)              merged.push_back(ev);
+    for (const auto& ev : sessionInit_.envVars)  merged.push_back(ev);
+
+    // Build a POSIX-safe export prefix: single-quote each value,
+    // escaping any embedded single quotes as '\''.
+    std::string envPrefix;
+    for (const auto& ev : merged) {
+        if (ev.key.empty()) continue;
+        std::string escaped = ev.value;
+        for (size_t pos = 0; (pos = escaped.find('\'', pos)) != std::string::npos; pos += 4)
+            escaped.replace(pos, 1, "'\\''");
+        envPrefix += "export " + ev.key + "='" + escaped + "'; ";
+    }
+
+    // Inject NATE_VPCOLUMNS_FILE and write the initial viewport width so
+    // the shell can read the actual display columns even when COLUMNS is
+    // inflated by wrap-OFF mode.
     {
-        // Env file path is local — expand tilde against the local HOME.
-        const char* localHomeRaw = getenv("HOME");
-        const std::string localHome = localHomeRaw ? localHomeRaw : "";
+        std::string escaped = vpcolumns_remote_path_;
+        for (size_t p = 0; (p = escaped.find('\'', p)) != std::string::npos; p += 4)
+            escaped.replace(p, 1, "'\\''");
+        envPrefix += "export NATE_VPCOLUMNS_FILE='" + escaped + "'; ";
+        envPrefix += "printf '%d\\n' " + std::to_string(viewportCols_)
+                   + " > '" + escaped + "'; ";
+    }
 
-        const std::string& rawEnvFile = sessionInit_.envFilePath.empty()
-            ? appDefaults_.envFilePath
-            : sessionInit_.envFilePath;
-        const std::vector<term::session::EnvVar> fileVars =
-            ParseEnvFile(ExpandTilde(rawEnvFile, localHome));
+    // Resolve remote working directory. Do NOT expand ~ locally — the path
+    // lives on the remote machine. Replace a leading ~ with $HOME so the
+    // remote shell expands it correctly inside double quotes.
+    const std::string& rawDir = sessionInit_.workingDir.empty()
+        ? appDefaults_.workingDir
+        : sessionInit_.workingDir;
+    std::string sshDir = rawDir;
+    if (!sshDir.empty() && sshDir[0] == '~')
+        sshDir = "$HOME" + sshDir.substr(1);
 
-        // Merge: app defaults → file vars → profile vars (profile wins)
-        std::vector<term::session::EnvVar> merged = appDefaults_.envVars;
-        for (const auto& ev : fileVars)              merged.push_back(ev);
-        for (const auto& ev : sessionInit_.envVars)  merged.push_back(ev);
+    // Assemble: [exports] [cd "dir" &&] [remoteCommand | exec $SHELL]
+    std::string effectiveCmd = desc_.remoteCommand;
+    if (!sshDir.empty()) {
+        effectiveCmd = envPrefix + "cd \"" + sshDir + "\" && "
+                     + (effectiveCmd.empty() ? "exec $SHELL" : effectiveCmd);
+    } else if (!envPrefix.empty()) {
+        effectiveCmd = envPrefix + (effectiveCmd.empty() ? "exec $SHELL" : effectiveCmd);
+    }
+    // If both are empty, effectiveCmd remains "" → channel_shell() below.
 
-        // Build a POSIX-safe export prefix: single-quote each value,
-        // escaping any embedded single quotes as '\''.
-        std::string envPrefix;
-        for (const auto& ev : merged) {
-            if (ev.key.empty()) continue;
-            std::string escaped = ev.value;
-            for (size_t pos = 0; (pos = escaped.find('\'', pos)) != std::string::npos; pos += 4)
-                escaped.replace(pos, 1, "'\\''");
-            envPrefix += "export " + ev.key + "='" + escaped + "'; ";
+    int rc;
+    const bool hasCommand = !effectiveCmd.empty();
+    if (hasCommand) {
+        while ((rc = libssh2_channel_exec(channel_, effectiveCmd.c_str()))
+               == LIBSSH2_ERROR_EAGAIN) {
+            if (!running_) return false;
+            PollUntilReady(kPollTimeoutMs);
         }
-
-        // Inject NATE_VPCOLUMNS_FILE and write the initial viewport width so
-        // the shell can read the actual display columns even when COLUMNS is
-        // inflated by wrap-OFF mode.
-        {
-            std::string escaped = vpcolumns_remote_path_;
-            for (size_t p = 0; (p = escaped.find('\'', p)) != std::string::npos; p += 4)
-                escaped.replace(p, 1, "'\\''");
-            envPrefix += "export NATE_VPCOLUMNS_FILE='" + escaped + "'; ";
-            envPrefix += "printf '%d\\n' " + std::to_string(viewportCols_)
-                       + " > '" + escaped + "'; ";
+    } else {
+        while ((rc = libssh2_channel_shell(channel_)) == LIBSSH2_ERROR_EAGAIN) {
+            if (!running_) return false;
+            PollUntilReady(kPollTimeoutMs);
         }
+    }
 
-        // Resolve remote working directory. Do NOT expand ~ locally — the path
-        // lives on the remote machine. Replace a leading ~ with $HOME so the
-        // remote shell expands it correctly inside double quotes.
-        const std::string& rawDir = sessionInit_.workingDir.empty()
-            ? appDefaults_.workingDir
-            : sessionInit_.workingDir;
-        std::string sshDir = rawDir;
-        if (!sshDir.empty() && sshDir[0] == '~')
-            sshDir = "$HOME" + sshDir.substr(1);
-
-        // Assemble: [exports] [cd "dir" &&] [remoteCommand | exec $SHELL]
-        std::string effectiveCmd = desc_.remoteCommand;
-        if (!sshDir.empty()) {
-            effectiveCmd = envPrefix + "cd \"" + sshDir + "\" && "
-                         + (effectiveCmd.empty() ? "exec $SHELL" : effectiveCmd);
-        } else if (!envPrefix.empty()) {
-            effectiveCmd = envPrefix + (effectiveCmd.empty() ? "exec $SHELL" : effectiveCmd);
-        }
-        // If both are empty, effectiveCmd remains "" → channel_shell() below.
-
-        // Start the shell or effective command.
-        const bool hasCommand = !effectiveCmd.empty();
-        if (hasCommand) {
-            while ((rc = libssh2_channel_exec(channel_, effectiveCmd.c_str()))
-                   == LIBSSH2_ERROR_EAGAIN) {
-                if (!running_) return false;
-                PollUntilReady(kPollTimeoutMs);
-            }
-        } else {
-            while ((rc = libssh2_channel_shell(channel_)) == LIBSSH2_ERROR_EAGAIN) {
-                if (!running_) return false;
-                PollUntilReady(kPollTimeoutMs);
-            }
-        }
-
-        if (rc != 0) {
-            NotifyError(TransportError::Category::Protocol,
-                        "SSH: could not start " +
-                        std::string(hasCommand ? "command" : "shell") +
-                        " — " + LastSshError());
-            return false;
-        }
+    if (rc != 0) {
+        NotifyError(TransportError::Category::Protocol,
+                    "SSH: could not start " +
+                    std::string(hasCommand ? "command" : "shell") +
+                    " — " + LastSshError());
+        return false;
     }
     return true;
 }
@@ -583,46 +644,111 @@ void SshTransport::ReadWriteLoop()
     int secondsToNext = desc_.keepaliveSeconds > 0 ? desc_.keepaliveSeconds : 0;
 
     while (running_) {
-        // Determine poll timeout: shorter of kPollTimeoutMs and next keepalive.
-        int pollMs = kPollTimeoutMs;
-        if (secondsToNext > 0)
-            pollMs = std::min(pollMs, secondsToNext * 1000);
+        // --- Service pending mid-session X11 forwarding request -----------
+        // Note: OpenSSH sshd requires x11-req before the shell starts.
+        // Mid-session requests (after shell is running) will be denied.
+        // The reliable path is desc_.x11Forwarding = true, handled in WorkerThread
+        // before StartShell().  We keep the pending flag so the UI gets feedback.
+        if (x11_request_pending_.exchange(false) && !x11_active_) {
+            target_.OnData("\r\n\x1b[33mX11 forwarding: cannot be enabled after the "
+                           "session has started. Enable \"Forward X11\" in the "
+                           "connection profile and reconnect.\x1b[0m\r\n");
+        }
 
-        // Poll the socket for readability (or writability if libssh2 requests it).
-        int dir = libssh2_session_block_directions(session_);
-        pollfd pfd{};
-        pfd.fd     = sock_fd_;
-        pfd.events = ((dir & LIBSSH2_SESSION_BLOCK_INBOUND)  ? POLLIN  : 0) |
-                     ((dir & LIBSSH2_SESSION_BLOCK_OUTBOUND) ? POLLOUT : 0);
-        if (pfd.events == 0) pfd.events = POLLIN; // always at least wait for data
-        ::poll(&pfd, 1, pollMs);
+        // --- Build pollfd array -------------------------------------------
+        // [0] = SSH socket; [1..N] = open local X11 socket FDs.
+        {
+            const int dir = libssh2_session_block_directions(session_);
+            const short sshEvents = static_cast<short>(
+                ((dir & LIBSSH2_SESSION_BLOCK_INBOUND)  ? POLLIN  : 0) |
+                ((dir & LIBSSH2_SESSION_BLOCK_OUTBOUND) ? POLLOUT : 0));
 
-        if (!running_) break;
+            std::vector<pollfd> pfds;
+            pfds.reserve(1 + x11_channels_.size());
+            pfds.push_back({sock_fd_, sshEvents ? sshEvents : static_cast<short>(POLLIN), 0});
+            for (const auto& x : x11_channels_)
+                pfds.push_back({x.local_fd, POLLIN, 0});
 
-        // Read available data from the channel.
+            int pollMs = kPollTimeoutMs;
+            if (secondsToNext > 0)
+                pollMs = std::min(pollMs, secondsToNext * 1000);
+
+            ::poll(pfds.data(), static_cast<nfds_t>(pfds.size()), pollMs);
+
+            if (!running_) break;
+
+            // Service local X11 sockets → SSH X11 channels (data from local X server).
+            for (size_t i = 0; i < x11_channels_.size(); ++i) {
+                auto& x = x11_channels_[i];
+                if (x.closed) continue;
+                const short rev = pfds[1 + i].revents;
+                if (rev & (POLLHUP | POLLERR)) { x.closed = true; continue; }
+                if (!(rev & POLLIN))             continue;
+
+                ssize_t n = ::read(x.local_fd, buf, kReadBuf);
+                if (n <= 0) { x.closed = true; continue; }
+
+                // Best-effort write to the SSH X11 channel; EAGAIN = partial send is OK.
+                libssh2_channel_write(x.channel, buf, static_cast<size_t>(n));
+            }
+        }
+
+        // --- Read from main shell channel ---------------------------------
         ssize_t nRead;
         while ((nRead = libssh2_channel_read(channel_, buf, kReadBuf)) > 0)
             target_.OnData(std::string(buf, static_cast<size_t>(nRead)));
 
-        if (nRead == 0 || libssh2_channel_eof(channel_)) {
-            // Remote side closed the channel.
+        if (nRead == 0 || libssh2_channel_eof(channel_))
             break;
-        }
-        if (nRead != LIBSSH2_ERROR_EAGAIN && nRead < 0) {
-            // Unexpected read error; exit the loop and let the teardown fire OnDisconnect.
+        if (nRead != LIBSSH2_ERROR_EAGAIN && nRead < 0)
             break;
+
+        // --- Service SSH X11 channels → local X11 sockets ----------------
+        // X11 channel data travels over sock_fd_, serviced after the main read.
+        for (auto& x : x11_channels_) {
+            if (x.closed) continue;
+            ssize_t n;
+            while ((n = libssh2_channel_read(x.channel, buf, kReadBuf)) > 0) {
+                if (::write(x.local_fd, buf, static_cast<size_t>(n)) < 0) {
+                    x.closed = true;
+                    break;
+                }
+            }
+            if (!x.closed &&
+                (n == 0 || (n < 0 && n != LIBSSH2_ERROR_EAGAIN) ||
+                 libssh2_channel_eof(x.channel)))
+                x.closed = true;
         }
 
-        // Drain pending writes and apply any pending resize.
+        // Sweep closed X11 channels.
+        x11_channels_.erase(
+            std::remove_if(x11_channels_.begin(), x11_channels_.end(),
+                [](const X11Channel& x) {
+                    if (!x.closed) return false;
+                    ::close(x.local_fd);
+                    libssh2_channel_free(x.channel);
+                    return true;
+                }),
+            x11_channels_.end());
+
+        // --- Drain writes + resize + vpcolumns ---------------------------
         DrainWriteQueue();
 
-        // Keep-alive.
+        // --- Keepalive ---------------------------------------------------
         if (desc_.keepaliveSeconds > 0) {
             int next = 0;
             libssh2_keepalive_send(session_, &next);
             secondsToNext = next;
         }
     }
+
+cleanup_x11:
+    // Close all X11 channels cleanly before session teardown.
+    for (auto& x : x11_channels_) {
+        ::close(x.local_fd);
+        libssh2_channel_free(x.channel);
+    }
+    x11_channels_.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -715,6 +841,30 @@ void SshTransport::RemoteWriteVpCols(unsigned short cols)
     char discard[64];
     while (libssh2_channel_read(ch, discard, sizeof(discard)) > 0) {}
     libssh2_channel_free(ch);
+}
+
+// ---------------------------------------------------------------------------
+// X11 forwarding helpers
+// ---------------------------------------------------------------------------
+
+// Called from the static X11OpenCallback on the worker thread when the server
+// opens a new X11 channel.  Connects a local socket to $DISPLAY and records
+// the pair for bidirectional proxying in the read/write loop.
+void SshTransport::AcceptX11Channel(LIBSSH2_CHANNEL* ch)
+{
+    const int fd = ConnectToLocalX11Display();
+    if (fd < 0) {
+        // No local X server; reject the channel so the remote app gets an error.
+        libssh2_channel_free(ch);
+        return;
+    }
+    x11_channels_.push_back({ch, fd, false});
+}
+
+// Delegates to ConnectToX11Display() using the current process's $DISPLAY.
+int SshTransport::ConnectToLocalX11Display()
+{
+    return ConnectToX11Display(::getenv("DISPLAY"));
 }
 
 // ---------------------------------------------------------------------------

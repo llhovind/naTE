@@ -11,6 +11,7 @@
 #include "ui/TileActions.h"
 #include "ui/WrapControl.h"
 #include "ui/AltScrControl.h"
+#include "ui/X11Control.h"
 
 class TerminalPanel;
 class TabStrip;
@@ -82,6 +83,13 @@ public:
     // and program-driven via PTY escape sequences).
     void SetAltScrActive(bool active);
 
+    // Called by UIManager when X11 forwarding becomes active on this tile's session.
+    void SetX11Active(bool active);
+
+    // Show or hide the X11 forwarding indicator. active is only meaningful when
+    // visible=true and reflects whether forwarding is currently established.
+    void ShowX11Control(bool visible, bool active = false);
+
     // -------------------------------------------------------------------------
     // Callbacks (wired once per tile by UIManager when the tile is created)
     // -------------------------------------------------------------------------
@@ -145,6 +153,7 @@ private:
     TabStrip*         tabStrip_    = nullptr;  // wx-child-owned by titleBar_
     WrapControl*      wrapCtrl_    = nullptr;  // wx-child-owned by titleBar_
     AltScrControl*    altScrCtrl_  = nullptr;  // wx-child-owned by titleBar_
+    X11Control*       x11Ctrl_     = nullptr;  // wx-child-owned by titleBar_
     wxPanel*          contentArea_ = nullptr;  // wx-child-owned; panels live here
 
     std::vector<TabEntry>      tabs_;

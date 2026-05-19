@@ -49,6 +49,7 @@ public:
                         const term::transport::TransportError& error) override;
     void OnSessionDestroyed(term::session::SessionId) override;
     void OnAltScreenChanged(term::session::SessionId, bool active) override;
+    void OnX11FwdChanged(term::session::SessionId, bool active) override;
 
     // -------------------------------------------------------------------------
     // App-initiated session subscription
@@ -184,6 +185,7 @@ private:
         TerminalPanel*                    panel    = nullptr;
         std::unique_ptr<SearchController> searchCtrl;
         std::unique_ptr<SessionNotifier>  notifier;
+        bool                              x11Active = false;
     };
 
     static constexpr int kEditMenuCopy            = wxID_HIGHEST + 10;

@@ -66,6 +66,13 @@ SessionId SessionManager::CreateSession(const Connection& conn,
         [uiObs, id](bool active) {
             if (auto* obs = uiObs->load(std::memory_order_acquire))
                 obs->OnAltScreenChanged(id, active);
+        },
+        // Capture a raw pointer to the record: it is heap-allocated via unique_ptr
+        // so its address is stable even after sessions_.emplace moves the unique_ptr.
+        [uiObs, id, recPtr = rec.get()](bool active) {
+            recPtr->x11ForwardingActive.store(active, std::memory_order_release);
+            if (auto* obs = uiObs->load(std::memory_order_acquire))
+                obs->OnX11FwdChanged(id, active);
         });
 
     sessions_.emplace(id, std::move(rec));
@@ -250,10 +257,28 @@ void SessionManager::ForceAltScreen(SessionId id, bool on)
         rec->session->ForceAltScreen(on);
 }
 
+void SessionManager::RequestX11Forwarding(SessionId id)
+{
+    if (SessionRecord* rec = FindRecord(id))
+        rec->session->RequestX11Forwarding();
+}
+
 bool SessionManager::SupportsFileTransfer(SessionId id) const
 {
     const SessionRecord* rec = FindRecord(id);
     return rec && rec->session->SupportsFileTransfer();
+}
+
+bool SessionManager::SupportsX11Forwarding(SessionId id) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    return rec && rec->session->SupportsX11Forwarding();
+}
+
+bool SessionManager::IsX11ForwardingActive(SessionId id) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    return rec && rec->x11ForwardingActive.load(std::memory_order_acquire);
 }
 
 std::string SessionManager::GetRemoteDescription(SessionId id) const

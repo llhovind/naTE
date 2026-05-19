@@ -90,6 +90,7 @@ inline json SerialiseTransport(const term::session::TransportDesc& transport)
                 {"connectTimeoutSec",  desc.connectTimeoutSec},
                 {"remoteCommand",      desc.remoteCommand},
                 {"compress",           desc.compress},
+                {"x11Forwarding",      desc.x11Forwarding},
             };
         } else if constexpr (std::is_same_v<T, term::session::SerialDesc>) {
             return json{
@@ -127,6 +128,7 @@ inline term::session::TransportDesc DeserialiseTransport(const json& j)
         d.connectTimeoutSec = j.value("connectTimeoutSec", 10);
         d.remoteCommand     = j.value("remoteCommand",     std::string{});
         d.compress          = j.value("compress",          false);
+        d.x11Forwarding     = j.value("x11Forwarding",     false);
         // password and passphrase are never stored — left at default ""
         return d;
     }

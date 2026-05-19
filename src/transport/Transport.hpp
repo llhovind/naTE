@@ -23,11 +23,15 @@ public:
     virtual void Resize(unsigned short cols, unsigned short rows) = 0;
     virtual void OnViewportColsChanged(unsigned short /*cols*/) {}
 
+    // Enqueues an X11 forwarding request on the active channel; no-op for non-SSH transports.
+    virtual void RequestX11Forwarding() {}
+
     // Returns the current working directory of the transport's child process, if
     // accessible. PTY transports read this from /proc/<pid>/cwd; all others return "".
     virtual std::string GetCurrentWorkingDir() const { return {}; }
 
-    virtual bool SupportsFileTransfer() const noexcept { return false; }
+    virtual bool SupportsFileTransfer()   const noexcept { return false; }
+    virtual bool SupportsX11Forwarding() const noexcept { return false; }
     virtual std::string GetRemoteDescription() const { return {}; }
 
     // Sends localPath into remoteDir via SCP. onDone is invoked on the UI

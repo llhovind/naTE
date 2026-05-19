@@ -104,6 +104,7 @@ set(SOURCES
     src/session/SessionManager.cpp
     src/ui/ConnectionFactory.cpp
     src/transport/EnvUtils.cpp
+    src/transport/X11Utils.cpp
     src/transport/LoopbackTransport.cpp
     src/transport/PtyTransport.cpp
     src/transport/SerialTransport.cpp
@@ -122,6 +123,7 @@ set(SOURCES
     src/ui/TerminalTile.cpp
     src/ui/WrapControl.cpp
     src/ui/AltScrControl.cpp
+    src/ui/X11Control.cpp
     src/ui/TabStrip.cpp
     src/ui/TerminalGrid.cpp
     src/ui/DocLayout.cpp

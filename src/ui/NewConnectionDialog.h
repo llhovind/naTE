@@ -77,6 +77,7 @@ struct SshParams {
     int            connectTimeoutSec = 10;
     std::string    remoteCommand;
     bool           compress          = false;
+    bool           x11Forwarding     = false;
     bool           wrapMode          = false;
     unsigned short columnWidth       = 80;
     unsigned short rows              = 24;
@@ -194,6 +195,7 @@ private:
     wxSpinCtrl*      m_keepaliveCtrl   = nullptr;
     wxTextCtrl*      m_remoteCmdCtrl   = nullptr;
     wxCheckBox*      m_cbCompress      = nullptr;
+    wxCheckBox*      m_cbX11Fwd        = nullptr;
     wxTextCtrl*      m_sshWorkDirCtrl  = nullptr;
     wxButton*        m_sshWorkDirBtn   = nullptr;
 

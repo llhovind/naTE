@@ -146,6 +146,16 @@ void UIManager::OnAltScreenChanged(term::session::SessionId id, bool active)
     });
 }
 
+void UIManager::OnX11FwdChanged(term::session::SessionId id, bool active)
+{
+    frame_->CallAfter([this, id, active]() {
+        if (SessionUI* sui = FindSessionUI(id); sui && sui->tile) {
+            sui->x11Active = active;
+            sui->tile->SetX11Active(active);
+        }
+    });
+}
+
 // ---------------------------------------------------------------------------
 // App-initiated session subscription
 // ---------------------------------------------------------------------------
@@ -221,6 +231,11 @@ void UIManager::TakeSession(term::session::SessionId     id,
     // Sync the tile's wrap control to the session's persisted wrap state.
     targetTile->SetWrapMode(sm_.GetDocLayout(id).GetWrapMode());
 
+    // Show the X11 indicator only when the active session is SSH-capable.
+    // Query the transport directly — the previous SessionUI (if any) was removed
+    // by ReleaseSession before TakeSession is called, so cached state is gone.
+    const bool x11Active = sm_.IsX11ForwardingActive(id);
+
     if (isNewTile) {
         grid_->AddTile(targetTile);
         ResizeFrameToFitTiles();
@@ -240,7 +255,10 @@ void UIManager::TakeSession(term::session::SessionId     id,
     sui.panel      = panel;
     sui.searchCtrl = std::move(ctrl);
     sui.notifier   = std::move(notifier);
+    sui.x11Active  = x11Active;
     sessions_.emplace(id, std::move(sui));
+
+    targetTile->ShowX11Control(sm_.SupportsX11Forwarding(id), x11Active);
 
     if (onSessionListChanged_) onSessionListChanged_();
     RequestActivate(id);
@@ -463,6 +481,7 @@ void UIManager::RequestActivate(term::session::SessionId id)
     if (ui && ui->tile) {
         grid_->SetActiveTile(ui->tile);
         ui->tile->ActivateTabById(id);  // ensure the correct tab is visible
+        ui->tile->ShowX11Control(sm_.SupportsX11Forwarding(id), ui->x11Active);
     }
 
     RefreshBroadcastVisuals();
@@ -568,6 +587,9 @@ void UIManager::OnTerminalAction(TerminalActionEvent& evt)
                 sui->tile->SetAltScrActive(newActive);
             break;
         }
+        case TerminalAction::ToggleX11Fwd:
+            // No-op: X11 forwarding is configured at connect time only.
+            break;
     }
 }
 

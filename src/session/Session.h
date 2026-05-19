@@ -32,7 +32,8 @@ public:
             AppSessionDefaults appDefaults = {},
             unsigned short ptyLineWidth = 1024,
             bool wrapMode = false,
-            std::function<void(bool)> onAltScreenChanged = {});
+            std::function<void(bool)> onAltScreenChanged = {},
+            std::function<void(bool)> onX11FwdChanged = {});
     ~Session();
 
     // Stops the transport I/O thread synchronously. Safe to call multiple
@@ -60,6 +61,7 @@ public:
     void OnData(const std::string& data) override;
     void OnError(const transport::TransportError& error) override;
     void OnDisconnect() override;
+    void OnX11StateChanged(bool active) override;
 
     // Allows SessionManager to attach a DocumentObserver to the active document.
     void AddDocumentListener(IDocumentListener* listener);
@@ -72,12 +74,17 @@ public:
     bool IsAltScreenActive() const { return altScreenActive_; }
     void ForceAltScreen(bool on);
 
+    // Enqueues an X11 forwarding request on the underlying SSH transport.
+    // No-op for non-SSH sessions.
+    void RequestX11Forwarding();
+
     void SetTopRow(int row);
     void SetViewportSize(unsigned short cols, unsigned short rows);
     void SetWrapMode(bool wrap);
 
     std::string GetCurrentWorkingDir() const;
-    bool        SupportsFileTransfer() const;
+    bool        SupportsFileTransfer()   const;
+    bool        SupportsX11Forwarding() const;
     std::string GetTransportRemoteDescription() const;
     void        SendFile(const std::string& localPath,
                         const std::string& remoteDir,
@@ -114,6 +121,7 @@ private:
     std::function<void()>                                    onDisconnect_;
     std::function<void(const transport::TransportError&)>    onError_;
     std::function<void(bool)>                                onAltScreenChanged_;
+    std::function<void(bool)>                                onX11FwdChanged_;
 
     unsigned short     lastCols_{0};
     unsigned short     lastRows_{0};

@@ -98,8 +98,11 @@ public:
     void ResetTerminal(SessionId id, bool clearScrollback);
     bool IsAltScreenActive(SessionId id) const;
     void ForceAltScreen(SessionId id, bool on);
+    void RequestX11Forwarding(SessionId id);
 
-    bool        SupportsFileTransfer(SessionId id) const;
+    bool        SupportsFileTransfer(SessionId id)   const;
+    bool        SupportsX11Forwarding(SessionId id)  const;
+    bool        IsX11ForwardingActive(SessionId id)  const;
     std::string GetRemoteDescription(SessionId id) const;
     void        SendFile(SessionId id,
                         const std::string& localPath,
@@ -140,6 +143,10 @@ private:
         // Snapshot of the Connection used to create this session; used by
         // App::SaveRestoreSnapshot to persist session state on exit.
         Connection                                       connection;
+        // Written by the worker thread (via onX11FwdChanged lambda); read by the
+        // UI thread (IsX11ForwardingActive). Must be atomic — SessionRecord is
+        // heap-allocated so its address is stable across map rehash.
+        std::atomic<bool>                                x11ForwardingActive{false};
     };
 
     SessionRecord*       FindRecord(SessionId id);

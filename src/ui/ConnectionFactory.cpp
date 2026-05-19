@@ -38,6 +38,7 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
             d.keepaliveSeconds  = p.keepaliveSeconds;
             d.remoteCommand     = p.remoteCommand;
             d.compress          = p.compress;
+            d.x11Forwarding     = p.x11Forwarding;
             d.password          = p.password;
             d.privateKeyPath    = p.privateKeyPath;
             d.passphrase        = p.passphrase;

@@ -114,8 +114,12 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
     altScrCtrl_ = new AltScrControl(titleBar_);
     altScrCtrl_->SetClickCallback([this] { EmitTerminalAction(TerminalAction::ToggleAltScr); });
 
+    x11Ctrl_ = new X11Control(titleBar_);
+    // X11Control is a status indicator only — no click action.
+
     auto* hSizer = new wxBoxSizer(wxHORIZONTAL);
     hSizer->Add(tabStrip_, 1, wxEXPAND);
+    hSizer->Add(x11Ctrl_,    0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
     hSizer->Add(altScrCtrl_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
     hSizer->Add(wrapCtrl_,   0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
     titleBar_->SetSizer(hSizer);
@@ -383,6 +387,20 @@ void TerminalTile::SetAltScrActive(bool active)
     if (altScrCtrl_) altScrCtrl_->SetAltScrActive(active);
 }
 
+void TerminalTile::SetX11Active(bool active)
+{
+    if (x11Ctrl_) x11Ctrl_->SetX11Active(active);
+}
+
+void TerminalTile::ShowX11Control(bool visible, bool active)
+{
+    if (!x11Ctrl_) return;
+    x11Ctrl_->SetX11Active(visible && active);
+    if (x11Ctrl_->IsShown() == visible) return;
+    x11Ctrl_->Show(visible);
+    titleBar_->Layout();
+}
+
 void TerminalTile::EmitTerminalAction(TerminalAction action)
 {
     TerminalActionEvent evt(action, GetActiveSessionId());
@@ -445,6 +463,7 @@ void TerminalTile::OnShowTileMenu()
     menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         EmitTerminalAction(TerminalAction::ToggleBroadcast);
     }, broadcastItem->GetId());
+
     menu.AppendSeparator();
     auto* newWindowItem = menu.Append(wxID_ANY, "Move to New Window");
     menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {

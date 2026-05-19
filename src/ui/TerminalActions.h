@@ -9,6 +9,7 @@ enum class TerminalAction
     CloseSession,
     ToggleBroadcast, // Ctrl+click / right-click broadcast menu
     ToggleAltScr,
+    ToggleX11Fwd,
 };
 
 // Forward-declare so wxDECLARE_EVENT can reference the type before the class body.

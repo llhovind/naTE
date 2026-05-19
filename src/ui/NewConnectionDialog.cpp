@@ -338,7 +338,10 @@ NewConnectionDialog::NewConnectionDialog(
             row->Add(m_remoteCmdCtrl, 1, wxRIGHT, 12);
 
             m_cbCompress = new wxCheckBox(page, wxID_ANY, "Compress");
-            row->Add(m_cbCompress, 0, wxALIGN_CENTER_VERTICAL);
+            row->Add(m_cbCompress, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
+
+            m_cbX11Fwd = new wxCheckBox(page, wxID_ANY, "Forward X11");
+            row->Add(m_cbX11Fwd, 0, wxALIGN_CENTER_VERTICAL);
 
             sizer->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
         }
@@ -581,6 +584,7 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
             m_keepaliveCtrl->SetValue(desc.keepaliveSeconds);
             m_remoteCmdCtrl->SetValue(desc.remoteCommand);
             m_cbCompress->SetValue(desc.compress);
+            m_cbX11Fwd->SetValue(desc.x11Forwarding);
             switch (desc.authMethod) {
                 case term::session::SshAuthMethod::Password:
                     m_rbAuthPass->SetValue(true);
@@ -937,6 +941,7 @@ ConnectionParams NewConnectionDialog::GetParams() const
         p.keepaliveSeconds  = m_keepaliveCtrl->GetValue();
         p.remoteCommand     = m_remoteCmdCtrl->GetValue().ToStdString();
         p.compress          = m_cbCompress->GetValue();
+        p.x11Forwarding     = m_cbX11Fwd->GetValue();
         p.wrapMode    = wrapMode;
         p.columnWidth = cols;
         p.rows        = rows;
