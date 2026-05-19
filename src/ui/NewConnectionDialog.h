@@ -117,6 +117,7 @@ public:
     // prefill: non-null to pre-populate all fields when editing a saved profile.
     NewConnectionDialog(wxWindow* parent,
                         const std::string& defaultShell,
+                        const std::string& defaultWorkingDir,
                         const std::vector<GeometryPreset>& geometryPresets,
                         const std::vector<term::db::ConnectionProfile>& existingProfiles,
                         LaunchContext context,

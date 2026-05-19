@@ -97,7 +97,8 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
         } else if (sec == "Terminal") {
             if (key == "GeometryPresets") cfg.geometryPresets = parseGeometryPresets(val);
         } else if (sec == "Session") {
-            if      (key == "DefaultWorkingDir")   cfg.defaultWorkingDir  = val;
+            if      (key == "DefaultShell")        cfg.defaultShell       = val;
+            else if (key == "DefaultWorkingDir")   cfg.defaultWorkingDir  = val;
             else if (key == "DefaultEnvFile")      cfg.defaultEnvFilePath = val;
             else if (key == "DefaultLoginShell")   cfg.defaultLoginShell   = (val == "true" || val == "1");
             else if (key == "AutoRestoreSession")  cfg.autoRestoreSession  = (val == "true" || val == "1");
@@ -171,6 +172,7 @@ void AppConfig::save(const std::string& configPath) const
 
     f << "\n\n"
       << "[Session]\n"
+      << "DefaultShell="        << defaultShell       << "\n"
       << "DefaultWorkingDir="   << defaultWorkingDir  << "\n"
       << "DefaultEnvFile="      << defaultEnvFilePath << "\n"
       << "DefaultLoginShell="   << (defaultLoginShell  ? "true" : "false") << "\n"

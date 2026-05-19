@@ -55,7 +55,8 @@ struct AppConfig {
     std::string encoding = "UTF-8";
 
     // [Session] defaults — applied to every new session, overridable per profile
-    std::string                        defaultWorkingDir;
+    std::string                        defaultShell;        // empty = $SHELL → /bin/sh
+    std::string                        defaultWorkingDir;   // empty = inherit launcher cwd
     std::vector<term::session::EnvVar> defaultEnvVars;
     std::string                        defaultEnvFilePath;
     bool                               defaultLoginShell  = false;

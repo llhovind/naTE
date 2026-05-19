@@ -213,13 +213,14 @@ void ConnectionManagerDialog::OnSelectionChanged(wxDataViewEvent&)
 
 void ConnectionManagerDialog::OnNew(wxCommandEvent&)
 {
-    const std::string defaultShell = [] {
+    const std::string defaultShell = [&] {
+        if (!m_cfg.defaultShell.empty()) return m_cfg.defaultShell;
         const char* s = std::getenv("SHELL");
         return s ? std::string(s) : std::string("/bin/sh");
     }();
 
-    NewConnectionDialog dlg(this, defaultShell, m_cfg.geometryPresets,
-                            {}, LaunchContext::ProfileOnly);
+    NewConnectionDialog dlg(this, defaultShell, m_cfg.defaultWorkingDir,
+                            m_cfg.geometryPresets, {}, LaunchContext::ProfileOnly);
     if (dlg.ShowModal() != wxID_OK) return;
 
     const term::session::Connection conn = ui::ToConnection(dlg.GetParams());
@@ -241,13 +242,14 @@ void ConnectionManagerDialog::OnEdit(wxCommandEvent&)
                            [&](const term::db::ConnectionProfile& p){ return p.id == id; });
     if (it == profiles.end()) return;
 
-    const std::string defaultShell = [] {
+    const std::string defaultShell = [&] {
+        if (!m_cfg.defaultShell.empty()) return m_cfg.defaultShell;
         const char* s = std::getenv("SHELL");
         return s ? std::string(s) : std::string("/bin/sh");
     }();
 
-    NewConnectionDialog dlg(this, defaultShell, m_cfg.geometryPresets,
-                            {}, LaunchContext::ProfileOnly, &*it);
+    NewConnectionDialog dlg(this, defaultShell, m_cfg.defaultWorkingDir,
+                            m_cfg.geometryPresets, {}, LaunchContext::ProfileOnly, &*it);
     if (dlg.ShowModal() != wxID_OK) return;
 
     term::db::ConnectionProfile updated = *it;

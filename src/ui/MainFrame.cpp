@@ -236,12 +236,13 @@ void MainFrame::LaunchNewConnectionInTile(TerminalTile* targetTile)
 bool MainFrame::RunConnectionDialog(ui::LaunchContext context,
                                     TerminalTile* targetTile)
 {
-    const std::string defaultShell = [] {
+    const std::string defaultShell = [&] {
+        if (!m_cfg.defaultShell.empty()) return m_cfg.defaultShell;
         const char* s = std::getenv("SHELL");
         return s ? std::string(s) : std::string("/bin/sh");
     }();
 
-    ui::NewConnectionDialog dlg(this, defaultShell,
+    ui::NewConnectionDialog dlg(this, defaultShell, m_cfg.defaultWorkingDir,
                                 m_cfg.geometryPresets,
                                 m_store.GetAll(),
                                 context);

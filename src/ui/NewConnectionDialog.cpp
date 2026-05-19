@@ -54,6 +54,7 @@ namespace
 NewConnectionDialog::NewConnectionDialog(
         wxWindow* parent,
         const std::string& defaultShell,
+        const std::string& defaultWorkingDir,
         const std::vector<GeometryPreset>& geometryPresets,
         const std::vector<term::db::ConnectionProfile>& existingProfiles,
         LaunchContext context,
@@ -126,7 +127,8 @@ NewConnectionDialog::NewConnectionDialog(
             auto* dirRow = new wxBoxSizer(wxHORIZONTAL);
             dirRow->Add(new wxStaticText(page, wxID_ANY, "Working directory:"),
                         0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-            m_ptyWorkDirCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
+            m_ptyWorkDirCtrl = new wxTextCtrl(page, wxID_ANY,
+                                              wxString::FromUTF8(defaultWorkingDir),
                                               wxDefaultPosition, wxSize(160, -1));
             dirRow->Add(m_ptyWorkDirCtrl, 1, wxEXPAND | wxRIGHT, 4);
             m_ptyWorkDirBtn = new wxButton(page, ID_BTN_BROWSE_WORKDIR_PTY, "Browse...",
@@ -303,7 +305,8 @@ NewConnectionDialog::NewConnectionDialog(
             auto* dirRow = new wxBoxSizer(wxHORIZONTAL);
             dirRow->Add(new wxStaticText(page, wxID_ANY, "Working directory:"),
                         0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-            m_sshWorkDirCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
+            m_sshWorkDirCtrl = new wxTextCtrl(page, wxID_ANY,
+                                              wxString::FromUTF8(defaultWorkingDir),
                                               wxDefaultPosition, wxSize(160, -1));
             dirRow->Add(m_sshWorkDirCtrl, 1, wxEXPAND | wxRIGHT, 4);
             m_sshWorkDirBtn = new wxButton(page, ID_BTN_BROWSE_WORKDIR_SSH, "Browse...",

@@ -98,6 +98,33 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
     behPage->SetSizer(behOuter);
     nb->AddPage(behPage, "Behavior");
 
+    // ---- Session page ---------------------------------------------------------
+    auto* sesPage  = new wxPanel(nb);
+    auto* sesSizer = new wxGridBagSizer(6, 8);
+    sesSizer->SetEmptyCellSize({0, 0});
+
+    sesSizer->Add(new wxStaticText(sesPage, wxID_ANY, "Default shell:"),
+                  {0, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+    m_shellCtrl = new wxTextCtrl(sesPage, wxID_ANY,
+                                 wxString::FromUTF8(current.defaultShell),
+                                 wxDefaultPosition, {260, -1});
+    m_shellCtrl->SetHint("e.g. /bin/bash  (empty = $SHELL)");
+    sesSizer->Add(m_shellCtrl, {0, 1}, {1, 1}, wxEXPAND);
+
+    sesSizer->Add(new wxStaticText(sesPage, wxID_ANY, "Default working dir:"),
+                  {1, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+    m_workDirCtrl = new wxTextCtrl(sesPage, wxID_ANY,
+                                   wxString::FromUTF8(current.defaultWorkingDir),
+                                   wxDefaultPosition, {260, -1});
+    m_workDirCtrl->SetHint("e.g. ~  (empty = inherit launcher cwd)");
+    sesSizer->Add(m_workDirCtrl, {1, 1}, {1, 1}, wxEXPAND);
+
+    sesSizer->AddGrowableCol(1);
+    auto* sesOuter = new wxBoxSizer(wxVERTICAL);
+    sesOuter->Add(sesSizer, 1, wxEXPAND | wxALL, 12);
+    sesPage->SetSizer(sesOuter);
+    nb->AddPage(sesPage, "Session");
+
     // ---- Dialog layout --------------------------------------------------------
     auto* dlgSizer = new wxBoxSizer(wxVERTICAL);
     dlgSizer->Add(nb, 1, wxEXPAND | wxALL, 8);
@@ -137,9 +164,11 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
         result_.bgColour   = themes_[sel].background;
     }
 
-    result_.fontFamily = m_familyCtrl->GetValue().ToStdString();
-    result_.fontSize   = m_sizeCtrl->GetValue();
-    result_.padding    = m_paddingCtrl->GetValue();
+    result_.fontFamily       = m_familyCtrl->GetValue().ToStdString();
+    result_.fontSize         = m_sizeCtrl->GetValue();
+    result_.padding          = m_paddingCtrl->GetValue();
+    result_.defaultShell     = m_shellCtrl->GetValue().ToStdString();
+    result_.defaultWorkingDir = m_workDirCtrl->GetValue().ToStdString();
 
     evt.Skip();
 }
