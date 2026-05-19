@@ -9,8 +9,11 @@
 #include <variant>
 #include <vector>
 
+class wxBookCtrlEvent;
 class wxButton;
 class wxCheckBox;
+class wxCollapsiblePane;
+class wxCollapsiblePaneEvent;
 class wxComboBox;
 class wxListBox;
 class wxNotebook;
@@ -137,12 +140,15 @@ private:
     static constexpr int kTabSsh    = 1;
     static constexpr int kTabSerial = 2;
 
+    void UpdateConnectButton();
+    void OnConnectClicked(wxCommandEvent&);
+    void OnCollapsiblePaneChanged(wxCollapsiblePaneEvent&);
+    void OnTabChanged(wxBookCtrlEvent&);
+    void OnSshFieldChanged(wxCommandEvent&);
     void OnAuthMethodChanged(wxCommandEvent&);
     void OnGeometryChanged(wxCommandEvent&);
     void OnProfileSelected(wxCommandEvent&);
     void OnProfileTextChanged(wxCommandEvent&);
-    void OnOK(wxCommandEvent&);
-    // Env-var list handlers (shared across all tabs via per-tab listbox pointers)
     void OnBrowseWorkingDir(wxCommandEvent&);
     void OnAddEnvVar(wxCommandEvent&);
     void OnEditEnvVar(wxCommandEvent&);
@@ -152,9 +158,6 @@ private:
 
     void ApplyPrefill(const term::db::ConnectionProfile& profile);
 
-    // Helper: return whichever env-var listbox belongs to the currently active tab.
-    wxListBox* ActiveEnvVarList() const;
-
     // Context
     LaunchContext m_context;
 
@@ -162,6 +165,7 @@ private:
     wxComboBox*  m_profileCombo    = nullptr;  // ActiveTile / UserChoice
     wxTextCtrl*  m_profileNameCtrl = nullptr;  // ProfileOnly
     wxCheckBox*  m_cbSaveProfile   = nullptr;  // shown for ActiveTile / UserChoice only
+    wxButton*    m_connectBtn      = nullptr;  // ActiveTile / UserChoice primary action
     std::string  m_selectedProfileId;
     std::vector<term::db::ConnectionProfile> m_existingProfiles;
 
@@ -169,28 +173,14 @@ private:
     wxNotebook* m_notebook = nullptr;
 
     // PTY tab fields
-    wxTextCtrl*      m_shellCtrl         = nullptr;
-    wxTextCtrl*      m_ptyWorkDirCtrl    = nullptr;
-    wxButton*        m_ptyWorkDirBtn     = nullptr;
-    wxCheckBox*      m_cbPtyLoginShell   = nullptr;
-    wxFilePickerCtrl* m_ptyEnvFileCtrl   = nullptr;
-    wxListBox*       m_ptyEnvVarList     = nullptr;
-    wxButton*        m_ptyBtnAddEnv      = nullptr;
-    wxButton*        m_ptyBtnEditEnv     = nullptr;
-    wxButton*        m_ptyBtnRemoveEnv   = nullptr;
-
-    // SSH tab Session Init fields
-    wxTextCtrl*      m_sshWorkDirCtrl   = nullptr;
-    wxButton*        m_sshWorkDirBtn    = nullptr;
-    wxFilePickerCtrl* m_sshEnvFileCtrl  = nullptr;
-    wxListBox*       m_sshEnvVarList    = nullptr;
-    wxButton*        m_sshBtnAddEnv     = nullptr;
-    wxButton*        m_sshBtnEditEnv    = nullptr;
-    wxButton*        m_sshBtnRemoveEnv  = nullptr;
+    wxTextCtrl*  m_shellCtrl       = nullptr;
+    wxTextCtrl*  m_ptyWorkDirCtrl  = nullptr;
+    wxButton*    m_ptyWorkDirBtn   = nullptr;
+    wxCheckBox*  m_cbPtyLoginShell = nullptr;
 
     // SSH tab connection fields
     wxTextCtrl*      m_hostCtrl        = nullptr;
-    wxSpinCtrl*      m_portCtrl        = nullptr;
+    wxTextCtrl*      m_portCtrl        = nullptr;  // plain numeric text input
     wxTextCtrl*      m_userCtrl        = nullptr;
     wxSpinCtrl*      m_timeoutCtrl     = nullptr;
     wxRadioButton*   m_rbAuthAgent     = nullptr;
@@ -204,13 +194,8 @@ private:
     wxSpinCtrl*      m_keepaliveCtrl   = nullptr;
     wxTextCtrl*      m_remoteCmdCtrl   = nullptr;
     wxCheckBox*      m_cbCompress      = nullptr;
-
-    // Serial tab Session Init fields
-    wxFilePickerCtrl* m_serialEnvFileCtrl  = nullptr;
-    wxListBox*        m_serialEnvVarList   = nullptr;
-    wxButton*         m_serialBtnAddEnv    = nullptr;
-    wxButton*         m_serialBtnEditEnv   = nullptr;
-    wxButton*         m_serialBtnRemoveEnv = nullptr;
+    wxTextCtrl*      m_sshWorkDirCtrl  = nullptr;
+    wxButton*        m_sshWorkDirBtn   = nullptr;
 
     // Serial tab connection fields
     wxTextCtrl*  m_deviceCtrl     = nullptr;
@@ -232,6 +217,14 @@ private:
 
     // Placement (UserChoice only)
     wxRadioBox* m_placementCtrl = nullptr;
+
+    // Shared environment variables (single panel, collapsible)
+    wxCollapsiblePane* m_envPane    = nullptr;
+    wxFilePickerCtrl*  m_envFileCtrl = nullptr;
+    wxListBox*         m_envVarList  = nullptr;
+    wxButton*          m_btnAddEnv   = nullptr;
+    wxButton*          m_btnEditEnv  = nullptr;
+    wxButton*          m_btnRemoveEnv = nullptr;
 
     std::vector<GeometryPreset> m_geometryPresets;
 };
