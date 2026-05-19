@@ -349,7 +349,7 @@ TEST_CASE("given application cursor mode disabled after being enabled then CSI s
 // Parser: DECCKM (?1h / ?1l) → Session → InputEncoder
 // ---------------------------------------------------------------------------
 
-TEST_CASE("given ESC[?1h when processed then arrow keys encode as SS3") {
+TEST_CASE("given DECSET mode 1 when processed then arrow keys encode as SS3") {
     Connection conn{"test", LoopbackDesc{}};
     Session session(conn, 1000, 80, 24, {}, {});
 

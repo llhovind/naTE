@@ -235,13 +235,20 @@ TEST_CASE("given 3x5 grid when MoveCursorRight at last col then cursor stays cla
     REQUIRE(doc.GetCursor().col == 4);
 }
 
-TEST_CASE("given 3x5 grid when AppendInsertChar at col boundary then cursor wraps to next row") {
+TEST_CASE("given 3x5 grid when AppendInsertChar fills row then cursor is at last col with pending wrap") {
     AltScreenDocument doc(3, 5);
-    // Fill row 0 (5 chars) — cursor should wrap to row 1 col 0
+    // VT100 deferred-wrap: filling the last column sets pendingWrap_ but leaves
+    // the cursor reported at (0, 4) until the next printable character.
     for (int i = 0; i < 5; ++i)
         doc.AppendInsertChar(U'A');
+    REQUIRE(doc.GetCursor().line == 0);
+    REQUIRE(doc.GetCursor().col  == 4);
+
+    // The next character triggers the wrap; 'B' is placed at (1, 0) and the
+    // cursor then advances to (1, 1).
+    doc.AppendInsertChar(U'B');
     REQUIRE(doc.GetCursor().line == 1);
-    REQUIRE(doc.GetCursor().col  == 0);
+    REQUIRE(doc.GetCursor().col  == 1);
 }
 
 TEST_CASE("given 3x5 grid when AppendInsertChar at last row last col then cursor stays at bottom-right") {
