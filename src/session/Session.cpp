@@ -120,6 +120,11 @@ void Session::ResetTerminal(bool clearScrollback)
     transport_->Write("\021\033c");
 }
 
+void Session::OnSetApplicationCursorKeys(bool enabled)
+{
+    encoder_.SetApplicationCursorKeys(enabled);
+}
+
 void Session::OnResetTerminal()
 {
     if (altScreenActive_) {
@@ -130,6 +135,7 @@ void Session::OnResetTerminal()
         for (auto* l : externalListeners_) main_doc_->AddListener(l);
         altScreenActive_ = false;
     }
+    encoder_.SetApplicationCursorKeys(false);
     main_doc_->FullReset(false);
     alt_doc_->FullReset(false);
     // parser_.Reset() is called by HandleEscape immediately after this returns

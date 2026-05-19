@@ -206,14 +206,16 @@ void Parser::HandleCsiPrivate(unsigned char byte)
     const int code = ParseFirstParam(0);
     if (byte == 'h') {
         switch (code) {
-        case 25:   screen_.OnSetCursorVisibility(true); break;
-        case 1049: screen_.OnEnterAltScreen();           break;
+        case 1:    screen_.OnSetApplicationCursorKeys(true);  break;
+        case 25:   screen_.OnSetCursorVisibility(true);       break;
+        case 1049: screen_.OnEnterAltScreen();                break;
         default:   break;
         }
     } else if (byte == 'l') {
         switch (code) {
-        case 25:   screen_.OnSetCursorVisibility(false); break;
-        case 1049: screen_.OnExitAltScreen();             break;
+        case 1:    screen_.OnSetApplicationCursorKeys(false); break;
+        case 25:   screen_.OnSetCursorVisibility(false);      break;
+        case 1049: screen_.OnExitAltScreen();                 break;
         default:   break;
         }
     }

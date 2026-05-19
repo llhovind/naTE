@@ -36,10 +36,10 @@ std::string InputEncoder::Encode(const ::term::input::KeyEvent &evt)
     case term::input::Key::Backspace: return "\x7f";
     case term::input::Key::Tab:       return "\t";
     case term::input::Key::Escape:    return "\x1b";
-    case term::input::Key::ArrowUp:   return "\x1b[A";
-    case term::input::Key::ArrowDown: return "\x1b[B";
-    case term::input::Key::ArrowRight:return "\x1b[C";
-    case term::input::Key::ArrowLeft: return "\x1b[D";
+    case term::input::Key::ArrowUp:   return appCursorKeys_ ? "\x1bOA" : "\x1b[A";
+    case term::input::Key::ArrowDown: return appCursorKeys_ ? "\x1bOB" : "\x1b[B";
+    case term::input::Key::ArrowRight:return appCursorKeys_ ? "\x1bOC" : "\x1b[C";
+    case term::input::Key::ArrowLeft: return appCursorKeys_ ? "\x1bOD" : "\x1b[D";
     case term::input::Key::Home:      return "\x1b[H";
     case term::input::Key::End:       return "\x1b[F";
     case term::input::Key::PageUp:    return "\x1b[5~";

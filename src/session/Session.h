@@ -50,9 +50,10 @@ public:
     void ResetTerminal(bool clearScrollback);
 
     // parser::IScreenTarget
-    void OnEnterAltScreen()   override;
-    void OnExitAltScreen()    override;
-    void OnResetTerminal()    override;
+    void OnEnterAltScreen()                          override;
+    void OnExitAltScreen()                           override;
+    void OnResetTerminal()                           override;
+    void OnSetApplicationCursorKeys(bool enabled)    override;
 
     // transport::ITransportTarget
     void OnData(const std::string& data) override;

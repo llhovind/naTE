@@ -8,7 +8,8 @@ public:
 
     virtual void OnEnterAltScreen()              {}
     virtual void OnExitAltScreen()               {}
-    virtual void OnSetCursorVisibility(bool /*visible*/) {}
+    virtual void OnSetCursorVisibility(bool /*visible*/)        {}
+    virtual void OnSetApplicationCursorKeys(bool /*enabled*/)   {}
     virtual void OnFunctionKey(int /*n*/)        {}
     virtual void OnScrollUp(int /*count*/)       {}
     virtual void OnScrollDown(int /*count*/)     {}
