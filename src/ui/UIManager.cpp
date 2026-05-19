@@ -138,6 +138,14 @@ void UIManager::OnSessionDestroyed(term::session::SessionId id)
     TearDownSessionUI(id);
 }
 
+void UIManager::OnAltScreenChanged(term::session::SessionId id, bool active)
+{
+    frame_->CallAfter([this, id, active]() {
+        if (SessionUI* sui = FindSessionUI(id); sui && sui->tile)
+            sui->tile->SetAltScrActive(active);
+    });
+}
+
 // ---------------------------------------------------------------------------
 // App-initiated session subscription
 // ---------------------------------------------------------------------------
@@ -552,6 +560,14 @@ void UIManager::OnTerminalAction(TerminalActionEvent& evt)
         case TerminalAction::ToggleBroadcast:
             ToggleTileBroadcast(evt.GetSessionId());
             break;
+        case TerminalAction::ToggleAltScr: {
+            const auto id = evt.GetSessionId();
+            const bool newActive = !sm_.IsAltScreenActive(id);
+            sm_.ForceAltScreen(id, newActive);
+            if (SessionUI* sui = FindSessionUI(id); sui && sui->tile)
+                sui->tile->SetAltScrActive(newActive);
+            break;
+        }
     }
 }
 

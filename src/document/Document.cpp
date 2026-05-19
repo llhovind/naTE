@@ -562,6 +562,7 @@ void AltScreenDocument::Resize(int rows, int cols)
     cols_ = cols;
     scrollTop_ = 0;
     scrollBot_ = rows_ - 1;
+    pendingWrap_ = false;
 
     cursor_.line = std::min(cursor_.line, static_cast<size_t>(rows_ - 1));
     cursor_.col  = std::min(cursor_.col,  static_cast<size_t>(cols_ - 1));
@@ -574,20 +575,26 @@ void AltScreenDocument::Resize(int rows, int cols)
 
 void AltScreenDocument::AppendInsertChar(char32_t ch)
 {
+    if (pendingWrap_) {
+        pendingWrap_ = false;
+        NewLine();
+    }
+
     if (insertMode_)
         lines_[cursor_.line].InsertAt(cursor_.col, ch);
     else
         lines_[cursor_.line].WriteAt(cursor_.col, ch);
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
-    ++cursor_.col;
-    if (cursor_.col >= static_cast<size_t>(cols_)) {
-        cursor_.col = 0;
-        cursor_.line = std::min(cursor_.line + 1, static_cast<size_t>(rows_ - 1));
-    }
+
+    if (cursor_.col + 1 >= static_cast<size_t>(cols_))
+        pendingWrap_ = true;  // wrap deferred until next printable char
+    else
+        ++cursor_.col;
 }
 
 void AltScreenDocument::Backspace()
 {
+    pendingWrap_ = false;
     if (cursor_.col == 0) return;
     --cursor_.col;
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
@@ -595,6 +602,7 @@ void AltScreenDocument::Backspace()
 
 void AltScreenDocument::NewLine()
 {
+    pendingWrap_ = false;
     const size_t bot = static_cast<size_t>(scrollBot_);
     const size_t top = static_cast<size_t>(scrollTop_);
 
@@ -626,6 +634,7 @@ void AltScreenDocument::SetScrollRegion(int top, int bot)
     if (scrollTop_ >= rows_) scrollTop_ = 0;
     if (scrollBot_ < scrollTop_) scrollBot_ = rows_ - 1;
     // VT100 spec: cursor moves to home on DECSTBM.
+    pendingWrap_ = false;
     cursor_ = {static_cast<size_t>(scrollTop_), 0};
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
@@ -650,6 +659,7 @@ void AltScreenDocument::ReverseIndex()
 
 void AltScreenDocument::MoveCursorToColumn(int col)
 {
+    pendingWrap_ = false;
     cursor_.col = std::min(static_cast<size_t>(std::max(1, col) - 1),
                            static_cast<size_t>(cols_ - 1));
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
@@ -657,6 +667,7 @@ void AltScreenDocument::MoveCursorToColumn(int col)
 
 void AltScreenDocument::MoveCursorToRow(int row)
 {
+    pendingWrap_ = false;
     cursor_.line = std::min(static_cast<size_t>(std::max(1, row) - 1),
                             static_cast<size_t>(rows_ - 1));
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
@@ -669,6 +680,7 @@ void AltScreenDocument::SaveCursor()
 
 void AltScreenDocument::RestoreCursor()
 {
+    pendingWrap_ = false;
     cursor_.line = std::min(savedCursor_.line, static_cast<size_t>(rows_ - 1));
     cursor_.col  = std::min(savedCursor_.col,  static_cast<size_t>(cols_ - 1));
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
@@ -676,6 +688,7 @@ void AltScreenDocument::RestoreCursor()
 
 void AltScreenDocument::CarriageReturn()
 {
+    pendingWrap_ = false;
     cursor_.col = 0;
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
@@ -687,6 +700,7 @@ void AltScreenDocument::SetCurrentStyle(const Style& style)
 
 void AltScreenDocument::MoveCursorLeft(int n)
 {
+    pendingWrap_ = false;
     cursor_.col = (cursor_.col >= static_cast<size_t>(n))
                     ? cursor_.col - static_cast<size_t>(n)
                     : 0;
@@ -695,6 +709,7 @@ void AltScreenDocument::MoveCursorLeft(int n)
 
 void AltScreenDocument::MoveCursorRight(int n)
 {
+    pendingWrap_ = false;
     cursor_.col = std::min(cursor_.col + static_cast<size_t>(n),
                            static_cast<size_t>(cols_ - 1));
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
@@ -702,6 +717,7 @@ void AltScreenDocument::MoveCursorRight(int n)
 
 void AltScreenDocument::MoveCursorUp(int n)
 {
+    pendingWrap_ = false;
     cursor_.line = (cursor_.line >= static_cast<size_t>(n))
                      ? cursor_.line - static_cast<size_t>(n)
                      : 0;
@@ -710,6 +726,7 @@ void AltScreenDocument::MoveCursorUp(int n)
 
 void AltScreenDocument::MoveCursorDown(int n)
 {
+    pendingWrap_ = false;
     cursor_.line = std::min(cursor_.line + static_cast<size_t>(n),
                             static_cast<size_t>(rows_ - 1));
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
@@ -717,18 +734,21 @@ void AltScreenDocument::MoveCursorDown(int n)
 
 void AltScreenDocument::MoveCursorToLineStart()
 {
+    pendingWrap_ = false;
     cursor_.col = 0;
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void AltScreenDocument::MoveCursorToLineEnd()
 {
+    pendingWrap_ = false;
     cursor_.col = static_cast<size_t>(cols_ - 1);
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void AltScreenDocument::MoveCursorToPosition(int row, int col)
 {
+    pendingWrap_ = false;
     const size_t r = static_cast<size_t>(std::max(1, row) - 1);
     const size_t c = static_cast<size_t>(std::max(1, col) - 1);
     cursor_.line = std::min(r, static_cast<size_t>(rows_ - 1));
@@ -878,6 +898,7 @@ void AltScreenDocument::EraseInDisplay(int mode)
             lines_[i].Clear();
             NotifyListeners(DocChangeType::UpdateLine, i);
         }
+        pendingWrap_ = false;
         cursor_ = {0, 0};
         NotifyListeners(DocChangeType::CursorMove, 0);
         break;
@@ -891,6 +912,7 @@ void AltScreenDocument::FullReset(bool /*clearContent*/)
     scrollBot_   = rows_ - 1;
     savedCursor_ = {};
     insertMode_  = false;
+    pendingWrap_ = false;
     title_.clear();
     cursor_      = {0, 0};
     const int n  = static_cast<int>(lines_.size());

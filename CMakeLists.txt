@@ -121,6 +121,7 @@ set(SOURCES
     src/ui/TerminalPanel.cpp
     src/ui/TerminalTile.cpp
     src/ui/WrapControl.cpp
+    src/ui/AltScrControl.cpp
     src/ui/TabStrip.cpp
     src/ui/TerminalGrid.cpp
     src/ui/DocLayout.cpp

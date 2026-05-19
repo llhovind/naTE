@@ -111,9 +111,13 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
     wrapCtrl_ = new WrapControl(titleBar_);
     wrapCtrl_->SetClickCallback([this] { EmitTerminalAction(TerminalAction::ToggleWrap); });
 
+    altScrCtrl_ = new AltScrControl(titleBar_);
+    altScrCtrl_->SetClickCallback([this] { EmitTerminalAction(TerminalAction::ToggleAltScr); });
+
     auto* hSizer = new wxBoxSizer(wxHORIZONTAL);
     hSizer->Add(tabStrip_, 1, wxEXPAND);
-    hSizer->Add(wrapCtrl_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+    hSizer->Add(altScrCtrl_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+    hSizer->Add(wrapCtrl_,   0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
     titleBar_->SetSizer(hSizer);
 
     // Content area — the active TerminalPanel fills this completely.
@@ -372,6 +376,11 @@ void TerminalTile::SetTabUnread(term::session::SessionId id, bool hasUnread)
 void TerminalTile::SetWrapMode(bool wrap)
 {
     if (wrapCtrl_) wrapCtrl_->SetWrapActive(wrap);
+}
+
+void TerminalTile::SetAltScrActive(bool active)
+{
+    if (altScrCtrl_) altScrCtrl_->SetAltScrActive(active);
 }
 
 void TerminalTile::EmitTerminalAction(TerminalAction action)

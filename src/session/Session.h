@@ -31,7 +31,8 @@ public:
             std::function<void(const transport::TransportError&)> onError,
             AppSessionDefaults appDefaults = {},
             unsigned short ptyLineWidth = 1024,
-            bool wrapMode = false);
+            bool wrapMode = false,
+            std::function<void(bool)> onAltScreenChanged = {});
     ~Session();
 
     // Stops the transport I/O thread synchronously. Safe to call multiple
@@ -68,6 +69,9 @@ public:
     DocLayout& GetDocLayout();
 
     // Layout forwarding — UIManager routes viewport events through here.
+    bool IsAltScreenActive() const { return altScreenActive_; }
+    void ForceAltScreen(bool on);
+
     void SetTopRow(int row);
     void SetViewportSize(unsigned short cols, unsigned short rows);
     void SetWrapMode(bool wrap);
@@ -109,6 +113,7 @@ private:
 
     std::function<void()>                                    onDisconnect_;
     std::function<void(const transport::TransportError&)>    onError_;
+    std::function<void(bool)>                                onAltScreenChanged_;
 
     unsigned short     lastCols_{0};
     unsigned short     lastRows_{0};

@@ -223,5 +223,6 @@ private:
     int       scrollTop_   = 0;    // 0-indexed top margin of scroll region
     int       scrollBot_   = 0;    // 0-indexed bottom margin of scroll region
     CursorPos savedCursor_ = {};   // saved by ESC 7 / CSI s
+    bool      pendingWrap_ = false; // VT100 "last column flag" — deferred autowrap
     std::deque<DocLine> lines_;    // always exactly rows_ entries
 };

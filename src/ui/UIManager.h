@@ -48,6 +48,7 @@ public:
     void OnSessionError(term::session::SessionId,
                         const term::transport::TransportError& error) override;
     void OnSessionDestroyed(term::session::SessionId) override;
+    void OnAltScreenChanged(term::session::SessionId, bool active) override;
 
     // -------------------------------------------------------------------------
     // App-initiated session subscription

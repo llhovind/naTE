@@ -40,7 +40,8 @@ Session::Session(const Connection& conn,
                  std::function<void(const transport::TransportError&)> onError,
                  AppSessionDefaults appDefaults,
                  unsigned short ptyLineWidth,
-                 bool wrapMode)
+                 bool wrapMode,
+                 std::function<void(bool)> onAltScreenChanged)
     : transport_(MakeTransport(*this, conn, wrapMode ? cols : ptyLineWidth, rows, cols, appDefaults)),
       main_doc_(std::make_unique<MainScreenDocument>(scrollbackLines)),
       alt_doc_(std::make_unique<AltScreenDocument>(rows, cols)),
@@ -49,6 +50,7 @@ Session::Session(const Connection& conn,
       docLayout_(std::make_unique<DocLayout>(*main_doc_, cols, rows)),
       onDisconnect_(std::move(onDisconnect)),
       onError_(std::move(onError)),
+      onAltScreenChanged_(std::move(onAltScreenChanged)),
       lastCols_(cols),
       lastRows_(rows),
       ptyLineWidth_(ptyLineWidth)
@@ -66,6 +68,13 @@ Session::~Session()
 void Session::Stop()
 {
     transport_->Stop();
+}
+
+void Session::ForceAltScreen(bool on)
+{
+    if (on == altScreenActive_) return;
+    if (on) OnEnterAltScreen();
+    else    OnExitAltScreen();
 }
 
 void Session::OnInput(const input::KeyEvent& event)
@@ -113,6 +122,7 @@ void Session::ResetTerminal(bool clearScrollback)
         if (!docLayout_->GetWrapMode())
             transport_->Resize(ptyLineWidth_, lastRows_);
         altScreenActive_ = false;
+        if (onAltScreenChanged_) onAltScreenChanged_(false);
     }
     main_doc_->FullReset(clearScrollback);
     alt_doc_->FullReset(false);
@@ -134,6 +144,7 @@ void Session::OnResetTerminal()
         docLayout_->SetDocument(*main_doc_);
         for (auto* l : externalListeners_) main_doc_->AddListener(l);
         altScreenActive_ = false;
+        if (onAltScreenChanged_) onAltScreenChanged_(false);
     }
     encoder_.SetApplicationCursorKeys(false);
     main_doc_->FullReset(false);
@@ -154,6 +165,7 @@ void Session::OnEnterAltScreen()
     if (!docLayout_->GetWrapMode())
         transport_->Resize(lastCols_, lastRows_);
     altScreenActive_ = true;
+    if (onAltScreenChanged_) onAltScreenChanged_(true);
 }
 
 void Session::OnExitAltScreen()
@@ -168,6 +180,7 @@ void Session::OnExitAltScreen()
     if (!docLayout_->GetWrapMode())
         transport_->Resize(ptyLineWidth_, lastRows_);
     altScreenActive_ = false;
+    if (onAltScreenChanged_) onAltScreenChanged_(false);
 }
 
 void Session::AddDocumentListener(IDocumentListener* listener)

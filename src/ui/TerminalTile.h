@@ -10,6 +10,7 @@
 #include "ui/TerminalActions.h"
 #include "ui/TileActions.h"
 #include "ui/WrapControl.h"
+#include "ui/AltScrControl.h"
 
 class TerminalPanel;
 class TabStrip;
@@ -77,6 +78,10 @@ public:
     // Called by UIManager to reflect wrap mode changes originating outside this tile.
     void SetWrapMode(bool wrap);
 
+    // Called by UIManager to reflect alt-screen state changes (both user-forced
+    // and program-driven via PTY escape sequences).
+    void SetAltScrActive(bool active);
+
     // -------------------------------------------------------------------------
     // Callbacks (wired once per tile by UIManager when the tile is created)
     // -------------------------------------------------------------------------
@@ -139,6 +144,7 @@ private:
     wxPanel*          titleBar_    = nullptr;  // wx-child-owned
     TabStrip*         tabStrip_    = nullptr;  // wx-child-owned by titleBar_
     WrapControl*      wrapCtrl_    = nullptr;  // wx-child-owned by titleBar_
+    AltScrControl*    altScrCtrl_  = nullptr;  // wx-child-owned by titleBar_
     wxPanel*          contentArea_ = nullptr;  // wx-child-owned; panels live here
 
     std::vector<TabEntry>      tabs_;

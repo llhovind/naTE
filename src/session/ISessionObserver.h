@@ -20,6 +20,11 @@ public:
 
     // UI thread — called synchronously from SessionManager::CloseSession.
     virtual void OnSessionDestroyed(SessionId) = 0;
+
+    // Session thread — implementations MUST CallAfter before touching wx.
+    // Fired whenever the session enters or exits alt-screen (both program-driven
+    // and user-forced via ForceAltScreen).
+    virtual void OnAltScreenChanged(SessionId, bool /*active*/) {}
 };
 
 } // namespace term::session

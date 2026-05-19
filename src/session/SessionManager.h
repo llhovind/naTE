@@ -96,6 +96,8 @@ public:
     void OnResize(SessionId id, unsigned short cols, unsigned short rows);
     void SetWrapMode(SessionId id, bool wrap);
     void ResetTerminal(SessionId id, bool clearScrollback);
+    bool IsAltScreenActive(SessionId id) const;
+    void ForceAltScreen(SessionId id, bool on);
 
     bool        SupportsFileTransfer(SessionId id) const;
     std::string GetRemoteDescription(SessionId id) const;

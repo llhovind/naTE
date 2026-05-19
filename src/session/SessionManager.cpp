@@ -62,7 +62,11 @@ SessionId SessionManager::CreateSession(const Connection& conn,
         },
         std::move(appDefaults),
         ptyLineWidth,
-        conn.wrapMode);
+        conn.wrapMode,
+        [uiObs, id](bool active) {
+            if (auto* obs = uiObs->load(std::memory_order_acquire))
+                obs->OnAltScreenChanged(id, active);
+        });
 
     sessions_.emplace(id, std::move(rec));
     return id;
@@ -232,6 +236,18 @@ void SessionManager::ResetTerminal(SessionId id, bool clearScrollback)
 {
     SessionRecord* rec = FindRecord(id);
     if (rec) rec->session->ResetTerminal(clearScrollback);
+}
+
+bool SessionManager::IsAltScreenActive(SessionId id) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    return rec && rec->session->IsAltScreenActive();
+}
+
+void SessionManager::ForceAltScreen(SessionId id, bool on)
+{
+    if (SessionRecord* rec = FindRecord(id))
+        rec->session->ForceAltScreen(on);
 }
 
 bool SessionManager::SupportsFileTransfer(SessionId id) const
