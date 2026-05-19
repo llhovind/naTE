@@ -403,7 +403,10 @@ bool DocLayout::GetWrapMode() const
 void DocLayout::SetLeftCol(int col)
 {
     std::lock_guard<std::mutex> lk(mtx_);
-    leftCol_ = std::max(0, col);
+    if (maxVisibleWidthDirty_)
+        ComputeMaxVisibleWidthLocked();
+    const int maxLeft = std::max(0, maxVisibleWidth_ - cols_);
+    leftCol_ = std::clamp(col, 0, maxLeft);
 }
 
 int DocLayout::GetLeftCol() const
