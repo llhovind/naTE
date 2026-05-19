@@ -100,7 +100,8 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
             if      (key == "DefaultShell")        cfg.defaultShell       = val;
             else if (key == "DefaultWorkingDir")   cfg.defaultWorkingDir  = val;
             else if (key == "DefaultEnvFile")      cfg.defaultEnvFilePath = val;
-            else if (key == "DefaultLoginShell")   cfg.defaultLoginShell   = (val == "true" || val == "1");
+            else if (key == "DefaultLoginShell")   cfg.defaultLoginShell  = (val == "true" || val == "1");
+            else if (key == "DefaultWrapMode")     cfg.defaultWrapMode    = (val == "true" || val == "1");
             else if (key == "AutoRestoreSession")  cfg.autoRestoreSession  = (val == "true" || val == "1");
             else if (key == "SessionSaveInterval") cfg.sessionSaveInterval = toInt(val, cfg.sessionSaveInterval);
             else {
@@ -176,6 +177,7 @@ void AppConfig::save(const std::string& configPath) const
       << "DefaultWorkingDir="   << defaultWorkingDir  << "\n"
       << "DefaultEnvFile="      << defaultEnvFilePath << "\n"
       << "DefaultLoginShell="   << (defaultLoginShell  ? "true" : "false") << "\n"
+      << "DefaultWrapMode="     << (defaultWrapMode    ? "true" : "false") << "\n"
       << "AutoRestoreSession="  << (autoRestoreSession ? "true" : "false") << "\n"
       << "SessionSaveInterval=" << sessionSaveInterval << "\n";
 

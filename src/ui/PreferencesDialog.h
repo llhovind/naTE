@@ -4,7 +4,6 @@
 #include <vector>
 #include <wx/dialog.h>
 
-class wxCheckBox;
 class wxChoice;
 class wxSpinCtrl;
 class wxTextCtrl;
@@ -32,4 +31,5 @@ private:
 
     wxTextCtrl* m_shellCtrl     = nullptr;
     wxTextCtrl* m_workDirCtrl   = nullptr;
+    wxChoice*   m_wrapModeChoice = nullptr;
 };

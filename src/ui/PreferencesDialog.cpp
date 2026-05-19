@@ -64,7 +64,7 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
     appSizer->Add(new wxStaticText(appPage, wxID_ANY, "Font size (pt):"),
                   {row, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
     m_sizeCtrl = new wxSpinCtrl(appPage, wxID_ANY,
-                                wxEmptyString, wxDefaultPosition, {80, -1},
+                                wxEmptyString, wxDefaultPosition, wxDefaultSize,
                                 wxSP_ARROW_KEYS, 6, 72, current.fontSize);
     appSizer->Add(m_sizeCtrl, {row, 1}, {1, 1});
     ++row;
@@ -73,7 +73,7 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
     appSizer->Add(new wxStaticText(appPage, wxID_ANY, "Padding (px):"),
                   {row, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
     m_paddingCtrl = new wxSpinCtrl(appPage, wxID_ANY,
-                                   wxEmptyString, wxDefaultPosition, {80, -1},
+                                   wxEmptyString, wxDefaultPosition, wxDefaultSize,
                                    wxSP_ARROW_KEYS, 0, 32, current.padding);
     appSizer->Add(m_paddingCtrl, {row, 1}, {1, 1});
     ++row;
@@ -118,6 +118,18 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
                                    wxDefaultPosition, {260, -1});
     m_workDirCtrl->SetHint("e.g. ~  (empty = inherit launcher cwd)");
     sesSizer->Add(m_workDirCtrl, {1, 1}, {1, 1}, wxEXPAND);
+
+    sesSizer->Add(new wxStaticText(sesPage, wxID_ANY, "Default wrap mode:"),
+                  {2, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+    {
+        wxArrayString wrapOpts;
+        wrapOpts.Add("OFF");
+        wrapOpts.Add("ON");
+        m_wrapModeChoice = new wxChoice(sesPage, wxID_ANY,
+                                        wxDefaultPosition, wxDefaultSize, wrapOpts);
+        m_wrapModeChoice->SetSelection(current.defaultWrapMode ? 1 : 0);
+    }
+    sesSizer->Add(m_wrapModeChoice, {2, 1}, {1, 1});
 
     sesSizer->AddGrowableCol(1);
     auto* sesOuter = new wxBoxSizer(wxVERTICAL);
@@ -167,8 +179,9 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
     result_.fontFamily       = m_familyCtrl->GetValue().ToStdString();
     result_.fontSize         = m_sizeCtrl->GetValue();
     result_.padding          = m_paddingCtrl->GetValue();
-    result_.defaultShell     = m_shellCtrl->GetValue().ToStdString();
+    result_.defaultShell      = m_shellCtrl->GetValue().ToStdString();
     result_.defaultWorkingDir = m_workDirCtrl->GetValue().ToStdString();
+    result_.defaultWrapMode   = m_wrapModeChoice->GetSelection() == 1;
 
     evt.Skip();
 }

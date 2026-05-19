@@ -60,6 +60,7 @@ struct AppConfig {
     std::vector<term::session::EnvVar> defaultEnvVars;
     std::string                        defaultEnvFilePath;
     bool                               defaultLoginShell  = false;
+    bool                               defaultWrapMode    = false;
 
     // [Restore] session-restore behaviour
     bool autoRestoreSession  = false;

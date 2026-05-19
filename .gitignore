@@ -79,3 +79,4 @@ vgcore.*
 *.d
 
 tmp/
+docs/

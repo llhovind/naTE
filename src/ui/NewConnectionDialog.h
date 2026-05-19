@@ -118,6 +118,7 @@ public:
     NewConnectionDialog(wxWindow* parent,
                         const std::string& defaultShell,
                         const std::string& defaultWorkingDir,
+                        bool defaultWrapMode,
                         const std::vector<GeometryPreset>& geometryPresets,
                         const std::vector<term::db::ConnectionProfile>& existingProfiles,
                         LaunchContext context,

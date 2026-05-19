@@ -55,6 +55,7 @@ NewConnectionDialog::NewConnectionDialog(
         wxWindow* parent,
         const std::string& defaultShell,
         const std::string& defaultWorkingDir,
+        bool defaultWrapMode,
         const std::vector<GeometryPreset>& geometryPresets,
         const std::vector<term::db::ConnectionProfile>& existingProfiles,
         LaunchContext context,
@@ -527,6 +528,7 @@ NewConnectionDialog::NewConnectionDialog(
         termRow->Add(m_customGeomPanel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 20);
 
         m_cbWrapMode = new wxCheckBox(this, wxID_ANY, "Wrap mode");
+        m_cbWrapMode->SetValue(defaultWrapMode);
         termRow->Add(m_cbWrapMode, 0, wxALIGN_CENTER_VERTICAL);
 
         outer->Add(termRow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
