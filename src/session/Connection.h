@@ -10,7 +10,7 @@ struct SessionInit {
     std::string         workingDir;    // empty = inherit parent cwd; ~ expanded at spawn time
     std::vector<EnvVar> envVars;       // explicit KEY=VALUE overrides applied to the child process
     std::string         envFilePath;   // path to a .env file to load; empty = none; ~ expanded
-    bool                loginShell = false; // PTY only: prefix argv[0] with '-' to source .profile
+    bool                loginShell = false; // prefix argv[0] with '-' (PTY) or use exec -l (SSH) to source .profile
 };
 
 struct PtyDesc      { std::string shell; };

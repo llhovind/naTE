@@ -740,36 +740,28 @@ bool SshTransport::StartShell()
     if (!sshDir.empty() && sshDir[0] == '~')
         sshDir = "$HOME" + sshDir.substr(1);
 
-    // Assemble: [exports] [cd "dir" &&] [remoteCommand | exec $SHELL]
-    std::string effectiveCmd = desc_.remoteCommand;
-    if (!sshDir.empty()) {
-        effectiveCmd = envPrefix + "cd \"" + sshDir + "\" && "
-                     + (effectiveCmd.empty() ? "exec $SHELL" : effectiveCmd);
-    } else if (!envPrefix.empty()) {
-        effectiveCmd = envPrefix + (effectiveCmd.empty() ? "exec $SHELL" : effectiveCmd);
-    }
-    // If both are empty, effectiveCmd remains "" → channel_shell() below.
+    const bool useLogin = sessionInit_.loginShell || appDefaults_.loginShell;
+    const std::string shellExec = useLogin ? "exec $SHELL -l" : "exec $SHELL";
+
+    // Assemble: [exports] [cd "dir" &&] [remoteCommand | exec [-l] $SHELL]
+    // Always use channel_exec so loginShell is applied consistently regardless
+    // of whether env vars or a working directory are configured.
+    std::string effectiveCmd = desc_.remoteCommand.empty() ? shellExec : desc_.remoteCommand;
+    if (!sshDir.empty())
+        effectiveCmd = envPrefix + "cd \"" + sshDir + "\" && " + effectiveCmd;
+    else if (!envPrefix.empty())
+        effectiveCmd = envPrefix + effectiveCmd;
 
     int rc;
-    const bool hasCommand = !effectiveCmd.empty();
-    if (hasCommand) {
-        while ((rc = libssh2_channel_exec(channel_, effectiveCmd.c_str()))
-               == LIBSSH2_ERROR_EAGAIN) {
-            if (!running_) return false;
-            PollUntilReady(kPollTimeoutMs);
-        }
-    } else {
-        while ((rc = libssh2_channel_shell(channel_)) == LIBSSH2_ERROR_EAGAIN) {
-            if (!running_) return false;
-            PollUntilReady(kPollTimeoutMs);
-        }
+    while ((rc = libssh2_channel_exec(channel_, effectiveCmd.c_str()))
+           == LIBSSH2_ERROR_EAGAIN) {
+        if (!running_) return false;
+        PollUntilReady(kPollTimeoutMs);
     }
 
     if (rc != 0) {
         NotifyError(TransportError::Category::Protocol,
-                    "SSH: could not start " +
-                    std::string(hasCommand ? "command" : "shell") +
-                    " — " + LastSshError());
+                    "SSH: could not start remote command — " + LastSshError());
         return false;
     }
     return true;
