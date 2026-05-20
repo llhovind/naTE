@@ -20,6 +20,7 @@ public:
 
     std::string Label() const override { return "Search the Web"; }
     void Execute(const std::u32string& text) override;
+    void SetUrl(std::string url) { baseUrl_ = std::move(url); }
 
 private:
     std::string baseUrl_;

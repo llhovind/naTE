@@ -54,6 +54,11 @@ public:
     // Selection actions — non-owning; UIManager owns the registry.
     void SetActionRegistry(SelectionActionRegistry* reg) { actionRegistry_ = reg; }
 
+    // Apply updated config to this panel in place (font, colors, padding).
+    // Triggers relayout and repaint; font/padding changes fire the existing
+    // resize callback so the PTY adapts cols×rows automatically.
+    void ApplyConfig(const AppConfig& cfg);
+
     // Pixel size this panel needs to display exactly cols×rows characters.
     // Use this to size the containing tile before calling ResizeFrameToFitTiles().
     wxSize ComputeRequiredPanelSize(unsigned short cols, unsigned short rows) const;

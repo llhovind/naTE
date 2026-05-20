@@ -82,6 +82,33 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
     Bind(wxEVT_KILL_FOCUS, &TerminalPanel::OnKillFocus,      this);
 }
 
+void TerminalPanel::ApplyConfig(const AppConfig& cfg)
+{
+    const bool fontChanged    = cfg.fontFamily != m_cfg.fontFamily
+                             || cfg.fontSize   != m_cfg.fontSize;
+    const bool paddingChanged = cfg.padding    != m_cfg.padding;
+
+    m_cfg = cfg;
+
+    if (fontChanged) {
+        m_font = BuildFont(m_cfg);
+        wxMemoryDC dc;
+        dc.SetFont(m_font);
+        m_charSize = dc.GetTextExtent("M");
+    }
+
+    SetBackgroundColour(wxColour(m_cfg.bgColour.r, m_cfg.bgColour.g, m_cfg.bgColour.b));
+
+    if (fontChanged || paddingChanged) {
+        SetMinClientSize({0, 0});
+        Layout();
+        // The EVT_SIZE → OnSize → debounced resizeCb_ path propagates the new
+        // cols×rows to the session without TerminalPanel needing to own that logic.
+    }
+
+    Refresh();
+}
+
 void TerminalPanel::SetDocLayout(::DocLayout* docLayout)
 {
     docLayout_ = docLayout;

@@ -15,6 +15,9 @@ public:
     // Invoke actions_[index] with the provided text. No-op if index is out of range.
     void Execute(int index, const std::u32string& text);
 
+    // Update the URL on the registered WebSearchAction, if any.
+    void UpdateWebSearchUrl(const std::string& url);
+
     int Count() const;
 
 private:

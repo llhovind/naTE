@@ -186,8 +186,8 @@ void MainFrame::OnPreferences(wxCommandEvent&)
     app->ApplyPreferences(dlg.GetResult());
     wxMessageBox(
         "Preferences saved.\n\n"
-        "New connections will use the updated settings.\n"
-        "Existing terminals will apply changes when reopened.",
+        "Appearance changes have been applied to all open terminals.\n"
+        "Scrollback size and PTY line width take effect on new connections.",
         "Preferences", wxOK | wxICON_INFORMATION, this);
 }
 

@@ -98,6 +98,16 @@ UIManager::UIManager(term::session::SessionManager& sm,
     router_.SetOnStateChanged([this] { RefreshBroadcastVisuals(); });
 }
 
+void UIManager::UpdateConfig(const AppConfig& cfg)
+{
+    cfg_ = cfg;
+    selectionActions_->UpdateWebSearchUrl(cfg_.webSearchUrl);
+    for (auto& [id, ui] : sessions_) {
+        if (ui.panel)
+            ui.panel->ApplyConfig(cfg_);
+    }
+}
+
 UIManager::~UIManager()
 {
     // Detach all remaining SessionNotifiers from their documents before the

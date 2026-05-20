@@ -1,4 +1,5 @@
 #include "ui/SelectionActionRegistry.h"
+#include "ui/SelectionActions.h"
 #include <wx/menu.h>
 
 void SelectionActionRegistry::Register(std::unique_ptr<ISelectionAction> action)
@@ -16,6 +17,16 @@ void SelectionActionRegistry::Execute(int index, const std::u32string& text)
 {
     if (index >= 0 && index < (int)actions_.size())
         actions_[index]->Execute(text);
+}
+
+void SelectionActionRegistry::UpdateWebSearchUrl(const std::string& url)
+{
+    for (auto& action : actions_) {
+        if (auto* ws = dynamic_cast<WebSearchAction*>(action.get())) {
+            ws->SetUrl(url);
+            return;
+        }
+    }
 }
 
 int SelectionActionRegistry::Count() const
