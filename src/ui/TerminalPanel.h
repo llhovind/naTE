@@ -93,6 +93,9 @@ private:
 
     AppConfig    m_cfg;
     wxFont       m_font;
+    wxFont       m_boldFont;
+    wxFont       m_italicFont;
+    wxFont       m_boldItalicFont;
     wxSize       m_charSize;
     wxScrollBar* m_hScroll;
     wxScrollBar* m_vScroll;

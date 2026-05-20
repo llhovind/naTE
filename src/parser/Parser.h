@@ -34,10 +34,11 @@ private:
 
     IDocumentTarget* doc_;
     IScreenTarget&   screen_;
-    State            state_       = State::Normal;
+    State            state_        = State::Normal;
     std::string      params_;
-    bool             privateMode_ = false;
+    bool             privateMode_  = false;
     std::string      osc_payload_;
+    Style            currentStyle_;  // accumulated SGR state; mutated in place by DispatchSgr
 
     char32_t utf8_codepoint_ = 0;
     int      utf8_remaining_ = 0;

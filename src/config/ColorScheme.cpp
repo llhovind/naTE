@@ -147,12 +147,28 @@ std::optional<ColorScheme> ColorScheme::loadFromFile(const std::string& path)
                     scheme.hasPalette = true;
                 }
             }
+        } else if (section == "ANSI") {
+            // Direct ANSI palette: keys are "0"–"15", values are 6-digit hex.
+            try {
+                const int idx = std::stoi(key);
+                if (idx >= 0 && idx < 16) {
+                    if (auto rgb = parseHex(val)) {
+                        scheme.ansiColors[idx] = *rgb;
+                        scheme.hasDirectAnsi   = true;
+                    }
+                }
+            } catch (...) {}
         }
     }
 
-    // When a [Palette] section was found, derive fg/bg/cursor from base05/base00.
-    // An explicit [Colors] section in the same file takes precedence.
-    if (scheme.hasPalette) {
+    // Resolve ANSI palette and default fg/bg/cursor.
+    if (scheme.hasDirectAnsi) {
+        // [ANSI] section wins: ansiColors already populated; mark palette present
+        // so Config picks it up, but skip the base16 mapping step.
+        scheme.hasPalette = true;
+        if (!hasCursor) scheme.cursor = scheme.foreground;
+    } else if (scheme.hasPalette) {
+        // [Palette] (base16): derive ANSI colours and default fg/bg from base05/base00.
         scheme.computeAnsiColors();
         if (!hasBg)     scheme.background = scheme.palette[0];   // base00
         if (!hasFg)     scheme.foreground = scheme.palette[5];   // base05
@@ -183,7 +199,17 @@ void ColorScheme::saveToFile(const std::string& path) const
                        << static_cast<int>(background.g) << ","
                        << static_cast<int>(background.b) << "\n";
 
-    if (hasPalette) {
+    if (hasDirectAnsi) {
+        f << "\n[ANSI]\n";
+        for (int i = 0; i < 16; ++i) {
+            f << i << "="
+              << std::hex << std::setfill('0')
+              << std::setw(2) << static_cast<int>(ansiColors[i].r)
+              << std::setw(2) << static_cast<int>(ansiColors[i].g)
+              << std::setw(2) << static_cast<int>(ansiColors[i].b)
+              << std::dec << "\n";
+        }
+    } else if (hasPalette) {
         f << "\n[Palette]\n";
         static const char* kBase16Names[16] = {
             "base00","base01","base02","base03",

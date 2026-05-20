@@ -303,57 +303,75 @@ void Parser::DispatchSgr()
         params.push_back(hasDigit ? current : 0);
     }
 
-    Style style;
-    bool  reset   = false;
-    bool  have_fg = false;
-    bool  have_bg = false;
-    bool  bold    = false;
-
+    // Mutate currentStyle_ incrementally so that separate SGR sequences
+    // (e.g. ESC[1m then ESC[32m) correctly accumulate bold + green.
     for (size_t i = 0; i < params.size(); ++i) {
         const int p = params[i];
         if (p == 0) {
-            reset = true;
+            currentStyle_ = Style{};                    // full reset
         } else if (p == 1) {
-            bold = true;
+            currentStyle_.bold = true;
+        } else if (p == 2) {
+            currentStyle_.dim  = true;
+        } else if (p == 3) {
+            currentStyle_.italic = true;
+        } else if (p == 4) {
+            currentStyle_.underline = true;
+        } else if (p == 5 || p == 6) {
+            // blink — no-op
+        } else if (p == 7) {
+            currentStyle_.reverse = true;
         } else if (p == 22) {
-            bold = false;
+            currentStyle_.bold = false;
+            currentStyle_.dim  = false;
+        } else if (p == 23) {
+            currentStyle_.italic = false;
+        } else if (p == 24) {
+            currentStyle_.underline = false;
+        } else if (p == 25) {
+            // blink off — no-op
+        } else if (p == 27) {
+            currentStyle_.reverse = false;
         } else if (p >= 30 && p <= 37) {
-            style.fg = p - 30;   // palette indices 0–7
-            have_fg  = true;
+            currentStyle_.fg    = p - 30;
+            currentStyle_.fgRgb = std::nullopt;
         } else if (p == 39) {
-            style.fg = -1;       // default fg
-            have_fg  = true;
+            currentStyle_.fg    = -1;
+            currentStyle_.fgRgb = std::nullopt;
         } else if (p >= 40 && p <= 47) {
-            style.bg = p - 40;   // palette indices 0–7
-            have_bg  = true;
+            currentStyle_.bg    = p - 40;
+            currentStyle_.bgRgb = std::nullopt;
         } else if (p == 49) {
-            style.bg = -1;       // default bg
-            have_bg  = true;
+            currentStyle_.bg    = -1;
+            currentStyle_.bgRgb = std::nullopt;
         } else if (p >= 90 && p <= 97) {
-            style.fg = p - 90 + 8;   // bright palette indices 8–15
-            have_fg  = true;
+            currentStyle_.fg    = p - 90 + 8;
+            currentStyle_.fgRgb = std::nullopt;
         } else if (p >= 100 && p <= 107) {
-            style.bg = p - 100 + 8;  // bright palette indices 8–15
-            have_bg  = true;
-        } else if ((p == 38 || p == 48) && i + 2 < params.size() && params[i + 1] == 5) {
-            const int index = params[i + 2];
-            if (index >= 0 && index <= 255) {
-                if (p == 38) { style.fg = index; have_fg = true; }
-                else         { style.bg = index; have_bg = true; }
+            currentStyle_.bg    = p - 100 + 8;
+            currentStyle_.bgRgb = std::nullopt;
+        } else if ((p == 38 || p == 48) && i + 1 < params.size()) {
+            if (params[i + 1] == 5 && i + 2 < params.size()) {
+                // 256-colour palette: ESC[38;5;Nm
+                const int index = params[i + 2];
+                if (index >= 0 && index <= 255) {
+                    if (p == 38) { currentStyle_.fg = index; currentStyle_.fgRgb = std::nullopt; }
+                    else         { currentStyle_.bg = index; currentStyle_.bgRgb = std::nullopt; }
+                }
+                i += 2;
+            } else if (params[i + 1] == 2 && i + 4 < params.size()) {
+                // 24-bit true colour: ESC[38;2;r;g;bm
+                Rgb rgb{ static_cast<uint8_t>(params[i + 2]),
+                         static_cast<uint8_t>(params[i + 3]),
+                         static_cast<uint8_t>(params[i + 4]) };
+                if (p == 38) { currentStyle_.fgRgb = rgb; currentStyle_.fg = -1; }
+                else         { currentStyle_.bgRgb = rgb; currentStyle_.bg = -1; }
+                i += 4;
             }
-            i += 2;
         }
     }
 
-    if (reset) {
-        style = Style{};
-    } else {
-        style.bold = bold;
-        if (!have_fg) style.fg = -1;
-        if (!have_bg) style.bg = -1;
-    }
-
-    doc_->SetCurrentStyle(style);
+    doc_->SetCurrentStyle(currentStyle_);
 }
 
 void Parser::Reset()
@@ -364,7 +382,8 @@ void Parser::Reset()
     osc_payload_.clear();
     utf8_codepoint_ = 0;
     utf8_remaining_ = 0;
-    doc_->SetCurrentStyle(Style{});
+    currentStyle_   = Style{};
+    doc_->SetCurrentStyle(currentStyle_);
 }
 
 } // namespace term::parser

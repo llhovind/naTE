@@ -7,7 +7,7 @@
 
 // A named colour theme loaded from a .ini file.
 //
-// Two formats are supported and may coexist in the same file:
+// Two palette formats are supported and may coexist in the same file:
 //
 //   [Meta]
 //   Name=My Theme
@@ -17,15 +17,20 @@
 //   Background=0,43,54
 //
 //   [Palette]                    # base16 format — 16 hex values base00-base0F
-//   base00=002b36
-//   base01=073642
+//   base00=002b36                # regular and bright colours share base16 slots
 //   ...
 //   base0F=d33682
 //
-// When [Palette] is present, foreground and background are derived from
-// base05 and base00 respectively, and the full 16-color ANSI palette is
-// computed from the fixed base16-to-ANSI mapping.  A [Colors] section in
-// the same file overrides the derived fg/bg values (useful for tweaks).
+//   [ANSI]                       # direct format — all 16 ANSI indices individually
+//   0=000000                     # lets regular and bright variants differ freely
+//   1=800000
+//   ...
+//   15=ffffff
+//
+// [ANSI] takes precedence over [Palette] when both are present.
+// When [Palette] is present (and no [ANSI]), foreground and background are derived
+// from base05 and base00 respectively.  A [Colors] section overrides fg/bg in
+// either case.
 //
 // The stem (filename without .ini) is the identifier used in config.ini.
 // The display name comes from [Meta] Name=; if absent the stem is used.
@@ -45,7 +50,8 @@ struct ColorScheme {
     // palette is absent (all zeros).
     std::array<Rgb, 16> ansiColors = {};
 
-    bool hasPalette = false;  // true iff a [Palette] section was parsed
+    bool hasPalette    = false;  // true iff a [Palette] or [ANSI] section was parsed
+    bool hasDirectAnsi = false;  // true iff an [ANSI] section specified colors directly
 
     // Compute ansiColors[] from palette[] using the fixed base16 mapping.
     // Call after loading palette[] if you want ANSI colours.

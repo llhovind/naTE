@@ -19,23 +19,26 @@ static int QueryScrollbarThickness()
 
 static constexpr int kResizeDebounceMs = 80;
 
-static wxFont BuildFont(const AppConfig& cfg)
+static wxFont BuildFont(const AppConfig& cfg, bool bold, bool italic)
 {
+    const wxFontWeight weight = bold   ? wxFONTWEIGHT_BOLD   : wxFONTWEIGHT_NORMAL;
+    const wxFontStyle  fstyle = italic ? wxFONTSTYLE_ITALIC   : wxFONTSTYLE_NORMAL;
     if (!cfg.fontFamily.empty()) {
-        wxFont f(cfg.fontSize, wxFONTFAMILY_TELETYPE,
-                 wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL,
+        wxFont f(cfg.fontSize, wxFONTFAMILY_TELETYPE, fstyle, weight,
                  false, wxString::FromUTF8(cfg.fontFamily));
         if (f.IsOk()) return f;
     }
-    return wxFont(cfg.fontSize, wxFONTFAMILY_TELETYPE,
-                  wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+    return wxFont(cfg.fontSize, wxFONTFAMILY_TELETYPE, fstyle, weight);
 }
 
 TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
                              unsigned short cols, unsigned short rows)
     : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE | wxWANTS_CHARS),
       m_cfg(cfg),
-      m_font(BuildFont(cfg)),
+      m_font(BuildFont(cfg, false, false)),
+      m_boldFont(BuildFont(cfg, true, false)),
+      m_italicFont(BuildFont(cfg, false, true)),
+      m_boldItalicFont(BuildFont(cfg, true, true)),
       m_sbThick(QueryScrollbarThickness()),
       resizeTimer_(this),
       m_selScrollTimer_(this)
@@ -91,7 +94,10 @@ void TerminalPanel::ApplyConfig(const AppConfig& cfg)
     m_cfg = cfg;
 
     if (fontChanged) {
-        m_font = BuildFont(m_cfg);
+        m_font           = BuildFont(m_cfg, false, false);
+        m_boldFont       = BuildFont(m_cfg, true,  false);
+        m_italicFont     = BuildFont(m_cfg, false, true);
+        m_boldItalicFont = BuildFont(m_cfg, true,  true);
         wxMemoryDC dc;
         dc.SetFont(m_font);
         m_charSize = dc.GetTextExtent("M");
@@ -590,11 +596,13 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
     const int    cw   = m_charSize.x;
     const int    ch   = m_charSize.y;
 
-    // Resolve a palette index (0–255, or -1 for terminal default) to RGB.
-    // Indices 0–15: standard 16-colour ANSI palette.
-    // Indices 16–231: 6×6×6 colour cube (xterm-256 formula).
-    // Indices 232–255: 24-step greyscale ramp.
-    auto resolveColour = [this](int index, bool isFg) -> wxColour {
+    // Resolve the foreground or background colour from a Style, handling
+    // 24-bit true colour, 256-colour palette, and terminal defaults.
+    // Indices 0–15: standard ANSI palette. 16–231: 6×6×6 cube. 232–255: greyscale.
+    auto resolveColour = [this](const Style& s, bool isFg) -> wxColour {
+        const auto& rgb_opt = isFg ? s.fgRgb : s.bgRgb;
+        if (rgb_opt) return wxColour(rgb_opt->r, rgb_opt->g, rgb_opt->b);
+        const int index = isFg ? s.fg : s.bg;
         if (index < 0) {
             const Rgb& c = isFg ? m_cfg.textColour : m_cfg.bgColour;
             return wxColour(c.r, c.g, c.b);
@@ -639,13 +647,42 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
 
         auto flushRun = [&](int start, int end) {
             if (start >= end) return;
-            dc.SetTextForeground(resolveColour(row.attrs[start].fg, true));
-            dc.SetTextBackground(resolveColour(row.attrs[start].bg, false));
+            const Style& s = row.attrs[start];
+
+            const wxFont& font = (s.bold && s.italic) ? m_boldItalicFont
+                               : s.bold               ? m_boldFont
+                               : s.italic             ? m_italicFont
+                               :                        m_font;
+            dc.SetFont(font);
+
+            // Reverse video swaps fg and bg roles.
+            wxColour fg = resolveColour(s, !s.reverse);
+            wxColour bg = resolveColour(s, s.reverse);
+
+            // Dim blends fg toward bg at 50%.
+            if (s.dim) {
+                fg = wxColour(
+                    static_cast<unsigned char>((fg.Red()   + bg.Red())   / 2),
+                    static_cast<unsigned char>((fg.Green() + bg.Green()) / 2),
+                    static_cast<unsigned char>((fg.Blue()  + bg.Blue())  / 2)
+                );
+            }
+
+            dc.SetTextForeground(fg);
+            dc.SetTextBackground(bg);
+
             std::wstring runStr;
             runStr.reserve(static_cast<size_t>(end - start));
             for (int c = start; c < end; ++c)
                 runStr += static_cast<wchar_t>(row.text[c]);
-            dc.DrawText(wxString(runStr), start * cw + m_cfg.padding, rowY);
+
+            const int startX = start * cw + m_cfg.padding;
+            dc.DrawText(wxString(runStr), startX, rowY);
+
+            if (s.underline) {
+                dc.SetPen(wxPen(fg, 1));
+                dc.DrawLine(startX, rowY + ch - 1, startX + (end - start) * cw, rowY + ch - 1);
+            }
         };
 
         for (int col = 1; col < textLen; ++col) {

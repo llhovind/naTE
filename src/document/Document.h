@@ -1,24 +1,27 @@
 #pragma once
 
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 #include <deque>
 #include <cstdint>
+#include "config/Color.h"
 #include "document/IDocumentListener.h"
 
 struct Style {
-    int fg = -1;  // -1 = use terminal default
-    int bg = -1;  // -1 = use terminal default
-    bool bold = false;
+    int fg = -1;  // -1 = terminal default, 0–255 = palette index
+    int bg = -1;
+    bool bold      = false;
+    bool dim       = false;
+    bool italic    = false;
+    bool underline = false;
+    bool reverse   = false;
+    std::optional<Rgb> fgRgb;  // 24-bit true color (38;2); overrides fg when set
+    std::optional<Rgb> bgRgb;  // 24-bit true color (48;2); overrides bg when set
 
-    bool operator==(const Style& other) const {
-        return fg == other.fg && bg == other.bg && bold == other.bold;
-    }
-
-    bool operator!=(const Style& other) const {
-        return !(*this == other);
-    }
+    bool operator==(const Style&) const = default;
+    bool operator!=(const Style& o) const { return !(*this == o); }
 };
 
 struct StyleRun {
