@@ -1,7 +1,10 @@
 #pragma once
 
 #include <cstddef>
+#include <string>
+#include <vector>
 
+#include "transport/ITransportTarget.h"
 #include "transport/TransportError.h"
 
 namespace term::session {
@@ -29,6 +32,13 @@ public:
     // Session thread — implementations MUST CallAfter before touching wx.
     // Fired once when X11 forwarding becomes active on the SSH channel.
     virtual void OnX11FwdChanged(SessionId, bool /*active*/) {}
+
+    // Session thread — BLOCKS the caller until the user responds.
+    // Must dispatch to the UI thread (e.g. wxCallAfter + std::promise/future)
+    // and return the user's responses in prompt order.  Returning an empty
+    // vector causes authentication failure.
+    virtual std::vector<std::string> OnKbdIntChallenge(
+        SessionId, const term::transport::KbdIntChallenge& /*challenge*/) { return {}; }
 };
 
 } // namespace term::session

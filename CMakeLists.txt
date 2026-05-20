@@ -137,6 +137,7 @@ set(SOURCES
     src/ui/NewConnectionDialog.cpp
     src/ui/ConnectionManagerDialog.cpp
     src/ui/FileTransferDialog.cpp
+    src/ui/KbdIntDialog.cpp
     src/ui/RemoteFileBrowserDialog.cpp
     src/ui/SnapshotManagerDialog.cpp
     src/ui/GeometryDialog.cpp

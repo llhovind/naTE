@@ -32,6 +32,7 @@ namespace
     constexpr int ID_RB_AUTH_AGENT          = wxID_HIGHEST + 205;
     constexpr int ID_RB_AUTH_PASS           = wxID_HIGHEST + 206;
     constexpr int ID_RB_AUTH_KEY            = wxID_HIGHEST + 207;
+    constexpr int ID_RB_AUTH_KBD            = wxID_HIGHEST + 230;
     constexpr int ID_GEOMETRY_COMBO         = wxID_HIGHEST + 208;
     constexpr int ID_PROFILE_COMBO          = wxID_HIGHEST + 209;
     constexpr int ID_BTN_BROWSE_WORKDIR_PTY = wxID_HIGHEST + 210;
@@ -312,6 +313,10 @@ NewConnectionDialog::NewConnectionDialog(
         authBox->Add(m_rbAuthKey,  0, wxLEFT | wxRIGHT | wxBOTTOM, 4);
         authBox->Add(m_keyPanel,   0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
+        m_rbAuthKbd = new wxRadioButton(page, ID_RB_AUTH_KBD,
+                                        "Keyboard Interactive");
+        authBox->Add(m_rbAuthKbd, 0, wxLEFT | wxRIGHT | wxBOTTOM, 4);
+
         sizer->Add(authBox, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
 
         // Options row — Timeout + Keep-alive + Remote command + Compress
@@ -522,6 +527,7 @@ NewConnectionDialog::NewConnectionDialog(
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_AGENT);
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_PASS);
     Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_KEY);
+    Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_KBD);
     Bind(wxEVT_COMBOBOX,    &NewConnectionDialog::OnGeometryChanged,   this, ID_GEOMETRY_COMBO);
 
     if (m_connectBtn)
@@ -598,6 +604,9 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
                     m_rbAuthKey->SetValue(true);
                     m_keyPicker->SetPath(desc.privateKeyPath);
                     m_keyPanel->Show(true);
+                    break;
+                case term::session::SshAuthMethod::KbdInteractive:
+                    m_rbAuthKbd->SetValue(true);
                     break;
                 default:
                     m_rbAuthAgent->SetValue(true);
@@ -829,8 +838,12 @@ void NewConnectionDialog::OnAuthMethodChanged(wxCommandEvent&)
     m_passPanel->Show(m_rbAuthPass->GetValue());
     m_keyPanel->Show(m_rbAuthKey->GetValue());
     // SSH panel's sizer needs a re-layout to accommodate the shown/hidden sub-panels.
-    if (m_notebook->GetSelection() == kTabSsh)
+    if (m_notebook->GetSelection() == kTabSsh) {
         m_notebook->GetCurrentPage()->Layout();
+        Layout();
+        Fit();
+        SetMinSize(GetSize());
+    }
 }
 
 void NewConnectionDialog::OnGeometryChanged(wxCommandEvent&)
@@ -968,6 +981,8 @@ ConnectionParams NewConnectionDialog::GetParams() const
             p.authMethod     = SshAuthChoice::PrivateKey;
             p.privateKeyPath = m_keyPicker->GetPath().ToStdString();
             p.passphrase     = m_passphraseCtrl->GetValue().ToStdString();
+        } else if (m_rbAuthKbd->GetValue()) {
+            p.authMethod = SshAuthChoice::KeyboardInteractive;
         } else {
             p.authMethod = SshAuthChoice::Agent;
         }

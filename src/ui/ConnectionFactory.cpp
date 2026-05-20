@@ -48,6 +48,8 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
                     d.authMethod = term::session::SshAuthMethod::Password; break;
                 case SshAuthChoice::PrivateKey:
                     d.authMethod = term::session::SshAuthMethod::PrivateKey; break;
+                case SshAuthChoice::KeyboardInteractive:
+                    d.authMethod = term::session::SshAuthMethod::KbdInteractive; break;
                 default:
                     d.authMethod = term::session::SshAuthMethod::Agent; break;
             }

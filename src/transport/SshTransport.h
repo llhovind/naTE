@@ -75,6 +75,9 @@ public:
     // Worker-thread-only; accesses agent_channels_ without locking.
     void AcceptAgentChannel(_LIBSSH2_CHANNEL* ch);
 
+    // Called by KbdIntCallback (file-local static) to reach target_.
+    ITransportTarget& Target() { return target_; }
+
 private:
     struct X11Channel {
         _LIBSSH2_CHANNEL* channel  = nullptr;
@@ -101,6 +104,7 @@ private:
     bool AuthViaAgent();
     bool AuthViaPassword();
     bool AuthViaPrivateKey();
+    bool AuthViaKbdInteractive();
     bool OpenChannel();
     bool RequestPty();
     bool SetupX11Forwarding();

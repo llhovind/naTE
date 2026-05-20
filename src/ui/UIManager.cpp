@@ -1,6 +1,7 @@
 #include "ui/UIManager.h"
 #include "app/App.h"
 #include "ui/FileTransferDialog.h"
+#include "ui/KbdIntDialog.h"
 #include "ui/ISessionDropTarget.h"
 #include "ui/MainFrame.h"
 #include "ui/TerminalPanel.h"
@@ -18,6 +19,10 @@
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/string.h>
+
+#include <future>
+#include <string>
+#include <vector>
 
 namespace ui {
 
@@ -154,6 +159,27 @@ void UIManager::OnX11FwdChanged(term::session::SessionId id, bool active)
             sui->tile->SetX11Active(active);
         }
     });
+}
+
+std::vector<std::string> UIManager::OnKbdIntChallenge(
+    term::session::SessionId /*id*/,
+    const term::transport::KbdIntChallenge& challenge)
+{
+    // Called on the transport worker thread — must dispatch to the UI thread
+    // and block until the user responds.
+    // shared_ptr makes the promise copyable so the lambda satisfies CallAfter.
+    auto promise = std::make_shared<std::promise<std::vector<std::string>>>();
+    auto future  = promise->get_future();
+
+    frame_->CallAfter([this, challenge, promise]() {
+        KbdIntDialog dlg(frame_, challenge);
+        if (dlg.ShowModal() == wxID_OK)
+            promise->set_value(dlg.GetResponses());
+        else
+            promise->set_value({});
+    });
+
+    return future.get();
 }
 
 // ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ struct SessionInit {
 struct PtyDesc      { std::string shell; };
 struct LoopbackDesc {};
 
-enum class SshAuthMethod { Agent, Password, PrivateKey };
+enum class SshAuthMethod { Agent, Password, PrivateKey, KbdInteractive };
 
 struct SshDesc {
     std::string    host;

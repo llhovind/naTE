@@ -14,16 +14,18 @@ using json = nlohmann::json;
 inline std::string AuthMethodToString(term::session::SshAuthMethod m)
 {
     switch (m) {
-        case term::session::SshAuthMethod::Password:   return "password";
-        case term::session::SshAuthMethod::PrivateKey: return "privatekey";
-        default:                                        return "agent";
+        case term::session::SshAuthMethod::Password:       return "password";
+        case term::session::SshAuthMethod::PrivateKey:     return "privatekey";
+        case term::session::SshAuthMethod::KbdInteractive: return "keyboard-interactive";
+        default:                                            return "agent";
     }
 }
 
 inline term::session::SshAuthMethod AuthMethodFromString(const std::string& s)
 {
-    if (s == "password")   return term::session::SshAuthMethod::Password;
-    if (s == "privatekey") return term::session::SshAuthMethod::PrivateKey;
+    if (s == "password")             return term::session::SshAuthMethod::Password;
+    if (s == "privatekey")           return term::session::SshAuthMethod::PrivateKey;
+    if (s == "keyboard-interactive") return term::session::SshAuthMethod::KbdInteractive;
     return term::session::SshAuthMethod::Agent;
 }
 

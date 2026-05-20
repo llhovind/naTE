@@ -33,7 +33,9 @@ public:
             unsigned short ptyLineWidth = 1024,
             bool wrapMode = false,
             std::function<void(bool)> onAltScreenChanged = {},
-            std::function<void(bool)> onX11FwdChanged = {});
+            std::function<void(bool)> onX11FwdChanged = {},
+            std::function<std::vector<std::string>(
+                const transport::KbdIntChallenge&)> onKbdIntChallenge = {});
     ~Session();
 
     // Stops the transport I/O thread synchronously. Safe to call multiple
@@ -62,6 +64,8 @@ public:
     void OnError(const transport::TransportError& error) override;
     void OnDisconnect() override;
     void OnX11StateChanged(bool active) override;
+    std::vector<std::string> OnKbdIntChallenge(
+        const transport::KbdIntChallenge& challenge) override;
 
     // Allows SessionManager to attach a DocumentObserver to the active document.
     void AddDocumentListener(IDocumentListener* listener);
@@ -122,6 +126,8 @@ private:
     std::function<void(const transport::TransportError&)>    onError_;
     std::function<void(bool)>                                onAltScreenChanged_;
     std::function<void(bool)>                                onX11FwdChanged_;
+    std::function<std::vector<std::string>(
+        const transport::KbdIntChallenge&)>                  onKbdIntChallenge_;
 
     unsigned short     lastCols_{0};
     unsigned short     lastRows_{0};

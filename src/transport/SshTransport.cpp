@@ -54,6 +54,73 @@ void AgentOpenCallback(LIBSSH2_SESSION* /*session*/,
 }
 #endif
 
+// Shared keyboard-interactive response logic.  Builds a KbdIntChallenge from
+// the libssh2 prompt arrays, delegates to target for user responses, then fills
+// in libssh2's response structs.  libssh2 owns the response buffers and frees
+// them with free(), so strdup() is the correct allocator here.
+void ApplyKbdIntResponses(
+    const char* name,        int name_len,
+    const char* instruction, int instruction_len,
+    int num_prompts,
+    const LIBSSH2_USERAUTH_KBDINT_PROMPT* prompts,
+    LIBSSH2_USERAUTH_KBDINT_RESPONSE*     responses,
+    term::transport::ITransportTarget&    target)
+{
+    term::transport::KbdIntChallenge challenge;
+    challenge.name        = std::string(name,        static_cast<size_t>(name_len));
+    challenge.instruction = std::string(instruction, static_cast<size_t>(instruction_len));
+    for (int i = 0; i < num_prompts; ++i)
+        challenge.prompts.push_back({
+            std::string(reinterpret_cast<const char*>(prompts[i].text),
+                        prompts[i].length),
+            prompts[i].echo != 0
+        });
+
+    const auto answers = target.OnKbdIntChallenge(challenge);
+
+    for (int i = 0; i < num_prompts; ++i) {
+        const std::string& ans =
+            (i < static_cast<int>(answers.size())) ? answers[i] : "";
+        responses[i].text   = strdup(ans.c_str());
+        responses[i].length = static_cast<unsigned int>(ans.size());
+    }
+}
+
+// Keyboard-interactive callback for the main worker-thread session.
+// abstract is the session user pointer, set to `this` (SshTransport*) in WorkerThread.
+void KbdIntCallback(
+    const char* name,        int name_len,
+    const char* instruction, int instruction_len,
+    int num_prompts,
+    const LIBSSH2_USERAUTH_KBDINT_PROMPT* prompts,
+    LIBSSH2_USERAUTH_KBDINT_RESPONSE*     responses,
+    void**                                abstract)
+{
+    auto* self = static_cast<term::transport::SshTransport*>(*abstract);
+    ApplyKbdIntResponses(name, name_len, instruction, instruction_len,
+                         num_prompts, prompts, responses, self->Target());
+}
+
+// Context struct used by the auxiliary-session keyboard-interactive callback.
+struct KbdIntAuxCtx {
+    term::transport::ITransportTarget* target;
+};
+
+// Keyboard-interactive callback for blocking auxiliary sessions (SCP/SFTP).
+// abstract points to a KbdIntAuxCtx on the caller's stack.
+void KbdIntAuxCallback(
+    const char* name,        int name_len,
+    const char* instruction, int instruction_len,
+    int num_prompts,
+    const LIBSSH2_USERAUTH_KBDINT_PROMPT* prompts,
+    LIBSSH2_USERAUTH_KBDINT_RESPONSE*     responses,
+    void**                                abstract)
+{
+    auto* ctx = static_cast<KbdIntAuxCtx*>(*abstract);
+    ApplyKbdIntResponses(name, name_len, instruction, instruction_len,
+                         num_prompts, prompts, responses, *ctx->target);
+}
+
 std::string GenerateVpColumnsFilePath() {
     static std::atomic<int> counter{0};
     return "/tmp/nate-vpcolumns-"
@@ -148,11 +215,13 @@ void SshTransport::WorkerThread()
           return;
       }
     }
+    // Store `this` in the session abstract slot before Authenticate() so that
+    // KbdIntCallback (and later X11/agent callbacks) can reach this instance.
+    *libssh2_session_abstract(session_) = this;
+
     if (!Authenticate())                return;
 
-    // Register X11 callback and store `this` in the session abstract slot so
-    // AcceptX11Channel() can be reached from the static callback.
-    *libssh2_session_abstract(session_) = this;
+    // Register X11 callback — abstract already set above.
 #if LIBSSH2_VERSION_NUM >= 0x010B01
     libssh2_session_callback_set2(session_, LIBSSH2_CALLBACK_X11,
                                   reinterpret_cast<libssh2_cb_generic*>(X11OpenCallback));
@@ -388,9 +457,10 @@ bool SshTransport::Authenticate()
 {
     using AM = term::session::SshAuthMethod;
     switch (desc_.authMethod) {
-        case AM::Agent:      return AuthViaAgent();
-        case AM::Password:   return AuthViaPassword();
-        case AM::PrivateKey: return AuthViaPrivateKey();
+        case AM::Agent:          return AuthViaAgent();
+        case AM::Password:       return AuthViaPassword();
+        case AM::PrivateKey:     return AuthViaPrivateKey();
+        case AM::KbdInteractive: return AuthViaKbdInteractive();
     }
     return false;
 }
@@ -487,6 +557,24 @@ bool SshTransport::AuthViaPrivateKey()
     if (rc != 0) {
         NotifyError(TransportError::Category::Authentication,
                     "SSH: private key authentication failed — " + LastSshError());
+        return false;
+    }
+    return true;
+}
+
+bool SshTransport::AuthViaKbdInteractive()
+{
+    int rc;
+    while ((rc = libssh2_userauth_keyboard_interactive(
+                session_,
+                desc_.username.c_str(),
+                &KbdIntCallback)) == LIBSSH2_ERROR_EAGAIN) {
+        if (!running_) return false;
+        PollUntilReady(kPollTimeoutMs);
+    }
+    if (rc != 0) {
+        NotifyError(TransportError::Category::Authentication,
+                    "SSH: keyboard-interactive authentication failed — " + LastSshError());
         return false;
     }
     return true;
@@ -1192,6 +1280,14 @@ void SshTransport::DoSendFile(std::string localPath,
         if (!authenticated)
             authError = "SCP: password authentication failed";
 
+    } else if (desc_.authMethod == AM::KbdInteractive) {
+        KbdIntAuxCtx ctx{ &target_ };
+        *libssh2_session_abstract(session) = &ctx;
+        authenticated = libssh2_userauth_keyboard_interactive(
+            session, desc_.username.c_str(), &KbdIntAuxCallback) == 0;
+        if (!authenticated)
+            authError = "SCP: keyboard-interactive authentication failed";
+
     } else { // PrivateKey
         const char* pubkey = desc_.publicKeyPath.empty()
                              ? nullptr : desc_.publicKeyPath.c_str();
@@ -1350,7 +1446,8 @@ std::vector<term::transport::RemoteDirEntry> ParseLsOutput(const std::string& ou
 // knownHostsPath must be provided by the caller (use SshTransport::KnownHostsPath()).
 static bool OpenAuxSession(const term::session::SshDesc& desc,
                            const std::string& knownHostsPath,
-                           SshSession* out, std::string* outErr)
+                           SshSession* out, std::string* outErr,
+                           term::transport::ITransportTarget* target = nullptr)
 {
     using AM = term::session::SshAuthMethod;
 
@@ -1470,7 +1567,18 @@ static bool OpenAuxSession(const term::session::SshDesc& desc,
             session, desc.username.c_str(), desc.password.c_str()) == 0;
         if (!authenticated) *outErr = "SSH: password authentication failed";
 
-    } else {
+    } else if (desc.authMethod == AM::KbdInteractive) {
+        if (!target) {
+            *outErr = "SSH: keyboard-interactive auth not supported for this operation";
+        } else {
+            KbdIntAuxCtx ctx{ target };
+            *libssh2_session_abstract(session) = &ctx;
+            authenticated = libssh2_userauth_keyboard_interactive(
+                session, desc.username.c_str(), &KbdIntAuxCallback) == 0;
+            if (!authenticated) *outErr = "SSH: keyboard-interactive authentication failed";
+        }
+
+    } else { // PrivateKey
         const char* pub = desc.publicKeyPath.empty()  ? nullptr : desc.publicKeyPath.c_str();
         const char* pp  = desc.passphrase.empty()     ? nullptr : desc.passphrase.c_str();
         authenticated = libssh2_userauth_publickey_fromfile(
@@ -1513,7 +1621,7 @@ void SshTransport::DoReceiveFile(std::string remotePath,
 
     SshSession aux;
     std::string authErr;
-    if (!OpenAuxSession(desc_, KnownHostsPath(), &aux, &authErr)) {
+    if (!OpenAuxSession(desc_, KnownHostsPath(), &aux, &authErr, &target_)) {
         fail(std::move(authErr));
         return;
     }
@@ -1609,7 +1717,7 @@ void SshTransport::DoListRemoteDirectory(
 
     SshSession aux;
     std::string authErr;
-    if (!OpenAuxSession(desc_, KnownHostsPath(), &aux, &authErr)) {
+    if (!OpenAuxSession(desc_, KnownHostsPath(), &aux, &authErr, &target_)) {
         fail(std::move(authErr));
         return;
     }

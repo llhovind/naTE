@@ -63,7 +63,7 @@ struct PtyParams {
     bool           useProfileTitle = false;
 };
 
-enum class SshAuthChoice { Agent, Password, PrivateKey };
+enum class SshAuthChoice { Agent, Password, PrivateKey, KeyboardInteractive };
 
 struct SshParams {
     std::string    host;
@@ -188,6 +188,7 @@ private:
     wxRadioButton*   m_rbAuthAgent     = nullptr;
     wxRadioButton*   m_rbAuthPass      = nullptr;
     wxRadioButton*   m_rbAuthKey       = nullptr;
+    wxRadioButton*   m_rbAuthKbd       = nullptr;
     wxPanel*         m_passPanel       = nullptr;
     wxTextCtrl*      m_passCtrl        = nullptr;
     wxPanel*         m_keyPanel        = nullptr;

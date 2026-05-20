@@ -73,6 +73,12 @@ SessionId SessionManager::CreateSession(const Connection& conn,
             recPtr->x11ForwardingActive.store(active, std::memory_order_release);
             if (auto* obs = uiObs->load(std::memory_order_acquire))
                 obs->OnX11FwdChanged(id, active);
+        },
+        [uiObs, id](const transport::KbdIntChallenge& challenge)
+            -> std::vector<std::string> {
+            if (auto* obs = uiObs->load(std::memory_order_acquire))
+                return obs->OnKbdIntChallenge(id, challenge);
+            return {};
         });
 
     sessions_.emplace(id, std::move(rec));
