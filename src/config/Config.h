@@ -20,8 +20,9 @@ struct AppConfig {
     // Resolved from the active theme file at load time.
     // Fallback values are Solarized Dark so the app always has sensible colours
     // even if the theme file is missing.
-    Rgb textColour = { 147, 161, 161 };  // Solarized Dark base05
-    Rgb bgColour   = {   0,  43,  54 };  // Solarized Dark base00
+    Rgb textColour   = { 147, 161, 161 };  // Solarized Dark base05
+    Rgb bgColour     = {   0,  43,  54 };  // Solarized Dark base00
+    Rgb cursorColour = { 147, 161, 161 };  // Solarized Dark base05
 
     // ANSI 16-color palette (indices 0-15) derived from the loaded theme.
     // Defaults are the Solarized Dark base16 mapping.

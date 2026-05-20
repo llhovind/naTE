@@ -114,7 +114,7 @@ std::optional<ColorScheme> ColorScheme::loadFromFile(const std::string& path)
 
     std::string section;
     std::string line;
-    bool hasFg = false, hasBg = false;
+    bool hasFg = false, hasBg = false, hasCursor = false;
 
     while (std::getline(file, line)) {
         const std::string t = trim(line);
@@ -136,6 +136,8 @@ std::optional<ColorScheme> ColorScheme::loadFromFile(const std::string& path)
                 if (auto rgb = parseRgb(val)) { scheme.foreground = *rgb; hasFg = true; }
             } else if (key == "Background") {
                 if (auto rgb = parseRgb(val)) { scheme.background = *rgb; hasBg = true; }
+            } else if (key == "Cursor") {
+                if (auto rgb = parseHex(val)) { scheme.cursor = *rgb; hasCursor = true; }
             }
         } else if (section == "Palette") {
             const int idx = base16Index(key);
@@ -148,13 +150,16 @@ std::optional<ColorScheme> ColorScheme::loadFromFile(const std::string& path)
         }
     }
 
-    // When a [Palette] section was found, derive fg/bg from base05/base00.
+    // When a [Palette] section was found, derive fg/bg/cursor from base05/base00.
     // An explicit [Colors] section in the same file takes precedence.
     if (scheme.hasPalette) {
         scheme.computeAnsiColors();
-        if (!hasBg) scheme.background = scheme.palette[0];   // base00
-        if (!hasFg) scheme.foreground = scheme.palette[5];   // base05
+        if (!hasBg)     scheme.background = scheme.palette[0];   // base00
+        if (!hasFg)     scheme.foreground = scheme.palette[5];   // base05
+        if (!hasCursor) scheme.cursor     = scheme.palette[5];   // base05 convention
         hasFg = hasBg = true;
+    } else if (!hasCursor) {
+        scheme.cursor = scheme.foreground;
     }
 
     // A theme file must supply at least one colour to be considered valid.

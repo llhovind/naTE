@@ -1,5 +1,6 @@
 #include "ui/PreferencesDialog.h"
 #include <wx/button.h>
+#include <wx/checkbox.h>
 #include <wx/choice.h>
 #include <wx/fontdlg.h>
 #include <wx/gbsizer.h>
@@ -141,6 +142,35 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
     }
     sesSizer->Add(m_wrapModeChoice, {2, 1}, {1, 1});
 
+    // Login shell
+    m_loginShellChk = new wxCheckBox(sesPage, wxID_ANY, "Login shell");
+    m_loginShellChk->SetValue(current.defaultLoginShell);
+    sesSizer->Add(m_loginShellChk, {3, 0}, {1, 2});
+
+    // Scrollback lines
+    sesSizer->Add(new wxStaticText(sesPage, wxID_ANY, "Scrollback lines:"),
+                  {4, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+    m_scrollbackCtrl = new wxSpinCtrl(sesPage, wxID_ANY,
+                                      wxEmptyString, wxDefaultPosition, wxDefaultSize,
+                                      wxSP_ARROW_KEYS, 1000, 1'000'000,
+                                      current.scrollbackLines);
+    m_scrollbackCtrl->SetIncrement(10'000);
+    sesSizer->Add(m_scrollbackCtrl, {4, 1}, {1, 1});
+
+    // Auto-restore session
+    m_autoRestoreChk = new wxCheckBox(sesPage, wxID_ANY, "Auto-restore session on launch");
+    m_autoRestoreChk->SetValue(current.autoRestoreSession);
+    sesSizer->Add(m_autoRestoreChk, {5, 0}, {1, 2});
+
+    // Save interval (enabled only when auto-restore is on)
+    sesSizer->Add(new wxStaticText(sesPage, wxID_ANY, "Save interval (s):"),
+                  {6, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+    m_saveIntervalCtrl = new wxSpinCtrl(sesPage, wxID_ANY,
+                                        wxEmptyString, wxDefaultPosition, wxDefaultSize,
+                                        wxSP_ARROW_KEYS, 10, 3600,
+                                        current.sessionSaveInterval);
+    sesSizer->Add(m_saveIntervalCtrl, {6, 1}, {1, 1});
+
     sesSizer->AddGrowableCol(1);
     auto* sesOuter = new wxBoxSizer(wxVERTICAL);
     sesOuter->Add(sesSizer, 1, wxEXPAND | wxALL, 12);
@@ -153,7 +183,7 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
     dlgSizer->Add(CreateButtonSizer(wxOK | wxCANCEL), 0,
                   wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
     SetSizerAndFit(dlgSizer);
-    SetMinClientSize({440, 260});
+    SetMinClientSize({440, 320});
 
     Bind(wxEVT_BUTTON, &PreferencesDialog::OnBrowseFont, this, kBrowseFontId);
     Bind(wxEVT_BUTTON, &PreferencesDialog::OnOk,         this, wxID_OK);
@@ -181,18 +211,25 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
 {
     const int sel = m_themeChoice->GetSelection();
     if (sel >= 0 && sel < static_cast<int>(themes_.size())) {
-        result_.themeName  = themes_[sel].stem;
-        result_.textColour = themes_[sel].foreground;
-        result_.bgColour   = themes_[sel].background;
+        result_.themeName    = themes_[sel].stem;
+        result_.textColour   = themes_[sel].foreground;
+        result_.bgColour     = themes_[sel].background;
+        result_.cursorColour = themes_[sel].cursor;
+        if (themes_[sel].hasPalette)
+            result_.ansiColors = themes_[sel].ansiColors;
     }
 
-    result_.fontFamily       = m_familyCtrl->GetValue().ToStdString();
-    result_.fontSize         = m_sizeCtrl->GetValue();
-    result_.padding          = m_paddingCtrl->GetValue();
-    result_.defaultShell      = m_shellCtrl->GetValue().ToStdString();
-    result_.defaultWorkingDir = m_workDirCtrl->GetValue().ToStdString();
-    result_.defaultWrapMode   = m_wrapModeChoice->GetSelection() == 1;
-    result_.webSearchUrl      = m_webSearchCtrl->GetValue().ToStdString();
+    result_.fontFamily         = m_familyCtrl->GetValue().ToStdString();
+    result_.fontSize           = m_sizeCtrl->GetValue();
+    result_.padding            = m_paddingCtrl->GetValue();
+    result_.defaultShell       = m_shellCtrl->GetValue().ToStdString();
+    result_.defaultWorkingDir  = m_workDirCtrl->GetValue().ToStdString();
+    result_.defaultWrapMode    = m_wrapModeChoice->GetSelection() == 1;
+    result_.defaultLoginShell  = m_loginShellChk->IsChecked();
+    result_.scrollbackLines    = m_scrollbackCtrl->GetValue();
+    result_.autoRestoreSession  = m_autoRestoreChk->IsChecked();
+    result_.sessionSaveInterval = m_saveIntervalCtrl->GetValue();
+    result_.webSearchUrl       = m_webSearchCtrl->GetValue().ToStdString();
 
     evt.Skip();
 }

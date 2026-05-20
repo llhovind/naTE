@@ -135,8 +135,9 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
     if (!cfg.themeName.empty() && !themesDir.empty()) {
         const std::string themePath = themesDir + "/" + cfg.themeName + ".ini";
         if (auto scheme = ColorScheme::loadFromFile(themePath)) {
-            cfg.textColour = scheme->foreground;
-            cfg.bgColour   = scheme->background;
+            cfg.textColour   = scheme->foreground;
+            cfg.bgColour     = scheme->background;
+            cfg.cursorColour = scheme->cursor;
             if (scheme->hasPalette)
                 cfg.ansiColors = scheme->ansiColors;
         }

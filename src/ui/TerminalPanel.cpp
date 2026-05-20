@@ -659,9 +659,12 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
         if (row.hasCursor) {
             const int cx = row.cursorCol * cw + m_cfg.padding;
             const int cy = rowY;
+            const wxColour cursorWx(m_cfg.cursorColour.r,
+                                    m_cfg.cursorColour.g,
+                                    m_cfg.cursorColour.b);
             if (m_inBroadcast_ || (m_hasFocus_ && !m_broadcastModeActive_)) {
                 dc.SetPen(*wxTRANSPARENT_PEN);
-                dc.SetBrush(wxBrush(*wxBLUE));
+                dc.SetBrush(wxBrush(cursorWx));
                 dc.DrawRectangle(cx, cy, cw, ch);
                 if (row.cursorCol < textLen) {
                     dc.SetTextForeground(wxColour(m_cfg.bgColour.r,   m_cfg.bgColour.g,   m_cfg.bgColour.b));
@@ -669,7 +672,7 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
                     dc.DrawText(wxString(static_cast<wchar_t>(row.text[row.cursorCol])), cx, cy);
                 }
             } else {
-                dc.SetPen(wxPen(*wxBLUE, 1));
+                dc.SetPen(wxPen(cursorWx, 1));
                 dc.SetBrush(*wxTRANSPARENT_BRUSH);
                 dc.DrawRectangle(cx, cy, cw, ch);
             }

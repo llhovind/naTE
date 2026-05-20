@@ -34,6 +34,7 @@ struct ColorScheme {
     std::string displayName;  // e.g. "Solarized Dark"
     Rgb         foreground = { 131, 148, 150 };  // Solarized Dark base05 fallback
     Rgb         background = {   0,  43,  54 };  // Solarized Dark base00 fallback
+    Rgb         cursor     = { 131, 148, 150 };  // Solarized Dark base05 fallback
 
     // base16 raw values: palette[0]=base00 … palette[15]=base0F.
     // All zeros when no [Palette] section was found.
