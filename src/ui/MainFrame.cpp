@@ -254,29 +254,10 @@ bool MainFrame::RunConnectionDialog(ui::LaunchContext context,
 
     term::session::Connection conn = ui::ToConnection(dlg.GetParams(), ++m_sessionCount);
 
-    // Honour "Save as Profile" if requested
     const std::string profileName = dlg.GetProfileName();
     if (dlg.GetSaveAsProfile() && !profileName.empty()) {
         conn.label = profileName;
-        const std::string existingId = dlg.GetSelectedProfileId();
-        if (!existingId.empty()) {
-            const auto& profiles = m_store.GetAll();
-            auto it = std::find_if(profiles.begin(), profiles.end(),
-                                   [&](const term::db::ConnectionProfile& p){
-                                       return p.id == existingId; });
-            if (it != profiles.end()) {
-                term::db::ConnectionProfile upd = *it;
-                upd.name        = profileName;
-                upd.transport   = conn.transport;
-                upd.wrapMode    = conn.wrapMode;
-                upd.columnWidth = conn.columnWidth;
-                upd.rows        = conn.rows;
-                m_store.Update(upd);
-            }
-        } else {
-            m_store.Add(profileName, conn.transport,
-                        conn.wrapMode, conn.columnWidth, conn.rows);
-        }
+        ui::SaveProfile(m_store, conn, profileName, dlg.GetSelectedProfileId());
     } else if (!profileName.empty()) {
         conn.label = profileName;
     }

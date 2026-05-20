@@ -225,10 +225,8 @@ void ConnectionManagerDialog::OnNew(wxCommandEvent&)
     if (dlg.ShowModal() != wxID_OK) return;
 
     const term::session::Connection conn = ui::ToConnection(dlg.GetParams());
-    const std::string dlgName = dlg.GetProfileName();
-    m_store.Add(dlgName.empty() ? conn.label : dlgName,
-                conn.transport, conn.wrapMode, conn.columnWidth, conn.rows,
-                conn.sessionInit, conn.profileTitle, conn.useProfileTitle);
+    const std::string name = dlg.GetProfileName();
+    ui::SaveProfile(m_store, conn, name.empty() ? conn.label : name);
     PopulateList();
     UpdateButtonState();
 }
@@ -254,22 +252,9 @@ void ConnectionManagerDialog::OnEdit(wxCommandEvent&)
                             m_cfg.geometryPresets, {}, LaunchContext::ProfileOnly, &*it);
     if (dlg.ShowModal() != wxID_OK) return;
 
-    term::db::ConnectionProfile updated = *it;
-    const std::string dlgName = dlg.GetProfileName();
-    if (!dlgName.empty())
-        updated.name = dlgName;
-    {
-        const term::session::Connection conn = ui::ToConnection(dlg.GetParams());
-        updated.transport       = conn.transport;
-        updated.wrapMode        = conn.wrapMode;
-        updated.columnWidth     = conn.columnWidth;
-        updated.rows            = conn.rows;
-        updated.sessionInit     = conn.sessionInit;
-        updated.profileTitle    = conn.profileTitle;
-        updated.useProfileTitle = conn.useProfileTitle;
-    }
-
-    m_store.Update(updated);
+    const term::session::Connection conn = ui::ToConnection(dlg.GetParams());
+    const std::string name = dlg.GetProfileName();
+    ui::SaveProfile(m_store, conn, name.empty() ? it->name : name, id);
     PopulateList();
     UpdateButtonState();
 }
