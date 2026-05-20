@@ -7,6 +7,7 @@
 #include "transport/TransportError.h"
 
 #include <atomic>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <mutex>
@@ -105,6 +106,21 @@ private:
     bool AuthViaPassword();
     bool AuthViaPrivateKey();
     bool AuthViaKbdInteractive();
+
+    // Returns the public-key blobs that should be tried first from the agent.
+    // Checks desc_.agentIdentityHint first; falls back to ~/.ssh/config lookup.
+    // Returns empty if no preference is found (caller falls back to trying all keys).
+    std::vector<std::vector<uint8_t>> PreferredAgentKeyBlobs() const;
+
+    // Try only agent identities whose blob matches one in `preferred` (non-blocking).
+    // Returns true on first success. Caller owns agent lifetime.
+    // Sets *anyMatched=true if at least one matching identity was found in the agent.
+    bool AgentTryPreferred(_LIBSSH2_AGENT* agent,
+                           const std::vector<std::vector<uint8_t>>& preferred,
+                           bool* anyMatched);
+
+    // Try all agent identities in order (non-blocking). Returns true on first success.
+    bool AgentTryAll(_LIBSSH2_AGENT* agent);
     bool OpenChannel();
     bool RequestPty();
     bool SetupX11Forwarding();

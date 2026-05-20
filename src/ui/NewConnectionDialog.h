@@ -79,6 +79,7 @@ struct SshParams {
     bool           compress          = false;
     bool           x11Forwarding     = false;
     bool           agentForwarding   = false;
+    std::string    agentIdentityHint;
     bool           wrapMode          = false;
     unsigned short columnWidth       = 80;
     unsigned short rows              = 24;
@@ -189,11 +190,13 @@ private:
     wxRadioButton*   m_rbAuthPass      = nullptr;
     wxRadioButton*   m_rbAuthKey       = nullptr;
     wxRadioButton*   m_rbAuthKbd       = nullptr;
-    wxPanel*         m_passPanel       = nullptr;
-    wxTextCtrl*      m_passCtrl        = nullptr;
-    wxPanel*         m_keyPanel        = nullptr;
-    wxFilePickerCtrl* m_keyPicker      = nullptr;
-    wxTextCtrl*      m_passphraseCtrl  = nullptr;
+    wxPanel*          m_agentPanel      = nullptr;
+    wxFilePickerCtrl* m_agentHintPicker = nullptr;
+    wxPanel*          m_passPanel       = nullptr;
+    wxTextCtrl*       m_passCtrl        = nullptr;
+    wxPanel*          m_keyPanel        = nullptr;
+    wxFilePickerCtrl* m_keyPicker       = nullptr;
+    wxTextCtrl*       m_passphraseCtrl  = nullptr;
     wxSpinCtrl*      m_keepaliveCtrl   = nullptr;
     wxTextCtrl*      m_remoteCmdCtrl   = nullptr;
     wxCheckBox*      m_cbCompress      = nullptr;

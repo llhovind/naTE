@@ -268,6 +268,22 @@ NewConnectionDialog::NewConnectionDialog(
 
         authBox->Add(m_rbAuthAgent, 0, wxALL, 4);
 
+        // Agent identity hint sub-panel (optional key path to prefer from agent)
+        m_agentPanel = new wxPanel(page, wxID_ANY);
+        {
+            auto* s = new wxBoxSizer(wxHORIZONTAL);
+            s->Add(new wxStaticText(m_agentPanel, wxID_ANY, "Identity hint:"),
+                   0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+            m_agentHintPicker = new wxFilePickerCtrl(
+                m_agentPanel, wxID_ANY, wxEmptyString,
+                "Select private key to prefer for agent auth", "All files (*)|*",
+                wxDefaultPosition, wxSize(240, -1),
+                wxFLP_OPEN | wxFLP_USE_TEXTCTRL);
+            s->Add(m_agentHintPicker, 1, wxEXPAND);
+            m_agentPanel->SetSizer(s);
+        }
+        authBox->Add(m_agentPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+
         // Password sub-panel
         m_passPanel = new wxPanel(page, wxID_ANY);
         {
@@ -598,18 +614,23 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
             switch (desc.authMethod) {
                 case term::session::SshAuthMethod::Password:
                     m_rbAuthPass->SetValue(true);
+                    m_agentPanel->Show(false);
                     m_passPanel->Show(true);
                     break;
                 case term::session::SshAuthMethod::PrivateKey:
                     m_rbAuthKey->SetValue(true);
+                    m_agentPanel->Show(false);
                     m_keyPicker->SetPath(desc.privateKeyPath);
                     m_keyPanel->Show(true);
                     break;
                 case term::session::SshAuthMethod::KbdInteractive:
                     m_rbAuthKbd->SetValue(true);
+                    m_agentPanel->Show(false);
                     break;
                 default:
                     m_rbAuthAgent->SetValue(true);
+                    m_agentHintPicker->SetPath(desc.agentIdentityHint);
+                    m_agentPanel->Show(true);
                     break;
             }
         } else if constexpr (std::is_same_v<T, term::session::SerialDesc>) {
@@ -835,6 +856,7 @@ void NewConnectionDialog::OnUseProfileTitleToggled(wxCommandEvent&)
 
 void NewConnectionDialog::OnAuthMethodChanged(wxCommandEvent&)
 {
+    m_agentPanel->Show(m_rbAuthAgent->GetValue());
     m_passPanel->Show(m_rbAuthPass->GetValue());
     m_keyPanel->Show(m_rbAuthKey->GetValue());
     // SSH panel's sizer needs a re-layout to accommodate the shown/hidden sub-panels.
@@ -984,7 +1006,8 @@ ConnectionParams NewConnectionDialog::GetParams() const
         } else if (m_rbAuthKbd->GetValue()) {
             p.authMethod = SshAuthChoice::KeyboardInteractive;
         } else {
-            p.authMethod = SshAuthChoice::Agent;
+            p.authMethod         = SshAuthChoice::Agent;
+            p.agentIdentityHint  = m_agentHintPicker->GetPath().ToStdString();
         }
         return p;
     }

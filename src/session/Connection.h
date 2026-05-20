@@ -33,6 +33,7 @@ struct SshDesc {
     bool           compress          = false;
     bool           x11Forwarding     = false; // request X11 forwarding at channel open
     bool           agentForwarding   = false; // request SSH agent forwarding at channel open
+    std::string    agentIdentityHint; // optional path to private key (or .pub) preferred when using agent auth; empty = consult ~/.ssh/config
 };
 
 enum class SerialParity      { None, Even, Odd };

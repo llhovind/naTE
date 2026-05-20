@@ -35,6 +35,8 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/session/Session.cpp
     ${CMAKE_SOURCE_DIR}/src/session/SessionManager.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshConfig.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshPublicKey.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/X11Utils.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/LoopbackTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/PtyTransport.cpp
@@ -67,6 +69,8 @@ add_executable(naTE_restore_tests
     ${CMAKE_SOURCE_DIR}/src/db/JsonSessionRestoreRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/db/JsonNamedSnapshotRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/session/Connection.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshConfig.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshPublicKey.cpp
 )
 target_link_libraries(naTE_restore_tests PRIVATE Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
 target_include_directories(naTE_restore_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)

@@ -1,5 +1,7 @@
 #include "transport/SshTransport.h"
 #include "transport/EnvUtils.h"
+#include "transport/SshConfig.h"
+#include "transport/SshPublicKey.h"
 #include "transport/X11Utils.h"
 
 #include <libssh2.h>
@@ -7,11 +9,14 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -28,6 +33,72 @@ namespace {
 
 constexpr char kTermType[]     = "xterm-256color";
 constexpr int  kPollTimeoutMs  = 100;
+
+// Returns preferred public-key blobs for agent auth derived from the connection's
+// agentIdentityHint (first priority) or ~/.ssh/config lookup (second priority).
+// Used by both the main-session and aux-session agent auth paths.
+std::vector<std::vector<uint8_t>> LoadPreferredBlobs(
+    const term::session::SshDesc& desc)
+{
+    std::vector<std::filesystem::path> paths;
+
+    if (!desc.agentIdentityHint.empty()) {
+        std::filesystem::path p(desc.agentIdentityHint);
+        if (p.extension() != ".pub") p += ".pub";
+        paths.push_back(std::move(p));
+    } else {
+        paths = QuerySshConfigIdentities(desc.host, desc.port, desc.username);
+        for (auto& p : paths)
+            if (p.extension() != ".pub") p += ".pub";
+    }
+
+    std::vector<std::vector<uint8_t>> blobs;
+    blobs.reserve(paths.size());
+    for (const auto& p : paths) {
+        auto blob = LoadPublicKeyBlob(p);
+        if (!blob.empty())
+            blobs.push_back(std::move(blob));
+    }
+    return blobs;
+}
+
+// Try agent identities (blocking) whose blob matches one in `preferred`.
+// Returns true on first accepted identity.
+// Sets *anyMatched=true if at least one matching identity was found in the agent.
+bool AgentTryPreferredBlocking(LIBSSH2_AGENT* agent,
+                               const char* username,
+                               const std::vector<std::vector<uint8_t>>& preferred,
+                               bool* anyMatched)
+{
+    *anyMatched = false;
+    libssh2_agent_publickey* id   = nullptr;
+    libssh2_agent_publickey* prev = nullptr;
+    while (libssh2_agent_get_identity(agent, &id, prev) == 0) {
+        const bool matches = std::any_of(
+            preferred.begin(), preferred.end(),
+            [&](const std::vector<uint8_t>& b) {
+                return b.size() == id->blob_len &&
+                       std::memcmp(b.data(), id->blob, b.size()) == 0;
+            });
+        if (!matches) { prev = id; continue; }
+        *anyMatched = true;
+        if (libssh2_agent_userauth(agent, username, id) == 0) return true;
+        prev = id;
+    }
+    return false;
+}
+
+// Try all agent identities (blocking). Returns true on first accepted identity.
+bool AgentTryAllBlocking(LIBSSH2_AGENT* agent, const char* username)
+{
+    libssh2_agent_publickey* id   = nullptr;
+    libssh2_agent_publickey* prev = nullptr;
+    while (libssh2_agent_get_identity(agent, &id, prev) == 0) {
+        if (libssh2_agent_userauth(agent, username, id) == 0) return true;
+        prev = id;
+    }
+    return false;
+}
 
 // libssh2 X11 channel-open callback — invoked on the worker thread from within
 // libssh2_channel_read() when the server opens a reverse X11 channel.
@@ -465,6 +536,78 @@ bool SshTransport::Authenticate()
     return false;
 }
 
+std::vector<std::vector<uint8_t>> SshTransport::PreferredAgentKeyBlobs() const
+{
+    return LoadPreferredBlobs(desc_);
+}
+
+bool SshTransport::AgentTryPreferred(_LIBSSH2_AGENT* agent,
+                                     const std::vector<std::vector<uint8_t>>& preferred,
+                                     bool* anyMatched)
+{
+    *anyMatched = false;
+    libssh2_agent_publickey* identity = nullptr;
+    libssh2_agent_publickey* prev     = nullptr;
+
+    while (running_) {
+        int rc = libssh2_agent_get_identity(agent, &identity, prev);
+        if (rc != 0) break;  // rc==1: exhausted; rc<0: error
+
+        // Check if this identity's blob matches any preferred blob.
+        const bool matches = std::any_of(
+            preferred.begin(), preferred.end(),
+            [&](const std::vector<uint8_t>& b) {
+                return b.size() == identity->blob_len &&
+                       std::memcmp(b.data(), identity->blob, b.size()) == 0;
+            });
+
+        if (!matches) { prev = identity; continue; }
+        *anyMatched = true;
+
+        int auth;
+        while ((auth = libssh2_agent_userauth(agent, desc_.username.c_str(), identity))
+               == LIBSSH2_ERROR_EAGAIN) {
+            if (!running_) return false;
+            PollUntilReady(kPollTimeoutMs);
+        }
+        if (auth == 0) return true;
+
+        prev = identity;
+    }
+    return false;
+}
+
+bool SshTransport::AgentTryAll(_LIBSSH2_AGENT* agent)
+{
+    libssh2_agent_publickey* identity = nullptr;
+    libssh2_agent_publickey* prev     = nullptr;
+
+    while (running_) {
+        int rc = libssh2_agent_get_identity(agent, &identity, prev);
+        if (rc == 1) {
+            NotifyError(TransportError::Category::Authentication,
+                        "SSH: agent has no identity that was accepted by the server");
+            return false;
+        }
+        if (rc < 0) {
+            NotifyError(TransportError::Category::Authentication,
+                        "SSH: agent identity enumeration failed");
+            return false;
+        }
+
+        int auth;
+        while ((auth = libssh2_agent_userauth(agent, desc_.username.c_str(), identity))
+               == LIBSSH2_ERROR_EAGAIN) {
+            if (!running_) return false;
+            PollUntilReady(kPollTimeoutMs);
+        }
+        if (auth == 0) return true;
+
+        prev = identity;
+    }
+    return false;
+}
+
 bool SshTransport::AuthViaAgent()
 {
     agent_ = libssh2_agent_init(session_);
@@ -486,35 +629,21 @@ bool SshTransport::AuthViaAgent()
         return false;
     }
 
-    libssh2_agent_publickey* identity = nullptr;
-    libssh2_agent_publickey* prev     = nullptr;
-
-    while (running_) {
-        int rc = libssh2_agent_get_identity(agent_, &identity, prev);
-        if (rc == 1) {
-            // No more identities.
+    const auto preferred = PreferredAgentKeyBlobs();
+    if (!preferred.empty()) {
+        bool anyMatched = false;
+        if (AgentTryPreferred(agent_, preferred, &anyMatched)) return true;
+        if (anyMatched) {
+            // The SSH config / hint key was in the agent but was rejected — do not
+            // spray the remaining keys at a server with strict MaxAuthTries.
             NotifyError(TransportError::Category::Authentication,
-                        "SSH: agent has no identity that was accepted by the server");
+                        "SSH: preferred identity (from SSH config or hint) was not accepted by the server");
             return false;
         }
-        if (rc < 0) {
-            NotifyError(TransportError::Category::Authentication,
-                        "SSH: agent identity enumeration failed");
-            return false;
-        }
-
-        int auth;
-        while ((auth = libssh2_agent_userauth(agent_, desc_.username.c_str(), identity))
-               == LIBSSH2_ERROR_EAGAIN) {
-            if (!running_) return false;
-            PollUntilReady(kPollTimeoutMs);
-        }
-        if (auth == 0)
-            return true;
-
-        prev = identity;
+        // Preferred keys weren't in the agent at all — fall back to trying all.
     }
-    return false;
+
+    return AgentTryAll(agent_);
 }
 
 bool SshTransport::AuthViaPassword()
@@ -1249,14 +1378,15 @@ void SshTransport::DoSendFile(std::string localPath,
         LIBSSH2_AGENT* agent = libssh2_agent_init(session);
         if (agent && libssh2_agent_connect(agent) == 0 &&
             libssh2_agent_list_identities(agent) == 0) {
-            libssh2_agent_publickey* id = nullptr;
-            libssh2_agent_publickey* prev = nullptr;
-            while (libssh2_agent_get_identity(agent, &id, prev) == 0) {
-                if (libssh2_agent_userauth(agent, desc_.username.c_str(), id) == 0) {
-                    authenticated = true;
-                    break;
-                }
-                prev = id;
+            const auto preferred = LoadPreferredBlobs(desc_);
+            if (!preferred.empty()) {
+                bool anyMatched = false;
+                authenticated = AgentTryPreferredBlocking(
+                    agent, desc_.username.c_str(), preferred, &anyMatched);
+                if (!authenticated && !anyMatched)
+                    authenticated = AgentTryAllBlocking(agent, desc_.username.c_str());
+            } else {
+                authenticated = AgentTryAllBlocking(agent, desc_.username.c_str());
             }
         }
         if (agent) {
@@ -1541,14 +1671,15 @@ static bool OpenAuxSession(const term::session::SshDesc& desc,
         LIBSSH2_AGENT* agent = libssh2_agent_init(session);
         if (agent && libssh2_agent_connect(agent) == 0 &&
             libssh2_agent_list_identities(agent) == 0) {
-            libssh2_agent_publickey* id = nullptr;
-            libssh2_agent_publickey* prev = nullptr;
-            while (libssh2_agent_get_identity(agent, &id, prev) == 0) {
-                if (libssh2_agent_userauth(agent, desc.username.c_str(), id) == 0) {
-                    authenticated = true;
-                    break;
-                }
-                prev = id;
+            const auto preferred = LoadPreferredBlobs(desc);
+            if (!preferred.empty()) {
+                bool anyMatched = false;
+                authenticated = AgentTryPreferredBlocking(
+                    agent, desc.username.c_str(), preferred, &anyMatched);
+                if (!authenticated && !anyMatched)
+                    authenticated = AgentTryAllBlocking(agent, desc.username.c_str());
+            } else {
+                authenticated = AgentTryAllBlocking(agent, desc.username.c_str());
             }
         }
         if (agent) { libssh2_agent_disconnect(agent); libssh2_agent_free(agent); }
