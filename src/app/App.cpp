@@ -265,6 +265,24 @@ term::session::SessionId App::CreateSessionInTile(
 
 void App::QuitAll()
 {
+    int totalSessions = 0;
+    for (auto& w : m_windows)
+        if (w->uiManager)
+            totalSessions += static_cast<int>(w->uiManager->GetSessionList().size());
+
+    if (totalSessions > 0) {
+        const int nw = static_cast<int>(m_windows.size());
+        const wxString msg = wxString::Format(
+            "Closing all windows will end %d session%s across %d window%s. "
+            "Any unsaved work may be lost.\n\nClose all?",
+            totalSessions, totalSessions == 1 ? "" : "s",
+            nw, nw == 1 ? "" : "s");
+        MainFrame* parent = m_windows.empty() ? nullptr : m_windows.front()->frame;
+        if (wxMessageBox(msg, "Confirm Close All",
+                         wxYES_NO | wxICON_WARNING, parent) != wxYES)
+            return;
+    }
+
     // Snapshot before any windows are closed (FireBeforeClose only handles the
     // single-window case; QuitAll must save the full multi-window state here).
     SaveRestoreSnapshot();
@@ -274,7 +292,7 @@ void App::QuitAll()
     for (auto& w : m_windows)
         frames.push_back(w->frame);
     for (auto* f : frames)
-        f->Close(true);
+        f->Close(true);  // force=true: OnClose will not re-prompt
 }
 
 void App::RebuildWindowMenus()

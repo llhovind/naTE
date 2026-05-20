@@ -190,6 +190,18 @@ void MainFrame::OnPreferences(wxCommandEvent&)
 
 void MainFrame::OnClose(wxCloseEvent& event)
 {
+    if (event.CanVeto() && m_uiManager && m_uiManager->HasAnySessions()) {
+        const int n = static_cast<int>(m_uiManager->GetSessionList().size());
+        const wxString msg = wxString::Format(
+            "Closing this window will end %d session%s. "
+            "Any unsaved work may be lost.\n\nClose anyway?",
+            n, n == 1 ? "" : "s");
+        if (wxMessageBox(msg, "Confirm Close",
+                         wxYES_NO | wxICON_WARNING, this) != wxYES) {
+            event.Veto();
+            return;
+        }
+    }
     if (m_uiManager) {
         m_uiManager->FireBeforeClose();
         m_uiManager->CloseAllSessions();
@@ -199,7 +211,7 @@ void MainFrame::OnClose(wxCloseEvent& event)
 
 void MainFrame::OnCloseThisWindow(wxCommandEvent&)
 {
-    Close(true);
+    Close(false);
 }
 
 void MainFrame::OnQuitAll(wxCommandEvent&)
