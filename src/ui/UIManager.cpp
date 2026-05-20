@@ -146,7 +146,10 @@ void UIManager::OnSessionDestroyed(term::session::SessionId id)
 void UIManager::OnAltScreenChanged(term::session::SessionId id, bool active)
 {
     frame_->CallAfter([this, id, active]() {
-        if (SessionUI* sui = FindSessionUI(id); sui && sui->tile)
+        SessionUI* sui = FindSessionUI(id);
+        if (!sui) return;
+        sui->altScrActive = active;
+        if (sui->tile && sui->tile->GetActiveSessionId() == id)
             sui->tile->SetAltScrActive(active);
     });
 }
@@ -154,10 +157,11 @@ void UIManager::OnAltScreenChanged(term::session::SessionId id, bool active)
 void UIManager::OnX11FwdChanged(term::session::SessionId id, bool active)
 {
     frame_->CallAfter([this, id, active]() {
-        if (SessionUI* sui = FindSessionUI(id); sui && sui->tile) {
-            sui->x11Active = active;
+        SessionUI* sui = FindSessionUI(id);
+        if (!sui) return;
+        sui->x11Active = active;
+        if (sui->tile && sui->tile->GetActiveSessionId() == id)
             sui->tile->SetX11Active(active);
-        }
     });
 }
 
@@ -507,15 +511,27 @@ void UIManager::RequestActivate(term::session::SessionId id)
     if (ui && ui->tile) {
         grid_->SetActiveTile(ui->tile);
         ui->tile->ActivateTabById(id);  // ensure the correct tab is visible
-        ui->tile->ShowX11Control(sm_.SupportsX11Forwarding(id), ui->x11Active);
     }
 
     RefreshBroadcastVisuals();
+    SyncTileHeaderControls(id);
 
     frame_->Layout();
-    frame_->SyncwrapModeMenuItem(sm_.GetDocLayout(id).GetWrapMode());
     if (activePanel)
         activePanel->SetFocus();
+}
+
+void UIManager::SyncTileHeaderControls(term::session::SessionId id)
+{
+    SessionUI* ui = FindSessionUI(id);
+    if (!ui || !ui->tile) return;
+
+    const bool wrap = sm_.GetDocLayout(id).GetWrapMode();
+    ui->tile->SetWrapMode(wrap);
+    ui->tile->SetAltScrActive(ui->altScrActive);
+    ui->tile->ShowX11Control(sm_.SupportsX11Forwarding(id), ui->x11Active);
+
+    frame_->SyncwrapModeMenuItem(wrap);
 }
 
 TerminalTile* UIManager::GetActiveTile() const

@@ -188,7 +188,8 @@ private:
         TerminalPanel*                    panel    = nullptr;
         std::unique_ptr<SearchController> searchCtrl;
         std::unique_ptr<SessionNotifier>  notifier;
-        bool                              x11Active = false;
+        bool                              x11Active   = false;
+        bool                              altScrActive = false;
     };
 
     static constexpr int kEditMenuCopy            = wxID_HIGHEST + 10;
@@ -216,6 +217,11 @@ private:
 
     // Refreshes SetBroadcastActive on all tiles to match current router state.
     void RefreshBroadcastVisuals();
+
+    // Syncs all tile header controls (wrap, alt-scr, x11) and the menu item to
+    // the current persisted state of the given session.  Call whenever the
+    // active session changes so every indicator reflects the correct session.
+    void SyncTileHeaderControls(term::session::SessionId id);
 
     // Drag handlers.
     // Title-bar drag (OnTileDragStart) moves the whole tile to another window.
