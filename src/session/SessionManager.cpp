@@ -79,6 +79,10 @@ SessionId SessionManager::CreateSession(const Connection& conn,
             if (auto* obs = uiObs->load(std::memory_order_acquire))
                 return obs->OnKbdIntChallenge(id, challenge);
             return {};
+        },
+        [uiObs, id]() {
+            if (auto* obs = uiObs->load(std::memory_order_acquire))
+                obs->OnBell(id);
         });
 
     sessions_.emplace(id, std::move(rec));

@@ -14,6 +14,7 @@ public:
     virtual void OnScrollUp(int /*count*/)       {}
     virtual void OnScrollDown(int /*count*/)     {}
     virtual void OnResetTerminal()               {}
+    virtual void OnBell()                        {}
 };
 
 } // namespace term::parser

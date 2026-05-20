@@ -29,8 +29,10 @@ void Parser::HandleNormal(unsigned char byte)
         return;
     }
 
-    if (byte == '\x07')
-        return; // BEL — discard
+    if (byte == '\x07') {
+        screen_.OnBell();
+        return;
+    }
 
     if (byte == '\b' || byte == '\x7f') {
         doc_->MoveCursorLeft(1);

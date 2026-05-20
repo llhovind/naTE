@@ -35,7 +35,8 @@ public:
             std::function<void(bool)> onAltScreenChanged = {},
             std::function<void(bool)> onX11FwdChanged = {},
             std::function<std::vector<std::string>(
-                const transport::KbdIntChallenge&)> onKbdIntChallenge = {});
+                const transport::KbdIntChallenge&)> onKbdIntChallenge = {},
+            std::function<void()> onBell = {});
     ~Session();
 
     // Stops the transport I/O thread synchronously. Safe to call multiple
@@ -58,6 +59,7 @@ public:
     void OnExitAltScreen()                           override;
     void OnResetTerminal()                           override;
     void OnSetApplicationCursorKeys(bool enabled)    override;
+    void OnBell()                                    override;
 
     // transport::ITransportTarget
     void OnData(const std::string& data) override;
@@ -128,6 +130,7 @@ private:
     std::function<void(bool)>                                onX11FwdChanged_;
     std::function<std::vector<std::string>(
         const transport::KbdIntChallenge&)>                  onKbdIntChallenge_;
+    std::function<void()>                                    onBell_;
 
     unsigned short     lastCols_{0};
     unsigned short     lastRows_{0};

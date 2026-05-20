@@ -4,6 +4,7 @@
 #include <wx/clipbrd.h>
 #include <wx/dcbuffer.h>
 #include <wx/dcmemory.h>
+#include <wx/graphics.h>
 #include <wx/menu.h>
 #include <wx/settings.h>
 #include <algorithm>
@@ -83,6 +84,8 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
     Bind(wxEVT_CHAR,       &TerminalPanel::OnChar,           this);
     Bind(wxEVT_SET_FOCUS,  &TerminalPanel::OnFocus,          this);
     Bind(wxEVT_KILL_FOCUS, &TerminalPanel::OnKillFocus,      this);
+    m_flashTimer_.SetOwner(this);
+    Bind(wxEVT_TIMER,      &TerminalPanel::OnFlashTimer,     this, m_flashTimer_.GetId());
 }
 
 void TerminalPanel::ApplyConfig(const AppConfig& cfg)
@@ -336,6 +339,19 @@ void TerminalPanel::OnKillFocus(wxFocusEvent& e)
     m_hasFocus_ = false;
     Refresh();
     e.Skip();
+}
+
+void TerminalPanel::Flash()
+{
+    m_flashing_ = true;
+    Refresh();
+    m_flashTimer_.StartOnce(150);
+}
+
+void TerminalPanel::OnFlashTimer(wxTimerEvent&)
+{
+    m_flashing_ = false;
+    Refresh();
 }
 
 void TerminalPanel::SetBroadcastCursorState(bool modeActive, bool inGroup)
@@ -713,6 +729,15 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
                 dc.SetBrush(*wxTRANSPARENT_BRUSH);
                 dc.DrawRectangle(cx, cy, cw, ch);
             }
+        }
+    }
+
+    if (m_flashing_) {
+        if (auto gc = std::unique_ptr<wxGraphicsContext>(wxGraphicsContext::Create(dc))) {
+            gc->SetBrush(gc->CreateBrush(wxBrush(wxColour(255, 255, 255, 120))));
+            gc->SetPen(wxNullPen);
+            const wxSize sz = GetClientSize();
+            gc->DrawRectangle(0, 0, sz.x, sz.y);
         }
     }
 }

@@ -175,6 +175,14 @@ void UIManager::OnX11FwdChanged(term::session::SessionId id, bool active)
     });
 }
 
+void UIManager::OnBell(term::session::SessionId id)
+{
+    frame_->CallAfter([this, id]() {
+        if (SessionUI* sui = FindSessionUI(id); sui && sui->panel)
+            sui->panel->Flash();
+    });
+}
+
 std::vector<std::string> UIManager::OnKbdIntChallenge(
     term::session::SessionId /*id*/,
     const term::transport::KbdIntChallenge& challenge)

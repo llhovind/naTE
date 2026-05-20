@@ -50,6 +50,7 @@ public:
     void OnSessionDestroyed(term::session::SessionId) override;
     void OnAltScreenChanged(term::session::SessionId, bool active) override;
     void OnX11FwdChanged(term::session::SessionId, bool active) override;
+    void OnBell(term::session::SessionId) override;
     std::vector<std::string> OnKbdIntChallenge(
         term::session::SessionId,
         const term::transport::KbdIntChallenge& challenge) override;

@@ -59,6 +59,9 @@ public:
     // resize callback so the PTY adapts cols×rows automatically.
     void ApplyConfig(const AppConfig& cfg);
 
+    // Trigger a short visual bell flash. Safe to call from the UI thread only.
+    void Flash();
+
     // Pixel size this panel needs to display exactly cols×rows characters.
     // Use this to size the containing tile before calling ResizeFrameToFitTiles().
     wxSize ComputeRequiredPanelSize(unsigned short cols, unsigned short rows) const;
@@ -80,6 +83,7 @@ private:
     void OnChar(wxKeyEvent&);
     void OnFocus(wxFocusEvent&);
     void OnKillFocus(wxFocusEvent&);
+    void OnFlashTimer(wxTimerEvent&);
 
     void LayoutScrollbars();
     void UpdateScrollbars();
@@ -120,6 +124,8 @@ private:
     bool m_hasFocus_            = false;
     bool m_inBroadcast_         = false;
     bool m_broadcastModeActive_ = false;
+    bool m_flashing_            = false;
+    wxTimer m_flashTimer_;
 
     // Keyboard selection cursor (independent of the PTY document cursor)
     DocLayout::DocPosition m_kbCursor_{0, 0};

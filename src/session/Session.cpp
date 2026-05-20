@@ -44,7 +44,8 @@ Session::Session(const Connection& conn,
                  std::function<void(bool)> onAltScreenChanged,
                  std::function<void(bool)> onX11FwdChanged,
                  std::function<std::vector<std::string>(
-                     const transport::KbdIntChallenge&)> onKbdIntChallenge)
+                     const transport::KbdIntChallenge&)> onKbdIntChallenge,
+                 std::function<void()> onBell)
     : transport_(MakeTransport(*this, conn, wrapMode ? cols : ptyLineWidth, rows, cols, appDefaults)),
       main_doc_(std::make_unique<MainScreenDocument>(scrollbackLines)),
       alt_doc_(std::make_unique<AltScreenDocument>(rows, cols)),
@@ -56,6 +57,7 @@ Session::Session(const Connection& conn,
       onAltScreenChanged_(std::move(onAltScreenChanged)),
       onX11FwdChanged_(std::move(onX11FwdChanged)),
       onKbdIntChallenge_(std::move(onKbdIntChallenge)),
+      onBell_(std::move(onBell)),
       lastCols_(cols),
       lastRows_(rows),
       ptyLineWidth_(ptyLineWidth)
@@ -157,6 +159,11 @@ void Session::ResetTerminal(bool clearScrollback)
 void Session::OnSetApplicationCursorKeys(bool enabled)
 {
     encoder_.SetApplicationCursorKeys(enabled);
+}
+
+void Session::OnBell()
+{
+    if (onBell_) onBell_();
 }
 
 void Session::OnResetTerminal()

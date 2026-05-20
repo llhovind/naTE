@@ -30,6 +30,11 @@ public:
     virtual void OnAltScreenChanged(SessionId, bool /*active*/) {}
 
     // Session thread — implementations MUST CallAfter before touching wx.
+    // Fired when the terminal receives BEL (\x07). Implementations should
+    // trigger a visual bell flash on the associated panel.
+    virtual void OnBell(SessionId) {}
+
+    // Session thread — implementations MUST CallAfter before touching wx.
     // Fired once when X11 forwarding becomes active on the SSH channel.
     virtual void OnX11FwdChanged(SessionId, bool /*active*/) {}
 
