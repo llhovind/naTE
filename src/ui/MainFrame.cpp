@@ -25,7 +25,6 @@ namespace {
     constexpr int ID_QUIT_ALL                = wxID_HIGHEST + 5;
     constexpr int ID_BROADCAST_MODE          = wxID_HIGHEST + 6;
     constexpr int ID_NEW_CONNECTION_IN_TILE  = wxID_HIGHEST + 7;
-    constexpr int ID_CLOSE_ACTIVE_SESSION    = wxID_HIGHEST + 8;
     constexpr int ID_SET_GEOMETRY_80x24      = wxID_HIGHEST + 9;
     constexpr int ID_SET_GEOMETRY_132x24     = wxID_HIGHEST + 18;
     constexpr int ID_SET_GEOMETRY_CUSTOM     = wxID_HIGHEST + 19;
@@ -83,7 +82,6 @@ MainFrame::MainFrame(const AppConfig& cfg,
     m_connMenu->Append(ID_SAVE_AS_SNAPSHOT,       "Save Session As...");
     m_connMenu->Append(ID_OPEN_SNAPSHOT,          "Open Saved Snapshot...");
     m_connMenu->AppendSeparator();
-    m_connMenu->Append(ID_CLOSE_ACTIVE_SESSION,   "Close Active Session");
     m_connMenu->Append(wxID_CLOSE,                "Close This Window\tCtrl+Shift+Q");
     m_connMenu->Append(ID_QUIT_ALL,               "Close All\tCtrl+Shift+X");
 
@@ -99,7 +97,6 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
         e.Enable(static_cast<App*>(wxTheApp)->HasNamedSnapshots());
     }, ID_OPEN_SNAPSHOT);
-    Bind(wxEVT_MENU, &MainFrame::OnCloseActiveSession,        this, ID_CLOSE_ACTIVE_SESSION);
     Bind(wxEVT_MENU, &MainFrame::OnCloseThisWindow,           this, wxID_CLOSE);
     Bind(wxEVT_MENU, &MainFrame::OnQuitAll,                   this, ID_QUIT_ALL);
 
@@ -422,7 +419,6 @@ void MainFrame::NotYetImplemented()
     wxMessageBox("Not yet implemented", "naTE", wxOK | wxICON_INFORMATION);
 }
 
-void MainFrame::OnCloseActiveSession(wxCommandEvent&)    { NotYetImplemented(); }
 void MainFrame::OnSetGeometry80x24(wxCommandEvent&)
 {
     if (m_uiManager) m_uiManager->SetGeometryForActive(80, 24);
