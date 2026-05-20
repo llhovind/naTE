@@ -29,7 +29,9 @@ private:
     wxSpinCtrl* m_sizeCtrl      = nullptr;
     wxSpinCtrl* m_paddingCtrl   = nullptr;
 
-    wxTextCtrl* m_shellCtrl     = nullptr;
-    wxTextCtrl* m_workDirCtrl   = nullptr;
+    wxTextCtrl* m_shellCtrl      = nullptr;
+    wxTextCtrl* m_workDirCtrl    = nullptr;
     wxChoice*   m_wrapModeChoice = nullptr;
+
+    wxTextCtrl* m_webSearchCtrl  = nullptr;
 };

@@ -52,7 +52,8 @@ struct AppConfig {
     std::string themeName  = "solarized-dark";  // stem of theme file
 
     // [Behavior]
-    std::string encoding = "UTF-8";
+    std::string encoding      = "UTF-8";
+    std::string webSearchUrl  = "https://www.google.com/search?q=";
 
     // [Session] defaults — applied to every new session, overridable per profile
     std::string                        defaultShell;        // empty = $SHELL → /bin/sh

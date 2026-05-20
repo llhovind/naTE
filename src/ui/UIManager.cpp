@@ -79,7 +79,7 @@ UIManager::UIManager(term::session::SessionManager& sm,
     selectionActions_ = std::make_unique<SelectionActionRegistry>();
     selectionActions_->Register(std::make_unique<CopyAction>());
     selectionActions_->Register(std::make_unique<SaveToFileAction>());
-    selectionActions_->Register(std::make_unique<WebSearchAction>());
+    selectionActions_->Register(std::make_unique<WebSearchAction>(cfg_.webSearchUrl));
     selectionActions_->Register(std::make_unique<FindInTerminalAction>(
         [this](const std::u32string& q) { ShowSearchBarForActive(true, q); }
     ));
@@ -884,7 +884,7 @@ void UIManager::SetupEditMenu(wxMenu* menu)
 
     frame_->Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         const auto text = GetFullActiveSelectedText();
-        if (!text.empty()) WebSearchAction{}.Execute(text);
+        if (!text.empty()) WebSearchAction(cfg_.webSearchUrl).Execute(text);
     }, kEditMenuWebSearch);
 
     frame_->Bind(wxEVT_MENU, [](wxCommandEvent&) {

@@ -63,11 +63,14 @@ static std::string PercentEncode(const std::string& utf8)
     return out;
 }
 
+WebSearchAction::WebSearchAction(std::string baseUrl)
+    : baseUrl_(std::move(baseUrl))
+{}
+
 void WebSearchAction::Execute(const std::u32string& text)
 {
     const wxString wx = ToWxString(text);
     const auto utf8 = wx.ToUTF8();
     const std::string encoded = PercentEncode(std::string(utf8.data(), utf8.length()));
-    const std::string url = "https://www.google.com/search?q=" + encoded;
-    wxLaunchDefaultBrowser(url);
+    wxLaunchDefaultBrowser(baseUrl_ + encoded);
 }

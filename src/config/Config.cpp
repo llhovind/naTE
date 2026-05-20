@@ -93,7 +93,8 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
             else if (key == "FontFamily")  cfg.fontFamily = val;
             else if (key == "Padding")     cfg.padding    = toInt(val, cfg.padding);
         } else if (sec == "Behavior") {
-            if (key == "Encoding" && !val.empty()) cfg.encoding = val;
+            if      (key == "Encoding"      && !val.empty()) cfg.encoding     = val;
+            else if (key == "WebSearchUrl"  && !val.empty()) cfg.webSearchUrl = val;
         } else if (sec == "Terminal") {
             if (key == "GeometryPresets") cfg.geometryPresets = parseGeometryPresets(val);
         } else if (sec == "Session") {
@@ -155,7 +156,8 @@ void AppConfig::save(const std::string& configPath) const
       << "Padding="    << padding    << "\n"
       << "\n"
       << "[Behavior]\n"
-      << "Encoding=" << encoding << "\n"
+      << "Encoding="     << encoding     << "\n"
+      << "WebSearchUrl=" << webSearchUrl << "\n"
       << "\n"
       << "[Panel]\n"
       << "Columns="      << columns      << "\n"

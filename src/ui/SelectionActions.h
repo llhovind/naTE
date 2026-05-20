@@ -16,8 +16,13 @@ public:
 
 class WebSearchAction : public ISelectionAction {
 public:
+    explicit WebSearchAction(std::string baseUrl);
+
     std::string Label() const override { return "Search the Web"; }
     void Execute(const std::u32string& text) override;
+
+private:
+    std::string baseUrl_;
 };
 
 // Opens the in-terminal search bar with the selected text as the initial query.

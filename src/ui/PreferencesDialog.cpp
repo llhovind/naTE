@@ -93,6 +93,16 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
                                    wxString::FromUTF8(current.encoding) +
                                    "  (only UTF-8 supported currently)"),
                   {0, 1}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+
+    behSizer->Add(new wxStaticText(behPage, wxID_ANY, "Web search URL:"),
+                  {1, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+    m_webSearchCtrl = new wxTextCtrl(behPage, wxID_ANY,
+                                     wxString::FromUTF8(current.webSearchUrl),
+                                     wxDefaultPosition, {320, -1});
+    m_webSearchCtrl->SetHint("e.g. https://www.google.com/search?q=");
+    behSizer->Add(m_webSearchCtrl, {1, 1}, {1, 1}, wxEXPAND);
+
+    behSizer->AddGrowableCol(1);
     auto* behOuter = new wxBoxSizer(wxVERTICAL);
     behOuter->Add(behSizer, 1, wxEXPAND | wxALL, 12);
     behPage->SetSizer(behOuter);
@@ -182,6 +192,7 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
     result_.defaultShell      = m_shellCtrl->GetValue().ToStdString();
     result_.defaultWorkingDir = m_workDirCtrl->GetValue().ToStdString();
     result_.defaultWrapMode   = m_wrapModeChoice->GetSelection() == 1;
+    result_.webSearchUrl      = m_webSearchCtrl->GetValue().ToStdString();
 
     evt.Skip();
 }
