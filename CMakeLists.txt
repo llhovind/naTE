@@ -38,7 +38,7 @@ else()
     message(STATUS "IPO/LTO not supported by this toolchain: ${_ipo_output}")
 endif()
 
-option(NATE_SYSTEM_DEPS "Use system-installed nlohmann_json instead of FetchContent" OFF)
+option(NATE_SYSTEM_DEPS "Use system-installed libssh2 and nlohmann_json instead of FetchContent" OFF)
 
 include(FetchContent)
 FetchContent_Declare(wxWidgets
@@ -62,29 +62,51 @@ set(wxUSE_HELP        OFF CACHE BOOL "" FORCE)
 set(wxUSE_WXHTML_HELP OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(wxWidgets)
 
+# GTK3 — Linux only, always system-provided.
 find_package(PkgConfig)
 if(UNIX AND NOT APPLE)
     if(NOT PkgConfig_FOUND)
         message(FATAL_ERROR "PkgConfig is required on Linux")
     endif()
-    pkg_check_modules(GTK3   REQUIRED gtk+-3.0)
-    pkg_check_modules(LIBSSH2 REQUIRED libssh2)
-else()
-    # macOS: prefer pkg-config (available when Homebrew is set up), fall back to find_library
-    if(PkgConfig_FOUND)
-        pkg_check_modules(LIBSSH2 libssh2)
-    endif()
-    if(NOT LIBSSH2_FOUND)
-        find_library(LIBSSH2_LIB  NAMES ssh2  REQUIRED)
-        find_path   (LIBSSH2_INC  NAMES libssh2.h REQUIRED)
-        set(LIBSSH2_LIBRARIES    "${LIBSSH2_LIB}")
-        set(LIBSSH2_INCLUDE_DIRS "${LIBSSH2_INC}")
-    endif()
+    pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
 endif()
 
 if(NATE_SYSTEM_DEPS)
+    # System libssh2
+    if(UNIX AND NOT APPLE)
+        pkg_check_modules(LIBSSH2 REQUIRED libssh2)
+    else()
+        if(PkgConfig_FOUND)
+            pkg_check_modules(LIBSSH2 libssh2)
+        endif()
+        if(NOT LIBSSH2_FOUND)
+            find_library(LIBSSH2_LIB  NAMES ssh2  REQUIRED)
+            find_path   (LIBSSH2_INC  NAMES libssh2.h REQUIRED)
+            set(LIBSSH2_LIBRARIES    "${LIBSSH2_LIB}")
+            set(LIBSSH2_INCLUDE_DIRS "${LIBSSH2_INC}")
+        endif()
+    endif()
+    set(NATE_LIBSSH2_LINK    "${LIBSSH2_LIBRARIES}")
+    set(NATE_LIBSSH2_INCLUDE "${LIBSSH2_INCLUDE_DIRS}")
+
+    # System nlohmann_json
     find_package(nlohmann_json REQUIRED)
 else()
+    # Bundled libssh2 1.11.1 — required for SSH agent forwarding support.
+    # libssh2 1.10.x silently drops inbound auth-agent@openssh.com channels;
+    # 1.11.0 added packet_authagent_open() and LIBSSH2_CALLBACK_AUTHAGENT.
+    set(BUILD_EXAMPLES    OFF CACHE BOOL "" FORCE)
+    set(BUILD_TESTING     OFF CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(libssh2
+        GIT_REPOSITORY https://github.com/libssh2/libssh2.git
+        GIT_TAG        libssh2-1.11.1
+        GIT_SHALLOW    TRUE)
+    FetchContent_MakeAvailable(libssh2)
+    set(NATE_LIBSSH2_LINK    "libssh2")
+    set(NATE_LIBSSH2_INCLUDE "")
+
+    # Bundled nlohmann_json
     FetchContent_Declare(nlohmann_json
         GIT_REPOSITORY https://github.com/nlohmann/json.git
         GIT_TAG        v3.11.3)
@@ -145,7 +167,7 @@ else()
     add_executable(naTE ${SOURCES})
 endif()
 
-target_link_libraries(naTE PRIVATE wx::core wx::base ${LIBSSH2_LIBRARIES} nlohmann_json::nlohmann_json)
+target_link_libraries(naTE PRIVATE wx::core wx::base ${NATE_LIBSSH2_LINK} nlohmann_json::nlohmann_json)
 if(UNIX AND NOT APPLE)
     target_link_libraries(naTE PRIVATE ${GTK3_LIBRARIES} util)
 endif()
@@ -153,7 +175,7 @@ if(APPLE)
     target_link_libraries(naTE PRIVATE proc)
 endif()
 
-target_include_directories(naTE PRIVATE src ${CMAKE_CURRENT_BINARY_DIR} ${LIBSSH2_INCLUDE_DIRS})
+target_include_directories(naTE PRIVATE src ${CMAKE_CURRENT_BINARY_DIR} ${NATE_LIBSSH2_INCLUDE})
 if(UNIX AND NOT APPLE)
     target_include_directories(naTE PRIVATE ${GTK3_INCLUDE_DIRS})
 endif()
@@ -208,14 +230,18 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/LICENSE")
 endif()
 set(CPACK_STRIP_FILES                 TRUE)
 
-set(CPACK_DEBIAN_PACKAGE_DEPENDS
-    "libssh2-1, libgtk-3-0")
+if(NATE_SYSTEM_DEPS)
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libssh2-1, libgtk-3-0")
+    set(CPACK_RPM_PACKAGE_REQUIRES   "libssh2, gtk3")
+else()
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libgtk-3-0")
+    set(CPACK_RPM_PACKAGE_REQUIRES   "gtk3")
+endif()
 set(CPACK_DEBIAN_PACKAGE_SECTION      "net")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY     "optional")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE     "https://github.com/lhovind/naTE")
 
 set(CPACK_RPM_PACKAGE_LICENSE         "MIT")
 set(CPACK_RPM_PACKAGE_GROUP           "Applications/Internet")
-set(CPACK_RPM_PACKAGE_REQUIRES        "libssh2, gtk3")
 
 include(CPack)

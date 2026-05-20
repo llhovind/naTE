@@ -32,6 +32,7 @@ struct SshDesc {
     std::string    remoteCommand;     // empty = login shell
     bool           compress          = false;
     bool           x11Forwarding     = false; // request X11 forwarding at channel open
+    bool           agentForwarding   = false; // request SSH agent forwarding at channel open
 };
 
 enum class SerialParity      { None, Even, Odd };

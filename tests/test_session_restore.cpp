@@ -68,6 +68,7 @@ static term::session::RestoreState MakeSampleState()
                 d.connectTimeoutSec = 10;
                 d.remoteCommand     = "";
                 d.compress          = true;
+                d.agentForwarding   = true;
                 d.password          = "s3cr3t";    // must NOT survive round-trip
                 d.passphrase        = "mypass";    // must NOT survive round-trip
                 ssh.transport = d;
@@ -169,6 +170,7 @@ TEST_CASE("given a valid state when saved and loaded then all fields round-trip"
         CHECK(ssh->keepaliveSeconds == 30);
         CHECK(ssh->connectTimeoutSec == 10);
         CHECK(ssh->compress == true);
+        CHECK(ssh->agentForwarding == true);
     }
     {
         const auto& c = loaded.windows[0].tiles[1].sessions[1].conn;

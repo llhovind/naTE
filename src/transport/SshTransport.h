@@ -71,10 +71,20 @@ public:
     // Worker-thread-only; accesses x11_channels_ without locking.
     void AcceptX11Channel(_LIBSSH2_CHANNEL* ch);
 
+    // Called by the static agent callback when the server opens an auth-agent channel.
+    // Worker-thread-only; accesses agent_channels_ without locking.
+    void AcceptAgentChannel(_LIBSSH2_CHANNEL* ch);
+
 private:
     struct X11Channel {
         _LIBSSH2_CHANNEL* channel  = nullptr;
         int               local_fd = -1;   // socket connected to local X11 server
+        bool              closed   = false;
+    };
+
+    struct AgentChannel {
+        _LIBSSH2_CHANNEL* channel  = nullptr;
+        int               local_fd = -1;   // Unix socket connected to $SSH_AUTH_SOCK
         bool              closed   = false;
     };
 
@@ -94,6 +104,7 @@ private:
     bool OpenChannel();
     bool RequestPty();
     bool SetupX11Forwarding();
+    bool SetupAgentForwarding();
     bool StartShell();
     void ReadWriteLoop();
 
@@ -120,6 +131,11 @@ private:
     // Returns the socket fd on success, -1 if no display is available.
     // Worker-thread-only.
     static int ConnectToLocalX11Display();
+
+    // Connects a Unix socket to the local SSH agent ($SSH_AUTH_SOCK).
+    // Returns the socket fd on success, -1 if no agent socket is available.
+    // Worker-thread-only.
+    static int ConnectToLocalSshAgent();
 
     // Proxy data between all active X11 channels and their local X11 sockets.
     // Appends to pfds the local X11 socket FDs for poll(); caller provides pfds
@@ -164,6 +180,9 @@ private:
     std::vector<X11Channel>     x11_channels_;
     std::atomic<bool>           x11_request_pending_{false};
     bool                        x11_active_ = false;
+
+    // SSH agent forwarding — worker-thread-only after Start().
+    std::vector<AgentChannel>   agent_channels_;
 
     // Shared between UI thread (Write/Resize/OnViewportColsChanged) and worker.
     std::mutex                  queue_mutex_;

@@ -19,6 +19,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 namespace term::transport {
@@ -39,6 +40,19 @@ void X11OpenCallback(LIBSSH2_SESSION* /*session*/,
     auto* self = static_cast<term::transport::SshTransport*>(*abstract);
     self->AcceptX11Channel(channel);
 }
+
+#if LIBSSH2_VERSION_NUM >= 0x010B00
+// libssh2 auth-agent channel-open callback — invoked on the worker thread when
+// the server opens an auth-agent@openssh.com reverse channel (libssh2 >= 1.11.0).
+// abstract is the same session user pointer set to `this` in WorkerThread.
+void AgentOpenCallback(LIBSSH2_SESSION* /*session*/,
+                       LIBSSH2_CHANNEL* channel,
+                       void** abstract)
+{
+    auto* self = static_cast<term::transport::SshTransport*>(*abstract);
+    self->AcceptAgentChannel(channel);
+}
+#endif
 
 std::string GenerateVpColumnsFilePath() {
     static std::atomic<int> counter{0};
@@ -139,15 +153,21 @@ void SshTransport::WorkerThread()
     // Register X11 callback and store `this` in the session abstract slot so
     // AcceptX11Channel() can be reached from the static callback.
     *libssh2_session_abstract(session_) = this;
+#if LIBSSH2_VERSION_NUM >= 0x010B01
+    libssh2_session_callback_set2(session_, LIBSSH2_CALLBACK_X11,
+                                  reinterpret_cast<libssh2_cb_generic*>(X11OpenCallback));
+#else
     libssh2_session_callback_set(session_, LIBSSH2_CALLBACK_X11,
                                  reinterpret_cast<void*>(X11OpenCallback));
+#endif
     if (!OpenChannel())    return;
     if (!RequestPty())     return;
     // X11 forwarding request MUST precede shell start; the server sets $DISPLAY
     // in the shell's environment only if x11-req arrives before SSH_MSG_CHANNEL_REQUEST
     // for "shell"/"exec".
-    if (desc_.x11Forwarding) SetupX11Forwarding();
-    if (!StartShell())     return;
+    if (desc_.x11Forwarding)   SetupX11Forwarding();
+    if (desc_.agentForwarding) SetupAgentForwarding();
+    if (!StartShell())         return;
 
     if (desc_.keepaliveSeconds > 0)
         libssh2_keepalive_config(session_, 1, static_cast<unsigned>(desc_.keepaliveSeconds));
@@ -540,6 +560,41 @@ bool SshTransport::SetupX11Forwarding()
     return true;
 }
 
+// Sends auth-agent-req@openssh.com on the channel so sshd sets SSH_AUTH_SOCK in
+// the remote shell, then registers AgentOpenCallback so inbound agent channels are
+// proxied to the local SSH agent.  Requires libssh2 >= 1.11.0 (1.10.x silently
+// drops inbound auth-agent@openssh.com SSH_MSG_CHANNEL_OPEN, causing deadlocks).
+bool SshTransport::SetupAgentForwarding()
+{
+#if LIBSSH2_VERSION_NUM >= 0x010B00
+#if LIBSSH2_VERSION_NUM >= 0x010B01
+    libssh2_session_callback_set2(session_, LIBSSH2_CALLBACK_AUTHAGENT,
+                                  reinterpret_cast<libssh2_cb_generic*>(AgentOpenCallback));
+#else
+    libssh2_session_callback_set(session_, LIBSSH2_CALLBACK_AUTHAGENT,
+                                 reinterpret_cast<void*>(AgentOpenCallback));
+#endif
+
+    int rc;
+    while ((rc = libssh2_channel_request_auth_agent(channel_)) == LIBSSH2_ERROR_EAGAIN) {
+        if (!running_) return false;
+        PollUntilReady(kPollTimeoutMs);
+    }
+    if (rc != 0) {
+        target_.OnData("\r\n\x1b[33mSSH agent forwarding: server denied the request "
+                       "(check AllowAgentForwarding in sshd_config).\x1b[0m\r\n");
+        return false;
+    }
+    return true;
+#else
+    target_.OnData("\r\n\x1b[33mSSH agent forwarding: not supported by the installed "
+                   "libssh2 " LIBSSH2_VERSION " (inbound auth-agent channels are "
+                   "silently dropped, causing remote agent queries to hang). "
+                   "Upgrade to libssh2 >= 1.11.0 for full support.\x1b[0m\r\n");
+    return false;
+#endif
+}
+
 // Builds and launches the effective remote command (env vars + working dir +
 // shell or remoteCommand).  Must be called after RequestPty() and, if X11
 // forwarding is wanted, after SetupX11Forwarding().
@@ -656,7 +711,7 @@ void SshTransport::ReadWriteLoop()
         }
 
         // --- Build pollfd array -------------------------------------------
-        // [0] = SSH socket; [1..N] = open local X11 socket FDs.
+        // [0] = SSH socket; [1..N] = X11 local FDs; [N+1..M] = agent local FDs.
         {
             const int dir = libssh2_session_block_directions(session_);
             const short sshEvents = static_cast<short>(
@@ -664,10 +719,12 @@ void SshTransport::ReadWriteLoop()
                 ((dir & LIBSSH2_SESSION_BLOCK_OUTBOUND) ? POLLOUT : 0));
 
             std::vector<pollfd> pfds;
-            pfds.reserve(1 + x11_channels_.size());
+            pfds.reserve(1 + x11_channels_.size() + agent_channels_.size());
             pfds.push_back({sock_fd_, sshEvents ? sshEvents : static_cast<short>(POLLIN), 0});
             for (const auto& x : x11_channels_)
                 pfds.push_back({x.local_fd, POLLIN, 0});
+            for (const auto& a : agent_channels_)
+                pfds.push_back({a.local_fd, POLLIN, 0});
 
             int pollMs = kPollTimeoutMs;
             if (secondsToNext > 0)
@@ -690,6 +747,21 @@ void SshTransport::ReadWriteLoop()
 
                 // Best-effort write to the SSH X11 channel; EAGAIN = partial send is OK.
                 libssh2_channel_write(x.channel, buf, static_cast<size_t>(n));
+            }
+
+            // Service local agent sockets → SSH agent channels (data from local agent).
+            const size_t agentBase = 1 + x11_channels_.size();
+            for (size_t i = 0; i < agent_channels_.size(); ++i) {
+                auto& a = agent_channels_[i];
+                if (a.closed) continue;
+                const short rev = pfds[agentBase + i].revents;
+                if (rev & (POLLHUP | POLLERR)) { a.closed = true; continue; }
+                if (!(rev & POLLIN))             continue;
+
+                ssize_t n = ::read(a.local_fd, buf, kReadBuf);
+                if (n <= 0) { a.closed = true; continue; }
+
+                libssh2_channel_write(a.channel, buf, static_cast<size_t>(n));
             }
         }
 
@@ -731,6 +803,33 @@ void SshTransport::ReadWriteLoop()
                 }),
             x11_channels_.end());
 
+        // --- Service SSH agent channels → local agent sockets -------------
+        for (auto& a : agent_channels_) {
+            if (a.closed) continue;
+            ssize_t n;
+            while ((n = libssh2_channel_read(a.channel, buf, kReadBuf)) > 0) {
+                if (::write(a.local_fd, buf, static_cast<size_t>(n)) < 0) {
+                    a.closed = true;
+                    break;
+                }
+            }
+            if (!a.closed &&
+                (n == 0 || (n < 0 && n != LIBSSH2_ERROR_EAGAIN) ||
+                 libssh2_channel_eof(a.channel)))
+                a.closed = true;
+        }
+
+        // Sweep closed agent channels.
+        agent_channels_.erase(
+            std::remove_if(agent_channels_.begin(), agent_channels_.end(),
+                [](const AgentChannel& a) {
+                    if (!a.closed) return false;
+                    ::close(a.local_fd);
+                    libssh2_channel_free(a.channel);
+                    return true;
+                }),
+            agent_channels_.end());
+
         // --- Drain writes + resize + vpcolumns ---------------------------
         DrainWriteQueue();
 
@@ -743,12 +842,16 @@ void SshTransport::ReadWriteLoop()
     }
 
 cleanup_x11:
-    // Close all X11 channels cleanly before session teardown.
     for (auto& x : x11_channels_) {
         ::close(x.local_fd);
         libssh2_channel_free(x.channel);
     }
     x11_channels_.clear();
+    for (auto& a : agent_channels_) {
+        ::close(a.local_fd);
+        libssh2_channel_free(a.channel);
+    }
+    agent_channels_.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -865,6 +968,39 @@ void SshTransport::AcceptX11Channel(LIBSSH2_CHANNEL* ch)
 int SshTransport::ConnectToLocalX11Display()
 {
     return ConnectToX11Display(::getenv("DISPLAY"));
+}
+
+// Called from AgentOpenCallback when the server opens an auth-agent channel.
+// Connects to the local SSH agent and records the proxy pair for ReadWriteLoop.
+void SshTransport::AcceptAgentChannel(LIBSSH2_CHANNEL* ch)
+{
+    const int fd = ConnectToLocalSshAgent();
+    if (fd < 0) {
+        libssh2_channel_free(ch);
+        return;
+    }
+    agent_channels_.push_back({ch, fd, false});
+}
+
+// Opens a Unix domain socket to $SSH_AUTH_SOCK.
+// Returns the fd on success, -1 if no agent is available.
+int SshTransport::ConnectToLocalSshAgent()
+{
+    const char* sock = ::getenv("SSH_AUTH_SOCK");
+    if (!sock || sock[0] == '\0') return -1;
+
+    const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+
+    sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    ::strncpy(addr.sun_path, sock, sizeof(addr.sun_path) - 1);
+
+    if (::connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0) {
+        ::close(fd);
+        return -1;
+    }
+    return fd;
 }
 
 // ---------------------------------------------------------------------------
