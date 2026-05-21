@@ -179,6 +179,18 @@ RenderedLine DocLayout::GetRenderedLine(int r)
         }
     }
 
+    // URL hover underline overlay — applied last so it is always visible.
+    // Preserves existing fg/bg; only sets the underline flag.
+    if (hoveredUrlPos_ && hoveredUrlPos_->docLine == pos.docLine && hoveredUrlLen_ > 0) {
+        const size_t from = static_cast<size_t>(hoveredUrlPos_->docCol);
+        const size_t to   = from + static_cast<size_t>(hoveredUrlLen_);
+        const size_t sliceEnd     = startCol + len;
+        const size_t overlapStart = std::max(from, startCol);
+        const size_t overlapEnd   = std::min(to, sliceEnd);
+        for (size_t c = overlapStart; c < overlapEnd; ++c)
+            result.attrs[c - startCol].underline = true;
+    }
+
     // Cursor: check whether the document cursor lands on this exact visual row.
     const CursorPos cursor = doc_->GetCursor();
     if ((int)cursor.line == pos.docLine) {
@@ -461,6 +473,43 @@ void DocLayout::ClearSearchState()
     std::lock_guard<std::mutex> lk(mtx_);
     searchMatches_.clear();
     searchCurrentIdx_ = 0;
+}
+
+// ---------------------------------------------------------------------------
+// URL hover
+// ---------------------------------------------------------------------------
+
+std::optional<UrlScanner::UrlSpan> DocLayout::FindUrlAt(DocPosition pos) const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    const auto& lines = doc_->GetLines();
+    if (pos.docLine < 0 || pos.docLine >= (int)lines.size()) return std::nullopt;
+    const auto spans = UrlScanner::ScanLine(lines[pos.docLine].text);
+    for (const auto& span : spans) {
+        if ((size_t)pos.docCol >= span.col && (size_t)pos.docCol < span.col + span.len)
+            return span;
+    }
+    return std::nullopt;
+}
+
+void DocLayout::SetHoveredUrl(std::optional<DocPosition> urlStart, int len)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+
+    const bool samePos = hoveredUrlPos_.has_value() == urlStart.has_value()
+                      && (!urlStart || (urlStart->docLine == hoveredUrlPos_->docLine
+                                     && urlStart->docCol  == hoveredUrlPos_->docCol))
+                      && hoveredUrlLen_ == len;
+    if (samePos) return;
+
+    if (hoveredUrlPos_)
+        MarkDocLineDirtyLocked(hoveredUrlPos_->docLine);
+
+    hoveredUrlPos_ = urlStart;
+    hoveredUrlLen_ = len;
+
+    if (hoveredUrlPos_)
+        MarkDocLineDirtyLocked(hoveredUrlPos_->docLine);
 }
 
 int DocLayout::GetVisualRowForDocLine(int docLine) const

@@ -1,5 +1,6 @@
 #pragma once
 #include <functional>
+#include <string>
 #include <wx/panel.h>
 #include <wx/scrolbar.h>
 #include <wx/timer.h>
@@ -77,6 +78,7 @@ private:
     void OnLeftDown(wxMouseEvent&);
     void OnLeftUp(wxMouseEvent&);
     void OnMouseMove(wxMouseEvent&);
+    void OnLeaveWindow(wxMouseEvent&);
     void OnRightDown(wxMouseEvent&);
     void OnSelScrollTimer(wxTimerEvent&);
     void OnKeyDown(wxKeyEvent&);
@@ -126,6 +128,10 @@ private:
     bool m_broadcastModeActive_ = false;
     bool m_flashing_            = false;
     wxTimer m_flashTimer_;
+
+    // URL hover state
+    std::u32string m_hoveredUrl_;
+    bool           m_urlHovered_ = false;
 
     // Keyboard selection cursor (independent of the PTY document cursor)
     DocLayout::DocPosition m_kbCursor_{0, 0};

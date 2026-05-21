@@ -13,9 +13,11 @@ add_executable(naTE_tests
     main.cpp
     test_config.cpp
     test_env_utils.cpp
+    test_url_scanner.cpp
     ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
     ${CMAKE_SOURCE_DIR}/src/config/ColorScheme.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/UrlScanner.cpp
 )
 target_link_libraries(naTE_tests PRIVATE Catch2::Catch2)
 target_include_directories(naTE_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -43,6 +45,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/transport/SerialTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/DocLayout.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/UrlScanner.cpp
 )
 
 add_executable(naTE_core_tests

@@ -152,6 +152,7 @@ set(SOURCES
     src/ui/TabStrip.cpp
     src/ui/TerminalGrid.cpp
     src/ui/DocLayout.cpp
+    src/ui/UrlScanner.cpp
     src/ui/UIManager.cpp
     src/ui/SearchController.cpp
     src/ui/SearchBar.cpp

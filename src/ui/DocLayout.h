@@ -3,7 +3,9 @@
 #include "document/Document.h"
 #include "document/IDocumentListener.h"
 #include "ui/SearchMatch.h"
+#include "ui/UrlScanner.h"
 #include <mutex>
+#include <optional>
 #include <vector>
 
 // Rendered representation of one visual row — the only line-level type that
@@ -73,6 +75,12 @@ public:
     struct DocPosition { int docLine = 0; int docCol = 0; };
     DocPosition HitTest(int viewportRow, int viewportCol) const;
 
+    // Returns the UrlScanner::UrlSpan at pos, if any (scans the doc line on demand).
+    std::optional<UrlScanner::UrlSpan> FindUrlAt(DocPosition pos) const;
+
+    // Set/clear the hovered URL. Marks affected viewport rows dirty for repaint.
+    void SetHoveredUrl(std::optional<DocPosition> urlStart, int len = 0);
+
     // Text selection — anchor is where the drag began, extent is the current end.
     // Either may precede the other; use GetSelectedText() for the normalised extract.
     struct TextSelection {
@@ -139,7 +147,9 @@ private:
     std::vector<SearchMatch> searchMatches_;
     size_t                   searchCurrentIdx_ = 0;
 
-    TextSelection selection_;
+    TextSelection              selection_;
+    std::optional<DocPosition> hoveredUrlPos_;
+    int                        hoveredUrlLen_ = 0;
 
     // Returns {start, end} with start ≤ end in document order. Caller holds mtx_.
     std::pair<DocPosition, DocPosition> NormalizeSelectionLocked() const;

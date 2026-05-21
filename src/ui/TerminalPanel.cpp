@@ -2,6 +2,7 @@
 #include "ui/SearchBar.h"
 #include "ui/wxKeyAdapter.h"
 #include <wx/clipbrd.h>
+#include <wx/utils.h>
 #include <wx/dcbuffer.h>
 #include <wx/dcmemory.h>
 #include <wx/graphics.h>
@@ -10,7 +11,9 @@
 #include <algorithm>
 
 // Base wxID for context menu action items.
-static constexpr int kActionMenuBaseId = wxID_HIGHEST + 100;
+static constexpr int kActionMenuBaseId   = wxID_HIGHEST + 100;
+static constexpr int kUrlMenuOpenBrowser = wxID_HIGHEST + 200;
+static constexpr int kUrlMenuCopyLink    = wxID_HIGHEST + 201;
 
 static int QueryScrollbarThickness()
 {
@@ -78,8 +81,9 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
     Bind(wxEVT_MOUSEWHEEL, &TerminalPanel::OnMouseWheel,     this);
     Bind(wxEVT_LEFT_DOWN,  &TerminalPanel::OnLeftDown,       this);
     Bind(wxEVT_LEFT_UP,    &TerminalPanel::OnLeftUp,         this);
-    Bind(wxEVT_MOTION,     &TerminalPanel::OnMouseMove,      this);
-    Bind(wxEVT_RIGHT_DOWN, &TerminalPanel::OnRightDown,      this);
+    Bind(wxEVT_MOTION,       &TerminalPanel::OnMouseMove,    this);
+    Bind(wxEVT_LEAVE_WINDOW, &TerminalPanel::OnLeaveWindow,  this);
+    Bind(wxEVT_RIGHT_DOWN,   &TerminalPanel::OnRightDown,    this);
     Bind(wxEVT_KEY_DOWN,   &TerminalPanel::OnKeyDown,        this);
     Bind(wxEVT_CHAR,       &TerminalPanel::OnChar,           this);
     Bind(wxEVT_SET_FOCUS,  &TerminalPanel::OnFocus,          this);
@@ -397,6 +401,16 @@ void TerminalPanel::OnLeftDown(wxMouseEvent& e)
     // so wxEVT_SET_FOCUS may never fire from SetFocus() on this platform.
     if (focusCb_) focusCb_();
 
+    // Ctrl+Click on a hovered URL → open in browser; skip selection start.
+    if (e.ControlDown() && m_urlHovered_ && !m_hoveredUrl_.empty()) {
+        std::string utf8;
+        utf8.reserve(m_hoveredUrl_.size());
+        for (char32_t cp : m_hoveredUrl_)
+            utf8 += static_cast<char>(cp & 0x7F);
+        wxLaunchDefaultBrowser(wxString::FromUTF8(utf8));
+        return;
+    }
+
     auto [row, col]            = PixelToViewportChar(e.GetPosition());
     const auto anchor          = docLayout_->HitTest(row, col);
     const DocLayout::TextSelection sel{anchor, anchor, true};
@@ -411,10 +425,47 @@ void TerminalPanel::OnLeftDown(wxMouseEvent& e)
 
 void TerminalPanel::OnMouseMove(wxMouseEvent& e)
 {
-    if (!m_selecting_) return;
-    m_lastMousePos_ = e.GetPosition();
-    ExtendSelectionTo(e.GetPosition());
-    Refresh();
+    if (m_selecting_) {
+        m_lastMousePos_ = e.GetPosition();
+        ExtendSelectionTo(e.GetPosition());
+        Refresh();
+        return;
+    }
+
+    if (docLayout_) {
+        auto [row, col]  = PixelToViewportChar(e.GetPosition());
+        const auto pos   = docLayout_->HitTest(row, col);
+        const auto span  = docLayout_->FindUrlAt(pos);
+
+        if (span) {
+            const DocLayout::DocPosition urlStart{pos.docLine,
+                                                  static_cast<int>(span->col)};
+            if (!m_urlHovered_ || span->url != m_hoveredUrl_) {
+                m_hoveredUrl_  = span->url;
+                m_urlHovered_  = true;
+                docLayout_->SetHoveredUrl(urlStart, static_cast<int>(span->len));
+                wxSetCursor(wxCursor(wxCURSOR_HAND));
+            }
+        } else if (m_urlHovered_) {
+            m_urlHovered_ = false;
+            m_hoveredUrl_.clear();
+            docLayout_->SetHoveredUrl(std::nullopt);
+            wxSetCursor(wxNullCursor);
+        }
+    }
+
+    e.Skip();
+}
+
+void TerminalPanel::OnLeaveWindow(wxMouseEvent& e)
+{
+    if (m_urlHovered_) {
+        m_urlHovered_ = false;
+        m_hoveredUrl_.clear();
+        if (docLayout_) docLayout_->SetHoveredUrl(std::nullopt);
+        wxSetCursor(wxNullCursor);
+    }
+    e.Skip();
 }
 
 void TerminalPanel::OnLeftUp(wxMouseEvent& e)
@@ -429,20 +480,56 @@ void TerminalPanel::OnLeftUp(wxMouseEvent& e)
 
 void TerminalPanel::OnRightDown(wxMouseEvent& e)
 {
-    if (!docLayout_ || !actionRegistry_ || !docLayout_->HasSelection()) {
-        e.Skip();
-        return;
+    if (!docLayout_) { e.Skip(); return; }
+
+    // Fresh hit-test at the right-click position — independent of hover state.
+    auto [row, col]     = PixelToViewportChar(e.GetPosition());
+    const auto clickPos = docLayout_->HitTest(row, col);
+    const auto urlSpan  = docLayout_->FindUrlAt(clickPos);
+    const bool hasUrl   = urlSpan.has_value();
+    const bool hasSel   = docLayout_->HasSelection() && actionRegistry_;
+
+    if (!hasUrl && !hasSel) { e.Skip(); return; }
+
+    // Convert URL to UTF-8 once (RFC 3986 URLs are ASCII).
+    std::string urlUtf8;
+    if (hasUrl) {
+        urlUtf8.reserve(urlSpan->url.size());
+        for (char32_t cp : urlSpan->url)
+            urlUtf8 += static_cast<char>(cp & 0x7F);
     }
 
-    const std::u32string selected = docLayout_->GetSelectedText();
     wxMenu menu;
-    actionRegistry_->PopulateMenu(menu, kActionMenuBaseId);
 
-    // Dispatch menu events inline so the registry reference is captured safely.
-    menu.Bind(wxEVT_MENU, [this, selected](wxCommandEvent& ev) {
-        if (actionRegistry_)
-            actionRegistry_->Execute(ev.GetId() - kActionMenuBaseId, selected);
-    });
+    if (hasUrl) {
+        menu.Append(kUrlMenuOpenBrowser, "Open in Browser");
+        menu.Append(kUrlMenuCopyLink,    "Copy Link Address");
+    }
+    if (hasUrl && hasSel)
+        menu.AppendSeparator();
+    if (hasSel)
+        actionRegistry_->PopulateMenu(menu, kActionMenuBaseId);
+
+    if (hasUrl) {
+        menu.Bind(wxEVT_MENU, [urlUtf8](wxCommandEvent&) {
+            wxLaunchDefaultBrowser(wxString::FromUTF8(urlUtf8));
+        }, kUrlMenuOpenBrowser);
+
+        menu.Bind(wxEVT_MENU, [urlUtf8](wxCommandEvent&) {
+            if (wxTheClipboard->Open()) {
+                wxTheClipboard->SetData(new wxTextDataObject(wxString::FromUTF8(urlUtf8)));
+                wxTheClipboard->Close();
+            }
+        }, kUrlMenuCopyLink);
+    }
+
+    if (hasSel) {
+        const std::u32string selected = docLayout_->GetSelectedText();
+        menu.Bind(wxEVT_MENU, [this, selected](wxCommandEvent& ev) {
+            if (actionRegistry_)
+                actionRegistry_->Execute(ev.GetId() - kActionMenuBaseId, selected);
+        });
+    }
 
     PopupMenu(&menu);
 }
