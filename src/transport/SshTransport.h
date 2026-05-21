@@ -2,6 +2,7 @@
 
 #include "session/AppSessionDefaults.h"
 #include "session/Connection.h"
+#include "transport/BastionTunnel.h"
 #include "transport/Transport.hpp"
 #include "transport/ITransportTarget.h"
 #include "transport/TransportError.h"
@@ -192,6 +193,9 @@ private:
     _LIBSSH2_CHANNEL*           channel_  = nullptr;
     _LIBSSH2_AGENT*             agent_    = nullptr;
     int                         sock_fd_  = -1;
+    // Non-null when the main session is tunnelled through a ProxyJump host.
+    // Destroyed after the worker thread exits so the bridge outlives the session.
+    std::unique_ptr<BastionTunnel> bastion_tunnel_;
 
     std::atomic<bool>           running_{false};
     std::thread                 worker_;

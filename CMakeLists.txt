@@ -126,6 +126,7 @@ set(SOURCES
     src/session/SessionManager.cpp
     src/ui/ConnectionFactory.cpp
     src/transport/EnvUtils.cpp
+    src/transport/BastionTunnel.cpp
     src/transport/SshConfig.cpp
     src/transport/SshPublicKey.cpp
     src/transport/X11Utils.cpp

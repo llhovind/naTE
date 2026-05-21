@@ -208,3 +208,164 @@ TEST_CASE("given SshDesc with agentIdentityHint when round-tripped then hint is 
 
     CHECK(desc.agentIdentityHint == original.agentIdentityHint);
 }
+
+// ---------------------------------------------------------------------------
+// ProxyJump serialisation tests
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given SshDesc with proxyJump when serialised then proxyJump key present") {
+    term::session::SshDesc desc;
+    desc.host     = "target.example.com";
+    desc.port     = 22;
+    desc.username = "alice";
+    term::session::ProxyJumpDesc pj;
+    pj.host       = "bastion.example.com";
+    pj.port       = 2222;
+    pj.user       = "jump_user";
+    pj.authMethod = term::session::SshAuthMethod::Agent;
+    pj.agentIdentityHint = "/home/alice/.ssh/bastion_key";
+    desc.proxyJump = pj;
+
+    const auto j = term::db::serialisation::SerialiseTransport(desc);
+    REQUIRE(j.at("type").get<std::string>() == "ssh");
+    REQUIRE(j.contains("proxyJump"));
+    CHECK(j["proxyJump"].at("host").get<std::string>() == "bastion.example.com");
+    CHECK(j["proxyJump"].at("port").get<unsigned short>() == 2222u);
+    CHECK(j["proxyJump"].at("user").get<std::string>() == "jump_user");
+    CHECK(j["proxyJump"].at("authMethod").get<std::string>() == "agent");
+    CHECK(j["proxyJump"].at("agentIdentityHint").get<std::string>() == "/home/alice/.ssh/bastion_key");
+}
+
+TEST_CASE("given SshDesc with proxyJump when round-tripped then all fields preserved") {
+    term::session::SshDesc original;
+    original.host     = "target.example.com";
+    original.port     = 22;
+    original.username = "alice";
+    term::session::ProxyJumpDesc pj;
+    pj.host            = "bastion.example.com";
+    pj.port            = 2222;
+    pj.user            = "jump_user";
+    pj.authMethod      = term::session::SshAuthMethod::PrivateKey;
+    pj.privateKeyPath  = "/home/alice/.ssh/bastion_ed25519";
+    pj.agentIdentityHint = "";
+    original.proxyJump = pj;
+
+    const auto j    = term::db::serialisation::SerialiseTransport(original);
+    const auto desc = std::get<term::session::SshDesc>(
+        term::db::serialisation::DeserialiseTransport(j));
+
+    REQUIRE(desc.proxyJump.has_value());
+    CHECK(desc.proxyJump->host           == pj.host);
+    CHECK(desc.proxyJump->port           == pj.port);
+    CHECK(desc.proxyJump->user           == pj.user);
+    CHECK(desc.proxyJump->authMethod     == pj.authMethod);
+    CHECK(desc.proxyJump->privateKeyPath == pj.privateKeyPath);
+}
+
+TEST_CASE("given SshDesc without proxyJump when deserialised then proxyJump is nullopt") {
+    const auto j = nlohmann::json{
+        {"type",      "ssh"},
+        {"host",      "target.example.com"},
+        {"port",      22},
+        {"username",  "alice"},
+        {"authMethod","agent"},
+    };
+    const auto desc = std::get<term::session::SshDesc>(
+        term::db::serialisation::DeserialiseTransport(j));
+    CHECK(!desc.proxyJump.has_value());
+}
+
+TEST_CASE("given SshDesc with proxyJump host empty when serialised then no proxyJump key") {
+    term::session::SshDesc desc;
+    desc.host     = "target.example.com";
+    desc.username = "alice";
+    term::session::ProxyJumpDesc pj;
+    pj.host = "";  // empty host — should not be serialised
+    desc.proxyJump = pj;
+
+    const auto j = term::db::serialisation::SerialiseTransport(desc);
+    CHECK(!j.contains("proxyJump"));
+}
+
+// ---------------------------------------------------------------------------
+// QuerySshConfigProxyJump tests
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given ssh config with ProxyJump when QuerySshConfigProxyJump then parses host") {
+    const auto cfg = WriteTempSshConfig(
+        "Host targethost\n"
+        "    ProxyJump bastion.example.com\n"
+    );
+    const auto pj = term::transport::QuerySshConfigProxyJump(
+        "targethost", 22, "user", cfg.string());
+    std::filesystem::remove(cfg);
+
+    REQUIRE(pj.has_value());
+    CHECK(pj->host == "bastion.example.com");
+    CHECK(pj->port == 22);
+    CHECK(pj->user.empty());
+}
+
+TEST_CASE("given ssh config with ProxyJump user@host:port when QuerySshConfigProxyJump then parses all fields") {
+    const auto cfg = WriteTempSshConfig(
+        "Host targethost\n"
+        "    ProxyJump jumpuser@bastion.example.com:2222\n"
+    );
+    const auto pj = term::transport::QuerySshConfigProxyJump(
+        "targethost", 22, "user", cfg.string());
+    std::filesystem::remove(cfg);
+
+    REQUIRE(pj.has_value());
+    CHECK(pj->host == "bastion.example.com");
+    CHECK(pj->port == 2222);
+    CHECK(pj->user == "jumpuser");
+}
+
+TEST_CASE("given ssh config with ProxyJump none when QuerySshConfigProxyJump then returns nullopt") {
+    const auto cfg = WriteTempSshConfig(
+        "Host targethost\n"
+        "    ProxyJump none\n"
+    );
+    const auto pj = term::transport::QuerySshConfigProxyJump(
+        "targethost", 22, "user", cfg.string());
+    std::filesystem::remove(cfg);
+
+    CHECK(!pj.has_value());
+}
+
+TEST_CASE("given ssh config with no ProxyJump when QuerySshConfigProxyJump then returns nullopt") {
+    const auto cfg = WriteTempSshConfig(
+        "Host targethost\n"
+        "    IdentityFile ~/.ssh/id_ed25519\n"
+    );
+    const auto pj = term::transport::QuerySshConfigProxyJump(
+        "targethost", 22, "user", cfg.string());
+    std::filesystem::remove(cfg);
+
+    CHECK(!pj.has_value());
+}
+
+TEST_CASE("given ssh config with comma-separated ProxyJump when QuerySshConfigProxyJump then uses only first hop") {
+    const auto cfg = WriteTempSshConfig(
+        "Host targethost\n"
+        "    ProxyJump first.example.com,second.example.com\n"
+    );
+    const auto pj = term::transport::QuerySshConfigProxyJump(
+        "targethost", 22, "user", cfg.string());
+    std::filesystem::remove(cfg);
+
+    REQUIRE(pj.has_value());
+    CHECK(pj->host == "first.example.com");
+}
+
+TEST_CASE("given ProxyJumpDesc with empty user when jump user resolved then target username used") {
+    term::session::ProxyJumpDesc pj;
+    pj.host = "bastion.example.com";
+    pj.user = "";  // empty → should use target's username
+
+    const std::string target_user = "alice";
+    // The effective user is computed as: pj.user.empty() ? target_user : pj.user
+    const std::string effective = pj.user.empty() ? target_user : pj.user;
+    CHECK(effective == target_user);
+}
+

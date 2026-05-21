@@ -80,7 +80,7 @@ inline json SerialiseTransport(const term::session::TransportDesc& transport)
             return json{{"type", "pty"}, {"shell", desc.shell}};
         } else if constexpr (std::is_same_v<T, term::session::SshDesc>) {
             // passwords and passphrases are intentionally excluded
-            return json{
+            json j{
                 {"type",               "ssh"},
                 {"host",               desc.host},
                 {"port",               desc.port},
@@ -96,6 +96,18 @@ inline json SerialiseTransport(const term::session::TransportDesc& transport)
                 {"agentForwarding",      desc.agentForwarding},
                 {"agentIdentityHint",    desc.agentIdentityHint},
             };
+            if (desc.proxyJump && !desc.proxyJump->host.empty()) {
+                j["proxyJump"] = {
+                    {"host",              desc.proxyJump->host},
+                    {"port",              desc.proxyJump->port},
+                    {"user",              desc.proxyJump->user},
+                    {"authMethod",        AuthMethodToString(desc.proxyJump->authMethod)},
+                    {"privateKeyPath",    desc.proxyJump->privateKeyPath},
+                    {"publicKeyPath",     desc.proxyJump->publicKeyPath},
+                    {"agentIdentityHint", desc.proxyJump->agentIdentityHint},
+                };
+            }
+            return j;
         } else if constexpr (std::is_same_v<T, term::session::SerialDesc>) {
             return json{
                 {"type",        "serial"},
@@ -136,6 +148,21 @@ inline term::session::TransportDesc DeserialiseTransport(const json& j)
         d.agentForwarding   = j.value("agentForwarding",   false);
         d.agentIdentityHint = j.value("agentIdentityHint", std::string{});
         // password and passphrase are never stored — left at default ""
+        if (j.contains("proxyJump")) {
+            const auto& pj = j["proxyJump"];
+            const std::string pjHost = pj.value("host", std::string{});
+            if (!pjHost.empty()) {
+                term::session::ProxyJumpDesc jump;
+                jump.host              = pjHost;
+                jump.port              = pj.value("port",              static_cast<unsigned short>(22));
+                jump.user              = pj.value("user",              std::string{});
+                jump.authMethod        = AuthMethodFromString(pj.value("authMethod", std::string{"agent"}));
+                jump.privateKeyPath    = pj.value("privateKeyPath",    std::string{});
+                jump.publicKeyPath     = pj.value("publicKeyPath",     std::string{});
+                jump.agentIdentityHint = pj.value("agentIdentityHint", std::string{});
+                d.proxyJump = std::move(jump);
+            }
+        }
         return d;
     }
     if (type == "serial") {

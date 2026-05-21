@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <memory>
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
@@ -277,8 +278,22 @@ void SshTransport::OnViewportColsChanged(unsigned short cols)
 
 void SshTransport::WorkerThread()
 {
-    sock_fd_ = ConnectSocket();
-    if (sock_fd_ < 0)                   return;
+    if (desc_.proxyJump) {
+        const std::string effectiveUser = desc_.proxyJump->user.empty()
+            ? desc_.username : desc_.proxyJump->user;
+        try {
+            bastion_tunnel_ = BastionTunnel::Connect(
+                *desc_.proxyJump, desc_.host, desc_.port,
+                effectiveUser, desc_.connectTimeoutSec, target_);
+        } catch (const TransportError& e) {
+            NotifyError(e.category, e.message);
+            return;
+        }
+        sock_fd_ = bastion_tunnel_->LocalFd();
+    } else {
+        sock_fd_ = ConnectSocket();
+        if (sock_fd_ < 0) return;
+    }
     if (!PerformHandshake(sock_fd_))    return;
     { std::string khErr;
       if (!VerifyHostKey(session_, khErr)) {
@@ -1308,40 +1323,58 @@ void SshTransport::DoSendFile(std::string localPath,
         remoteDir += '/';
     const std::string remotePath = remoteDir + filename;
 
-    // --- TCP connect ---
-    const std::string portStr = std::to_string(desc_.port);
-    addrinfo hints{};
-    hints.ai_family   = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    addrinfo* res = nullptr;
-    if (::getaddrinfo(desc_.host.c_str(), portStr.c_str(), &hints, &res) != 0) {
-        fail("SCP: name resolution failed for " + desc_.host);
-        return;
-    }
+    // --- Connect (direct or via ProxyJump) ---
     int fd = -1;
-    for (addrinfo* ai = res; ai; ai = ai->ai_next) {
-        fd = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        if (fd < 0) continue;
-        if (desc_.connectTimeoutSec > 0) {
-            timeval tv{};
-            tv.tv_sec = desc_.connectTimeoutSec;
-            ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-            ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    bool ownFd = true;  // false when fd is owned by bastion_tunnel
+    std::unique_ptr<BastionTunnel> bastion_tunnel;
+
+    if (desc_.proxyJump) {
+        const std::string effectiveUser = desc_.proxyJump->user.empty()
+            ? desc_.username : desc_.proxyJump->user;
+        try {
+            bastion_tunnel = BastionTunnel::Connect(
+                *desc_.proxyJump, desc_.host, desc_.port,
+                effectiveUser, desc_.connectTimeoutSec, target_);
+        } catch (const TransportError& e) {
+            fail("SCP: " + e.message);
+            return;
         }
-        if (::connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
-        ::close(fd);
-        fd = -1;
-    }
-    ::freeaddrinfo(res);
-    if (fd < 0) {
-        fail("SCP: could not connect to " + desc_.host + ":" + portStr);
-        return;
+        fd    = bastion_tunnel->LocalFd();
+        ownFd = false;
+    } else {
+        const std::string portStr = std::to_string(desc_.port);
+        addrinfo hints{};
+        hints.ai_family   = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+        addrinfo* res = nullptr;
+        if (::getaddrinfo(desc_.host.c_str(), portStr.c_str(), &hints, &res) != 0) {
+            fail("SCP: name resolution failed for " + desc_.host);
+            return;
+        }
+        for (addrinfo* ai = res; ai; ai = ai->ai_next) {
+            fd = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+            if (fd < 0) continue;
+            if (desc_.connectTimeoutSec > 0) {
+                timeval tv{};
+                tv.tv_sec = desc_.connectTimeoutSec;
+                ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+                ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            }
+            if (::connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
+            ::close(fd);
+            fd = -1;
+        }
+        ::freeaddrinfo(res);
+        if (fd < 0) {
+            fail("SCP: could not connect to " + desc_.host + ":" + std::to_string(desc_.port));
+            return;
+        }
     }
 
     // --- libssh2 session (blocking mode) ---
     LIBSSH2_SESSION* session = libssh2_session_init();
     if (!session) {
-        ::close(fd);
+        if (ownFd) ::close(fd);
         fail("SCP: libssh2_session_init failed");
         return;
     }
@@ -1352,7 +1385,7 @@ void SshTransport::DoSendFile(std::string localPath,
         libssh2_session_last_error(session, &msg, &len, 0);
         const std::string err = msg ? std::string(msg, static_cast<size_t>(len)) : "unknown";
         libssh2_session_free(session);
-        ::close(fd);
+        if (ownFd) ::close(fd);
         fail("SCP: handshake failed — " + err);
         return;
     }
@@ -1363,7 +1396,7 @@ void SshTransport::DoSendFile(std::string localPath,
         if (!VerifyHostKey(session, khErr)) {
             libssh2_session_disconnect(session, "Host key check failed");
             libssh2_session_free(session);
-            ::close(fd);
+            if (ownFd) ::close(fd);
             fail(khErr);
             return;
         }
@@ -1425,7 +1458,7 @@ void SshTransport::DoSendFile(std::string localPath,
     if (!authenticated) {
         libssh2_session_disconnect(session, "Authentication failed");
         libssh2_session_free(session);
-        ::close(fd);
+        if (ownFd) ::close(fd);
         fail(authError);
         return;
     }
@@ -1439,7 +1472,7 @@ void SshTransport::DoSendFile(std::string localPath,
         const std::string err = msg ? std::string(msg, static_cast<size_t>(len)) : "unknown";
         libssh2_session_disconnect(session, "SCP open failed");
         libssh2_session_free(session);
-        ::close(fd);
+        if (ownFd) ::close(fd);
         fail("SCP: could not open remote file '" + remotePath + "' — " + err);
         return;
     }
@@ -1468,7 +1501,8 @@ void SshTransport::DoSendFile(std::string localPath,
     libssh2_channel_free(channel);
     libssh2_session_disconnect(session, "SCP complete");
     libssh2_session_free(session);
-    ::close(fd);
+    if (ownFd) ::close(fd);
+    // bastion_tunnel RAII destructor closes the tunnel fd and stops bridge thread.
 
     if (writeError) {
         fail("SCP: write error while sending '" + filename + "'");
@@ -1489,6 +1523,9 @@ namespace {
 struct SshSession {
     LIBSSH2_SESSION* session = nullptr;
     int              fd      = -1;
+    // Non-null when the session is tunnelled through a ProxyJump host.
+    // Must outlive `session` — destroyed last.
+    std::unique_ptr<term::transport::BastionTunnel> bastion_tunnel;
 
     ~SshSession()
     {
@@ -1497,6 +1534,7 @@ struct SshSession {
             libssh2_session_free(session);
         }
         if (fd >= 0) ::close(fd);
+        // bastion_tunnel destroyed after session/fd (unique_ptr dtor order)
     }
 
     // Non-copyable, movable.
@@ -1573,38 +1611,59 @@ static bool OpenAuxSession(const term::session::SshDesc& desc,
 {
     using AM = term::session::SshAuthMethod;
 
-    const std::string portStr = std::to_string(desc.port);
-    addrinfo hints{};
-    hints.ai_family   = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    addrinfo* res = nullptr;
-    if (::getaddrinfo(desc.host.c_str(), portStr.c_str(), &hints, &res) != 0) {
-        *outErr = "SSH: name resolution failed for " + desc.host;
-        return false;
-    }
     int fd = -1;
-    for (addrinfo* ai = res; ai; ai = ai->ai_next) {
-        fd = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        if (fd < 0) continue;
-        if (desc.connectTimeoutSec > 0) {
-            timeval tv{};
-            tv.tv_sec = desc.connectTimeoutSec;
-            ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-            ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    if (desc.proxyJump) {
+        // Route through the bastion host via a direct-tcpip tunnel.
+        const std::string effectiveUser = desc.proxyJump->user.empty()
+            ? desc.username : desc.proxyJump->user;
+        try {
+            out->bastion_tunnel = term::transport::BastionTunnel::Connect(
+                *desc.proxyJump, desc.host, desc.port,
+                effectiveUser, desc.connectTimeoutSec,
+                *target);
+        } catch (const term::transport::TransportError& e) {
+            *outErr = e.message;
+            return false;
         }
-        if (::connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
-        ::close(fd);
-        fd = -1;
+        fd = out->bastion_tunnel->LocalFd();
+    } else {
+        const std::string portStr = std::to_string(desc.port);
+        addrinfo hints{};
+        hints.ai_family   = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+        addrinfo* res = nullptr;
+        if (::getaddrinfo(desc.host.c_str(), portStr.c_str(), &hints, &res) != 0) {
+            *outErr = "SSH: name resolution failed for " + desc.host;
+            return false;
+        }
+        for (addrinfo* ai = res; ai; ai = ai->ai_next) {
+            fd = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+            if (fd < 0) continue;
+            if (desc.connectTimeoutSec > 0) {
+                timeval tv{};
+                tv.tv_sec = desc.connectTimeoutSec;
+                ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+                ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            }
+            if (::connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
+            ::close(fd);
+            fd = -1;
+        }
+        ::freeaddrinfo(res);
+        if (fd < 0) {
+            *outErr = "SSH: could not connect to " + desc.host + ":" + portStr;
+            return false;
+        }
+        out->fd = fd;
     }
-    ::freeaddrinfo(res);
-    if (fd < 0) {
-        *outErr = "SSH: could not connect to " + desc.host + ":" + portStr;
-        return false;
-    }
+
+    // For ProxyJump, `fd` is owned by bastion_tunnel and must not be closed here.
+    const bool ownFd = !desc.proxyJump.has_value();
 
     LIBSSH2_SESSION* session = libssh2_session_init();
     if (!session) {
-        ::close(fd);
+        if (ownFd) ::close(fd);
         *outErr = "SSH: libssh2_session_init failed";
         return false;
     }
@@ -1617,7 +1676,7 @@ static bool OpenAuxSession(const term::session::SshDesc& desc,
         if (msg) outErr->append(msg, static_cast<size_t>(len));
         else     *outErr += "unknown";
         libssh2_session_free(session);
-        ::close(fd);
+        if (ownFd) ::close(fd);
         return false;
     }
 
@@ -1658,7 +1717,7 @@ static bool OpenAuxSession(const term::session::SshDesc& desc,
                 libssh2_knownhost_free(kh);
                 *outErr = "SSH: host key mismatch for " + desc.host;
                 libssh2_session_free(session);
-                ::close(fd);
+                if (ownFd) ::close(fd);
                 return false;
             }
             libssh2_knownhost_free(kh);
@@ -1713,12 +1772,12 @@ static bool OpenAuxSession(const term::session::SshDesc& desc,
     if (!authenticated) {
         libssh2_session_disconnect(session, "Authentication failed");
         libssh2_session_free(session);
-        ::close(fd);
+        if (ownFd) ::close(fd);
         return false;
     }
 
     out->session = session;
-    out->fd      = fd;
+    if (ownFd) out->fd = fd;
     return true;
 }
 

@@ -5,6 +5,7 @@
 #include "session/EnvVar.h"
 
 #include <wx/dialog.h>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -12,6 +13,7 @@
 class wxBookCtrlEvent;
 class wxButton;
 class wxCheckBox;
+class wxChoice;
 class wxCollapsiblePane;
 class wxCollapsiblePaneEvent;
 class wxComboBox;
@@ -20,6 +22,7 @@ class wxNotebook;
 class wxPanel;
 class wxRadioBox;
 class wxRadioButton;
+class wxSimplebook;
 class wxSpinCtrl;
 class wxTextCtrl;
 class wxFilePickerCtrl;
@@ -66,6 +69,18 @@ struct PtyParams {
 enum class SshAuthChoice { Agent, Password, PrivateKey, KeyboardInteractive };
 
 struct SshParams {
+    // Nested jump-host descriptor (nullopt = direct connection).
+    struct ProxyJumpParams {
+        std::string    host;
+        unsigned short port            = 22;
+        std::string    user;           // empty = same as SshParams::username
+        SshAuthChoice  authMethod      = SshAuthChoice::Agent;
+        std::string    password;
+        std::string    privateKeyPath;
+        std::string    passphrase;
+        std::string    agentIdentityHint;
+    };
+
     std::string    host;
     unsigned short port              = 22;
     std::string    username;
@@ -80,6 +95,7 @@ struct SshParams {
     bool           x11Forwarding     = false;
     bool           agentForwarding   = false;
     std::string    agentIdentityHint;
+    std::optional<ProxyJumpParams> proxyJump;   // nullopt = direct connection
     bool           wrapMode          = false;
     unsigned short columnWidth       = 80;
     unsigned short rows              = 24;
@@ -185,6 +201,19 @@ private:
     wxTextCtrl*      m_hostCtrl        = nullptr;
     wxTextCtrl*      m_portCtrl        = nullptr;  // plain numeric text input
     wxTextCtrl*      m_userCtrl        = nullptr;
+
+    // SSH Jump Host collapsible section
+    wxCollapsiblePane* m_jumpPane          = nullptr;
+    wxTextCtrl*        m_jumpHostCtrl      = nullptr;
+    wxTextCtrl*        m_jumpPortCtrl      = nullptr;
+    wxTextCtrl*        m_jumpUserCtrl      = nullptr;
+    wxChoice*          m_jumpAuthChoice    = nullptr;
+    wxSimplebook*      m_jumpAuthBook      = nullptr;  // pages: Agent/Password/PrivKey/KbdInt
+    wxFilePickerCtrl*  m_jumpHintPicker    = nullptr;  // Agent page
+    wxTextCtrl*        m_jumpPassCtrl      = nullptr;  // Password page
+    wxFilePickerCtrl*  m_jumpKeyPicker     = nullptr;  // PrivKey page
+    wxTextCtrl*        m_jumpPassphraseCtrl = nullptr; // PrivKey page
+    void OnJumpAuthChoiceChanged(wxCommandEvent&);
     wxSpinCtrl*      m_timeoutCtrl     = nullptr;
     wxRadioButton*   m_rbAuthAgent     = nullptr;
     wxRadioButton*   m_rbAuthPass      = nullptr;

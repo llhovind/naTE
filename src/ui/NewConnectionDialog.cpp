@@ -1,9 +1,11 @@
 #include "ui/NewConnectionDialog.h"
 #include "db/ConnectionProfile.h"
 #include "session/Connection.h"
+#include "transport/SshConfig.h"
 
 #include <wx/button.h>
 #include <wx/checkbox.h>
+#include <wx/choice.h>
 #include <wx/collpane.h>
 #include <wx/combobox.h>
 #include <wx/dirdlg.h>
@@ -14,6 +16,7 @@
 #include <wx/panel.h>
 #include <wx/radiobut.h>
 #include <wx/radiobox.h>
+#include <wx/simplebook.h>
 #include <wx/sizer.h>
 #include <wx/spinctrl.h>
 #include <wx/statbox.h>
@@ -33,6 +36,7 @@ namespace
     constexpr int ID_RB_AUTH_PASS           = wxID_HIGHEST + 206;
     constexpr int ID_RB_AUTH_KEY            = wxID_HIGHEST + 207;
     constexpr int ID_RB_AUTH_KBD            = wxID_HIGHEST + 230;
+    constexpr int ID_JUMP_AUTH_CHOICE       = wxID_HIGHEST + 231;
     constexpr int ID_GEOMETRY_COMBO         = wxID_HIGHEST + 208;
     constexpr int ID_PROFILE_COMBO          = wxID_HIGHEST + 209;
     constexpr int ID_BTN_BROWSE_WORKDIR_PTY = wxID_HIGHEST + 210;
@@ -255,6 +259,130 @@ NewConnectionDialog::NewConnectionDialog(
             row->Add(m_userCtrl, 1, wxEXPAND);
             sizer->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
         }
+
+        // Via Jump Host (ProxyJump) — collapsible, collapsed by default
+        m_jumpPane = new wxCollapsiblePane(page, wxID_ANY, "Via Jump Host");
+        m_jumpPane->Collapse(true);
+        {
+            auto* pw = m_jumpPane->GetPane();
+            auto* ps = new wxBoxSizer(wxVERTICAL);
+
+            // Host + Port
+            {
+                auto* r = new wxBoxSizer(wxHORIZONTAL);
+                r->Add(new wxStaticText(pw, wxID_ANY, "Host:"),
+                       0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                m_jumpHostCtrl = new wxTextCtrl(pw, wxID_ANY, wxEmptyString,
+                                                wxDefaultPosition, wxSize(200, -1));
+                r->Add(m_jumpHostCtrl, 1, wxEXPAND | wxRIGHT, 12);
+                r->Add(new wxStaticText(pw, wxID_ANY, "Port:"),
+                       0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                m_jumpPortCtrl = new wxTextCtrl(pw, wxID_ANY, "22",
+                                                wxDefaultPosition, wxSize(55, -1));
+                r->Add(m_jumpPortCtrl, 0);
+                ps->Add(r, 0, wxEXPAND | wxBOTTOM, 4);
+            }
+
+            // Jump User
+            {
+                auto* r = new wxBoxSizer(wxHORIZONTAL);
+                r->Add(new wxStaticText(pw, wxID_ANY, "User:"),
+                       0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                m_jumpUserCtrl = new wxTextCtrl(pw, wxID_ANY, wxEmptyString,
+                                                wxDefaultPosition, wxSize(180, -1));
+                m_jumpUserCtrl->SetHint("defaults to target user");
+                r->Add(m_jumpUserCtrl, 1, wxEXPAND);
+                ps->Add(r, 0, wxEXPAND | wxBOTTOM, 4);
+            }
+
+            // Auth method choice
+            {
+                auto* r = new wxBoxSizer(wxHORIZONTAL);
+                r->Add(new wxStaticText(pw, wxID_ANY, "Auth:"),
+                       0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                m_jumpAuthChoice = new wxChoice(pw, ID_JUMP_AUTH_CHOICE);
+                m_jumpAuthChoice->Append("SSH Agent");
+                m_jumpAuthChoice->Append("Password");
+                m_jumpAuthChoice->Append("Private Key File");
+                m_jumpAuthChoice->Append("Keyboard Interactive");
+                m_jumpAuthChoice->SetSelection(0);
+                r->Add(m_jumpAuthChoice, 0);
+                ps->Add(r, 0, wxEXPAND | wxBOTTOM, 4);
+            }
+
+            // Auth sub-panels via wxSimplebook (4 pages, matching choice indices)
+            m_jumpAuthBook = new wxSimplebook(pw, wxID_ANY);
+
+            // Page 0: Agent — identity hint
+            {
+                auto* pg = new wxPanel(m_jumpAuthBook, wxID_ANY);
+                auto* s  = new wxBoxSizer(wxHORIZONTAL);
+                s->Add(new wxStaticText(pg, wxID_ANY, "Identity hint:"),
+                       0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                m_jumpHintPicker = new wxFilePickerCtrl(
+                    pg, wxID_ANY, wxEmptyString,
+                    "Select private key to prefer for agent auth", "All files (*)|*",
+                    wxDefaultPosition, wxSize(240, -1),
+                    wxFLP_OPEN | wxFLP_USE_TEXTCTRL);
+                s->Add(m_jumpHintPicker, 1, wxEXPAND);
+                pg->SetSizer(s);
+                m_jumpAuthBook->AddPage(pg, "Agent");
+            }
+
+            // Page 1: Password
+            {
+                auto* pg = new wxPanel(m_jumpAuthBook, wxID_ANY);
+                auto* s  = new wxBoxSizer(wxHORIZONTAL);
+                s->Add(new wxStaticText(pg, wxID_ANY, "Password:"),
+                       0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                m_jumpPassCtrl = new wxTextCtrl(pg, wxID_ANY, wxEmptyString,
+                                                wxDefaultPosition, wxSize(220, -1), wxTE_PASSWORD);
+                s->Add(m_jumpPassCtrl, 1, wxEXPAND);
+                pg->SetSizer(s);
+                m_jumpAuthBook->AddPage(pg, "Password");
+            }
+
+            // Page 2: Private Key
+            {
+                auto* pg = new wxPanel(m_jumpAuthBook, wxID_ANY);
+                auto* s  = new wxBoxSizer(wxVERTICAL);
+                {
+                    auto* r = new wxBoxSizer(wxHORIZONTAL);
+                    r->Add(new wxStaticText(pg, wxID_ANY, "Key file:"),
+                           0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                    m_jumpKeyPicker = new wxFilePickerCtrl(
+                        pg, wxID_ANY, wxEmptyString,
+                        "Select private key", "All files (*)|*",
+                        wxDefaultPosition, wxSize(240, -1),
+                        wxFLP_OPEN | wxFLP_FILE_MUST_EXIST | wxFLP_USE_TEXTCTRL);
+                    r->Add(m_jumpKeyPicker, 1, wxEXPAND);
+                    s->Add(r, 0, wxEXPAND | wxBOTTOM, 4);
+                }
+                {
+                    auto* r = new wxBoxSizer(wxHORIZONTAL);
+                    r->Add(new wxStaticText(pg, wxID_ANY, "Passphrase:"),
+                           0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                    m_jumpPassphraseCtrl = new wxTextCtrl(
+                        pg, wxID_ANY, wxEmptyString,
+                        wxDefaultPosition, wxSize(220, -1), wxTE_PASSWORD);
+                    r->Add(m_jumpPassphraseCtrl, 1, wxEXPAND);
+                    s->Add(r, 0, wxEXPAND);
+                }
+                pg->SetSizer(s);
+                m_jumpAuthBook->AddPage(pg, "PrivKey");
+            }
+
+            // Page 3: Keyboard Interactive (no extra fields)
+            {
+                auto* pg = new wxPanel(m_jumpAuthBook, wxID_ANY);
+                pg->SetSizer(new wxBoxSizer(wxVERTICAL));
+                m_jumpAuthBook->AddPage(pg, "KbdInt");
+            }
+
+            ps->Add(m_jumpAuthBook, 0, wxEXPAND);
+            pw->SetSizer(ps);
+        }
+        sizer->Add(m_jumpPane, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
 
         // Authentication box
         auto* authBox = new wxStaticBoxSizer(wxVERTICAL, page, "Authentication");
@@ -550,6 +678,7 @@ NewConnectionDialog::NewConnectionDialog(
         Bind(wxEVT_BUTTON, &NewConnectionDialog::OnConnectClicked, this, ID_BTN_CONNECT);
 
     Bind(wxEVT_COLLAPSIBLEPANE_CHANGED, &NewConnectionDialog::OnCollapsiblePaneChanged, this);
+    Bind(wxEVT_CHOICE, &NewConnectionDialog::OnJumpAuthChoiceChanged, this, ID_JUMP_AUTH_CHOICE);
     Bind(wxEVT_NOTEBOOK_PAGE_CHANGED,   &NewConnectionDialog::OnTabChanged,             this);
 
     if (m_hostCtrl)
@@ -632,6 +761,25 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
                     m_agentHintPicker->SetPath(desc.agentIdentityHint);
                     m_agentPanel->Show(true);
                     break;
+            }
+            // Jump host
+            if (desc.proxyJump && !desc.proxyJump->host.empty()) {
+                m_jumpHostCtrl->SetValue(desc.proxyJump->host);
+                m_jumpPortCtrl->SetValue(wxString::Format("%d", desc.proxyJump->port));
+                m_jumpUserCtrl->SetValue(desc.proxyJump->user);
+                m_jumpHintPicker->SetPath(desc.proxyJump->agentIdentityHint);
+                m_jumpKeyPicker->SetPath(desc.proxyJump->privateKeyPath);
+                const int sel = [&]() -> int {
+                    switch (desc.proxyJump->authMethod) {
+                        case term::session::SshAuthMethod::Password:       return 1;
+                        case term::session::SshAuthMethod::PrivateKey:     return 2;
+                        case term::session::SshAuthMethod::KbdInteractive: return 3;
+                        default:                                            return 0;
+                    }
+                }();
+                m_jumpAuthChoice->SetSelection(sel);
+                m_jumpAuthBook->SetSelection(static_cast<size_t>(sel));
+                m_jumpPane->Expand();
             }
         } else if constexpr (std::is_same_v<T, term::session::SerialDesc>) {
             m_notebook->SetSelection(kTabSerial);
@@ -777,14 +925,52 @@ void NewConnectionDialog::OnCollapsiblePaneChanged(wxCollapsiblePaneEvent&)
     SetMinSize(GetSize());
 }
 
+void NewConnectionDialog::OnJumpAuthChoiceChanged(wxCommandEvent&)
+{
+    if (m_jumpAuthBook)
+        m_jumpAuthBook->SetSelection(
+            static_cast<size_t>(m_jumpAuthChoice->GetSelection()));
+    if (m_jumpPane && m_jumpPane->GetPane())
+        m_jumpPane->GetPane()->Layout();
+    Layout();
+    Fit();
+    SetMinSize(GetSize());
+}
+
 void NewConnectionDialog::OnTabChanged(wxBookCtrlEvent&)
 {
     UpdateConnectButton();
 }
 
-void NewConnectionDialog::OnSshFieldChanged(wxCommandEvent&)
+void NewConnectionDialog::OnSshFieldChanged(wxCommandEvent& evt)
 {
     UpdateConnectButton();
+
+    // Auto-populate jump host from ~/.ssh/config when the target host is entered.
+    // Only fires when the pane is collapsed (not yet manually configured) and the
+    // host looks complete (contains at least one dot or is a bare hostname >= 4 chars,
+    // which avoids spawning ssh -G on every partial keystroke).
+    if (evt.GetEventObject() == m_hostCtrl && m_jumpPane && m_jumpPane->IsCollapsed()) {
+        const std::string host = m_hostCtrl->GetValue().ToStdString();
+        if (host.size() < 4 || (host.find('.') == std::string::npos &&
+                                 host.find(':') == std::string::npos)) return;
+
+        const std::string user = m_userCtrl->GetValue().ToStdString();
+        unsigned long port = 22;
+        m_portCtrl->GetValue().ToULong(&port);
+
+        auto pj = term::transport::QuerySshConfigProxyJump(
+            host, static_cast<uint16_t>(port), user);
+        if (!pj || pj->host.empty()) return;
+
+        m_jumpHostCtrl->SetValue(pj->host);
+        m_jumpPortCtrl->SetValue(wxString::Format("%d", pj->port));
+        m_jumpUserCtrl->SetValue(pj->user);
+        m_jumpPane->Expand();
+        Layout();
+        Fit();
+        SetMinSize(GetSize());
+    }
 }
 
 void NewConnectionDialog::OnBrowseWorkingDir(wxCommandEvent& evt)
@@ -1008,6 +1194,34 @@ ConnectionParams NewConnectionDialog::GetParams() const
         } else {
             p.authMethod         = SshAuthChoice::Agent;
             p.agentIdentityHint  = m_agentHintPicker->GetPath().ToStdString();
+        }
+
+        // Jump host — populated only when the pane is expanded and host is non-empty
+        if (m_jumpPane && !m_jumpPane->IsCollapsed()) {
+            const std::string jhost = m_jumpHostCtrl->GetValue().ToStdString();
+            if (!jhost.empty()) {
+                SshParams::ProxyJumpParams pj;
+                pj.host = jhost;
+                unsigned long jport = 22;
+                m_jumpPortCtrl->GetValue().ToULong(&jport);
+                pj.port = static_cast<unsigned short>(std::clamp(jport, 1UL, 65535UL));
+                pj.user = m_jumpUserCtrl->GetValue().ToStdString();
+                switch (m_jumpAuthChoice->GetSelection()) {
+                    case 1: pj.authMethod = SshAuthChoice::Password;
+                            pj.password   = m_jumpPassCtrl->GetValue().ToStdString();
+                            break;
+                    case 2: pj.authMethod    = SshAuthChoice::PrivateKey;
+                            pj.privateKeyPath = m_jumpKeyPicker->GetPath().ToStdString();
+                            pj.passphrase     = m_jumpPassphraseCtrl->GetValue().ToStdString();
+                            break;
+                    case 3: pj.authMethod = SshAuthChoice::KeyboardInteractive;
+                            break;
+                    default: pj.authMethod        = SshAuthChoice::Agent;
+                             pj.agentIdentityHint = m_jumpHintPicker->GetPath().ToStdString();
+                             break;
+                }
+                p.proxyJump = std::move(pj);
+            }
         }
         return p;
     }

@@ -37,6 +37,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/session/Session.cpp
     ${CMAKE_SOURCE_DIR}/src/session/SessionManager.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/BastionTunnel.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshConfig.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshPublicKey.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/X11Utils.cpp

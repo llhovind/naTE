@@ -55,6 +55,27 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
                 default:
                     d.authMethod = term::session::SshAuthMethod::Agent; break;
             }
+            if (p.proxyJump) {
+                term::session::ProxyJumpDesc pj;
+                pj.host              = p.proxyJump->host;
+                pj.port              = p.proxyJump->port;
+                pj.user              = p.proxyJump->user;
+                pj.password          = p.proxyJump->password;
+                pj.privateKeyPath    = p.proxyJump->privateKeyPath;
+                pj.passphrase        = p.proxyJump->passphrase;
+                pj.agentIdentityHint = p.proxyJump->agentIdentityHint;
+                switch (p.proxyJump->authMethod) {
+                    case SshAuthChoice::Password:
+                        pj.authMethod = term::session::SshAuthMethod::Password; break;
+                    case SshAuthChoice::PrivateKey:
+                        pj.authMethod = term::session::SshAuthMethod::PrivateKey; break;
+                    case SshAuthChoice::KeyboardInteractive:
+                        pj.authMethod = term::session::SshAuthMethod::KbdInteractive; break;
+                    default:
+                        pj.authMethod = term::session::SshAuthMethod::Agent; break;
+                }
+                d.proxyJump = std::move(pj);
+            }
             conn.transport               = d;
             conn.wrapMode                = p.wrapMode;
             conn.columnWidth             = p.columnWidth;

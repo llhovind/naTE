@@ -1,5 +1,6 @@
 #pragma once
 #include "session/EnvVar.h"
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -18,6 +19,18 @@ struct LoopbackDesc {};
 
 enum class SshAuthMethod { Agent, Password, PrivateKey, KbdInteractive };
 
+struct ProxyJumpDesc {
+    std::string    host;
+    unsigned short port              = 22;
+    std::string    user;            // empty = same as SshDesc::username
+    SshAuthMethod  authMethod       = SshAuthMethod::Agent;
+    std::string    password;        // not persisted — matches SshDesc convention
+    std::string    privateKeyPath;
+    std::string    publicKeyPath;   // derived from privateKeyPath if empty
+    std::string    passphrase;      // not persisted
+    std::string    agentIdentityHint;
+};
+
 struct SshDesc {
     std::string    host;
     unsigned short port              = 22;
@@ -34,6 +47,7 @@ struct SshDesc {
     bool           x11Forwarding     = false; // request X11 forwarding at channel open
     bool           agentForwarding   = false; // request SSH agent forwarding at channel open
     std::string    agentIdentityHint; // optional path to private key (or .pub) preferred when using agent auth; empty = consult ~/.ssh/config
+    std::optional<ProxyJumpDesc> proxyJump;   // nullopt = direct TCP connection
 };
 
 enum class SerialParity      { None, Even, Odd };

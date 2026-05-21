@@ -1,5 +1,7 @@
 #pragma once
+#include "session/Connection.h"
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -15,6 +17,20 @@ namespace term::transport {
 //
 // Returns an empty vector on any failure (ssh not found, popen error, etc.).
 std::vector<std::filesystem::path> QuerySshConfigIdentities(
+    const std::string& host,
+    uint16_t           port,
+    const std::string& user,
+    const std::string& configPath = {}
+);
+
+// Returns the ProxyJump descriptor from the effective SSH config for the given
+// target host/port/user, or nullopt if not configured or set to "none".
+// Delegates to `ssh -G`; parses `[user@]host[:port]` from the proxyjump line.
+// Only single-hop ProxyJump is supported; chained values (host1,host2) are
+// treated as the first hop only.
+//
+// configPath: if non-empty, passed as -F to ssh — used in tests.
+std::optional<term::session::ProxyJumpDesc> QuerySshConfigProxyJump(
     const std::string& host,
     uint16_t           port,
     const std::string& user,
