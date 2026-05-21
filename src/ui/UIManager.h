@@ -206,6 +206,8 @@ private:
     const SessionUI* FindSessionUI(term::session::SessionId id) const;
     void             SetupEditMenu(wxMenu* menu);
     void             PasteFromClipboard();
+    // Guards multi-line pastes, then routes to the focused session.
+    void             DoPaste(const std::string& utf8);
     void             ResizeFrameToFitTiles();
     bool             HasActiveSelection() const;
     std::u32string   GetFullActiveSelectedText() const;

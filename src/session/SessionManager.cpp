@@ -261,6 +261,12 @@ bool SessionManager::IsAltScreenActive(SessionId id) const
     return rec && rec->session->IsAltScreenActive();
 }
 
+bool SessionManager::IsBracketedPasteActive(SessionId id) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    return rec && rec->session->IsBracketedPasteActive();
+}
+
 void SessionManager::ForceAltScreen(SessionId id, bool on)
 {
     if (SessionRecord* rec = FindRecord(id))

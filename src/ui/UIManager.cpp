@@ -2,6 +2,7 @@
 #include "app/App.h"
 #include "ui/FileTransferDialog.h"
 #include "ui/KbdIntDialog.h"
+#include "ui/PasteConfirmDialog.h"
 #include "ui/ISessionDropTarget.h"
 #include "ui/MainFrame.h"
 #include "ui/TerminalPanel.h"
@@ -84,7 +85,7 @@ UIManager::UIManager(term::session::SessionManager& sm,
         [this](const std::u32string& q) { ShowSearchBarForActive(true, q); }
     ));
     selectionActions_->Register(std::make_unique<PasteSelectionAction>(
-        [this](const std::u32string& text) { router_.Paste(ToUtf8(text)); }
+        [this](const std::u32string& text) { DoPaste(ToUtf8(text)); }
     ));
 
     grid_ = new TerminalGrid(frame_);
@@ -262,10 +263,7 @@ void UIManager::TakeSession(term::session::SessionId     id,
                 }
                 wxTheClipboard->Close();
             }
-            if (!text.empty()) {
-                router_.Paste(std::string(text.ToUTF8()));
-                EnsureCursorVisibleForActive();
-            }
+            DoPaste(std::string(text.ToUTF8()));
             return;
         }
         router_.Send(evt);
@@ -891,8 +889,7 @@ void UIManager::SetupEditMenu(wxMenu* menu)
     }, kEditMenuSelectAll);
 
     frame_->Bind(wxEVT_MENU, [this](wxCommandEvent&) {
-        const auto text = GetFullActiveSelectedText();
-        if (!text.empty()) router_.Paste(ToUtf8(text));
+        DoPaste(ToUtf8(GetFullActiveSelectedText()));
     }, kEditMenuPasteSel);
 
     frame_->Bind(wxEVT_MENU, [this](wxCommandEvent&) {
@@ -958,10 +955,23 @@ void UIManager::PasteFromClipboard()
         }
         wxTheClipboard->Close();
     }
-    if (!text.empty()) {
-        router_.Paste(std::string(text.ToUTF8()));
-        EnsureCursorVisibleForActive();
+    DoPaste(std::string(text.ToUTF8()));
+}
+
+void UIManager::DoPaste(const std::string& utf8)
+{
+    if (utf8.empty()) return;
+
+    const bool hasNewline = utf8.find('\n') != std::string::npos
+                         || utf8.find('\r') != std::string::npos;
+    if (hasNewline && !sm_.IsBracketedPasteActive(activeId_)) {
+        PasteConfirmDialog dlg(frame_, utf8);
+        if (dlg.ShowModal() != wxID_OK)
+            return;
     }
+
+    router_.Paste(utf8);
+    EnsureCursorVisibleForActive();
 }
 
 bool UIManager::HasActiveSelection() const

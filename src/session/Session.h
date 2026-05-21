@@ -78,7 +78,8 @@ public:
     DocLayout& GetDocLayout();
 
     // Layout forwarding — UIManager routes viewport events through here.
-    bool IsAltScreenActive() const { return altScreenActive_; }
+    bool IsAltScreenActive()    const { return altScreenActive_; }
+    bool IsBracketedPasteActive() const { return bracketedPaste_; }
     void ForceAltScreen(bool on);
 
     // Enqueues an X11 forwarding request on the underlying SSH transport.
