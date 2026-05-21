@@ -23,6 +23,7 @@
 #include <wx/statline.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
+#include <wx/timer.h>
 #include <wx/textdlg.h>
 
 #include <algorithm>
@@ -256,6 +257,7 @@ NewConnectionDialog::NewConnectionDialog(
                      0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
             m_userCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
                                         wxDefaultPosition, wxSize(260, -1));
+            m_userCtrl->SetHint("defaults to current user");
             row->Add(m_userCtrl, 1, wxEXPAND);
             sizer->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
         }
@@ -681,8 +683,12 @@ NewConnectionDialog::NewConnectionDialog(
     Bind(wxEVT_CHOICE, &NewConnectionDialog::OnJumpAuthChoiceChanged, this, ID_JUMP_AUTH_CHOICE);
     Bind(wxEVT_NOTEBOOK_PAGE_CHANGED,   &NewConnectionDialog::OnTabChanged,             this);
 
-    if (m_hostCtrl)
+    if (m_hostCtrl) {
         Bind(wxEVT_TEXT, &NewConnectionDialog::OnSshFieldChanged, this, m_hostCtrl->GetId());
+
+        m_hostDetectTimer = new wxTimer(this);
+        Bind(wxEVT_TIMER, &NewConnectionDialog::OnHostDetectTimer, this, m_hostDetectTimer->GetId());
+    }
     if (m_userCtrl)
         Bind(wxEVT_TEXT, &NewConnectionDialog::OnSshFieldChanged, this, m_userCtrl->GetId());
 
@@ -866,8 +872,7 @@ void NewConnectionDialog::UpdateConnectButton()
         if (tab == kTabPty) {
             enabled = true;
         } else if (tab == kTabSsh) {
-            enabled = !m_hostCtrl->GetValue().IsEmpty()
-                   && !m_userCtrl->GetValue().IsEmpty();
+            enabled = !m_hostCtrl->GetValue().IsEmpty();
         } else if (tab == kTabSerial) {
             enabled = !m_deviceCtrl->GetValue().IsEmpty();
         }
@@ -892,12 +897,6 @@ void NewConnectionDialog::OnConnectClicked(wxCommandEvent&)
             wxMessageBox("Please enter a hostname.", "SSH Connection",
                          wxOK | wxICON_WARNING, this);
             m_hostCtrl->SetFocus();
-            return;
-        }
-        if (m_userCtrl->GetValue().IsEmpty()) {
-            wxMessageBox("Please enter a username.", "SSH Connection",
-                         wxOK | wxICON_WARNING, this);
-            m_userCtrl->SetFocus();
             return;
         }
         unsigned long port = 0;
@@ -946,31 +945,49 @@ void NewConnectionDialog::OnSshFieldChanged(wxCommandEvent& evt)
 {
     UpdateConnectButton();
 
-    // Auto-populate jump host from ~/.ssh/config when the target host is entered.
-    // Only fires when the pane is collapsed (not yet manually configured) and the
-    // host looks complete (contains at least one dot or is a bare hostname >= 4 chars,
-    // which avoids spawning ssh -G on every partial keystroke).
-    if (evt.GetEventObject() == m_hostCtrl && m_jumpPane && m_jumpPane->IsCollapsed()) {
-        const std::string host = m_hostCtrl->GetValue().ToStdString();
-        if (host.size() < 4 || (host.find('.') == std::string::npos &&
-                                 host.find(':') == std::string::npos)) return;
+    // Restart the debounce timer whenever the host field changes so we only
+    // run ssh -G once the user pauses typing (600 ms of no input).
+    if (m_hostDetectTimer && evt.GetEventObject() == m_hostCtrl)
+        m_hostDetectTimer->StartOnce(600);
+}
 
-        const std::string user = m_userCtrl->GetValue().ToStdString();
-        unsigned long port = 22;
-        m_portCtrl->GetValue().ToULong(&port);
+void NewConnectionDialog::OnHostDetectTimer(wxTimerEvent&)
+{
+    DetectProxyJumpFromConfig();
+}
 
-        auto pj = term::transport::QuerySshConfigProxyJump(
-            host, static_cast<uint16_t>(port), user);
-        if (!pj || pj->host.empty()) return;
+void NewConnectionDialog::DetectProxyJumpFromConfig()
+{
+    // if (!m_jumpPane || !m_jumpPane->IsCollapsed()) return;
+    if (!m_jumpPane) return;
 
-        m_jumpHostCtrl->SetValue(pj->host);
-        m_jumpPortCtrl->SetValue(wxString::Format("%d", pj->port));
-        m_jumpUserCtrl->SetValue(pj->user);
-        m_jumpPane->Expand();
-        Layout();
-        Fit();
-        SetMinSize(GetSize());
+    const std::string host = m_hostCtrl->GetValue().Trim().ToStdString();
+    if (host.empty()) return;
+
+    const std::string user = m_userCtrl->GetValue().ToStdString();
+    unsigned long port = 22;
+    m_portCtrl->GetValue().ToULong(&port);
+
+    auto pj = term::transport::QuerySshConfigProxyJump(
+        host, static_cast<uint16_t>(port), user);
+    if (!pj || pj->host.empty()) return;
+
+    m_jumpHostCtrl->SetValue(pj->host);
+    m_jumpPortCtrl->SetValue(wxString::Format("%d", pj->port));
+    m_jumpUserCtrl->SetValue(pj->user);
+
+    if (m_jumpHintPicker->GetPath().empty()) {
+        const std::string jumpUser = pj->user.empty() ? user : pj->user;
+        const auto ids = term::transport::QuerySshConfigIdentities(
+            pj->host, static_cast<uint16_t>(pj->port), jumpUser);
+        if (!ids.empty())
+            m_jumpHintPicker->SetPath(wxString::FromUTF8(ids.front().string()));
     }
+
+    m_jumpPane->Expand();
+    Layout();
+    Fit();
+    SetMinSize(GetSize());
 }
 
 void NewConnectionDialog::OnBrowseWorkingDir(wxCommandEvent& evt)
@@ -1162,6 +1179,11 @@ ConnectionParams NewConnectionDialog::GetParams() const
         SshParams p;
         p.host              = m_hostCtrl->GetValue().ToStdString();
         p.username          = m_userCtrl->GetValue().ToStdString();
+        if (p.username.empty()) {
+            const char* u = std::getenv("USER");
+            if (!u || *u == '\0') u = std::getenv("LOGNAME");
+            if (u) p.username = u;
+        }
         p.connectTimeoutSec = m_timeoutCtrl->GetValue();
         p.keepaliveSeconds  = m_keepaliveCtrl->GetValue();
         p.remoteCommand     = m_remoteCmdCtrl->GetValue().ToStdString();

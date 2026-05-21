@@ -37,4 +37,20 @@ std::optional<term::session::ProxyJumpDesc> QuerySshConfigProxyJump(
     const std::string& configPath = {}
 );
 
+// Resolves the effective hostname and port for a given SSH host alias by running
+// ssh -G.  The 'hostname' key in the output is the real DNS name (after HostName
+// substitution); 'port' is the resolved port number.  Returns the input values
+// unchanged if ssh -G fails or returns no hostname line.
+struct ResolvedSshHost {
+    std::string    hostname;
+    uint16_t       port;
+};
+
+ResolvedSshHost ResolveHostName(
+    const std::string& alias,
+    uint16_t           port,
+    const std::string& user,
+    const std::string& configPath = {}
+);
+
 } // namespace term::transport

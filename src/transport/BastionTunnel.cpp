@@ -1,4 +1,5 @@
 #include "transport/BastionTunnel.h"
+#include "transport/SshConfig.h"
 #include "transport/SshPublicKey.h"
 #include "transport/TransportError.h"
 
@@ -222,8 +223,14 @@ std::unique_ptr<BastionTunnel> BastionTunnel::Connect(
 
     std::string err;
 
-    // 1. TCP connect to jump host.
-    const int fd = TcpConnect(jump.host, jump.port, connectTimeoutSec, err);
+    // 1. Resolve SSH config alias to the real HostName/port.
+    //    If jump.host is a bare Host alias in ~/.ssh/config (e.g. "jumphost" with a
+    //    HostName directive), getaddrinfo() cannot resolve it — we must ask ssh -G first.
+    const auto resolved = term::transport::ResolveHostName(
+        jump.host, jump.port, effectiveUser);
+
+    // 1b. TCP connect to jump host.
+    const int fd = TcpConnect(resolved.hostname, resolved.port, connectTimeoutSec, err);
     if (fd < 0) throw TransportError{TransportError::Category::Connection, err};
 
     // 2. SSH handshake with jump host (blocking).

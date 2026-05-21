@@ -26,6 +26,8 @@ class wxSimplebook;
 class wxSpinCtrl;
 class wxTextCtrl;
 class wxFilePickerCtrl;
+class wxTimer;
+class wxTimerEvent;
 
 namespace term::db { struct ConnectionProfile; }
 
@@ -164,6 +166,8 @@ private:
     void OnCollapsiblePaneChanged(wxCollapsiblePaneEvent&);
     void OnTabChanged(wxBookCtrlEvent&);
     void OnSshFieldChanged(wxCommandEvent&);
+    void OnHostDetectTimer(wxTimerEvent&);
+    void DetectProxyJumpFromConfig();
     void OnAuthMethodChanged(wxCommandEvent&);
     void OnGeometryChanged(wxCommandEvent&);
     void OnProfileSelected(wxCommandEvent&);
@@ -201,6 +205,7 @@ private:
     wxTextCtrl*      m_hostCtrl        = nullptr;
     wxTextCtrl*      m_portCtrl        = nullptr;  // plain numeric text input
     wxTextCtrl*      m_userCtrl        = nullptr;
+    wxTimer*         m_hostDetectTimer = nullptr;  // debounce for ssh-config ProxyJump lookup
 
     // SSH Jump Host collapsible section
     wxCollapsiblePane* m_jumpPane          = nullptr;
