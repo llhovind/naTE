@@ -211,6 +211,7 @@ void Parser::HandleCsiPrivate(unsigned char byte)
         case 1:    screen_.OnSetApplicationCursorKeys(true);  break;
         case 25:   screen_.OnSetCursorVisibility(true);       break;
         case 1049: screen_.OnEnterAltScreen();                break;
+        case 2004: screen_.OnSetBracketedPaste(true);         break;
         default:   break;
         }
     } else if (byte == 'l') {
@@ -218,6 +219,7 @@ void Parser::HandleCsiPrivate(unsigned char byte)
         case 1:    screen_.OnSetApplicationCursorKeys(false); break;
         case 25:   screen_.OnSetCursorVisibility(false);      break;
         case 1049: screen_.OnExitAltScreen();                 break;
+        case 2004: screen_.OnSetBracketedPaste(false);        break;
         default:   break;
         }
     }

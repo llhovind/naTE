@@ -251,7 +251,11 @@ void UIManager::TakeSession(term::session::SessionId     id,
         if (evt.ctrl && evt.key == term::input::Key::Character && evt.code == 'v') {
             wxString text;
             if (wxTheClipboard->Open()) {
-                if (wxTheClipboard->IsSupported(wxDF_TEXT)) {
+                if (wxTheClipboard->IsSupported(wxDF_UNICODETEXT)) {
+                    wxTextDataObject data;
+                    wxTheClipboard->GetData(data);
+                    text = data.GetText();
+                } else if (wxTheClipboard->IsSupported(wxDF_TEXT)) {
                     wxTextDataObject data;
                     wxTheClipboard->GetData(data);
                     text = data.GetText();
@@ -259,7 +263,7 @@ void UIManager::TakeSession(term::session::SessionId     id,
                 wxTheClipboard->Close();
             }
             if (!text.empty()) {
-                router_.Paste(text.ToStdString());
+                router_.Paste(std::string(text.ToUTF8()));
                 EnsureCursorVisibleForActive();
             }
             return;
@@ -943,7 +947,11 @@ void UIManager::PasteFromClipboard()
 {
     wxString text;
     if (wxTheClipboard->Open()) {
-        if (wxTheClipboard->IsSupported(wxDF_TEXT)) {
+        if (wxTheClipboard->IsSupported(wxDF_UNICODETEXT)) {
+            wxTextDataObject data;
+            wxTheClipboard->GetData(data);
+            text = data.GetText();
+        } else if (wxTheClipboard->IsSupported(wxDF_TEXT)) {
             wxTextDataObject data;
             wxTheClipboard->GetData(data);
             text = data.GetText();
@@ -951,7 +959,7 @@ void UIManager::PasteFromClipboard()
         wxTheClipboard->Close();
     }
     if (!text.empty()) {
-        router_.Paste(text.ToStdString());
+        router_.Paste(std::string(text.ToUTF8()));
         EnsureCursorVisibleForActive();
     }
 }

@@ -59,6 +59,7 @@ public:
     void OnExitAltScreen()                           override;
     void OnResetTerminal()                           override;
     void OnSetApplicationCursorKeys(bool enabled)    override;
+    void OnSetBracketedPaste(bool enabled)           override;
     void OnBell()                                    override;
 
     // transport::ITransportTarget
@@ -136,6 +137,7 @@ private:
     unsigned short     lastRows_{0};
     unsigned short     ptyLineWidth_{1024};
     bool               altScreenActive_{false};
+    bool               bracketedPaste_{false};
     std::vector<IDocumentListener*> externalListeners_;
 };
 

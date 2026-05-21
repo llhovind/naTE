@@ -15,6 +15,7 @@ public:
     virtual void OnScrollDown(int /*count*/)     {}
     virtual void OnResetTerminal()               {}
     virtual void OnBell()                        {}
+    virtual void OnSetBracketedPaste(bool /*enabled*/) {}
 };
 
 } // namespace term::parser

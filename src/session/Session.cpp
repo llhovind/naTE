@@ -98,7 +98,16 @@ void Session::Paste(const std::string& utf8)
 {
     if (utf8.empty()) return;
     docLayout_->ScrollToEnd();
-    transport_->Write(utf8);
+    if (bracketedPaste_) {
+        transport_->Write("\x1b[200~" + utf8 + "\x1b[201~");
+    } else {
+        transport_->Write(utf8);
+    }
+}
+
+void Session::OnSetBracketedPaste(bool enabled)
+{
+    bracketedPaste_ = enabled;
 }
 
 void Session::OnData(const std::string& data)
@@ -150,6 +159,7 @@ void Session::ResetTerminal(bool clearScrollback)
         altScreenActive_ = false;
         if (onAltScreenChanged_) onAltScreenChanged_(false);
     }
+    bracketedPaste_ = false;
     main_doc_->FullReset(clearScrollback);
     alt_doc_->FullReset(false);
     parser_.Reset();
@@ -178,6 +188,7 @@ void Session::OnResetTerminal()
         if (onAltScreenChanged_) onAltScreenChanged_(false);
     }
     encoder_.SetApplicationCursorKeys(false);
+    bracketedPaste_ = false;
     main_doc_->FullReset(false);
     alt_doc_->FullReset(false);
     // parser_.Reset() is called by HandleEscape immediately after this returns
