@@ -42,6 +42,7 @@ namespace {
     constexpr int ID_ABOUT                   = wxID_HIGHEST + 31;
     constexpr int ID_PREFERENCES             = wxID_HIGHEST + 32;
     constexpr int ID_CLOSE_ALL_SESSIONS      = wxID_HIGHEST + 33;
+    constexpr int ID_REFIT_WINDOW            = wxID_HIGHEST + 34;
 
     static bool IsValidSnapshotName(const std::string& s)
     {
@@ -143,11 +144,16 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_MENU, &MainFrame::OnOpenInNewTile,        this, ID_OPEN_IN_NEW_TILE);
     Bind(wxEVT_MENU, &MainFrame::OnOpenInNewWindowTerminal, this, ID_OPEN_IN_NEW_WINDOW_TERM);
 
-    // ---- Window menu (New Window static; rest populated dynamically) ---------
+    // ---- Window menu (New Window + Refit static; rest populated dynamically) --
     m_windowMenu = new wxMenu;
-    m_windowMenu->Append(ID_NEW_WINDOW, "New Window");
+    m_windowMenu->Append(ID_NEW_WINDOW,   "New Window");
+    m_windowMenu->Append(ID_REFIT_WINDOW, "Refit Window to Tiles");
     m_windowMenu->AppendSeparator();
-    Bind(wxEVT_MENU, &MainFrame::OnNewWindow,            this, ID_NEW_WINDOW);
+    Bind(wxEVT_MENU, &MainFrame::OnNewWindow,    this, ID_NEW_WINDOW);
+    Bind(wxEVT_MENU, &MainFrame::OnRefitWindow,  this, ID_REFIT_WINDOW);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
+        e.Enable(m_uiManager && m_uiManager->HasAnySessions());
+    }, ID_REFIT_WINDOW);
     Bind(wxEVT_MENU, &MainFrame::OnWindowSessionMenuItem, this,
          kWindowSessionBase, kWindowSessionBase + kWindowSessionMax - 1);
 
@@ -410,9 +416,10 @@ void MainFrame::RebuildWindowMenu(const std::vector<WindowMenuEntry>& entries)
     for (int i = 0; i < static_cast<int>(m_windowFrames.size()); ++i)
         Unbind(wxEVT_MENU, &MainFrame::OnWindowMenuItem, this, kWindowMenuBase + i);
 
-    // Remove all items after the static "New Window" + separator (positions 0 and 1).
-    while (m_windowMenu->GetMenuItemCount() > 2)
-        m_windowMenu->Delete(m_windowMenu->FindItemByPosition(2));
+    // Remove all items after the 3 static entries: "New Window", "Refit Window to Tiles",
+    // and separator (positions 0, 1, 2).
+    while (m_windowMenu->GetMenuItemCount() > 3)
+        m_windowMenu->Delete(m_windowMenu->FindItemByPosition(3));
 
     m_windowFrames.clear();
     m_windowSessions.clear();
@@ -502,6 +509,11 @@ void MainFrame::OnOpenInNewTile(wxCommandEvent&)
 void MainFrame::OnOpenInNewWindowTerminal(wxCommandEvent&)
 {
     if (m_uiManager) m_uiManager->MoveActiveSessionToNewWindow();
+}
+
+void MainFrame::OnRefitWindow(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->ResizeFrameToFitTiles();
 }
 
 void MainFrame::OnWindowMenuItem(wxCommandEvent& evt)

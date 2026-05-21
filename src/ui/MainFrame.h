@@ -103,6 +103,7 @@ private:
     void OnReceiveFiles(wxCommandEvent&);
     void OnOpenInNewTile(wxCommandEvent&);
     void OnOpenInNewWindowTerminal(wxCommandEvent&);
+    void OnRefitWindow(wxCommandEvent&);
     void OnAbout(wxCommandEvent&);
 
     // Shows the New Connection dialog with the given context, saves any profile

@@ -101,12 +101,18 @@ UIManager::UIManager(term::session::SessionManager& sm,
 
 void UIManager::UpdateConfig(const AppConfig& cfg)
 {
+    const bool fontChanged    = cfg.fontFamily != cfg_.fontFamily
+                             || cfg.fontSize   != cfg_.fontSize;
+    const bool paddingChanged = cfg.padding    != cfg_.padding;
+
     cfg_ = cfg;
     selectionActions_->UpdateWebSearchUrl(cfg_.webSearchUrl);
     for (auto& [id, ui] : sessions_) {
         if (ui.panel)
-            ui.panel->ApplyConfig(cfg_);
+            ui.panel->ApplyConfig(cfg_);   // updates m_charSize synchronously
     }
+    if (fontChanged || paddingChanged)
+        RefitAllTiles();
 }
 
 UIManager::~UIManager()
@@ -600,8 +606,27 @@ void UIManager::SetGeometryForActive(unsigned short cols, unsigned short rows)
     // here is sufficient — ResizeFrameToFitTiles() triggers the full cascade:
     //   frame OnSize → grid RelayoutTiles → tile OnSize → panel OnSize
     //   → docLayout SetViewportSize + resizeCb (debounced) → Session::SetViewportSize
-    const wxSize panelSz = ui->panel->ComputeRequiredPanelSize(cols, rows);
-    ui->tile->SetMinSize({ panelSz.x, panelSz.y + TerminalTile::kTitleBarHeight });
+    UpdateTileMinSize(*ui, cols, rows);
+    ResizeFrameToFitTiles();
+}
+
+void UIManager::UpdateTileMinSize(SessionUI& ui, unsigned short cols, unsigned short rows)
+{
+    const wxSize panelSz = ui.panel->ComputeRequiredPanelSize(cols, rows);
+    ui.tile->SetMinSize({ panelSz.x, panelSz.y + TerminalTile::kTitleBarHeight });
+}
+
+void UIManager::RefitAllTiles()
+{
+    std::unordered_set<TerminalTile*> updated;
+    for (auto& [id, ui] : sessions_) {
+        if (!ui.panel || !ui.tile || updated.count(ui.tile)) continue;
+        const DocLayout& dl = sm_.GetDocLayout(id);
+        UpdateTileMinSize(ui,
+            static_cast<unsigned short>(dl.GetViewportCols()),
+            static_cast<unsigned short>(dl.GetViewportRows()));
+        updated.insert(ui.tile);
+    }
     ResizeFrameToFitTiles();
 }
 

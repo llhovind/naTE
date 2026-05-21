@@ -166,6 +166,15 @@ public:
     // padding, web search URL) and stores it for subsequently created panels.
     void UpdateConfig(const AppConfig& cfg);
 
+    // Syncs every tile's min size from its current DocLayout viewport (using the
+    // current m_charSize), then resizes the frame to fit.  Call after font/padding
+    // changes or any time tile min sizes may be stale.
+    void RefitAllTiles();
+
+    // Resizes the frame to exactly fit the current tile min sizes.  Useful after a
+    // manual window resize to snap back to the last explicitly set terminal geometry.
+    void ResizeFrameToFitTiles();
+
 
 private:
     // -------------------------------------------------------------------------
@@ -208,7 +217,8 @@ private:
     void             PasteFromClipboard();
     // Guards multi-line pastes, then routes to the focused session.
     void             DoPaste(const std::string& utf8);
-    void             ResizeFrameToFitTiles();
+    // Sets tile->SetMinSize() from cols×rows using the panel's current m_charSize.
+    void             UpdateTileMinSize(SessionUI& ui, unsigned short cols, unsigned short rows);
     bool             HasActiveSelection() const;
     std::u32string   GetFullActiveSelectedText() const;
 
