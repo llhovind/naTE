@@ -79,6 +79,27 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
     appSizer->Add(m_paddingCtrl, {row, 1}, {1, 1});
     ++row;
 
+    // Cursor style
+    appSizer->Add(new wxStaticText(appPage, wxID_ANY, "Cursor style:"),
+                  {row, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+    {
+        wxArrayString styleOpts;
+        styleOpts.Add("Block");
+        styleOpts.Add("Bar");
+        styleOpts.Add("Underline");
+        m_cursorStyleChoice = new wxChoice(appPage, wxID_ANY,
+                                           wxDefaultPosition, wxDefaultSize, styleOpts);
+        int preselect = 0;
+        switch (current.cursorStyle) {
+            case CursorStyle::Bar:       preselect = 1; break;
+            case CursorStyle::Underline: preselect = 2; break;
+            default:                     preselect = 0; break;
+        }
+        m_cursorStyleChoice->SetSelection(preselect);
+    }
+    appSizer->Add(m_cursorStyleChoice, {row, 1}, {1, 1});
+    ++row;
+
     appSizer->AddGrowableCol(1);
     auto* appOuter = new wxBoxSizer(wxVERTICAL);
     appOuter->Add(appSizer, 1, wxEXPAND | wxALL, 12);
@@ -222,6 +243,11 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
     result_.fontFamily         = m_familyCtrl->GetValue().ToStdString();
     result_.fontSize           = m_sizeCtrl->GetValue();
     result_.padding            = m_paddingCtrl->GetValue();
+    switch (m_cursorStyleChoice->GetSelection()) {
+        case 1:  result_.cursorStyle = CursorStyle::Bar;       break;
+        case 2:  result_.cursorStyle = CursorStyle::Underline; break;
+        default: result_.cursorStyle = CursorStyle::Block;     break;
+    }
     result_.defaultShell       = m_shellCtrl->GetValue().ToStdString();
     result_.defaultWorkingDir  = m_workDirCtrl->GetValue().ToStdString();
     result_.defaultWrapMode    = m_wrapModeChoice->GetSelection() == 1;

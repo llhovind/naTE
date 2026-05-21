@@ -25,10 +25,11 @@ private:
     AppConfig                    result_;
     std::vector<ColorScheme>     themes_;   // parallel to m_themeChoice items
 
-    wxChoice*   m_themeChoice   = nullptr;
-    wxTextCtrl* m_familyCtrl    = nullptr;
-    wxSpinCtrl* m_sizeCtrl      = nullptr;
-    wxSpinCtrl* m_paddingCtrl   = nullptr;
+    wxChoice*   m_themeChoice       = nullptr;
+    wxTextCtrl* m_familyCtrl        = nullptr;
+    wxSpinCtrl* m_sizeCtrl          = nullptr;
+    wxSpinCtrl* m_paddingCtrl       = nullptr;
+    wxChoice*   m_cursorStyleChoice = nullptr;
 
     wxTextCtrl* m_shellCtrl      = nullptr;
     wxTextCtrl* m_workDirCtrl    = nullptr;

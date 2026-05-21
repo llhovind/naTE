@@ -10,6 +10,8 @@ struct GeometryPreset {
     unsigned short rows = 24;
 };
 
+enum class CursorStyle { Block, Bar, Underline };
+
 struct AppConfig {
     int columns         = 80;
     int rows            = 24;
@@ -23,6 +25,7 @@ struct AppConfig {
     Rgb textColour   = { 147, 161, 161 };  // Solarized Dark base05
     Rgb bgColour     = {   0,  43,  54 };  // Solarized Dark base00
     Rgb cursorColour = { 147, 161, 161 };  // Solarized Dark base05
+    CursorStyle cursorStyle = CursorStyle::Block;
 
     // ANSI 16-color palette (indices 0-15) derived from the loaded theme.
     // Defaults are the Solarized Dark base16 mapping.

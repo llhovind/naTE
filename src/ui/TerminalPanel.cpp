@@ -802,11 +802,23 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
             const wxColour cursorWx(m_cfg.cursorColour.r,
                                     m_cfg.cursorColour.g,
                                     m_cfg.cursorColour.b);
+
+            // Geometry per style: {x-offset, y-offset, width, height}
+            struct CursorRect { int x, y, w, h; };
+            const CursorRect cursorRect = [&]() -> CursorRect {
+                switch (m_cfg.cursorStyle) {
+                    case CursorStyle::Bar:       return { cx,      cy,          2,  ch };
+                    case CursorStyle::Underline: return { cx,      cy + ch - 2, cw, 2  };
+                    default:                     return { cx,      cy,          cw, ch };
+                }
+            }();
+
             if (m_inBroadcast_ || (m_hasFocus_ && !m_broadcastModeActive_)) {
                 dc.SetPen(*wxTRANSPARENT_PEN);
                 dc.SetBrush(wxBrush(cursorWx));
-                dc.DrawRectangle(cx, cy, cw, ch);
-                if (row.cursorCol < textLen) {
+                dc.DrawRectangle(cursorRect.x, cursorRect.y, cursorRect.w, cursorRect.h);
+                // Invert the character under the cursor only for block style (full-cell coverage).
+                if (m_cfg.cursorStyle == CursorStyle::Block && row.cursorCol < textLen) {
                     dc.SetTextForeground(wxColour(m_cfg.bgColour.r,   m_cfg.bgColour.g,   m_cfg.bgColour.b));
                     dc.SetTextBackground(wxColour(m_cfg.textColour.r, m_cfg.textColour.g, m_cfg.textColour.b));
                     dc.DrawText(wxString(static_cast<wchar_t>(row.text[row.cursorCol])), cx, cy);
@@ -814,7 +826,7 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
             } else {
                 dc.SetPen(wxPen(cursorWx, 1));
                 dc.SetBrush(*wxTRANSPARENT_BRUSH);
-                dc.DrawRectangle(cx, cy, cw, ch);
+                dc.DrawRectangle(cursorRect.x, cursorRect.y, cursorRect.w, cursorRect.h);
             }
         }
     }

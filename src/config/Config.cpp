@@ -92,6 +92,11 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
             if      (key == "ColorTheme")  cfg.themeName  = normalizeLegacyThemeName(val);
             else if (key == "FontFamily")  cfg.fontFamily = val;
             else if (key == "Padding")     cfg.padding    = toInt(val, cfg.padding);
+            else if (key == "CursorStyle") {
+                if      (val == "Bar")       cfg.cursorStyle = CursorStyle::Bar;
+                else if (val == "Underline") cfg.cursorStyle = CursorStyle::Underline;
+                else                         cfg.cursorStyle = CursorStyle::Block;
+            }
         } else if (sec == "Behavior") {
             if      (key == "Encoding"      && !val.empty()) cfg.encoding     = val;
             else if (key == "WebSearchUrl"  && !val.empty()) cfg.webSearchUrl = val;
@@ -151,10 +156,19 @@ void AppConfig::save(const std::string& configPath) const
     std::ofstream f(configPath, std::ios::trunc);
     if (!f.is_open()) return;
 
+    const char* cursorStyleStr = [&]() -> const char* {
+        switch (cursorStyle) {
+            case CursorStyle::Bar:       return "Bar";
+            case CursorStyle::Underline: return "Underline";
+            default:                     return "Block";
+        }
+    }();
+
     f << "[Appearance]\n"
-      << "ColorTheme=" << themeName  << "\n"
-      << "FontFamily=" << fontFamily << "\n"
-      << "Padding="    << padding    << "\n"
+      << "ColorTheme="  << themeName      << "\n"
+      << "FontFamily="  << fontFamily     << "\n"
+      << "Padding="     << padding        << "\n"
+      << "CursorStyle=" << cursorStyleStr << "\n"
       << "\n"
       << "[Behavior]\n"
       << "Encoding="     << encoding     << "\n"
