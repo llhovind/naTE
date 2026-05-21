@@ -1,5 +1,6 @@
 #include "ui/TerminalPanel.h"
 #include "ui/SearchBar.h"
+#include "ui/StringUtils.h"
 #include "ui/wxKeyAdapter.h"
 #include <wx/clipbrd.h>
 #include <wx/utils.h>
@@ -475,7 +476,28 @@ void TerminalPanel::OnLeftUp(wxMouseEvent& e)
     m_selScrollTimer_.Stop();
     if (HasCapture()) ReleaseMouse();
     ExtendSelectionTo(e.GetPosition());
+    CopySelectionToPrimary();
     Refresh();
+}
+
+void TerminalPanel::CopySelectionToPrimary()
+{
+    if (!m_cfg.copyOnSelect) return;
+    if (!docLayout_ || !docLayout_->HasSelection()) return;
+
+    const std::u32string text = docLayout_->GetSelectedText();
+    if (text.empty()) return;
+
+#ifdef __WXGTK__
+    wxTheClipboard->UsePrimarySelection(true);
+#endif
+    if (wxTheClipboard->Open()) {
+        wxTheClipboard->SetData(new wxTextDataObject(ToWxString(text)));
+        wxTheClipboard->Close();
+    }
+#ifdef __WXGTK__
+    wxTheClipboard->UsePrimarySelection(false);
+#endif
 }
 
 void TerminalPanel::OnRightDown(wxMouseEvent& e)
@@ -654,6 +676,7 @@ void TerminalPanel::OnKeyDown(wxKeyEvent& e)
 
     m_kbCursor_ = ext;
     docLayout_->SetSelection(sel);
+    CopySelectionToPrimary();
     Refresh();
     // Do NOT call e.Skip() — swallow the event so it doesn't reach the PTY.
 }

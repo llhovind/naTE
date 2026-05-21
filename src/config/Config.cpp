@@ -84,10 +84,11 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
         const auto& val = e.val;
 
         if (sec == "Panel") {
-            if      (key == "Columns")      cfg.columns      = toInt(val, cfg.columns);
-            else if (key == "Rows")         cfg.rows         = toInt(val, cfg.rows);
-            else if (key == "FontSize")     cfg.fontSize     = toInt(val, cfg.fontSize);
-            else if (key == "PtyLineWidth") cfg.ptyLineWidth = toInt(val, cfg.ptyLineWidth);
+            if      (key == "Columns")         cfg.columns         = toInt(val, cfg.columns);
+            else if (key == "Rows")            cfg.rows            = toInt(val, cfg.rows);
+            else if (key == "FontSize")        cfg.fontSize        = toInt(val, cfg.fontSize);
+            else if (key == "PtyLineWidth")    cfg.ptyLineWidth    = toInt(val, cfg.ptyLineWidth);
+            else if (key == "ScrollbackLines") cfg.scrollbackLines = toInt(val, cfg.scrollbackLines);
         } else if (sec == "Appearance") {
             if      (key == "ColorTheme")  cfg.themeName  = normalizeLegacyThemeName(val);
             else if (key == "FontFamily")  cfg.fontFamily = val;
@@ -100,6 +101,7 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
         } else if (sec == "Behavior") {
             if      (key == "Encoding"      && !val.empty()) cfg.encoding     = val;
             else if (key == "WebSearchUrl"  && !val.empty()) cfg.webSearchUrl = val;
+            else if (key == "CopyOnSelect")                  cfg.copyOnSelect = (val == "true" || val == "1");
         } else if (sec == "Terminal") {
             if (key == "GeometryPresets") cfg.geometryPresets = parseGeometryPresets(val);
         } else if (sec == "Session") {
@@ -171,14 +173,16 @@ void AppConfig::save(const std::string& configPath) const
       << "CursorStyle=" << cursorStyleStr << "\n"
       << "\n"
       << "[Behavior]\n"
-      << "Encoding="     << encoding     << "\n"
-      << "WebSearchUrl=" << webSearchUrl << "\n"
+      << "Encoding="     << encoding                        << "\n"
+      << "WebSearchUrl=" << webSearchUrl                    << "\n"
+      << "CopyOnSelect=" << (copyOnSelect ? "true" : "false") << "\n"
       << "\n"
       << "[Panel]\n"
-      << "Columns="      << columns      << "\n"
-      << "Rows="         << rows         << "\n"
-      << "FontSize="     << fontSize     << "\n"
-      << "PtyLineWidth=" << ptyLineWidth << "\n"
+      << "Columns="         << columns         << "\n"
+      << "Rows="            << rows            << "\n"
+      << "FontSize="        << fontSize        << "\n"
+      << "PtyLineWidth="    << ptyLineWidth    << "\n"
+      << "ScrollbackLines=" << scrollbackLines << "\n"
       << "\n"
       << "[Terminal]\n"
       << "GeometryPresets=";

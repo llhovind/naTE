@@ -121,8 +121,12 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
     m_webSearchCtrl = new wxTextCtrl(behPage, wxID_ANY,
                                      wxString::FromUTF8(current.webSearchUrl),
                                      wxDefaultPosition, {320, -1});
-    m_webSearchCtrl->SetHint("e.g. https://www.google.com/search?q=");
+    m_webSearchCtrl->SetHint("e.g. https://duckduckgo.com/?q=");
     behSizer->Add(m_webSearchCtrl, {1, 1}, {1, 1}, wxEXPAND);
+
+    m_copyOnSelectChk = new wxCheckBox(behPage, wxID_ANY, "Copy to primary selection on select (X11)");
+    m_copyOnSelectChk->SetValue(current.copyOnSelect);
+    behSizer->Add(m_copyOnSelectChk, {2, 0}, {1, 2}, wxALIGN_CENTER_VERTICAL);
 
     behSizer->AddGrowableCol(1);
     auto* behOuter = new wxBoxSizer(wxVERTICAL);
@@ -256,6 +260,7 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
     result_.autoRestoreSession  = m_autoRestoreChk->IsChecked();
     result_.sessionSaveInterval = m_saveIntervalCtrl->GetValue();
     result_.webSearchUrl       = m_webSearchCtrl->GetValue().ToStdString();
+    result_.copyOnSelect       = m_copyOnSelectChk->IsChecked();
 
     evt.Skip();
 }

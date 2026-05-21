@@ -251,6 +251,34 @@ TEST_CASE("given ini with [Behavior] Encoding when loaded then encoding is set")
     REQUIRE(cfg.encoding == "UTF-8");
 }
 
+TEST_CASE("given ini with CopyOnSelect=true when loaded then copyOnSelect is true")
+{
+    const TempIni ini{"[Behavior]\nCopyOnSelect=true\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.copyOnSelect == true);
+}
+
+TEST_CASE("given ini with CopyOnSelect=false when loaded then copyOnSelect is false")
+{
+    const TempIni ini{"[Behavior]\nCopyOnSelect=false\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.copyOnSelect == false);
+}
+
+TEST_CASE("given AppConfig with copyOnSelect=true when saved and reloaded then field round-trips")
+{
+    AppConfig original;
+    original.copyOnSelect = true;
+
+    const auto savePath = (std::filesystem::temp_directory_path()
+                           / "nate_test_copyonselect.ini").string();
+    original.save(savePath);
+    const auto loaded = AppConfig::load(savePath);
+    std::filesystem::remove(savePath);
+
+    REQUIRE(loaded.copyOnSelect == true);
+}
+
 TEST_CASE("given AppConfig when saved and reloaded with themes dir then all fields round-trip")
 {
     const TempThemeDir themes;

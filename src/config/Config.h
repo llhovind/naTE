@@ -57,7 +57,8 @@ struct AppConfig {
 
     // [Behavior]
     std::string encoding      = "UTF-8";
-    std::string webSearchUrl  = "https://www.google.com/search?q=";
+    std::string webSearchUrl  = "https://duckduckgo.com/?q=";
+    bool        copyOnSelect  = true;    // copy to X11 primary selection on mouseup
 
     // [Session] defaults — applied to every new session, overridable per profile
     std::string                        defaultShell;        // empty = $SHELL → /bin/sh

@@ -97,6 +97,10 @@ private:
     // Extend the active selection to the given pixel position.
     void ExtendSelectionTo(wxPoint px);
 
+    // If copyOnSelect is enabled, write the current selection to the X11
+    // primary selection buffer.  No-op on non-GTK platforms.
+    void CopySelectionToPrimary();
+
     AppConfig    m_cfg;
     wxFont       m_font;
     wxFont       m_boldFont;
