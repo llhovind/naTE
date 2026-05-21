@@ -41,6 +41,7 @@ namespace {
     constexpr int ID_OPEN_SNAPSHOT           = wxID_HIGHEST + 30;
     constexpr int ID_ABOUT                   = wxID_HIGHEST + 31;
     constexpr int ID_PREFERENCES             = wxID_HIGHEST + 32;
+    constexpr int ID_CLOSE_ALL_SESSIONS      = wxID_HIGHEST + 33;
 
     static bool IsValidSnapshotName(const std::string& s)
     {
@@ -82,8 +83,9 @@ MainFrame::MainFrame(const AppConfig& cfg,
     m_connMenu->Append(ID_SAVE_AS_SNAPSHOT,       "Save Session As...");
     m_connMenu->Append(ID_OPEN_SNAPSHOT,          "Open Saved Snapshot...");
     m_connMenu->AppendSeparator();
+    m_connMenu->Append(ID_CLOSE_ALL_SESSIONS,     "Close All Sessions");
     m_connMenu->Append(wxID_CLOSE,                "Close This Window\tCtrl+Shift+Q");
-    m_connMenu->Append(ID_QUIT_ALL,               "Close All\tCtrl+Shift+X");
+    m_connMenu->Append(ID_QUIT_ALL,               "Close All and Exit\tCtrl+Shift+X");
 
     Bind(wxEVT_MENU, &MainFrame::OnNewConnection,             this, ID_NEW_CONNECTION);
     Bind(wxEVT_MENU, &MainFrame::OnNewConnectionInActiveTile, this, ID_NEW_CONNECTION_IN_TILE);
@@ -97,6 +99,7 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
         e.Enable(static_cast<App*>(wxTheApp)->HasNamedSnapshots());
     }, ID_OPEN_SNAPSHOT);
+    Bind(wxEVT_MENU, &MainFrame::OnCloseAllSessions,          this, ID_CLOSE_ALL_SESSIONS);
     Bind(wxEVT_MENU, &MainFrame::OnCloseThisWindow,           this, wxID_CLOSE);
     Bind(wxEVT_MENU, &MainFrame::OnQuitAll,                   this, ID_QUIT_ALL);
 
@@ -207,6 +210,22 @@ void MainFrame::OnClose(wxCloseEvent& event)
         m_uiManager->CloseAllSessions();
     }
     event.Skip();
+}
+
+void MainFrame::OnCloseAllSessions(wxCommandEvent&)
+{
+    if (!m_uiManager || !m_uiManager->HasAnySessions())
+        return;
+
+    const int n = static_cast<int>(m_uiManager->GetSessionList().size());
+    const wxString msg = wxString::Format(
+        "This will close %d session%s. Any unsaved work may be lost.\n\nContinue?",
+        n, n == 1 ? "" : "s");
+    if (wxMessageBox(msg, "Close All Sessions",
+                     wxYES_NO | wxICON_WARNING, this) != wxYES)
+        return;
+
+    m_uiManager->CloseAllSessions();
 }
 
 void MainFrame::OnCloseThisWindow(wxCommandEvent&)

@@ -73,6 +73,7 @@ public:
 
 private:
     void OnClose(wxCloseEvent& event);
+    void OnCloseAllSessions(wxCommandEvent&);
     void OnCloseThisWindow(wxCommandEvent&);
     void OnQuitAll(wxCommandEvent&);
     void OnNewWindow(wxCommandEvent&);
