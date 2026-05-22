@@ -1,10 +1,17 @@
 {
-  "version": 2,
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
   "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja"
+    },
     {
       "name": "debug",
       "displayName": "Debug",
       "description": "Debug build with symbols, no optimization",
+      "inherits": "base",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
@@ -14,6 +21,7 @@
       "name": "release",
       "displayName": "Release",
       "description": "Optimized release build with LTO",
+      "inherits": "base",
       "binaryDir": "${sourceDir}/build-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
@@ -34,5 +42,17 @@
     { "name": "debug",    "configurePreset": "debug"    },
     { "name": "release",  "configurePreset": "release"  },
     { "name": "appimage", "configurePreset": "appimage" }
+  ],
+  "testPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "output": { "outputOnFailure": true }
+    }
   ]
 }
