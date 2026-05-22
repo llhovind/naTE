@@ -100,6 +100,12 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
     appSizer->Add(m_cursorStyleChoice, {row, 1}, {1, 1});
     ++row;
 
+    // Cursor blink
+    m_cursorBlinkChk = new wxCheckBox(appPage, wxID_ANY, "Blinking cursor");
+    m_cursorBlinkChk->SetValue(current.cursorBlink);
+    appSizer->Add(m_cursorBlinkChk, {row, 0}, {1, 2}, wxALIGN_CENTER_VERTICAL);
+    ++row;
+
     appSizer->AddGrowableCol(1);
     auto* appOuter = new wxBoxSizer(wxVERTICAL);
     appOuter->Add(appSizer, 1, wxEXPAND | wxALL, 12);
@@ -124,9 +130,28 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
     m_webSearchCtrl->SetHint("e.g. https://duckduckgo.com/?q=");
     behSizer->Add(m_webSearchCtrl, {1, 1}, {1, 1}, wxEXPAND);
 
+    behSizer->Add(new wxStaticText(behPage, wxID_ANY, "Bell mode:"),
+                  {2, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+    {
+        wxArrayString bellOpts;
+        bellOpts.Add("Visual flash");
+        bellOpts.Add("Audible");
+        bellOpts.Add("None");
+        m_bellModeChoice = new wxChoice(behPage, wxID_ANY,
+                                        wxDefaultPosition, wxDefaultSize, bellOpts);
+        int preselect = 0;
+        switch (current.bellMode) {
+            case BellMode::Audible: preselect = 1; break;
+            case BellMode::None:    preselect = 2; break;
+            default:                preselect = 0; break;
+        }
+        m_bellModeChoice->SetSelection(preselect);
+    }
+    behSizer->Add(m_bellModeChoice, {2, 1}, {1, 1});
+
     m_copyOnSelectChk = new wxCheckBox(behPage, wxID_ANY, "Copy to primary selection on select (X11)");
     m_copyOnSelectChk->SetValue(current.copyOnSelect);
-    behSizer->Add(m_copyOnSelectChk, {2, 0}, {1, 2}, wxALIGN_CENTER_VERTICAL);
+    behSizer->Add(m_copyOnSelectChk, {3, 0}, {1, 2}, wxALIGN_CENTER_VERTICAL);
 
     behSizer->AddGrowableCol(1);
     auto* behOuter = new wxBoxSizer(wxVERTICAL);
@@ -251,6 +276,12 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
         case 1:  result_.cursorStyle = CursorStyle::Bar;       break;
         case 2:  result_.cursorStyle = CursorStyle::Underline; break;
         default: result_.cursorStyle = CursorStyle::Block;     break;
+    }
+    result_.cursorBlink = m_cursorBlinkChk->IsChecked();
+    switch (m_bellModeChoice->GetSelection()) {
+        case 1:  result_.bellMode = BellMode::Audible; break;
+        case 2:  result_.bellMode = BellMode::None;    break;
+        default: result_.bellMode = BellMode::Visual;  break;
     }
     result_.defaultShell       = m_shellCtrl->GetValue().ToStdString();
     result_.defaultWorkingDir  = m_workDirCtrl->GetValue().ToStdString();

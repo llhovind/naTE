@@ -514,6 +514,112 @@ TEST_CASE("given ColorScheme with palette when saved then palette round-trips co
     CHECK(loaded->palette[15] == (Rgb{253, 246, 227}));
 }
 
+// ---------------------------------------------------------------------------
+// cursorBlink
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given default AppConfig then cursorBlink is true")
+{
+    const AppConfig cfg;
+    REQUIRE(cfg.cursorBlink == true);
+}
+
+TEST_CASE("given ini with CursorBlink=false when loaded then cursorBlink is false")
+{
+    const TempIni ini{"[Appearance]\nCursorBlink=false\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.cursorBlink == false);
+}
+
+TEST_CASE("given ini with CursorBlink=true when loaded then cursorBlink is true")
+{
+    const TempIni ini{"[Appearance]\nCursorBlink=true\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.cursorBlink == true);
+}
+
+TEST_CASE("given AppConfig with cursorBlink=false when saved and reloaded then field round-trips")
+{
+    AppConfig original;
+    original.cursorBlink = false;
+
+    const auto savePath = (std::filesystem::temp_directory_path()
+                           / "nate_test_cursorblink.ini").string();
+    original.save(savePath);
+    const auto loaded = AppConfig::load(savePath);
+    std::filesystem::remove(savePath);
+
+    REQUIRE(loaded.cursorBlink == false);
+}
+
+// ---------------------------------------------------------------------------
+// bellMode
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given default AppConfig then bellMode is Visual")
+{
+    const AppConfig cfg;
+    REQUIRE(cfg.bellMode == BellMode::Visual);
+}
+
+TEST_CASE("given ini with BellMode=None when loaded then bellMode is None")
+{
+    const TempIni ini{"[Behavior]\nBellMode=None\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.bellMode == BellMode::None);
+}
+
+TEST_CASE("given ini with BellMode=Audible when loaded then bellMode is Audible")
+{
+    const TempIni ini{"[Behavior]\nBellMode=Audible\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.bellMode == BellMode::Audible);
+}
+
+TEST_CASE("given ini with BellMode=Visual when loaded then bellMode is Visual")
+{
+    const TempIni ini{"[Behavior]\nBellMode=Visual\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.bellMode == BellMode::Visual);
+}
+
+TEST_CASE("given ini with unknown BellMode when loaded then bellMode defaults to Visual")
+{
+    const TempIni ini{"[Behavior]\nBellMode=Unrecognised\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.bellMode == BellMode::Visual);
+}
+
+TEST_CASE("given AppConfig with bellMode=Audible when saved and reloaded then field round-trips")
+{
+    AppConfig original;
+    original.bellMode = BellMode::Audible;
+
+    const auto savePath = (std::filesystem::temp_directory_path()
+                           / "nate_test_bellmode.ini").string();
+    original.save(savePath);
+    const auto loaded = AppConfig::load(savePath);
+    std::filesystem::remove(savePath);
+
+    REQUIRE(loaded.bellMode == BellMode::Audible);
+}
+
+TEST_CASE("given AppConfig with bellMode=None when saved and reloaded then field round-trips")
+{
+    AppConfig original;
+    original.bellMode = BellMode::None;
+
+    const auto savePath = (std::filesystem::temp_directory_path()
+                           / "nate_test_bellmode_none.ini").string();
+    original.save(savePath);
+    const auto loaded = AppConfig::load(savePath);
+    std::filesystem::remove(savePath);
+
+    REQUIRE(loaded.bellMode == BellMode::None);
+}
+
+// ---------------------------------------------------------------------------
+
 TEST_CASE("given ColorScheme with palette when computeAnsiColors called then ANSI mapping is correct")
 {
     ColorScheme scheme;

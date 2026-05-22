@@ -98,10 +98,16 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
                 else if (val == "Underline") cfg.cursorStyle = CursorStyle::Underline;
                 else                         cfg.cursorStyle = CursorStyle::Block;
             }
+            else if (key == "CursorBlink") cfg.cursorBlink = (val == "true" || val == "1");
         } else if (sec == "Behavior") {
             if      (key == "Encoding"      && !val.empty()) cfg.encoding     = val;
             else if (key == "WebSearchUrl"  && !val.empty()) cfg.webSearchUrl = val;
             else if (key == "CopyOnSelect")                  cfg.copyOnSelect = (val == "true" || val == "1");
+            else if (key == "BellMode") {
+                if      (val == "None")    cfg.bellMode = BellMode::None;
+                else if (val == "Audible") cfg.bellMode = BellMode::Audible;
+                else                       cfg.bellMode = BellMode::Visual;
+            }
         } else if (sec == "Terminal") {
             if (key == "GeometryPresets") cfg.geometryPresets = parseGeometryPresets(val);
         } else if (sec == "Session") {
@@ -165,16 +171,25 @@ void AppConfig::save(const std::string& configPath) const
             default:                     return "Block";
         }
     }();
+    const char* bellModeStr = [&]() -> const char* {
+        switch (bellMode) {
+            case BellMode::None:    return "None";
+            case BellMode::Audible: return "Audible";
+            default:                return "Visual";
+        }
+    }();
 
     f << "[Appearance]\n"
-      << "ColorTheme="  << themeName      << "\n"
-      << "FontFamily="  << fontFamily     << "\n"
-      << "Padding="     << padding        << "\n"
-      << "CursorStyle=" << cursorStyleStr << "\n"
+      << "ColorTheme="  << themeName                        << "\n"
+      << "FontFamily="  << fontFamily                       << "\n"
+      << "Padding="     << padding                          << "\n"
+      << "CursorStyle=" << cursorStyleStr                   << "\n"
+      << "CursorBlink=" << (cursorBlink ? "true" : "false") << "\n"
       << "\n"
       << "[Behavior]\n"
-      << "Encoding="     << encoding                        << "\n"
-      << "WebSearchUrl=" << webSearchUrl                    << "\n"
+      << "Encoding="     << encoding                          << "\n"
+      << "WebSearchUrl=" << webSearchUrl                      << "\n"
+      << "BellMode="     << bellModeStr                       << "\n"
       << "CopyOnSelect=" << (copyOnSelect ? "true" : "false") << "\n"
       << "\n"
       << "[Panel]\n"

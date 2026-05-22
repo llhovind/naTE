@@ -30,6 +30,7 @@ private:
     wxSpinCtrl* m_sizeCtrl          = nullptr;
     wxSpinCtrl* m_paddingCtrl       = nullptr;
     wxChoice*   m_cursorStyleChoice = nullptr;
+    wxCheckBox* m_cursorBlinkChk    = nullptr;
 
     wxTextCtrl* m_shellCtrl      = nullptr;
     wxTextCtrl* m_workDirCtrl    = nullptr;
@@ -39,6 +40,7 @@ private:
     wxCheckBox* m_autoRestoreChk   = nullptr;
     wxSpinCtrl* m_saveIntervalCtrl = nullptr;
 
+    wxChoice*   m_bellModeChoice  = nullptr;
     wxTextCtrl* m_webSearchCtrl   = nullptr;
     wxCheckBox* m_copyOnSelectChk = nullptr;
 };

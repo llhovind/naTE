@@ -14,6 +14,7 @@
 #include "ui/SelectionActions.h"
 #include "ui/StringUtils.h"
 #include <wx/brush.h>
+#include <wx/utils.h>
 #include <wx/clipbrd.h>
 #include <wx/dataobj.h>
 #include <wx/display.h>
@@ -209,8 +210,17 @@ void UIManager::OnX11FwdChanged(term::session::SessionId id, bool active)
 void UIManager::OnBell(term::session::SessionId id)
 {
     frame_->CallAfter([this, id]() {
-        if (SessionUI* sui = FindSessionUI(id); sui && sui->panel)
-            sui->panel->Flash();
+        switch (cfg_.bellMode) {
+            case BellMode::Audible:
+                wxBell();
+                break;
+            case BellMode::Visual:
+                if (SessionUI* sui = FindSessionUI(id); sui && sui->panel)
+                    sui->panel->Flash();
+                break;
+            case BellMode::None:
+                break;
+        }
     });
 }
 
@@ -299,6 +309,7 @@ void UIManager::TakeSession(term::session::SessionId     id,
         router_.Send(evt);
         EnsureCursorVisibleForActive();
     });
+    panel->SetPasteCallback([this](const std::string& utf8) { DoPaste(utf8); });
     panel->SetActionRegistry(selectionActions_.get());
 
     auto ctrl = std::make_unique<SearchController>(sm_.GetDocLayout(id), *panel);

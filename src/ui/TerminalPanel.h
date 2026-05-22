@@ -19,6 +19,7 @@ public:
     using ResizeCallback = std::function<void(unsigned short cols, unsigned short rows)>;
     using FocusCallback  = std::function<void()>;
     using KeyCallback    = std::function<void(const term::input::KeyEvent&)>;
+    using PasteCallback  = std::function<void(const std::string&)>;
 
     TerminalPanel(wxWindow* parent, const AppConfig& cfg, unsigned short cols, unsigned short rows);
 
@@ -29,6 +30,7 @@ public:
     void SetResizeCallback(ResizeCallback cb) { resizeCb_ = std::move(cb); }
     void SetFocusCallback(FocusCallback  cb) { focusCb_  = std::move(cb); }
     void SetKeyCallback(KeyCallback      cb) { keyCb_    = std::move(cb); }
+    void SetPasteCallback(PasteCallback  cb) { pasteCb_  = std::move(cb); }
 
     // Called by TerminalTile whenever broadcast state changes.
     // modeActive — broadcast mode is globally on.
@@ -89,6 +91,7 @@ private:
     void OnLeftUp(wxMouseEvent&);
     void OnMouseMove(wxMouseEvent&);
     void OnLeaveWindow(wxMouseEvent&);
+    void OnMiddleDown(wxMouseEvent&);
     void OnRightDown(wxMouseEvent&);
     void OnSelScrollTimer(wxTimerEvent&);
     void OnKeyDown(wxKeyEvent&);
@@ -96,6 +99,7 @@ private:
     void OnFocus(wxFocusEvent&);
     void OnKillFocus(wxFocusEvent&);
     void OnFlashTimer(wxTimerEvent&);
+    void OnBlinkTimer(wxTimerEvent&);
     void OnShow(wxShowEvent&);
 
     void LayoutScrollbars();
@@ -126,6 +130,7 @@ private:
     ResizeCallback resizeCb_;
     FocusCallback  focusCb_;
     KeyCallback    keyCb_;
+    PasteCallback  pasteCb_;
 
     wxTimer resizeTimer_;
     wxSize  pendingResize_{0, 0};
@@ -145,7 +150,9 @@ private:
     bool m_inBroadcast_         = false;
     bool m_broadcastModeActive_ = false;
     bool m_flashing_            = false;
+    bool m_cursorVisible_       = true;
     wxTimer m_flashTimer_;
+    wxTimer m_blinkTimer_;
 
     // URL hover state
     std::u32string m_hoveredUrl_;

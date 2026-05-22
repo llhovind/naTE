@@ -85,6 +85,7 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
     Bind(wxEVT_LEFT_UP,    &TerminalPanel::OnLeftUp,         this);
     Bind(wxEVT_MOTION,       &TerminalPanel::OnMouseMove,    this);
     Bind(wxEVT_LEAVE_WINDOW, &TerminalPanel::OnLeaveWindow,  this);
+    Bind(wxEVT_MIDDLE_DOWN,  &TerminalPanel::OnMiddleDown,   this);
     Bind(wxEVT_RIGHT_DOWN,   &TerminalPanel::OnRightDown,    this);
     Bind(wxEVT_KEY_DOWN,   &TerminalPanel::OnKeyDown,        this);
     Bind(wxEVT_CHAR,       &TerminalPanel::OnChar,           this);
@@ -92,6 +93,8 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
     Bind(wxEVT_KILL_FOCUS, &TerminalPanel::OnKillFocus,      this);
     m_flashTimer_.SetOwner(this);
     Bind(wxEVT_TIMER,      &TerminalPanel::OnFlashTimer,     this, m_flashTimer_.GetId());
+    m_blinkTimer_.SetOwner(this);
+    Bind(wxEVT_TIMER,      &TerminalPanel::OnBlinkTimer,     this, m_blinkTimer_.GetId());
 
     reconnectBar_ = new ReconnectBar(this);
 
@@ -105,6 +108,14 @@ void TerminalPanel::ApplyConfig(const AppConfig& cfg)
     const bool paddingChanged = cfg.padding    != m_cfg.padding;
 
     m_cfg = cfg;
+
+    if (m_cfg.cursorBlink && m_hasFocus_) {
+        if (!m_blinkTimer_.IsRunning())
+            m_blinkTimer_.Start(500);
+    } else {
+        m_blinkTimer_.Stop();
+        m_cursorVisible_ = true;
+    }
 
     if (fontChanged) {
         m_font           = BuildFont(m_cfg, false, false);
@@ -395,6 +406,8 @@ void TerminalPanel::OnMouseWheel(wxMouseEvent& e)
 void TerminalPanel::OnFocus(wxFocusEvent& e)
 {
     m_hasFocus_ = true;
+    if (m_cfg.cursorBlink)
+        m_blinkTimer_.Start(500);
     Refresh();
     if (focusCb_) focusCb_();
     e.Skip();
@@ -403,6 +416,8 @@ void TerminalPanel::OnFocus(wxFocusEvent& e)
 void TerminalPanel::OnKillFocus(wxFocusEvent& e)
 {
     m_hasFocus_ = false;
+    m_blinkTimer_.Stop();
+    m_cursorVisible_ = true;
     Refresh();
     e.Skip();
 }
@@ -418,6 +433,38 @@ void TerminalPanel::OnFlashTimer(wxTimerEvent&)
 {
     m_flashing_ = false;
     Refresh();
+}
+
+void TerminalPanel::OnBlinkTimer(wxTimerEvent&)
+{
+    m_cursorVisible_ = !m_cursorVisible_;
+    Refresh();
+}
+
+void TerminalPanel::OnMiddleDown(wxMouseEvent& e)
+{
+    if (!pasteCb_) { e.Skip(); return; }
+    wxString text;
+#ifdef __WXGTK__
+    wxTheClipboard->UsePrimarySelection(true);
+#endif
+    if (wxTheClipboard->Open()) {
+        if (wxTheClipboard->IsSupported(wxDF_UNICODETEXT)) {
+            wxTextDataObject data;
+            wxTheClipboard->GetData(data);
+            text = data.GetText();
+        } else if (wxTheClipboard->IsSupported(wxDF_TEXT)) {
+            wxTextDataObject data;
+            wxTheClipboard->GetData(data);
+            text = data.GetText();
+        }
+        wxTheClipboard->Close();
+    }
+#ifdef __WXGTK__
+    wxTheClipboard->UsePrimarySelection(false);
+#endif
+    if (!text.IsEmpty())
+        pasteCb_(std::string(text.ToUTF8()));
 }
 
 void TerminalPanel::SetBroadcastCursorState(bool modeActive, bool inGroup)
@@ -880,7 +927,7 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
         }
         flushRun(runStart, textLen);
 
-        if (row.hasCursor) {
+        if (row.hasCursor && m_cursorVisible_) {
             const int cx = row.cursorCol * cw + m_cfg.padding;
             const int cy = rowY;
             const wxColour cursorWx(m_cfg.cursorColour.r,
