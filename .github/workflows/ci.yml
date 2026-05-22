@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'release-*']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config \
+            libgtk-3-dev libssl-dev
+
+      - name: Cache FetchContent downloads
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: fetchcontent-${{ hashFiles('CMakeLists.txt', 'tests/CMakeLists.txt') }}
+          restore-keys: fetchcontent-
+
+      - name: Configure
+        run: cmake --preset debug
+
+      - name: Build tests
+        run: cmake --build --preset debug --target naTE_tests
+
+      - name: Run tests
+        run: ctest --preset debug
