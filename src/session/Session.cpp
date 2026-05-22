@@ -36,7 +36,7 @@ Session::Session(const Connection& conn,
                  int scrollbackLines,
                  unsigned short cols,
                  unsigned short rows,
-                 std::function<void()> onDisconnect,
+                 std::function<void(transport::DisconnectReason)> onDisconnect,
                  std::function<void(const transport::TransportError&)> onError,
                  AppSessionDefaults appDefaults,
                  unsigned short ptyLineWidth,
@@ -75,6 +75,20 @@ Session::~Session()
 void Session::Stop()
 {
     transport_->Stop();
+}
+
+void Session::ReplaceConnection(const Connection& conn,
+                                const AppSessionDefaults& appDefaults)
+{
+    // Old transport is already stopped — its worker thread joined before
+    // OnDisconnect() propagated to us. Reset it before creating the new one.
+    transport_.reset();
+    const bool wrapMode = docLayout_->GetWrapMode();
+    transport_ = MakeTransport(*this, conn,
+                               wrapMode ? lastCols_ : ptyLineWidth_,
+                               lastRows_, lastCols_, appDefaults);
+    status_ = SessionStatus::Reconnecting;
+    transport_->Start();
 }
 
 void Session::ForceAltScreen(bool on)
@@ -121,10 +135,11 @@ void Session::OnError(const transport::TransportError& error)
         onError_(error);
 }
 
-void Session::OnDisconnect()
+void Session::OnDisconnect(transport::DisconnectReason reason)
 {
+    status_ = SessionStatus::Disconnected;
     if (onDisconnect_)
-        onDisconnect_();
+        onDisconnect_(reason);
 }
 
 void Session::OnX11StateChanged(bool active)

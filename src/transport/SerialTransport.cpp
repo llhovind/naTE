@@ -233,8 +233,13 @@ void SerialTransport::ReadLoop()
         }
     }
 
+    // If Stop() was called, running_ is already false — deliberate close.
+    // Any other exit (POLLHUP, read error) means the device was removed.
+    const DisconnectReason reason = running_.load(std::memory_order_relaxed)
+        ? DisconnectReason::Interrupted
+        : DisconnectReason::Deliberate;
     running_ = false;
-    target_.OnDisconnect();
+    target_.OnDisconnect(reason);
 }
 
 } // namespace term::transport

@@ -21,6 +21,7 @@
 
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -34,6 +35,15 @@ namespace {
 
 constexpr char kTermType[]     = "xterm-256color";
 constexpr int  kPollTimeoutMs  = 100;
+
+// TCP keepalive parameters applied to every established SSH socket.
+// The kernel sends the first probe after kTcpKeepIdleSec of silence, then
+// retries every kTcpKeepIntvlSec up to kTcpKeepCnt times before declaring the
+// connection dead.  Total worst-case detection time:
+//   kTcpKeepIdleSec + kTcpKeepCnt * kTcpKeepIntvlSec = 10 + 3*10 = 40 s.
+constexpr int  kTcpKeepIdleSec  = 10;
+constexpr int  kTcpKeepIntvlSec = 10;
+constexpr int  kTcpKeepCnt      = 3;
 
 // Returns preferred public-key blobs for agent auth derived from the connection's
 // agentIdentityHint (first priority) or ~/.ssh/config lookup (second priority).
@@ -324,18 +334,28 @@ void SshTransport::WorkerThread()
     if (desc_.agentForwarding) SetupAgentForwarding();
     if (!StartShell())         return;
 
-    if (desc_.keepaliveSeconds > 0)
-        libssh2_keepalive_config(session_, 1, static_cast<unsigned>(desc_.keepaliveSeconds));
+    // SSH application-level keepalive is intentionally disabled.  SO_KEEPALIVE
+    // (set in ConnectSocket) handles both dead-connection detection (~40 s) and
+    // NAT state maintenance at the kernel level.  The libssh2 keepalive would
+    // send SSH_MSG_GLOBAL_REQUEST every keepaliveSeconds seconds, which causes
+    // TCP to switch from keepalive-probe mode into retransmit mode and prevents
+    // ETIMEDOUT from being raised within the expected window.
 
     if (desc_.compress)
         libssh2_session_flag(session_, LIBSSH2_FLAG_COMPRESS, 1);
 
-    ReadWriteLoop();
+    const auto disconnectReason = ReadWriteLoop();
+
+    // For Interrupted (dead socket), SO_ERROR was consumed by the recv() that
+    // detected the failure.  Subsequent poll() calls on the socket may no longer
+    // return POLLERR, causing any blocking libssh2 operation to wait indefinitely
+    // for a server response that will never come.  Skip all network-sending
+    // teardown steps; just free the in-memory resources and close the fd.
+    const bool socketDead = (disconnectReason == DisconnectReason::Interrupted);
 
     // Best-effort: remove the remote vpcolumns file before tearing down.
-    // Switch to blocking mode — PollUntilReady returns false once running_ is
-    // cleared, so the non-blocking EAGAIN retry loops don't work here.
-    if (!vpcolumns_remote_path_.empty() && session_) {
+    // Only meaningful when the socket is still alive (Deliberate or Clean exit).
+    if (!socketDead && !vpcolumns_remote_path_.empty() && session_) {
         libssh2_session_set_blocking(session_, 1);
         LIBSSH2_CHANNEL* ch = libssh2_channel_open_session(session_);
         if (ch) {
@@ -346,12 +366,14 @@ void SshTransport::WorkerThread()
             }
             libssh2_channel_free(ch);
         }
-        // Session remains in blocking mode — it's freed immediately after.
     }
 
-    // Orderly teardown (best-effort; ignore errors during shutdown).
+    // Orderly teardown: send close/disconnect messages only when the socket is
+    // alive.  On a dead socket these sends would block in libssh2's internal
+    // poll() loop waiting for a response the server can never deliver.
     if (channel_) {
-        libssh2_channel_close(channel_);
+        if (!socketDead)
+            libssh2_channel_close(channel_);
         libssh2_channel_free(channel_);
         channel_ = nullptr;
     }
@@ -361,7 +383,8 @@ void SshTransport::WorkerThread()
         agent_ = nullptr;
     }
     if (session_) {
-        libssh2_session_disconnect(session_, "Normal shutdown");
+        if (!socketDead)
+            libssh2_session_disconnect(session_, "Normal shutdown");
         libssh2_session_free(session_);
         session_ = nullptr;
     }
@@ -370,7 +393,7 @@ void SshTransport::WorkerThread()
         sock_fd_ = -1;
     }
 
-    target_.OnDisconnect();
+    target_.OnDisconnect(disconnectReason);
 }
 
 // ---------------------------------------------------------------------------
@@ -409,8 +432,23 @@ int SshTransport::ConnectSocket()
                          &tv, sizeof(tv));
         }
 
-        if (::connect(fd, ai->ai_addr, ai->ai_addrlen) == 0)
+        if (::connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) {
+            // Clear the connect-phase send/receive timeouts so they don't
+            // interfere with the long-lived ReadWriteLoop.
+            const timeval tvZero{};
+            ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tvZero, sizeof(tvZero));
+            ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tvZero, sizeof(tvZero));
+
+            // Enable TCP keepalive so the kernel detects a silently-dropped
+            // connection (e.g. firewall rule added after session established)
+            // in ~40 s rather than the default ~15 min TCP retransmit window.
+            const int yes = 1;
+            ::setsockopt(fd, SOL_SOCKET,  SO_KEEPALIVE,  &yes,              sizeof(yes));
+            ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE,  &kTcpKeepIdleSec,  sizeof(kTcpKeepIdleSec));
+            ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &kTcpKeepIntvlSec, sizeof(kTcpKeepIntvlSec));
+            ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT,   &kTcpKeepCnt,      sizeof(kTcpKeepCnt));
             break;
+        }
 
         ::close(fd);
         fd = -1;
@@ -915,12 +953,12 @@ bool SshTransport::StartShell()
 // ReadWriteLoop
 // ---------------------------------------------------------------------------
 
-void SshTransport::ReadWriteLoop()
+DisconnectReason SshTransport::ReadWriteLoop()
 {
     constexpr size_t kReadBuf = 4096;
     char buf[kReadBuf];
 
-    int secondsToNext = desc_.keepaliveSeconds > 0 ? desc_.keepaliveSeconds : 0;
+    DisconnectReason reason = DisconnectReason::Deliberate;
 
     while (running_) {
         // --- Service pending mid-session X11 forwarding request -----------
@@ -950,11 +988,7 @@ void SshTransport::ReadWriteLoop()
             for (const auto& a : agent_channels_)
                 pfds.push_back({a.local_fd, POLLIN, 0});
 
-            int pollMs = kPollTimeoutMs;
-            if (secondsToNext > 0)
-                pollMs = std::min(pollMs, secondsToNext * 1000);
-
-            ::poll(pfds.data(), static_cast<nfds_t>(pfds.size()), pollMs);
+            ::poll(pfds.data(), static_cast<nfds_t>(pfds.size()), kPollTimeoutMs);
 
             if (!running_) break;
 
@@ -994,10 +1028,14 @@ void SshTransport::ReadWriteLoop()
         while ((nRead = libssh2_channel_read(channel_, buf, kReadBuf)) > 0)
             target_.OnData(std::string(buf, static_cast<size_t>(nRead)));
 
-        if (nRead == 0 || libssh2_channel_eof(channel_))
+        if (nRead == 0 || libssh2_channel_eof(channel_)) {
+            reason = DisconnectReason::Clean;
             break;
-        if (nRead != LIBSSH2_ERROR_EAGAIN && nRead < 0)
+        }
+        if (nRead != LIBSSH2_ERROR_EAGAIN && nRead < 0) {
+            reason = DisconnectReason::Interrupted;
             break;
+        }
 
         // --- Service SSH X11 channels → local X11 sockets ----------------
         // X11 channel data travels over sock_fd_, serviced after the main read.
@@ -1057,12 +1095,6 @@ void SshTransport::ReadWriteLoop()
         // --- Drain writes + resize + vpcolumns ---------------------------
         DrainWriteQueue();
 
-        // --- Keepalive ---------------------------------------------------
-        if (desc_.keepaliveSeconds > 0) {
-            int next = 0;
-            libssh2_keepalive_send(session_, &next);
-            secondsToNext = next;
-        }
     }
 
 cleanup_x11:
@@ -1076,6 +1108,7 @@ cleanup_x11:
         libssh2_channel_free(a.channel);
     }
     agent_channels_.clear();
+    return reason;
 }
 
 // ---------------------------------------------------------------------------
@@ -1248,7 +1281,7 @@ void SshTransport::NotifyError(TransportError::Category category,
 {
     target_.OnData("\r\n\x1b[31m" + msg + "\x1b[0m\r\n");
     target_.OnError(TransportError{category, msg});
-    target_.OnDisconnect();
+    target_.OnDisconnect(DisconnectReason::Interrupted);
     running_ = false;
 }
 

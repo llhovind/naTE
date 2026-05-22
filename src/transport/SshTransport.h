@@ -127,7 +127,7 @@ private:
     bool SetupX11Forwarding();
     bool SetupAgentForwarding();
     bool StartShell();
-    void ReadWriteLoop();
+    DisconnectReason ReadWriteLoop();
 
     // Drains write_queue_ without holding queue_mutex_.
     void DrainWriteQueue();

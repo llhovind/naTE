@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 
+#include "transport/DisconnectReason.h"
 #include "transport/TransportError.h"
 
 namespace term::transport {
@@ -22,7 +23,7 @@ public:
     virtual ~ITransportTarget() = default;
     virtual void OnData(const std::string& data) = 0;
     virtual void OnError(const TransportError& error) = 0;
-    virtual void OnDisconnect() = 0;
+    virtual void OnDisconnect(DisconnectReason reason) = 0;
 
     // Fired on the worker thread when X11 forwarding becomes active on a channel.
     // Implementations must CallAfter before touching wx objects.

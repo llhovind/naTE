@@ -9,6 +9,8 @@
 #include "session/AppSessionDefaults.h"
 #include "session/Connection.h"
 #include "session/InputEncoder.h"
+#include "session/SessionStatus.h"
+#include "transport/DisconnectReason.h"
 #include "transport/Transport.hpp"
 #include "transport/ITransportTarget.h"
 #include "transport/TransportError.h"
@@ -27,7 +29,7 @@ public:
             int scrollbackLines,
             unsigned short cols,
             unsigned short rows,
-            std::function<void()> onDisconnect,
+            std::function<void(transport::DisconnectReason)> onDisconnect,
             std::function<void(const transport::TransportError&)> onError,
             AppSessionDefaults appDefaults = {},
             unsigned short ptyLineWidth = 1024,
@@ -43,6 +45,14 @@ public:
     // times. SessionManager calls this before erasing the SessionRecord so
     // that no DocumentObserver callbacks are in-flight during destruction.
     void Stop();
+
+    // Replaces the dead transport with a fresh one built from conn and starts it.
+    // The old transport must already be stopped (i.e. OnDisconnect() was received).
+    // Document, DocLayout, and all UI state are preserved.
+    void ReplaceConnection(const Connection& conn,
+                           const AppSessionDefaults& appDefaults);
+
+    SessionStatus GetStatus() const { return status_; }
 
     // input::InputTarget
     void OnInput(const input::KeyEvent& event) override;
@@ -65,7 +75,7 @@ public:
     // transport::ITransportTarget
     void OnData(const std::string& data) override;
     void OnError(const transport::TransportError& error) override;
-    void OnDisconnect() override;
+    void OnDisconnect(transport::DisconnectReason reason) override;
     void OnX11StateChanged(bool active) override;
     std::vector<std::string> OnKbdIntChallenge(
         const transport::KbdIntChallenge& challenge) override;
@@ -126,7 +136,7 @@ private:
 
     std::unique_ptr<DocLayout> docLayout_;
 
-    std::function<void()>                                    onDisconnect_;
+    std::function<void(transport::DisconnectReason)>         onDisconnect_;
     std::function<void(const transport::TransportError&)>    onError_;
     std::function<void(bool)>                                onAltScreenChanged_;
     std::function<void(bool)>                                onX11FwdChanged_;
@@ -139,6 +149,7 @@ private:
     unsigned short     ptyLineWidth_{1024};
     bool               altScreenActive_{false};
     bool               bracketedPaste_{false};
+    SessionStatus      status_{SessionStatus::Connected};
     std::vector<IDocumentListener*> externalListeners_;
 };
 

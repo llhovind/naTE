@@ -130,10 +130,34 @@ UIManager::~UIManager()
 // ISessionObserver
 // ---------------------------------------------------------------------------
 
-void UIManager::OnSessionDisconnected(term::session::SessionId id)
+void UIManager::OnSessionDisconnected(term::session::SessionId id,
+                                       term::transport::DisconnectReason reason)
 {
-    frame_->CallAfter([this, id]() {
-        sm_.CloseSession(id);
+    frame_->CallAfter([this, id, reason]() {
+        using R = term::transport::DisconnectReason;
+        using S = term::session::SessionStatus;
+
+        // Deliberate: Stop() was called — CloseSession already owns the teardown.
+        if (reason == R::Deliberate)
+            return;
+
+        // Clean exit (e.g. user typed "exit") or non-reconnectable transport:
+        // close normally as before.
+        if (reason == R::Clean || !IsReconnectable(id)) {
+            sm_.CloseSession(id);
+            return;
+        }
+
+        // Interrupted + reconnectable: preserve session, show indicator.
+        SessionUI* ui = FindSessionUI(id);
+        if (!ui) return;
+
+        ui->tile->SetTabStatus(id, S::Disconnected);
+
+        // Build a message string from the last TransportError if available,
+        // otherwise use a generic text.
+        const wxString msg = wxString::FromUTF8("Connection lost.");
+        ui->panel->ShowReconnectBar(msg);
     });
 }
 
@@ -282,6 +306,22 @@ void UIManager::TakeSession(term::session::SessionId     id,
     ctrl->SetBar(bar);
     panel->SetSearchBar(bar);
 
+    // Wire ReconnectBar buttons. Captured by value so they stay valid after
+    // TakeSession returns. The panel is wx-owned and outlives these lambdas.
+    panel->SetReconnectCallback([this, id]() {
+        SessionUI* ui = FindSessionUI(id);
+        if (!ui) return;
+        ui->panel->HideReconnectBar();
+        ui->tile->SetTabStatus(id, term::session::SessionStatus::Reconnecting);
+        sm_.ReconnectSession(id);
+    });
+    panel->SetReconnectSaveCallback([this, id]() {
+        SaveSessionToFile(id);
+    });
+    panel->SetReconnectCloseCallback([this, id]() {
+        sm_.CloseSession(id);
+    });
+
     const int tabIdx = targetTile->AddTab(id, panel, wxString::FromUTF8(label));
 
     // Sync the tile's wrap control to the session's persisted wrap state.
@@ -409,17 +449,20 @@ void UIManager::ReceiveFilesForActive()
     dlg.ShowModal();
 }
 
-void UIManager::SaveActiveSessionToFile()
+void UIManager::SaveSessionToFile(term::session::SessionId id)
 {
-    if (!activeId_) return;
-
-    DocLayout& layout = sm_.GetDocLayout(activeId_);
+    if (!id) return;
+    DocLayout& layout = sm_.GetDocLayout(id);
     layout.SelectAll();
     const auto text = layout.GetSelectedText();
     layout.ClearSelection();
-
     if (!text.empty())
         SaveToFileAction{}.Execute(text);
+}
+
+void UIManager::SaveActiveSessionToFile()
+{
+    SaveSessionToFile(activeId_);
 }
 
 void UIManager::ToggleBroadcastMode()
@@ -857,6 +900,13 @@ const UIManager::SessionUI* UIManager::FindSessionUI(term::session::SessionId id
 {
     auto it = sessions_.find(id);
     return (it != sessions_.end()) ? &it->second : nullptr;
+}
+
+bool UIManager::IsReconnectable(term::session::SessionId id) const
+{
+    const term::session::Connection conn = sm_.GetConnection(id);
+    return std::holds_alternative<term::session::SshDesc>(conn.transport)
+        || std::holds_alternative<term::session::SerialDesc>(conn.transport);
 }
 
 std::vector<std::pair<term::session::SessionId, std::string>>

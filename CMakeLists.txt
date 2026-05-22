@@ -158,6 +158,7 @@ set(SOURCES
     src/ui/UIManager.cpp
     src/ui/SearchController.cpp
     src/ui/SearchBar.cpp
+    src/ui/ReconnectBar.cpp
     src/ui/SelectionActionRegistry.cpp
     src/ui/SelectionActions.cpp
     src/db/JsonConnectionRepository.cpp

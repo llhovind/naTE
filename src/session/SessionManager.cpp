@@ -41,6 +41,7 @@ SessionId SessionManager::CreateSession(const Connection& conn,
     rec->profileTitle   = conn.profileTitle;
     rec->useProfileTitle= conn.useProfileTitle;
     rec->connection     = conn;
+    rec->appDefaults    = appDefaults;
     rec->uiObserver     = std::make_shared<std::atomic<ISessionObserver*>>(nullptr);
 
     // Capture the shared_ptr so the lambda remains valid even if this record
@@ -52,9 +53,9 @@ SessionId SessionManager::CreateSession(const Connection& conn,
         scrollbackLines,
         cols,
         rows,
-        [uiObs, id]() {
+        [uiObs, id](transport::DisconnectReason reason) {
             if (auto* obs = uiObs->load(std::memory_order_acquire))
-                obs->OnSessionDisconnected(id);
+                obs->OnSessionDisconnected(id, reason);
         },
         [uiObs, id](const transport::TransportError& err) {
             if (auto* obs = uiObs->load(std::memory_order_acquire))
@@ -125,6 +126,13 @@ void SessionManager::CloseAllSessions()
         ids.push_back(id);
     for (SessionId id : ids)
         CloseSession(id);
+}
+
+void SessionManager::ReconnectSession(SessionId id)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (!rec) return;
+    rec->session->ReplaceConnection(rec->connection, rec->appDefaults);
 }
 
 // ---------------------------------------------------------------------------

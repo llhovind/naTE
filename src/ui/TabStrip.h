@@ -4,6 +4,7 @@
 #include <wx/window.h>
 #include <wx/string.h>
 #include <wx/colour.h>
+#include "session/SessionStatus.h"
 
 // Custom-drawn tab strip embedded in the TerminalTile title bar.
 // Renders N session tabs left-justified and a "+" new-tab button immediately
@@ -40,6 +41,11 @@ public:
     // Cleared by TerminalTile when the tab is activated.
     using UnreadQueryCallback = std::function<bool(int tabIndex)>;
     void SetUnreadQueryCallback(UnreadQueryCallback cb) { unreadQueryCb_ = std::move(cb); }
+
+    // Query callback: returns the session status for the tab at the given index.
+    // Disconnected/Reconnecting states replace the unread badge with a status dot.
+    using StatusQueryCallback = std::function<term::session::SessionStatus(int tabIndex)>;
+    void SetStatusQueryCallback(StatusQueryCallback cb) { statusQueryCb_ = std::move(cb); }
 
     // -------------------------------------------------------------------------
     // Tab-level callbacks wired by TerminalTile
@@ -120,6 +126,7 @@ private:
     BgColourCallback       bgColourCb_;
     BroadcastQueryCallback broadcastQueryCb_;
     UnreadQueryCallback    unreadQueryCb_;
+    StatusQueryCallback    statusQueryCb_;
 
     // Notification callbacks
     TabSelectedCallback     selectedCb_;

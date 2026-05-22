@@ -41,6 +41,11 @@ public:
     void CloseSession(SessionId id);
     void CloseAllSessions();
 
+    // Replaces the dead transport with a fresh one built from the stored Connection.
+    // The session's Document, DocLayout, and all UI state are preserved.
+    // Must be called on the UI thread after OnSessionDisconnected(Interrupted).
+    void ReconnectSession(SessionId id);
+
     // -------------------------------------------------------------------------
     // Per-session routing — called by App after CreateSession
     // -------------------------------------------------------------------------
@@ -141,9 +146,10 @@ private:
         // a session is dragged to a new tile/window.
         std::string                                      profileTitle;
         bool                                             useProfileTitle = false;
-        // Snapshot of the Connection used to create this session; used by
-        // App::SaveRestoreSnapshot to persist session state on exit.
+        // Snapshot of the Connection and app defaults used to create this session;
+        // retained so CloseSession / ReconnectSession can recreate the transport.
         Connection                                       connection;
+        AppSessionDefaults                               appDefaults;
         // Written by the worker thread (via onX11FwdChanged lambda); read by the
         // UI thread (IsX11ForwardingActive). Must be atomic — SessionRecord is
         // heap-allocated so its address is stable across map rehash.

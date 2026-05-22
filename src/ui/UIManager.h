@@ -12,6 +12,7 @@
 #include <wx/menu.h>
 
 #include "document/IDocumentListener.h"
+#include "transport/DisconnectReason.h"
 #include "transport/TransportError.h"
 
 #include "config/Config.h"
@@ -44,7 +45,8 @@ public:
     // -------------------------------------------------------------------------
     // ISessionObserver — 3-method slim interface
     // -------------------------------------------------------------------------
-    void OnSessionDisconnected(term::session::SessionId) override;
+    void OnSessionDisconnected(term::session::SessionId,
+                               term::transport::DisconnectReason) override;
     void OnSessionError(term::session::SessionId,
                         const term::transport::TransportError& error) override;
     void OnSessionDestroyed(term::session::SessionId) override;
@@ -86,7 +88,9 @@ public:
     void ResetActiveTerminal();
     // Reset and clear all content; prompts to save scrollback first.
     void ResetAndClearActiveTerminal();
-    // Save full scrollback of the active session to a user-chosen file.
+    // Save full scrollback of the given session to a user-chosen file.
+    // SaveActiveSessionToFile() is a convenience wrapper that passes activeId_.
+    void SaveSessionToFile(term::session::SessionId id);
     void SaveActiveSessionToFile();
 
     // Open the send-file dialog for the active session (SSH only).
@@ -213,6 +217,10 @@ private:
 
     SessionUI*       FindSessionUI(term::session::SessionId id);
     const SessionUI* FindSessionUI(term::session::SessionId id) const;
+
+    // Returns true for SSH and Serial connections — the only transports that
+    // can recover after an unexpected disconnect.
+    bool IsReconnectable(term::session::SessionId id) const;
     void             SetupEditMenu(wxMenu* menu);
     void             PasteFromClipboard();
     // Guards multi-line pastes, then routes to the focused session.

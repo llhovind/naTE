@@ -24,7 +24,8 @@ struct RecordedEvent {
 struct MockObserver : ISessionObserver {
     std::vector<RecordedEvent> events;
 
-    void OnSessionDisconnected(SessionId id) override {
+    void OnSessionDisconnected(SessionId id,
+                               term::transport::DisconnectReason /*reason*/) override {
         events.push_back({RecordedEvent::Type::Disconnected, id});
     }
     void OnSessionError(SessionId id,

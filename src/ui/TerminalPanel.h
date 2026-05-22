@@ -9,6 +9,7 @@
 #include "config/Config.h"
 #include "input/KeyEvent.hpp"
 
+class ReconnectBar;
 class SearchBar;
 
 class TerminalPanel : public wxWindow
@@ -63,6 +64,15 @@ public:
     // Trigger a short visual bell flash. Safe to call from the UI thread only.
     void Flash();
 
+    // Reconnect bar — shown when the session transport is interrupted.
+    // UIManager wires the callbacks; the panel owns the bar as a wx child.
+    void ShowReconnectBar(const wxString& message);
+    void HideReconnectBar();
+    bool IsReconnectBarVisible() const;
+    void SetReconnectCallback(std::function<void()> cb);
+    void SetReconnectSaveCallback(std::function<void()> cb);
+    void SetReconnectCloseCallback(std::function<void()> cb);
+
     // Pixel size this panel needs to display exactly cols×rows characters.
     // Use this to size the containing tile before calling ResizeFrameToFitTiles().
     wxSize ComputeRequiredPanelSize(unsigned short cols, unsigned short rows) const;
@@ -86,6 +96,7 @@ private:
     void OnFocus(wxFocusEvent&);
     void OnKillFocus(wxFocusEvent&);
     void OnFlashTimer(wxTimerEvent&);
+    void OnShow(wxShowEvent&);
 
     void LayoutScrollbars();
     void UpdateScrollbars();
@@ -119,8 +130,11 @@ private:
     wxTimer resizeTimer_;
     wxSize  pendingResize_{0, 0};
 
-    SearchBar* searchBar_       = nullptr;  // wx-parent-owned; non-owning here
-    int        searchBarHeight_ = 0;
+    SearchBar*    searchBar_       = nullptr;  // wx-parent-owned; non-owning here
+    int           searchBarHeight_ = 0;
+
+    ReconnectBar* reconnectBar_    = nullptr;  // wx-child-owned; hidden by default
+    wxString      lastDisconnectMsg_;          // message to restore when tab is activated
 
     // Selection state
     bool    m_selecting_    = false;

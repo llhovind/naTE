@@ -1,4 +1,5 @@
 #include "ui/TerminalPanel.h"
+#include "ui/ReconnectBar.h"
 #include "ui/SearchBar.h"
 #include "ui/StringUtils.h"
 #include "ui/wxKeyAdapter.h"
@@ -91,6 +92,10 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
     Bind(wxEVT_KILL_FOCUS, &TerminalPanel::OnKillFocus,      this);
     m_flashTimer_.SetOwner(this);
     Bind(wxEVT_TIMER,      &TerminalPanel::OnFlashTimer,     this, m_flashTimer_.GetId());
+
+    reconnectBar_ = new ReconnectBar(this);
+
+    Bind(wxEVT_SHOW,       &TerminalPanel::OnShow,           this);
 }
 
 void TerminalPanel::ApplyConfig(const AppConfig& cfg)
@@ -189,6 +194,57 @@ bool TerminalPanel::HasSearchBarFocus() const
     return false;
 }
 
+void TerminalPanel::ShowReconnectBar(const wxString& message)
+{
+    lastDisconnectMsg_ = message;
+    if (!reconnectBar_) return;
+    const wxSize best = reconnectBar_->GetBestSize();
+    reconnectBar_->SetSize(0, 0, GetClientSize().x, best.y > 0 ? best.y : 30);
+    reconnectBar_->Raise();
+    reconnectBar_->ShowBar(message);
+    Refresh();
+}
+
+void TerminalPanel::HideReconnectBar()
+{
+    lastDisconnectMsg_.clear();
+    if (reconnectBar_) reconnectBar_->HideBar();
+}
+
+bool TerminalPanel::IsReconnectBarVisible() const
+{
+    return reconnectBar_ && reconnectBar_->IsShown();
+}
+
+void TerminalPanel::SetReconnectCallback(std::function<void()> cb)
+{
+    if (reconnectBar_) reconnectBar_->SetReconnectCallback(std::move(cb));
+}
+
+void TerminalPanel::SetReconnectSaveCallback(std::function<void()> cb)
+{
+    if (reconnectBar_) reconnectBar_->SetSaveCallback(std::move(cb));
+}
+
+void TerminalPanel::SetReconnectCloseCallback(std::function<void()> cb)
+{
+    if (reconnectBar_) reconnectBar_->SetCloseCallback(std::move(cb));
+}
+
+void TerminalPanel::OnShow(wxShowEvent& e)
+{
+    // When a background tab is made visible, restore the reconnect bar if the
+    // session is still in a disconnected state (message was saved by ShowReconnectBar).
+    if (e.IsShown() && !lastDisconnectMsg_.empty() && reconnectBar_ && !reconnectBar_->IsShown()) {
+        const wxSize best = reconnectBar_->GetBestSize();
+        reconnectBar_->SetSize(0, 0, GetClientSize().x, best.y > 0 ? best.y : 30);
+        reconnectBar_->Raise();
+        reconnectBar_->ShowBar(lastDisconnectMsg_);
+        Refresh();
+    }
+    e.Skip();
+}
+
 void TerminalPanel::LayoutScrollbars()
 {
     const wxSize sz = GetClientSize();
@@ -263,6 +319,11 @@ void TerminalPanel::OnSize(wxSizeEvent& e)
     if (searchBar_ && searchBarHeight_ > 0) {
         const wxSize best = searchBar_->GetBestSize();
         searchBar_->SetSize(GetClientSize().x - best.x, 0, best.x, best.y);
+    }
+
+    if (reconnectBar_ && reconnectBar_->IsShown()) {
+        const int barH = reconnectBar_->GetBestSize().y;
+        reconnectBar_->SetSize(0, 0, GetClientSize().x, barH);
     }
 
     if (docLayout_) {

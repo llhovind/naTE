@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "transport/DisconnectReason.h"
 #include "transport/ITransportTarget.h"
 #include "transport/TransportError.h"
 
@@ -16,7 +17,7 @@ public:
     virtual ~ISessionObserver() = default;
 
     // Session thread — implementations MUST CallAfter before touching wx.
-    virtual void OnSessionDisconnected(SessionId) = 0;
+    virtual void OnSessionDisconnected(SessionId, transport::DisconnectReason) = 0;
 
     // Session thread — implementations MUST CallAfter before touching wx.
     virtual void OnSessionError(SessionId, const term::transport::TransportError& error) = 0;

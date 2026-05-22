@@ -179,8 +179,13 @@ void PtyTransport::ReadLoop()
         }
     }
 
+    // PTY exits when the child process terminates — always a clean exit.
+    // If Stop() was called, running_ is false and we treat it as Deliberate.
+    const DisconnectReason reason = running_.load(std::memory_order_relaxed)
+        ? DisconnectReason::Clean
+        : DisconnectReason::Deliberate;
     running_ = false;
-    target_.OnDisconnect();
+    target_.OnDisconnect(reason);
 }
 
 std::string PtyTransport::GetCurrentWorkingDir() const

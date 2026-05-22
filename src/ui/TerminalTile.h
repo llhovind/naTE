@@ -6,6 +6,7 @@
 #include <wx/panel.h>
 #include "config/Config.h"
 #include "session/ISessionObserver.h"
+#include "session/SessionStatus.h"
 #include "ui/ISessionDropTarget.h"
 #include "ui/TerminalActions.h"
 #include "ui/TileActions.h"
@@ -76,6 +77,10 @@ public:
     // Cleared automatically when the tab is activated.
     void SetTabUnread(term::session::SessionId id, bool hasUnread);
 
+    // Updates the connection status indicator on the tab badge.
+    // Disconnected/Reconnecting show an orange/yellow dot; Connected clears it.
+    void SetTabStatus(term::session::SessionId id, term::session::SessionStatus status);
+
     // Called by UIManager to reflect wrap mode changes originating outside this tile.
     void SetWrapMode(bool wrap);
 
@@ -129,11 +134,12 @@ public:
 
 private:
     struct TabEntry {
-        term::session::SessionId sessionId      = 0;
-        TerminalPanel*           panel          = nullptr;  // wx-child-owned by contentArea_
-        wxString                 label;
-        bool                     inBroadcast    = false;
-        bool                     hasUnreadOutput = false;
+        term::session::SessionId    sessionId      = 0;
+        TerminalPanel*              panel          = nullptr;  // wx-child-owned by contentArea_
+        wxString                    label;
+        bool                        inBroadcast    = false;
+        bool                        hasUnreadOutput = false;
+        term::session::SessionStatus status        = term::session::SessionStatus::Connected;
     };
 
     // Show the panel at index; hide the previous one. Does not emit ActivateSession — programmatic activation only.

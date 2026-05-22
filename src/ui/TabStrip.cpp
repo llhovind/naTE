@@ -5,9 +5,11 @@
 #include <algorithm>
 #include <cmath>
 
-static const wxColour kColBroadcast { 255, 140,   0 };
-static const wxColour kColInactive  { 131, 136, 141 };
-static const wxColour kColUnread    { 100, 200, 255 };
+static const wxColour kColBroadcast    { 255, 140,   0 };
+static const wxColour kColInactive     { 131, 136, 141 };
+static const wxColour kColUnread       { 100, 200, 255 };
+static const wxColour kColDisconnected { 255, 120,   0 };
+static const wxColour kColReconnecting { 255, 200,   0 };
 
 TabStrip::TabStrip(wxWindow* parent)
     : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE)
@@ -164,11 +166,22 @@ void TabStrip::OnPaint(wxPaintEvent&)
             dc.SetTextForeground(*wxWHITE);
             dc.DrawText(label, x + 6, ty);
 
-            // Unread output dot — shown when background content arrived on this tab.
-            if (unreadQueryCb_ && unreadQueryCb_(i)) {
-                dc.SetBrush(wxBrush(kColUnread));
-                dc.SetPen(*wxTRANSPARENT_PEN);
-                dc.DrawCircle(x + g.tabW - kCloseW - 10, sz.y / 2, 3);
+            // Status / unread badge dot — status takes priority over unread.
+            {
+                using S = term::session::SessionStatus;
+                const S status = statusQueryCb_
+                    ? statusQueryCb_(i)
+                    : S::Connected;
+                wxColour badgeCol;
+                if      (status == S::Disconnected) badgeCol = kColDisconnected;
+                else if (status == S::Reconnecting) badgeCol = kColReconnecting;
+                else if (unreadQueryCb_ && unreadQueryCb_(i)) badgeCol = kColUnread;
+
+                if (badgeCol.IsOk()) {
+                    dc.SetBrush(wxBrush(badgeCol));
+                    dc.SetPen(*wxTRANSPARENT_PEN);
+                    dc.DrawCircle(x + g.tabW - kCloseW - 10, sz.y / 2, 3);
+                }
             }
 
             // Close "×" — dimmer on inactive non-broadcast tabs.
