@@ -177,12 +177,15 @@ public:
     void DeleteLines(int count)                override;
     void SetPtyCols(int cols)                  override;
     void FullReset(bool clearContent)          override;
+    void SaveCursor()                          override;
+    void RestoreCursor()                       override;
 
 private:
     std::deque<DocLine> lines_;
-    int  maxLines_;
-    int  cols_               = 2048;  // PTY-configured column count; drives virtual-row cursor translation
-    bool pendingSubRowClear_ = false; // set by DeleteChar on multi-subRow line; consumed by EraseInLine(0)
+    int       maxLines_;
+    int       cols_               = 2048;  // PTY-configured column count; drives virtual-row cursor translation
+    bool      pendingSubRowClear_ = false; // set by DeleteChar on multi-subRow line; consumed by EraseInLine(0)
+    CursorPos savedCursor_        = {};
 };
 
 class AltScreenDocument : public Document {

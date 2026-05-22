@@ -262,6 +262,8 @@ void MainScreenDocument::NewLine()
     if ((int)lines_.size() > maxLines_) {
         lines_.pop_front();
         --cursor_.line;
+        if (savedCursor_.line > 0)
+            --savedCursor_.line;
         NotifyListeners(DocChangeType::DeleteLine, 0);
     }
 }
@@ -295,6 +297,17 @@ void MainScreenDocument::MoveCursorRight(int n)
 void MainScreenDocument::SetPtyCols(int cols)
 {
     cols_ = std::max(1, cols);
+}
+
+void MainScreenDocument::SaveCursor()
+{
+    savedCursor_ = cursor_;
+}
+
+void MainScreenDocument::RestoreCursor()
+{
+    cursor_ = savedCursor_;
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void MainScreenDocument::MoveCursorUp(int n)

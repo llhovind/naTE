@@ -569,3 +569,69 @@ TEST_CASE("given ptyCols=10 and 20-char line when DeleteChar(3) at col 2 then sh
     // sub-row 1 completely unchanged
     REQUIRE(text.substr(10) == U"KLMNOPQRST");
 }
+
+// ---------------------------------------------------------------------------
+// MainScreenDocument::SaveCursor / RestoreCursor (DECSC/DECRC — ESC 7 / ESC 8)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given cursor at col 5 when SaveCursor then RestoreCursor then cursor returns to col 5") {
+    MainScreenDocument doc;
+    doc.AppendInsertChar(U'A');
+    doc.AppendInsertChar(U'B');
+    doc.AppendInsertChar(U'C');
+    doc.AppendInsertChar(U'D');
+    doc.AppendInsertChar(U'E');
+    REQUIRE(doc.GetCursor().col == 5);
+
+    doc.SaveCursor();
+    doc.MoveCursorLeft(3);
+    REQUIRE(doc.GetCursor().col == 2);
+
+    doc.RestoreCursor();
+    REQUIRE(doc.GetCursor().col == 5);
+    REQUIRE(doc.GetCursor().line == 0);
+}
+
+TEST_CASE("given no explicit SaveCursor when RestoreCursor then cursor moves to origin") {
+    MainScreenDocument doc;
+    doc.AppendInsertChar(U'X');
+    doc.AppendInsertChar(U'Y');
+    REQUIRE(doc.GetCursor().col == 2);
+
+    doc.RestoreCursor();  // savedCursor_ default-initialised to {0, 0}
+    REQUIRE(doc.GetCursor().col == 0);
+    REQUIRE(doc.GetCursor().line == 0);
+}
+
+TEST_CASE("given save on line 1 when RestoreCursor then cursor line is restored") {
+    MainScreenDocument doc;
+    doc.AppendInsertChar(U'A');
+    doc.NewLine();
+    doc.AppendInsertChar(U'B');
+    REQUIRE(doc.GetCursor().line == 1);
+    REQUIRE(doc.GetCursor().col == 1);
+
+    doc.SaveCursor();
+    doc.NewLine();
+    doc.AppendInsertChar(U'C');
+    REQUIRE(doc.GetCursor().line == 2);
+
+    doc.RestoreCursor();
+    REQUIRE(doc.GetCursor().line == 1);
+    REQUIRE(doc.GetCursor().col == 1);
+}
+
+TEST_CASE("given save then maxLines trimmed when RestoreCursor then savedCursor line does not underflow") {
+    // maxLines = 2 so that the third NewLine evicts the first line.
+    MainScreenDocument doc{2};
+    doc.AppendInsertChar(U'A');
+    doc.SaveCursor();   // saved at line 0, col 1
+    doc.NewLine();
+    doc.AppendInsertChar(U'B');
+    doc.NewLine();      // this push causes pop_front; savedCursor_.line decremented to 0
+    doc.AppendInsertChar(U'C');
+
+    // Must not crash or produce a negative (underflow) line index.
+    doc.RestoreCursor();
+    REQUIRE(doc.GetCursor().line == 0);
+}
