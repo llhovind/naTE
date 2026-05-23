@@ -47,7 +47,7 @@ for you.
 
 ### Session management
 - Auto-save and restore open sessions on launch
-- Named session snapshots ("Save Session As…")
+- Named workspaces ("Save Workspace As...")
 - Reconnect bar when a connection drops — resume without re-entering credentials
 
 ### SSH
@@ -140,10 +140,10 @@ some features may behave differently.
    in the same window. Open a second window any time with **Window → New Window**.
    You can also drag a tab between tiles or onto another window, and drag the blank
    area of a tile header to move the entire tile to a different window.
-6. Save your layout for next time: **Connection → Save Session As…**
+6. Save your workspace for next time: **Connection → Save Workspace As...**
 
-On the next launch, naTE restores your last session automatically. Named snapshots
-let you keep multiple layouts and switch between them.
+On the next launch, naTE restores your last workspace automatically. Named workspaces
+let you save and switch between multiple layouts.
 
 ---
 
@@ -161,7 +161,7 @@ immediately in open sessions.
 | Path | Contents |
 |---|---|
 | `~/.nate/connections.json` | Saved connection profiles |
-| `~/.nate/snapshots.json` | Named session snapshots |
+| `~/.nate/workspaces/` | Named workspaces |
 | `~/.nate/themes/` | Custom color themes |
 
 ### Custom themes

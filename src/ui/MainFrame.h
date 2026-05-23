@@ -80,9 +80,9 @@ private:
     void OnNewConnection(wxCommandEvent&);
     void OnNewConnectionInActiveTile(wxCommandEvent&);
     void OnConnectionManager(wxCommandEvent&);
-    void OnRestoreSessions(wxCommandEvent&);
-    void OnSaveAsSnapshot(wxCommandEvent&);
-    void OnOpenSnapshot(wxCommandEvent&);
+    void OnRestoreWorkspace(wxCommandEvent&);
+    void OnSaveAsWorkspace(wxCommandEvent&);
+    void OnOpenWorkspace(wxCommandEvent&);
     void OnTogglewrapMode(wxCommandEvent&);
     void OnToggleBroadcast(wxCommandEvent&);
     void OnWindowMenuItem(wxCommandEvent& evt);

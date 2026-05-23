@@ -1,7 +1,7 @@
 #include "app/App.h"
 #include "config/ColorScheme.h"
 #include "db/JsonConnectionRepository.h"
-#include "db/JsonNamedSnapshotRepository.h"
+#include "db/JsonNamedWorkspaceRepository.h"
 #include "db/JsonSessionRestoreRepository.h"
 #include "session/AppSessionDefaults.h"
 #include "session/RestoreState.h"
@@ -119,18 +119,18 @@ bool App::OnInit() {
 
     const std::string restorePath = NateDir() + "/session-restore.json";
     m_restoreRepo = std::make_unique<term::db::JsonSessionRestoreRepository>(restorePath);
-    m_namedRepo   = std::make_unique<term::db::JsonNamedSnapshotRepository>(NateDir() + "/snapshots");
+    m_namedRepo   = std::make_unique<term::db::JsonNamedWorkspaceRepository>(NateDir() + "/workspaces");
 
-    // Parse --no-restore / --restore-last-session CLI flags.
-    // --no-restore:            suppress restore even when config enables it.
-    // --restore-last-session:  force restore even when config disables it.
+    // Parse --no-restore / --restore-last-workspace CLI flags.
+    // --no-restore:              suppress restore even when config enables it.
+    // --restore-last-workspace:  force restore even when config disables it.
     // --no-restore takes precedence if both are supplied.
     bool noRestoreFlag    = false;
     bool forceRestoreFlag = false;
     for (int i = 1; i < argc; ++i) {
         const auto arg = argv[i].ToStdString();
-        if (arg == "--no-restore")            { noRestoreFlag    = true; }
-        else if (arg == "--restore-last-session") { forceRestoreFlag = true; }
+        if (arg == "--no-restore")               { noRestoreFlag    = true; }
+        else if (arg == "--restore-last-workspace") { forceRestoreFlag = true; }
     }
 
     const bool autoRestore = (m_cfg.autoRestoreSession || forceRestoreFlag)
@@ -146,7 +146,7 @@ bool App::OnInit() {
 
     if (m_cfg.sessionSaveInterval > 0) {
         m_saveTimer.Bind(wxEVT_TIMER, [this](wxTimerEvent&) {
-            SaveRestoreSnapshot();
+            SaveRestoreState();
         });
         m_saveTimer.Start(m_cfg.sessionSaveInterval * 1000);
     }
@@ -196,9 +196,9 @@ MainFrame* App::CreateNewWindow()
 
     wc->uiManager->SetOnBeforeCloseCallback([this]() {
         // Only save when this is the last window being closed (QuitAll handles
-        // the multi-window case by calling SaveRestoreSnapshot() before Close()).
+        // the multi-window case by calling SaveRestoreState() before Close()).
         if (m_windows.size() == 1)
-            SaveRestoreSnapshot();
+            SaveRestoreState();
     });
 
     frame->Bind(wxEVT_DESTROY, [this, frame](wxWindowDestroyEvent& evt) {
@@ -300,9 +300,9 @@ void App::QuitAll()
         }
     }
 
-    // Snapshot before any windows are closed (FireBeforeClose only handles the
-    // single-window case; QuitAll must save the full multi-window state here).
-    SaveRestoreSnapshot();
+    // Save restore state before any windows are closed (the single-window path
+    // is handled by the before-close callback; QuitAll must do it here).
+    SaveRestoreState();
 
     std::vector<MainFrame*> frames;
     frames.reserve(m_windows.size());
@@ -315,7 +315,7 @@ void App::QuitAll()
 void App::OnQueryEndSession(wxCloseEvent& event)
 {
     m_sessionManagerShutdown = true;
-    SaveRestoreSnapshot();
+    SaveRestoreState();
     event.Skip(); // do not veto — allow logout to proceed
 }
 
@@ -371,7 +371,7 @@ void App::ApplyPreferences(const AppConfig& cfg)
     }
 }
 
-bool App::HasRestoreSnapshot() const
+bool App::HasRestoreState() const
 {
     return m_restoreRepo && m_restoreRepo->HasSnapshot();
 }
@@ -413,7 +413,7 @@ term::session::RestoreState App::BuildCurrentState() const
     return state;
 }
 
-void App::SaveRestoreSnapshot()
+void App::SaveRestoreState()
 {
     if (!m_restoreRepo) return;
     m_restoreRepo->Save(BuildCurrentState());
@@ -455,7 +455,7 @@ void App::RestoreStateImpl(const term::session::RestoreState& state, MainFrame* 
     RebuildWindowMenus();
 }
 
-void App::RestoreSessionsFromMenu(MainFrame* callerFrame)
+void App::RestoreWorkspaceFromMenu(MainFrame* callerFrame)
 {
     if (!m_restoreRepo || !m_restoreRepo->HasSnapshot()) return;
 
@@ -470,38 +470,38 @@ void App::RestoreSessionsFromMenu(MainFrame* callerFrame)
             firstFrame = callerFrame;
     }
 
-    m_restoreRepo->Delete();  // Remove before restoring so snapshot reflects new state.
+    m_restoreRepo->Delete();  // Remove before restoring so restore state reflects new workspace.
     RestoreStateImpl(state, firstFrame);
 }
 
-bool App::HasNamedSnapshots() const
+bool App::HasNamedWorkspaces() const
 {
     return m_namedRepo && !m_namedRepo->List().empty();
 }
 
-std::vector<std::string> App::GetNamedSnapshotNames() const
+std::vector<std::string> App::GetNamedWorkspaceNames() const
 {
     return m_namedRepo ? m_namedRepo->List() : std::vector<std::string>{};
 }
 
-bool App::HasNamedSnapshot(const std::string& name) const
+bool App::HasNamedWorkspace(const std::string& name) const
 {
     return m_namedRepo && m_namedRepo->Exists(name);
 }
 
-void App::SaveNamedSnapshot(const std::string& name)
+void App::SaveNamedWorkspace(const std::string& name)
 {
     if (m_namedRepo)
         m_namedRepo->Save(name, BuildCurrentState());
 }
 
-void App::DeleteNamedSnapshot(const std::string& name)
+void App::DeleteNamedWorkspace(const std::string& name)
 {
     if (m_namedRepo)
         m_namedRepo->Delete(name);
 }
 
-void App::RestoreNamedSnapshot(const std::string& name, MainFrame* callerFrame)
+void App::RestoreNamedWorkspace(const std::string& name, MainFrame* callerFrame)
 {
     if (!m_namedRepo || !m_namedRepo->Exists(name)) return;
 
@@ -516,7 +516,7 @@ void App::RestoreNamedSnapshot(const std::string& name, MainFrame* callerFrame)
             firstFrame = callerFrame;
     }
 
-    // Named snapshots are persistent — NOT deleted after loading.
+    // Named workspaces are persistent — NOT deleted after loading.
     RestoreStateImpl(state, firstFrame);
 }
 

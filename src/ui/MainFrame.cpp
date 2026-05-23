@@ -5,7 +5,7 @@
 #include "ui/GeometryDialog.h"
 #include "ui/PreferencesDialog.h"
 #include "config/ColorScheme.h"
-#include "ui/SnapshotManagerDialog.h"
+#include "ui/WorkspaceManagerDialog.h"
 #include "ui/UIManager.h"
 #include "db/ConnectionProfile.h"
 #include "db/ConnectionStore.h"
@@ -37,15 +37,15 @@ namespace {
     constexpr int ID_RESET_AND_CLEAR         = wxID_HIGHEST + 25;
     constexpr int ID_SEND_FILES              = wxID_HIGHEST + 26;
     constexpr int ID_RECEIVE_FILES           = wxID_HIGHEST + 27;
-    constexpr int ID_RESTORE_SESSIONS        = wxID_HIGHEST + 28;
-    constexpr int ID_SAVE_AS_SNAPSHOT        = wxID_HIGHEST + 29;
-    constexpr int ID_OPEN_SNAPSHOT           = wxID_HIGHEST + 30;
+    constexpr int ID_RESTORE_WORKSPACE       = wxID_HIGHEST + 28;
+    constexpr int ID_SAVE_AS_WORKSPACE       = wxID_HIGHEST + 29;
+    constexpr int ID_OPEN_WORKSPACE          = wxID_HIGHEST + 30;
     constexpr int ID_ABOUT                   = wxID_HIGHEST + 31;
     constexpr int ID_PREFERENCES             = wxID_HIGHEST + 32;
     constexpr int ID_CLOSE_ALL_SESSIONS      = wxID_HIGHEST + 33;
     constexpr int ID_REFIT_WINDOW            = wxID_HIGHEST + 34;
 
-    static bool IsValidSnapshotName(const std::string& s)
+    static bool IsValidWorkspaceName(const std::string& s)
     {
         if (s.empty() || s.size() > 64) return false;
         return std::all_of(s.begin(), s.end(), [](unsigned char c) {
@@ -81,9 +81,9 @@ MainFrame::MainFrame(const AppConfig& cfg,
     m_connMenu->Append(ID_NEW_CONNECTION_IN_TILE, "New Connection in Tab\tCtrl+Shift+T");
     m_connMenu->Append(ID_CONNECTION_MANAGER,     "Connection Manager...\tCtrl+Shift+M");
     m_connMenu->AppendSeparator();
-    m_connMenu->Append(ID_RESTORE_SESSIONS,       "Restore Previous Session(s)\tCtrl+Shift+R");
-    m_connMenu->Append(ID_SAVE_AS_SNAPSHOT,       "Save Session As...");
-    m_connMenu->Append(ID_OPEN_SNAPSHOT,          "Open Saved Snapshot...");
+    m_connMenu->Append(ID_RESTORE_WORKSPACE,      "Restore Previous Workspace\tCtrl+Shift+R");
+    m_connMenu->Append(ID_SAVE_AS_WORKSPACE,      "Save Workspace As...");
+    m_connMenu->Append(ID_OPEN_WORKSPACE,         "Open Saved Workspaces...");
     m_connMenu->AppendSeparator();
     m_connMenu->Append(ID_CLOSE_ALL_SESSIONS,     "Close All Sessions");
     m_connMenu->Append(wxID_CLOSE,                "Close This Window\tCtrl+Shift+Q");
@@ -92,15 +92,15 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_MENU, &MainFrame::OnNewConnection,             this, ID_NEW_CONNECTION);
     Bind(wxEVT_MENU, &MainFrame::OnNewConnectionInActiveTile, this, ID_NEW_CONNECTION_IN_TILE);
     Bind(wxEVT_MENU, &MainFrame::OnConnectionManager,         this, ID_CONNECTION_MANAGER);
-    Bind(wxEVT_MENU, &MainFrame::OnRestoreSessions,           this, ID_RESTORE_SESSIONS);
+    Bind(wxEVT_MENU, &MainFrame::OnRestoreWorkspace,          this, ID_RESTORE_WORKSPACE);
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
-        e.Enable(static_cast<App*>(wxTheApp)->HasRestoreSnapshot());
-    }, ID_RESTORE_SESSIONS);
-    Bind(wxEVT_MENU, &MainFrame::OnSaveAsSnapshot,            this, ID_SAVE_AS_SNAPSHOT);
-    Bind(wxEVT_MENU, &MainFrame::OnOpenSnapshot,              this, ID_OPEN_SNAPSHOT);
+        e.Enable(static_cast<App*>(wxTheApp)->HasRestoreState());
+    }, ID_RESTORE_WORKSPACE);
+    Bind(wxEVT_MENU, &MainFrame::OnSaveAsWorkspace,           this, ID_SAVE_AS_WORKSPACE);
+    Bind(wxEVT_MENU, &MainFrame::OnOpenWorkspace,             this, ID_OPEN_WORKSPACE);
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
-        e.Enable(static_cast<App*>(wxTheApp)->HasNamedSnapshots());
-    }, ID_OPEN_SNAPSHOT);
+        e.Enable(static_cast<App*>(wxTheApp)->HasNamedWorkspaces());
+    }, ID_OPEN_WORKSPACE);
     Bind(wxEVT_MENU, &MainFrame::OnCloseAllSessions,          this, ID_CLOSE_ALL_SESSIONS);
     Bind(wxEVT_MENU, &MainFrame::OnCloseThisWindow,           this, wxID_CLOSE);
     Bind(wxEVT_MENU, &MainFrame::OnQuitAll,                   this, ID_QUIT_ALL);
@@ -345,47 +345,47 @@ void MainFrame::OnConnectionManager(wxCommandEvent&)
     dlg.ShowModal();
 }
 
-void MainFrame::OnRestoreSessions(wxCommandEvent&)
+void MainFrame::OnRestoreWorkspace(wxCommandEvent&)
 {
-    static_cast<App*>(wxTheApp)->RestoreSessionsFromMenu(this);
+    static_cast<App*>(wxTheApp)->RestoreWorkspaceFromMenu(this);
 }
 
-void MainFrame::OnSaveAsSnapshot(wxCommandEvent&)
+void MainFrame::OnSaveAsWorkspace(wxCommandEvent&)
 {
-    wxTextEntryDialog dlg(this, "Snapshot name:", "Save Session As");
+    wxTextEntryDialog dlg(this, "Workspace name:", "Save Workspace");
     if (dlg.ShowModal() != wxID_OK) return;
 
     const std::string name = dlg.GetValue().Strip(wxString::both).ToStdString();
-    if (!IsValidSnapshotName(name)) {
+    if (!IsValidWorkspaceName(name)) {
         wxMessageBox(
-            "Name must be 1–64 characters: letters, digits, spaces, hyphens, underscores.",
+            "Name must be 1-64 characters: letters, digits, spaces, hyphens, underscores.",
             "Invalid Name", wxOK | wxICON_WARNING, this);
         return;
     }
 
     auto* app = static_cast<App*>(wxTheApp);
-    if (app->HasNamedSnapshot(name)) {
-        if (wxMessageBox("Overwrite existing snapshot '" + name + "'?",
+    if (app->HasNamedWorkspace(name)) {
+        if (wxMessageBox("Overwrite existing workspace '" + name + "'?",
                          "Confirm", wxYES_NO | wxICON_QUESTION, this) != wxYES)
             return;
     }
-    app->SaveNamedSnapshot(name);
+    app->SaveNamedWorkspace(name);
 }
 
-void MainFrame::OnOpenSnapshot(wxCommandEvent&)
+void MainFrame::OnOpenWorkspace(wxCommandEvent&)
 {
     auto* app = static_cast<App*>(wxTheApp);
-    const auto names = app->GetNamedSnapshotNames();
+    const auto names = app->GetNamedWorkspaceNames();
     if (names.empty()) return;
 
-    ui::SnapshotManagerDialog dlg(this, names);
+    ui::WorkspaceManagerDialog dlg(this, names);
     const int result = dlg.ShowModal();
 
     for (const auto& n : dlg.GetDeletedNames())
-        app->DeleteNamedSnapshot(n);
+        app->DeleteNamedWorkspace(n);
 
     if (result == wxID_OK)
-        app->RestoreNamedSnapshot(dlg.GetSelectedName(), this);
+        app->RestoreNamedWorkspace(dlg.GetSelectedName(), this);
 }
 
 void MainFrame::OnTogglewrapMode(wxCommandEvent&)

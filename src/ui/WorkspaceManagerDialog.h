@@ -8,9 +8,9 @@ class wxListBox;
 
 namespace ui {
 
-class SnapshotManagerDialog : public wxDialog {
+class WorkspaceManagerDialog : public wxDialog {
 public:
-    SnapshotManagerDialog(wxWindow* parent, std::vector<std::string> names);
+    WorkspaceManagerDialog(wxWindow* parent, std::vector<std::string> names);
 
     std::string              GetSelectedName() const;
     std::vector<std::string> GetDeletedNames() const { return m_deletedNames; }

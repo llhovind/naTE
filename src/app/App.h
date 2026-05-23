@@ -6,7 +6,7 @@
 #include <vector>
 #include "config/Config.h"
 #include "db/ConnectionStore.h"
-#include "db/INamedSnapshotRepository.h"
+#include "db/INamedWorkspaceRepository.h"
 #include "db/ISessionRestoreRepository.h"
 #include "input/InputRouter.h"
 #include "session/Connection.h"
@@ -51,17 +51,17 @@ public:
     // Notifies all open windows to rebuild their Window menu.
     void RebuildWindowMenus();
 
-    // Returns true if a valid session restore snapshot exists.
-    bool HasRestoreSnapshot() const;
+    // Returns true if a valid auto-restore state exists.
+    bool HasRestoreState() const;
 
-    // Saves the current session layout as a restore snapshot.
+    // Saves the current workspace as the auto-restore state.
     // Safe to call from any context (timer, close hook, or menu).
-    void SaveRestoreSnapshot();
+    void SaveRestoreState();
 
-    // Called from the "Restore Previous Session(s)" menu item.
+    // Called from the "Restore Previous Workspace" menu item.
     // callerFrame is the frame that triggered the action; it will be reused
     // as the first restored window if it currently has no sessions.
-    void RestoreSessionsFromMenu(MainFrame* callerFrame);
+    void RestoreWorkspaceFromMenu(MainFrame* callerFrame);
 
     // Returns the absolute path to config.ini used at startup.
     const std::string& GetConfigPath() const { return m_configPath; }
@@ -73,14 +73,14 @@ public:
     // New connections and tiles will use the updated settings.
     void ApplyPreferences(const AppConfig& cfg);
 
-    // Named snapshot operations (Save Session As… / Open Saved Snapshot…).
-    bool                     HasNamedSnapshots()                           const;
-    std::vector<std::string> GetNamedSnapshotNames()                       const;
-    bool                     HasNamedSnapshot(const std::string& name)     const;
-    void                     SaveNamedSnapshot(const std::string& name);
-    void                     RestoreNamedSnapshot(const std::string& name,
-                                                  MainFrame* callerFrame);
-    void                     DeleteNamedSnapshot(const std::string& name);
+    // Named workspace operations (Save Workspace As… / Open Saved Workspaces…).
+    bool                     HasNamedWorkspaces()                           const;
+    std::vector<std::string> GetNamedWorkspaceNames()                       const;
+    bool                     HasNamedWorkspace(const std::string& name)     const;
+    void                     SaveNamedWorkspace(const std::string& name);
+    void                     RestoreNamedWorkspace(const std::string& name,
+                                                   MainFrame* callerFrame);
+    void                     DeleteNamedWorkspace(const std::string& name);
 
 private:
     struct WindowContext {
@@ -111,7 +111,7 @@ private:
     std::unique_ptr<term::db::ConnectionStore>          m_connectionStore;
     std::unique_ptr<term::session::SessionManager>      m_sessionManager;
     std::unique_ptr<term::db::ISessionRestoreRepository> m_restoreRepo;
-    std::unique_ptr<term::db::INamedSnapshotRepository>  m_namedRepo;
+    std::unique_ptr<term::db::INamedWorkspaceRepository>  m_namedRepo;
     wxTimer                                             m_saveTimer;
     std::vector<std::unique_ptr<WindowContext>>        m_windows;
     int                                                m_instanceId           = 0;

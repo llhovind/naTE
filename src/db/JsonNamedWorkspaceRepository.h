@@ -1,12 +1,12 @@
 #pragma once
-#include "db/INamedSnapshotRepository.h"
+#include "db/INamedWorkspaceRepository.h"
 #include <string>
 
 namespace term::db {
 
-class JsonNamedSnapshotRepository : public INamedSnapshotRepository {
+class JsonNamedWorkspaceRepository : public INamedWorkspaceRepository {
 public:
-    explicit JsonNamedSnapshotRepository(std::string dir);
+    explicit JsonNamedWorkspaceRepository(std::string dir);
 
     std::vector<std::string>    List()                                          const override;
     bool                        Exists(const std::string& name)                 const override;

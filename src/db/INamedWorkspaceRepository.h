@@ -5,9 +5,9 @@
 
 namespace term::db {
 
-class INamedSnapshotRepository {
+class INamedWorkspaceRepository {
 public:
-    virtual ~INamedSnapshotRepository() = default;
+    virtual ~INamedWorkspaceRepository() = default;
 
     virtual std::vector<std::string>    List()                                          const = 0;
     virtual bool                        Exists(const std::string& name)                 const = 0;

@@ -32,7 +32,7 @@ public:
     wxSize ComputeIdealGridSize() const;
 
     // Returns tiles in insertion order (left-to-right, top-to-bottom under the
-    // current layout). Used by App::SaveRestoreSnapshot to enumerate the layout.
+    // current layout). Used by App::SaveRestoreState to enumerate the layout.
     const std::vector<TerminalTile*>& GetTiles() const { return tiles_; }
 
     static constexpr int kGap = 2;  // px between tiles

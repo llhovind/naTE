@@ -1,4 +1,4 @@
-#include "ui/SnapshotManagerDialog.h"
+#include "ui/WorkspaceManagerDialog.h"
 #include <wx/button.h>
 #include <wx/listbox.h>
 #include <wx/msgdlg.h>
@@ -6,8 +6,8 @@
 
 namespace ui {
 
-SnapshotManagerDialog::SnapshotManagerDialog(wxWindow* parent, std::vector<std::string> names)
-    : wxDialog(parent, wxID_ANY, "Open Saved Snapshot",
+WorkspaceManagerDialog::WorkspaceManagerDialog(wxWindow* parent, std::vector<std::string> names)
+    : wxDialog(parent, wxID_ANY, "Open Saved Workspaces",
                wxDefaultPosition, wxSize(380, 280))
 {
     wxArrayString items;
@@ -35,37 +35,37 @@ SnapshotManagerDialog::SnapshotManagerDialog(wxWindow* parent, std::vector<std::
 
     SetSizer(sizer);
 
-    m_listBox->Bind(wxEVT_LISTBOX,  &SnapshotManagerDialog::OnSelectionChanged, this);
-    m_loadBtn->Bind(wxEVT_BUTTON,   &SnapshotManagerDialog::OnLoad,             this);
-    m_deleteBtn->Bind(wxEVT_BUTTON, &SnapshotManagerDialog::OnDelete,           this);
+    m_listBox->Bind(wxEVT_LISTBOX,  &WorkspaceManagerDialog::OnSelectionChanged, this);
+    m_loadBtn->Bind(wxEVT_BUTTON,   &WorkspaceManagerDialog::OnLoad,             this);
+    m_deleteBtn->Bind(wxEVT_BUTTON, &WorkspaceManagerDialog::OnDelete,           this);
 }
 
-std::string SnapshotManagerDialog::GetSelectedName() const
+std::string WorkspaceManagerDialog::GetSelectedName() const
 {
     const int sel = m_listBox->GetSelection();
     if (sel == wxNOT_FOUND) return {};
     return m_listBox->GetString(sel).ToStdString();
 }
 
-void SnapshotManagerDialog::OnSelectionChanged(wxCommandEvent&)
+void WorkspaceManagerDialog::OnSelectionChanged(wxCommandEvent&)
 {
     const bool hasSel = m_listBox->GetSelection() != wxNOT_FOUND;
     m_loadBtn->Enable(hasSel);
     m_deleteBtn->Enable(hasSel);
 }
 
-void SnapshotManagerDialog::OnLoad(wxCommandEvent&)
+void WorkspaceManagerDialog::OnLoad(wxCommandEvent&)
 {
     if (m_listBox->GetSelection() != wxNOT_FOUND)
         EndModal(wxID_OK);
 }
 
-void SnapshotManagerDialog::OnDelete(wxCommandEvent&)
+void WorkspaceManagerDialog::OnDelete(wxCommandEvent&)
 {
     const int sel = m_listBox->GetSelection();
     if (sel == wxNOT_FOUND) return;
     const std::string name = m_listBox->GetString(sel).ToStdString();
-    if (wxMessageBox("Delete snapshot '" + name + "'?",
+    if (wxMessageBox("Delete workspace '" + name + "'?",
                      "Confirm Delete", wxYES_NO | wxICON_QUESTION, this) != wxYES)
         return;
     m_deletedNames.push_back(name);

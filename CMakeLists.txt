@@ -141,7 +141,7 @@ set(SOURCES
     src/ui/KbdIntDialog.cpp
     src/ui/PasteConfirmDialog.cpp
     src/ui/RemoteFileBrowserDialog.cpp
-    src/ui/SnapshotManagerDialog.cpp
+    src/ui/WorkspaceManagerDialog.cpp
     src/ui/GeometryDialog.cpp
     src/ui/PreferencesDialog.cpp
     src/ui/TerminalPanel.cpp
@@ -161,7 +161,7 @@ set(SOURCES
     src/ui/SelectionActions.cpp
     src/db/JsonConnectionRepository.cpp
     src/db/JsonSessionRestoreRepository.cpp
-    src/db/JsonNamedSnapshotRepository.cpp
+    src/db/JsonNamedWorkspaceRepository.cpp
     src/db/ConnectionStore.cpp
     src/ui/AboutDialog.cpp
 )
