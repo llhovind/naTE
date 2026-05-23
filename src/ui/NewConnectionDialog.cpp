@@ -721,6 +721,24 @@ NewConnectionDialog::NewConnectionDialog(
 }
 
 // ---------------------------------------------------------------------------
+// Destructor
+// ---------------------------------------------------------------------------
+NewConnectionDialog::~NewConnectionDialog()
+{
+    // m_hostDetectTimer is heap-allocated (new wxTimer(this)) so it is not
+    // destroyed automatically with the dialog. Stop it first so the pending
+    // GTK timeout source is removed; then delete it. Without this, a 600 ms
+    // debounce that was still counting down when the user clicked Connect would
+    // fire after the dialog is freed and dereference the dead owner pointer,
+    // causing a segfault in wxTimer::Notify → m_owner->ProcessEvent.
+    if (m_hostDetectTimer) {
+        m_hostDetectTimer->Stop();
+        delete m_hostDetectTimer;
+        m_hostDetectTimer = nullptr;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ApplyPrefill
 // ---------------------------------------------------------------------------
 void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profile)

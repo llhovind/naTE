@@ -147,6 +147,7 @@ public:
                         const std::vector<term::db::ConnectionProfile>& existingProfiles,
                         LaunchContext context,
                         const term::db::ConnectionProfile* prefill = nullptr);
+    ~NewConnectionDialog();
 
     // Valid only after ShowModal() == wxID_OK
     ConnectionParams GetParams()           const;
