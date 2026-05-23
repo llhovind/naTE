@@ -118,16 +118,19 @@ bool App::OnInit() {
     m_restoreRepo = std::make_unique<term::db::JsonSessionRestoreRepository>(restorePath);
     m_namedRepo   = std::make_unique<term::db::JsonNamedSnapshotRepository>(NateDir() + "/snapshots");
 
-    // Parse --no-restore CLI flag (overrides AutoRestoreSession in config).
-    bool noRestoreFlag = false;
+    // Parse --no-restore / --restore-last-session CLI flags.
+    // --no-restore:            suppress restore even when config enables it.
+    // --restore-last-session:  force restore even when config disables it.
+    // --no-restore takes precedence if both are supplied.
+    bool noRestoreFlag    = false;
+    bool forceRestoreFlag = false;
     for (int i = 1; i < argc; ++i) {
-        if (argv[i].ToStdString() == "--no-restore") {
-            noRestoreFlag = true;
-            break;
-        }
+        const auto arg = argv[i].ToStdString();
+        if (arg == "--no-restore")            { noRestoreFlag    = true; }
+        else if (arg == "--restore-last-session") { forceRestoreFlag = true; }
     }
 
-    const bool autoRestore = m_cfg.autoRestoreSession
+    const bool autoRestore = (m_cfg.autoRestoreSession || forceRestoreFlag)
                              && !noRestoreFlag
                              && m_restoreRepo->HasSnapshot();
     if (!autoRestore) {
