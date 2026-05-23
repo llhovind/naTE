@@ -66,6 +66,10 @@ public:
     // Trigger a short visual bell flash. Safe to call from the UI thread only.
     void Flash();
 
+    // Called when the session receives ESC[?25l (hidden=true) or ESC[?25h (hidden=false).
+    // Takes priority over the blink timer; blink resumes from the visible state.
+    void SetCursorHiddenByApp(bool hidden);
+
     // Reconnect bar — shown when the session transport is interrupted.
     // UIManager wires the callbacks; the panel owns the bar as a wx child.
     void ShowReconnectBar(const wxString& message);
@@ -151,6 +155,7 @@ private:
     bool m_broadcastModeActive_ = false;
     bool m_flashing_            = false;
     bool m_cursorVisible_       = true;
+    bool m_cursorHiddenByApp_   = false;
     wxTimer m_flashTimer_;
     wxTimer m_blinkTimer_;
 

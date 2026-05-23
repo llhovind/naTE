@@ -36,6 +36,11 @@ public:
     virtual void OnBell(SessionId) {}
 
     // Session thread — implementations MUST CallAfter before touching wx.
+    // Fired on ESC[?25l (visible=false) and ESC[?25h (visible=true), and on
+    // any terminal reset that restores the cursor.
+    virtual void OnCursorVisibilityChanged(SessionId, bool /*visible*/) {}
+
+    // Session thread — implementations MUST CallAfter before touching wx.
     // Fired once when X11 forwarding becomes active on the SSH channel.
     virtual void OnX11FwdChanged(SessionId, bool /*active*/) {}
 

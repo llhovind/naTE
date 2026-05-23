@@ -38,7 +38,8 @@ public:
             std::function<void(bool)> onX11FwdChanged = {},
             std::function<std::vector<std::string>(
                 const transport::KbdIntChallenge&)> onKbdIntChallenge = {},
-            std::function<void()> onBell = {});
+            std::function<void()> onBell = {},
+            std::function<void(bool)> onCursorVisibilityChanged = {});
     ~Session();
 
     // Stops the transport I/O thread synchronously. Safe to call multiple
@@ -72,6 +73,7 @@ public:
     void OnSetBracketedPaste(bool enabled)           override;
     void OnDeviceStatusReport(int param)             override;
     void OnBell()                                    override;
+    void OnSetCursorVisibility(bool visible)         override;
 
     // transport::ITransportTarget
     void OnData(const std::string& data) override;
@@ -144,12 +146,14 @@ private:
     std::function<std::vector<std::string>(
         const transport::KbdIntChallenge&)>                  onKbdIntChallenge_;
     std::function<void()>                                    onBell_;
+    std::function<void(bool)>                                onCursorVisibilityChanged_;
 
     unsigned short     lastCols_{0};
     unsigned short     lastRows_{0};
     unsigned short     ptyLineWidth_{1024};
     bool               altScreenActive_{false};
     bool               bracketedPaste_{false};
+    bool               cursorVisible_{true};
     SessionStatus      status_{SessionStatus::Connected};
     std::vector<IDocumentListener*> externalListeners_;
 };

@@ -45,7 +45,8 @@ Session::Session(const Connection& conn,
                  std::function<void(bool)> onX11FwdChanged,
                  std::function<std::vector<std::string>(
                      const transport::KbdIntChallenge&)> onKbdIntChallenge,
-                 std::function<void()> onBell)
+                 std::function<void()> onBell,
+                 std::function<void(bool)> onCursorVisibilityChanged)
     : transport_(MakeTransport(*this, conn, wrapMode ? cols : ptyLineWidth, rows, cols, appDefaults)),
       main_doc_(std::make_unique<MainScreenDocument>(scrollbackLines)),
       alt_doc_(std::make_unique<AltScreenDocument>(rows, cols)),
@@ -58,6 +59,7 @@ Session::Session(const Connection& conn,
       onX11FwdChanged_(std::move(onX11FwdChanged)),
       onKbdIntChallenge_(std::move(onKbdIntChallenge)),
       onBell_(std::move(onBell)),
+      onCursorVisibilityChanged_(std::move(onCursorVisibilityChanged)),
       lastCols_(cols),
       lastRows_(rows),
       ptyLineWidth_(ptyLineWidth)
@@ -174,6 +176,10 @@ void Session::ResetTerminal(bool clearScrollback)
     alt_doc_->FullReset(false);
     parser_.Reset();
     transport_->SendResetSequence();
+    if (!cursorVisible_) {
+        cursorVisible_ = true;
+        if (onCursorVisibilityChanged_) onCursorVisibilityChanged_(true);
+    }
 }
 
 void Session::OnSetApplicationCursorKeys(bool enabled)
@@ -194,6 +200,13 @@ void Session::OnDeviceStatusReport(int param)
 void Session::OnBell()
 {
     if (onBell_) onBell_();
+}
+
+void Session::OnSetCursorVisibility(bool visible)
+{
+    if (cursorVisible_ == visible) return;
+    cursorVisible_ = visible;
+    if (onCursorVisibilityChanged_) onCursorVisibilityChanged_(visible);
 }
 
 void Session::OnResetTerminal()
@@ -222,6 +235,11 @@ void Session::OnResetTerminal()
 
     const int ptyCols = docLayout_->GetWrapMode() ? lastCols_ : ptyLineWidth_;
     transport_->Resize(static_cast<unsigned short>(ptyCols), lastRows_);
+
+    if (!cursorVisible_) {
+        cursorVisible_ = true;
+        if (onCursorVisibilityChanged_) onCursorVisibilityChanged_(true);
+    }
 
     // parser_.Reset() is called by HandleEscape immediately after this returns
 }

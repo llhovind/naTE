@@ -224,6 +224,15 @@ void UIManager::OnBell(term::session::SessionId id)
     });
 }
 
+void UIManager::OnCursorVisibilityChanged(term::session::SessionId id, bool visible)
+{
+    frame_->CallAfter([this, id, visible]() {
+        SessionUI* sui = FindSessionUI(id);
+        if (!sui || !sui->panel) return;
+        sui->panel->SetCursorHiddenByApp(!visible);
+    });
+}
+
 std::vector<std::string> UIManager::OnKbdIntChallenge(
     term::session::SessionId /*id*/,
     const term::transport::KbdIntChallenge& challenge)

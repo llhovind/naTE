@@ -53,6 +53,7 @@ public:
     void OnAltScreenChanged(term::session::SessionId, bool active) override;
     void OnX11FwdChanged(term::session::SessionId, bool active) override;
     void OnBell(term::session::SessionId) override;
+    void OnCursorVisibilityChanged(term::session::SessionId, bool visible) override;
     std::vector<std::string> OnKbdIntChallenge(
         term::session::SessionId,
         const term::transport::KbdIntChallenge& challenge) override;

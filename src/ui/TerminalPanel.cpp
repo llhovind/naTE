@@ -429,6 +429,13 @@ void TerminalPanel::Flash()
     m_flashTimer_.StartOnce(150);
 }
 
+void TerminalPanel::SetCursorHiddenByApp(bool hidden)
+{
+    if (m_cursorHiddenByApp_ == hidden) return;
+    m_cursorHiddenByApp_ = hidden;
+    Refresh();
+}
+
 void TerminalPanel::OnFlashTimer(wxTimerEvent&)
 {
     m_flashing_ = false;
@@ -927,7 +934,7 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
         }
         flushRun(runStart, textLen);
 
-        if (row.hasCursor && m_cursorVisible_) {
+        if (row.hasCursor && m_cursorVisible_ && !m_cursorHiddenByApp_) {
             const int cx = row.cursorCol * cw + m_cfg.padding;
             const int cy = rowY;
             const wxColour cursorWx(m_cfg.cursorColour.r,

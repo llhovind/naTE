@@ -662,3 +662,97 @@ TEST_CASE("given useProfileTitle=true but empty profileTitle when MakeTitleGette
 
     sm.CloseSession(id);
 }
+
+// ---------------------------------------------------------------------------
+// Cursor visibility (DECTCEM — ESC[?25l / ESC[?25h)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given DECTCEM hide sequence when processed then onCursorVisibilityChanged fires with false")
+{
+    bool fired = false;
+    bool firedValue = true;
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {}, {}, {}, 1024, false, {}, {}, {}, {},
+                    [&](bool v) { fired = true; firedValue = v; });
+
+    session.OnData("\033[?25l");   // ESC[?25l — hide cursor
+
+    CHECK(fired);
+    CHECK(firedValue == false);
+}
+
+TEST_CASE("given DECTCEM hide then show sequence when processed then onCursorVisibilityChanged fires true on restore")
+{
+    // Hide first, then show — callback must fire for the restore.
+    int callCount = 0;
+    bool lastValue = true;
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {}, {}, {}, 1024, false, {}, {}, {}, {},
+                    [&](bool v) { ++callCount; lastValue = v; });
+
+    session.OnData("\033[?25l");   // hide
+    session.OnData("\033[?25h");   // show
+
+    CHECK(callCount == 2);
+    CHECK(lastValue == true);
+}
+
+TEST_CASE("given DECTCEM show when cursor already visible then onCursorVisibilityChanged does not fire")
+{
+    int callCount = 0;
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {}, {}, {}, 1024, false, {}, {}, {}, {},
+                    [&](bool) { ++callCount; });
+
+    // Cursor starts visible — sending ESC[?25h again should be a no-op.
+    session.OnData("\033[?25h");
+
+    CHECK(callCount == 0);
+}
+
+TEST_CASE("given cursor hidden when ResetTerminal called then onCursorVisibilityChanged fires with true")
+{
+    bool fired = false;
+    bool firedValue = false;
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {}, {}, {}, 1024, false, {}, {}, {}, {},
+                    [&](bool v) { fired = true; firedValue = v; });
+
+    session.OnData("\033[?25l");   // hide cursor
+    fired = false;                 // reset flag after the hide callback
+
+    session.ResetTerminal(false);
+
+    CHECK(fired);
+    CHECK(firedValue == true);
+}
+
+TEST_CASE("given cursor hidden when ResetTerminal with clearScrollback called then onCursorVisibilityChanged fires with true")
+{
+    bool fired = false;
+    bool firedValue = false;
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {}, {}, {}, 1024, false, {}, {}, {}, {},
+                    [&](bool v) { fired = true; firedValue = v; });
+
+    session.OnData("\033[?25l");
+    fired = false;
+
+    session.ResetTerminal(true);
+
+    CHECK(fired);
+    CHECK(firedValue == true);
+}
+
+TEST_CASE("given cursor visible when ResetTerminal called then onCursorVisibilityChanged does not fire")
+{
+    int callCount = 0;
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 80, 24, {}, {}, {}, 1024, false, {}, {}, {}, {},
+                    [&](bool) { ++callCount; });
+
+    // Cursor already visible — reset should not fire a redundant notification.
+    session.ResetTerminal(false);
+
+    CHECK(callCount == 0);
+}

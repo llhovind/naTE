@@ -84,6 +84,10 @@ SessionId SessionManager::CreateSession(const Connection& conn,
         [uiObs, id]() {
             if (auto* obs = uiObs->load(std::memory_order_acquire))
                 obs->OnBell(id);
+        },
+        [uiObs, id](bool visible) {
+            if (auto* obs = uiObs->load(std::memory_order_acquire))
+                obs->OnCursorVisibilityChanged(id, visible);
         });
 
     sessions_.emplace(id, std::move(rec));
