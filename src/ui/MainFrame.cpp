@@ -10,6 +10,7 @@
 #include "db/ConnectionProfile.h"
 #include "db/ConnectionStore.h"
 #include "app/App.h"
+#include <wx/fontdlg.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/textdlg.h>
@@ -477,7 +478,25 @@ void MainFrame::OnSetGeometryCustom(wxCommandEvent&)
     if (dlg.ShowModal() == wxID_OK)
         m_uiManager->SetGeometryForActive(dlg.GetCols(), dlg.GetRows());
 }
-void MainFrame::OnSetFont(wxCommandEvent&)               { NotYetImplemented(); }
+void MainFrame::OnSetFont(wxCommandEvent&)
+{
+    wxFontData data;
+    data.SetAllowSymbols(false);
+    data.SetInitialFont(wxFont(m_cfg.fontSize,
+                               wxFONTFAMILY_TELETYPE,
+                               wxFONTSTYLE_NORMAL,
+                               wxFONTWEIGHT_NORMAL,
+                               false,
+                               wxString::FromUTF8(m_cfg.fontFamily)));
+    wxFontDialog dlg(this, data);
+    if (dlg.ShowModal() != wxID_OK) return;
+
+    const wxFont selected = dlg.GetFontData().GetChosenFont();
+    AppConfig newCfg      = m_cfg;
+    newCfg.fontFamily     = selected.GetFaceName().ToStdString();
+    newCfg.fontSize       = selected.GetPointSize();
+    static_cast<App*>(wxTheApp)->ApplyPreferences(newCfg);
+}
 void MainFrame::OnResetTerminal(wxCommandEvent&)
 {
     if (m_uiManager) m_uiManager->ResetActiveTerminal();
