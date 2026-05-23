@@ -992,8 +992,8 @@ void UIManager::SetupEditMenu(wxMenu* menu)
         if (!text.empty()) WebSearchAction(cfg_.webSearchUrl).Execute(text);
     }, kEditMenuWebSearch);
 
-    frame_->Bind(wxEVT_MENU, [](wxCommandEvent&) {
-        wxMessageBox("Not yet implemented", "naTE", wxOK | wxICON_INFORMATION);
+    frame_->Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        SaveActiveSessionToFile();
     }, kEditMenuSaveSessionFile);
 
     const auto enableIfSelection = [this](wxUpdateUIEvent& e) {

@@ -453,11 +453,6 @@ void MainFrame::ActivateSession(term::session::SessionId id)
         m_uiManager->RequestActivate(id);
 }
 
-void MainFrame::NotYetImplemented()
-{
-    wxMessageBox("Not yet implemented", "naTE", wxOK | wxICON_INFORMATION);
-}
-
 void MainFrame::OnSetGeometry80x24(wxCommandEvent&)
 {
     if (m_uiManager) m_uiManager->SetGeometryForActive(80, 24);

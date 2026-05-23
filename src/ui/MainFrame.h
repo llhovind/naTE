@@ -90,8 +90,6 @@ private:
 
     void OnPreferences(wxCommandEvent&);
 
-    // Stub handlers — display "Not yet implemented" until wired up.
-    void NotYetImplemented();
     void OnSetGeometry80x24(wxCommandEvent&);
     void OnSetGeometry132x24(wxCommandEvent&);
     void OnSetGeometryCustom(wxCommandEvent&);
