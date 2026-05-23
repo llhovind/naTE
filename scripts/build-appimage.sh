@@ -34,15 +34,17 @@ LINUXDEPLOY_GTK="$(find_or_download linuxdeploy-plugin-gtk.sh "${LINUXDEPLOY_GTK
 export PATH="$(dirname "${LINUXDEPLOY_GTK}"):${PATH}"
 
 needs_configure=true
-if [[ "${1:-}" == "--skip-configure" ]] && [[ -f "${BUILD_DIR}/build.ninja" || -f "${BUILD_DIR}/Makefile" ]]; then
+if [[ "${1:-}" == "--skip-configure" ]] && [[ -f "${BUILD_DIR}/build.ninja" ]]; then
     needs_configure=false
 fi
 
 if $needs_configure; then
+    if [[ -f "${BUILD_DIR}/CMakeCache.txt" ]] && ! grep -q "^CMAKE_GENERATOR:INTERNAL=Ninja$" "${BUILD_DIR}/CMakeCache.txt"; then
+        echo "==> Removing stale build directory (generator mismatch)..."
+        rm -rf "${BUILD_DIR}"
+    fi
     echo "==> Configuring..."
-    cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX=/usr
+    (cd "${PROJECT_ROOT}" && cmake --preset appimage)
 fi
 
 echo "==> Building..."
