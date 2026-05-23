@@ -99,6 +99,10 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
                 else                         cfg.cursorStyle = CursorStyle::Block;
             }
             else if (key == "CursorBlink") cfg.cursorBlink = (val == "true" || val == "1");
+            else if (key == "TileLayout") {
+                if (val == "ColumnFirst") cfg.tileLayout = TileLayout::ColumnFirst;
+                else                      cfg.tileLayout = TileLayout::RowFirst;
+            }
         } else if (sec == "Behavior") {
             if      (key == "Encoding"      && !val.empty()) cfg.encoding     = val;
             else if (key == "WebSearchUrl"  && !val.empty()) cfg.webSearchUrl = val;
@@ -164,6 +168,7 @@ void AppConfig::save(const std::string& configPath) const
     std::ofstream f(configPath, std::ios::trunc);
     if (!f.is_open()) return;
 
+    const char* tileLayoutStr = (tileLayout == TileLayout::ColumnFirst) ? "ColumnFirst" : "RowFirst";
     const char* cursorStyleStr = [&]() -> const char* {
         switch (cursorStyle) {
             case CursorStyle::Bar:       return "Bar";
@@ -185,6 +190,7 @@ void AppConfig::save(const std::string& configPath) const
       << "Padding="     << padding                          << "\n"
       << "CursorStyle=" << cursorStyleStr                   << "\n"
       << "CursorBlink=" << (cursorBlink ? "true" : "false") << "\n"
+      << "TileLayout="  << tileLayoutStr                    << "\n"
       << "\n"
       << "[Behavior]\n"
       << "Encoding="     << encoding                          << "\n"

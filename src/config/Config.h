@@ -10,6 +10,7 @@ struct GeometryPreset {
     unsigned short rows = 24;
 };
 
+enum class TileLayout  { RowFirst, ColumnFirst };
 enum class CursorStyle { Block, Bar, Underline };
 enum class BellMode    { None, Visual, Audible };
 
@@ -53,9 +54,10 @@ struct AppConfig {
     std::vector<GeometryPreset> geometryPresets = {{80, 24}, {132, 24}};
 
     // [Appearance]
-    std::string fontFamily = "";       // empty = system monospace
-    int         padding    = 4;        // px inset around terminal canvas
-    std::string themeName  = "solarized-dark";  // stem of theme file
+    std::string fontFamily  = "";              // empty = system monospace
+    int         padding     = 4;              // px inset around terminal canvas
+    std::string themeName   = "solarized-dark";  // stem of theme file
+    TileLayout  tileLayout  = TileLayout::RowFirst;
 
     // [Behavior]
     std::string encoding      = "UTF-8";

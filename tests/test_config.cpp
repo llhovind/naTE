@@ -279,6 +279,41 @@ TEST_CASE("given AppConfig with copyOnSelect=true when saved and reloaded then f
     REQUIRE(loaded.copyOnSelect == true);
 }
 
+TEST_CASE("given ini with TileLayout=ColumnFirst when loaded then tileLayout is ColumnFirst")
+{
+    const TempIni ini{"[Appearance]\nTileLayout=ColumnFirst\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.tileLayout == TileLayout::ColumnFirst);
+}
+
+TEST_CASE("given ini with TileLayout=RowFirst when loaded then tileLayout is RowFirst")
+{
+    const TempIni ini{"[Appearance]\nTileLayout=RowFirst\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.tileLayout == TileLayout::RowFirst);
+}
+
+TEST_CASE("given ini with unknown TileLayout value when loaded then tileLayout defaults to RowFirst")
+{
+    const TempIni ini{"[Appearance]\nTileLayout=Mosaic\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.tileLayout == TileLayout::RowFirst);
+}
+
+TEST_CASE("given AppConfig with tileLayout=ColumnFirst when saved and reloaded then round-trips")
+{
+    AppConfig original;
+    original.tileLayout = TileLayout::ColumnFirst;
+
+    const auto savePath = (std::filesystem::temp_directory_path()
+                           / "nate_test_tilelayout.ini").string();
+    original.save(savePath);
+    const auto loaded = AppConfig::load(savePath);
+    std::filesystem::remove(savePath);
+
+    REQUIRE(loaded.tileLayout == TileLayout::ColumnFirst);
+}
+
 TEST_CASE("given AppConfig when saved and reloaded with themes dir then all fields round-trip")
 {
     const TempThemeDir themes;

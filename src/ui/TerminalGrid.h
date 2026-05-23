@@ -1,10 +1,10 @@
 #pragma once
+#include "config/Config.h"
+#include <limits>
 #include <vector>
 #include <wx/scrolwin.h>
 
 class TerminalTile;
-
-enum class GridDirection { RowFirst, ColumnFirst };
 
 class TerminalGrid : public wxScrolledWindow {
 public:
@@ -20,16 +20,22 @@ public:
     void SetActiveTile(TerminalTile* tile);
 
     // Changes the fill axis and reflows immediately.
-    void SetDirection(GridDirection dir);
+    void      SetDirection(TileLayout dir);
+    TileLayout GetDirection() const { return direction_; }
 
     // Returns the column count for N tiles using the balanced-grid strategy
-    // (cols = ceil(sqrt(N))). Single source of truth for layout and sizing.
+    // (cols = ceil(sqrt(N))). Used by RowFirst layout and sizing.
     static int ComputeGridColumns(int n);
 
     // Returns the pixel content size needed to display all current tiles at
     // their min size under the active layout strategy. Used by UIManager to
     // resize the frame after tiles are added.
-    wxSize ComputeIdealGridSize() const;
+    //
+    // For ColumnFirst, maxHeight constrains the column height so the simulation
+    // matches what RelayoutTiles() will actually produce on screen.  Pass the
+    // display work-area client height; defaults to unconstrained.
+    wxSize ComputeIdealGridSize(
+        int maxHeight = std::numeric_limits<int>::max()) const;
 
     // Returns tiles in insertion order (left-to-right, top-to-bottom under the
     // current layout). Used by App::SaveRestoreState to enumerate the layout.
@@ -41,6 +47,6 @@ private:
     void RelayoutTiles();
     void OnSize(wxSizeEvent& evt);
 
-    GridDirection            direction_ = GridDirection::RowFirst;
+    TileLayout               direction_ = TileLayout::RowFirst;
     std::vector<TerminalTile*> tiles_;   // insertion order; wx-parent-owned
 };

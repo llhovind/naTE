@@ -29,8 +29,9 @@ private:
     wxTextCtrl* m_familyCtrl        = nullptr;
     wxSpinCtrl* m_sizeCtrl          = nullptr;
     wxSpinCtrl* m_paddingCtrl       = nullptr;
-    wxChoice*   m_cursorStyleChoice = nullptr;
-    wxCheckBox* m_cursorBlinkChk    = nullptr;
+    wxChoice*   m_cursorStyleChoice  = nullptr;
+    wxCheckBox* m_cursorBlinkChk     = nullptr;
+    wxChoice*   m_tileLayoutChoice   = nullptr;
 
     wxTextCtrl* m_shellCtrl      = nullptr;
     wxTextCtrl* m_workDirCtrl    = nullptr;

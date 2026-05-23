@@ -90,6 +90,7 @@ UIManager::UIManager(term::session::SessionManager& sm,
     ));
 
     grid_ = new TerminalGrid(frame_);
+    grid_->SetDirection(cfg_.tileLayout);
     frame_->GetSizer()->Add(grid_, 1, wxEXPAND);
 
     SetupEditMenu(editMenu);
@@ -114,6 +115,18 @@ void UIManager::UpdateConfig(const AppConfig& cfg)
     }
     if (fontChanged || paddingChanged)
         RefitAllTiles();
+}
+
+void UIManager::SetTileLayout(TileLayout layout)
+{
+    if (!grid_) return;
+    grid_->SetDirection(layout);
+    ResizeFrameToFitTiles();
+}
+
+TileLayout UIManager::GetTileLayout() const
+{
+    return grid_ ? grid_->GetDirection() : TileLayout::RowFirst;
 }
 
 UIManager::~UIManager()
@@ -1040,9 +1053,6 @@ void UIManager::SetupEditMenu(wxMenu* menu)
 
 void UIManager::ResizeFrameToFitTiles()
 {
-    const wxSize ideal = grid_->ComputeIdealGridSize();
-    if (ideal.x <= 0 || ideal.y <= 0) return;
-
     const int displayIdx = wxDisplay::GetFromWindow(frame_);
     const wxDisplay display(displayIdx == wxNOT_FOUND ? 0 : displayIdx);
     const wxRect workArea = display.GetClientArea();
@@ -1050,6 +1060,11 @@ void UIManager::ResizeFrameToFitTiles()
     const wxSize chrome = frame_->GetSize() - frame_->GetClientSize();
     const int maxClientW = workArea.GetWidth()  - chrome.x;
     const int maxClientH = workArea.GetHeight() - chrome.y;
+
+    // For ColumnFirst, pass maxClientH so the simulation inside
+    // ComputeIdealGridSize uses the same wrap constraint as RelayoutTiles will.
+    const wxSize ideal = grid_->ComputeIdealGridSize(maxClientH);
+    if (ideal.x <= 0 || ideal.y <= 0) return;
 
     frame_->SetClientSize(std::min(ideal.x, maxClientW),
                           std::min(ideal.y, maxClientH));

@@ -103,6 +103,8 @@ private:
     void OnOpenInNewWindowTerminal(wxCommandEvent&);
     void OnRefitWindow(wxCommandEvent&);
     void OnAbout(wxCommandEvent&);
+    void OnTileLayoutRowFirst(wxCommandEvent&);
+    void OnTileLayoutColumnFirst(wxCommandEvent&);
 
     // Shows the New Connection dialog with the given context, saves any profile
     // if requested, then launches the connection according to the chosen placement.

@@ -33,7 +33,7 @@ void TerminalGrid::MoveTileNear(TerminalTile* src, TerminalTile* ref, wxPoint sc
     if (itSrc == tiles_.end() || itRef == tiles_.end()) return;
 
     const wxRect r = ref->GetScreenRect();
-    const bool insertBefore = (direction_ == GridDirection::RowFirst)
+    const bool insertBefore = (direction_ == TileLayout::RowFirst)
         ? screenPt.x < r.GetLeft() + r.GetWidth()  / 2
         : screenPt.y < r.GetTop()  + r.GetHeight() / 2;
 
@@ -49,7 +49,7 @@ void TerminalGrid::SetActiveTile(TerminalTile* active)
         t->SetFocused(t == active);
 }
 
-void TerminalGrid::SetDirection(GridDirection dir)
+void TerminalGrid::SetDirection(TileLayout dir)
 {
     direction_ = dir;
     RelayoutTiles();
@@ -106,40 +106,69 @@ int TerminalGrid::ComputeGridColumns(int n)
     return static_cast<int>(std::ceil(std::sqrt(static_cast<double>(n))));
 }
 
-wxSize TerminalGrid::ComputeIdealGridSize() const
+wxSize TerminalGrid::ComputeIdealGridSize(int maxHeight) const
 {
     if (tiles_.empty()) return wxSize(0, 0);
 
-    const int n    = static_cast<int>(tiles_.size());
-    const int cols = ComputeGridColumns(n);
-    const int rows = (n + cols - 1) / cols;
+    const int n = static_cast<int>(tiles_.size());
 
-    // Each tile contributes (width + kGap) to its row's total; the leading
-    // kGap (left margin) is added once per row in the pixel pass below.
-    std::vector<int> weights(n);
-    for (int i = 0; i < n; i++)
-        weights[i] = tiles_[i]->GetMinSize().x + kGap;
+    if (direction_ == TileLayout::RowFirst) {
+        // Wide/landscape: fill left-to-right, cols = ceil(sqrt(n)).
+        const int cols = ComputeGridColumns(n);
+        const int rows = (n + cols - 1) / cols;
 
-    // Optimal contiguous partition: minimises the maximum row width.
-    const std::vector<int> rowSizes = LinearPartition(weights, rows);
+        std::vector<int> weights(n);
+        for (int i = 0; i < n; i++)
+            weights[i] = tiles_[i]->GetMinSize().x + kGap;
 
-    int totalW  = 0;
-    int totalH  = kGap;  // top gap
-    int tileIdx = 0;
+        const std::vector<int> rowSizes = LinearPartition(weights, rows);
 
-    for (const int rowSize : rowSizes) {
-        int rowW = kGap;  // left gap
-        int rowH = 0;
-        for (int j = 0; j < rowSize; j++) {
-            const wxSize sz = tiles_[tileIdx++]->GetMinSize();
-            rowW += sz.x + kGap;
-            rowH  = std::max(rowH, sz.y);
+        int totalW  = 0;
+        int totalH  = kGap;
+        int tileIdx = 0;
+
+        for (const int rowSize : rowSizes) {
+            int rowW = kGap;
+            int rowH = 0;
+            for (int j = 0; j < rowSize; j++) {
+                const wxSize sz = tiles_[tileIdx++]->GetMinSize();
+                rowW += sz.x + kGap;
+                rowH  = std::max(rowH, sz.y);
+            }
+            totalW  = std::max(totalW, rowW);
+            totalH += rowH + kGap;
         }
-        totalW  = std::max(totalW, rowW);
-        totalH += rowH + kGap;
-    }
 
-    return wxSize(totalW, totalH);
+        return wxSize(totalW, totalH);
+
+    } else {
+        // Narrow/portrait: simulate the exact RelayoutTiles wrapping logic given
+        // maxHeight as the column-height constraint.  This guarantees the size
+        // returned here matches what RelayoutTiles will actually produce once
+        // the frame is resized — no unconstrained-ideal / clamped-reality mismatch.
+        int x       = kGap;
+        int y       = kGap;
+        int maxColW = 0;
+        int maxColH = 0;
+
+        for (TerminalTile* tile : tiles_) {
+            const wxSize sz = tile->GetMinSize();
+
+            if (y > kGap && y + sz.y + kGap > maxHeight) {
+                maxColH  = std::max(maxColH, y);
+                x       += maxColW + kGap;
+                y        = kGap;
+                maxColW  = 0;
+            }
+
+            y      += sz.y + kGap;
+            maxColW = std::max(maxColW, sz.x);
+        }
+
+        maxColH = std::max(maxColH, y);   // account for the final column
+
+        return wxSize(x + maxColW + kGap, maxColH);
+    }
 }
 
 void TerminalGrid::OnSize(wxSizeEvent& evt)
@@ -152,12 +181,13 @@ void TerminalGrid::RelayoutTiles()
 {
     if (tiles_.empty()) {
         SetVirtualSize(0, 0);
+        Refresh();
         return;
     }
 
     const wxSize client = GetClientSize();
 
-    if (direction_ == GridDirection::RowFirst) {
+    if (direction_ == TileLayout::RowFirst) {
         int x        = kGap;
         int y        = kGap;
         int maxRowH  = 0;
@@ -208,4 +238,5 @@ void TerminalGrid::RelayoutTiles()
 
         SetVirtualSize(x + maxColW + kGap, client.y);
     }
+    Refresh();
 }

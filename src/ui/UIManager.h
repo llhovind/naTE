@@ -171,6 +171,10 @@ public:
     // padding, web search URL) and stores it for subsequently created panels.
     void UpdateConfig(const AppConfig& cfg);
 
+    // Changes the tile layout for this window and reflows immediately.
+    void       SetTileLayout(TileLayout layout);
+    TileLayout GetTileLayout() const;
+
     // Syncs every tile's min size from its current DocLayout viewport (using the
     // current m_charSize), then resizes the frame to fit.  Call after font/padding
     // changes or any time tile min sizes may be stale.

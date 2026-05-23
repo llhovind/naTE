@@ -106,6 +106,21 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
     appSizer->Add(m_cursorBlinkChk, {row, 0}, {1, 2}, wxALIGN_CENTER_VERTICAL);
     ++row;
 
+    // Tile layout
+    appSizer->Add(new wxStaticText(appPage, wxID_ANY, "Tile layout:"),
+                  {row, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+    {
+        wxArrayString layoutOpts;
+        layoutOpts.Add("Row Ordered");
+        layoutOpts.Add("Column Ordered");
+        m_tileLayoutChoice = new wxChoice(appPage, wxID_ANY,
+                                          wxDefaultPosition, wxDefaultSize, layoutOpts);
+        const int preselect = (current.tileLayout == TileLayout::ColumnFirst) ? 1 : 0;
+        m_tileLayoutChoice->SetSelection(preselect);
+    }
+    appSizer->Add(m_tileLayoutChoice, {row, 1}, {1, 1});
+    ++row;
+
     appSizer->AddGrowableCol(1);
     auto* appOuter = new wxBoxSizer(wxVERTICAL);
     appOuter->Add(appSizer, 1, wxEXPAND | wxALL, 12);
@@ -277,7 +292,9 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
         case 2:  result_.cursorStyle = CursorStyle::Underline; break;
         default: result_.cursorStyle = CursorStyle::Block;     break;
     }
-    result_.cursorBlink = m_cursorBlinkChk->IsChecked();
+    result_.cursorBlink  = m_cursorBlinkChk->IsChecked();
+    result_.tileLayout   = (m_tileLayoutChoice->GetSelection() == 1)
+                           ? TileLayout::ColumnFirst : TileLayout::RowFirst;
     switch (m_bellModeChoice->GetSelection()) {
         case 1:  result_.bellMode = BellMode::Audible; break;
         case 2:  result_.bellMode = BellMode::None;    break;

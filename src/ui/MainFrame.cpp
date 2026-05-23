@@ -44,6 +44,8 @@ namespace {
     constexpr int ID_PREFERENCES             = wxID_HIGHEST + 32;
     constexpr int ID_CLOSE_ALL_SESSIONS      = wxID_HIGHEST + 33;
     constexpr int ID_REFIT_WINDOW            = wxID_HIGHEST + 34;
+    constexpr int ID_TILE_LAYOUT_ROW_FIRST   = wxID_HIGHEST + 35;
+    constexpr int ID_TILE_LAYOUT_COL_FIRST   = wxID_HIGHEST + 36;
 
     static bool IsValidWorkspaceName(const std::string& s)
     {
@@ -145,16 +147,30 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_MENU, &MainFrame::OnOpenInNewTile,        this, ID_OPEN_IN_NEW_TILE);
     Bind(wxEVT_MENU, &MainFrame::OnOpenInNewWindowTerminal, this, ID_OPEN_IN_NEW_WINDOW_TERM);
 
-    // ---- Window menu (New Window + Refit static; rest populated dynamically) --
+    // ---- Window menu (New Window + Refit + Tile Layout static; rest populated dynamically) --
     m_windowMenu = new wxMenu;
     m_windowMenu->Append(ID_NEW_WINDOW,   "New Window");
     m_windowMenu->Append(ID_REFIT_WINDOW, "Refit Window to Tiles");
+    {
+        auto* layoutMenu = new wxMenu;
+        layoutMenu->AppendRadioItem(ID_TILE_LAYOUT_ROW_FIRST, "Row Ordered");
+        layoutMenu->AppendRadioItem(ID_TILE_LAYOUT_COL_FIRST, "Column Ordered");
+        m_windowMenu->AppendSubMenu(layoutMenu, "Tile Layout");
+    }
     m_windowMenu->AppendSeparator();
-    Bind(wxEVT_MENU, &MainFrame::OnNewWindow,    this, ID_NEW_WINDOW);
-    Bind(wxEVT_MENU, &MainFrame::OnRefitWindow,  this, ID_REFIT_WINDOW);
+    Bind(wxEVT_MENU, &MainFrame::OnNewWindow,            this, ID_NEW_WINDOW);
+    Bind(wxEVT_MENU, &MainFrame::OnRefitWindow,          this, ID_REFIT_WINDOW);
+    Bind(wxEVT_MENU, &MainFrame::OnTileLayoutRowFirst,   this, ID_TILE_LAYOUT_ROW_FIRST);
+    Bind(wxEVT_MENU, &MainFrame::OnTileLayoutColumnFirst,this, ID_TILE_LAYOUT_COL_FIRST);
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
         e.Enable(m_uiManager && m_uiManager->HasAnySessions());
     }, ID_REFIT_WINDOW);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
+        e.Check(!m_uiManager || m_uiManager->GetTileLayout() == TileLayout::RowFirst);
+    }, ID_TILE_LAYOUT_ROW_FIRST);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
+        e.Check(m_uiManager && m_uiManager->GetTileLayout() == TileLayout::ColumnFirst);
+    }, ID_TILE_LAYOUT_COL_FIRST);
     Bind(wxEVT_MENU, &MainFrame::OnWindowSessionMenuItem, this,
          kWindowSessionBase, kWindowSessionBase + kWindowSessionMax - 1);
 
@@ -418,10 +434,10 @@ void MainFrame::RebuildWindowMenu(const std::vector<WindowMenuEntry>& entries)
     for (int i = 0; i < static_cast<int>(m_windowFrames.size()); ++i)
         Unbind(wxEVT_MENU, &MainFrame::OnWindowMenuItem, this, kWindowMenuBase + i);
 
-    // Remove all items after the 3 static entries: "New Window", "Refit Window to Tiles",
-    // and separator (positions 0, 1, 2).
-    while (m_windowMenu->GetMenuItemCount() > 3)
-        m_windowMenu->Delete(m_windowMenu->FindItemByPosition(3));
+    // Remove all items after the 4 static entries: "New Window", "Refit Window to Tiles",
+    // "Tile Layout" submenu, and separator (positions 0, 1, 2, 3).
+    while (m_windowMenu->GetMenuItemCount() > 4)
+        m_windowMenu->Delete(m_windowMenu->FindItemByPosition(4));
 
     m_windowFrames.clear();
     m_windowSessions.clear();
@@ -529,6 +545,16 @@ void MainFrame::OnOpenInNewWindowTerminal(wxCommandEvent&)
 void MainFrame::OnRefitWindow(wxCommandEvent&)
 {
     if (m_uiManager) m_uiManager->ResizeFrameToFitTiles();
+}
+
+void MainFrame::OnTileLayoutRowFirst(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->SetTileLayout(TileLayout::RowFirst);
+}
+
+void MainFrame::OnTileLayoutColumnFirst(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->SetTileLayout(TileLayout::ColumnFirst);
 }
 
 void MainFrame::OnWindowMenuItem(wxCommandEvent& evt)
