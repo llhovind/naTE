@@ -55,8 +55,8 @@ add_executable(naTE_core_tests
     test_x11_utils.cpp
     ${CORE_SOURCES}
 )
-target_link_libraries(naTE_core_tests PRIVATE Catch2::Catch2WithMain ${LIBSSH2_LIBRARIES})
-target_include_directories(naTE_core_tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${LIBSSH2_INCLUDE_DIRS})
+target_link_libraries(naTE_core_tests PRIVATE Catch2::Catch2WithMain ${NATE_LIBSSH2_LINK})
+target_include_directories(naTE_core_tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${NATE_LIBSSH2_INCLUDE})
 
 if(UNIX AND NOT APPLE)
     target_link_libraries(naTE_core_tests PRIVATE util)

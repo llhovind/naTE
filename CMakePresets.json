@@ -5,7 +5,10 @@
     {
       "name": "base",
       "hidden": true,
-      "generator": "Ninja"
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_POLICY_VERSION_MINIMUM": "3.5"
+      }
     },
     {
       "name": "debug",

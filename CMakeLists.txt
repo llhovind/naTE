@@ -32,9 +32,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(CheckIPOSupported)
 check_ipo_supported(RESULT _ipo_supported OUTPUT _ipo_output)
-if(_ipo_supported)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
-else()
+if(NOT _ipo_supported)
     message(STATUS "IPO/LTO not supported by this toolchain: ${_ipo_output}")
 endif()
 
@@ -172,6 +170,16 @@ if(APPLE)
     add_executable(naTE MACOSX_BUNDLE ${SOURCES})
 else()
     add_executable(naTE ${SOURCES})
+endif()
+
+# Apply LTO to naTE directly rather than via cmake's IPO mechanism.
+# cmake 4.x + GCC generates thin LTO (-fno-fat-lto-objects) which breaks when
+# linking against non-LTO C static archives (libssh2, wxWidgets) at the ltrans
+# step.  Fat LTO embeds both GIMPLE IR and native code so the archive remains
+# linkable even when the LTO pass cannot see all translation units.
+if(_ipo_supported AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(naTE PRIVATE $<$<CONFIG:Release>:-flto=auto -ffat-lto-objects>)
+    target_link_options   (naTE PRIVATE $<$<CONFIG:Release>:-flto=auto -ffat-lto-objects>)
 endif()
 
 target_link_libraries(naTE PRIVATE wx::core wx::base ${NATE_LIBSSH2_LINK} nlohmann_json::nlohmann_json)
