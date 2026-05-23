@@ -4,9 +4,10 @@
 enum class DocChangeType {
     InsertLine,
     DeleteLine,
-    UpdateLine,  // text or styles changed
+    UpdateLine,   // text or styles changed
     CursorMove,
-    TitleChanged
+    TitleChanged,
+    CanvasReset,  // virtualDocStartLine_ advanced; lineIndex = new origin
 };
 
 class IDocumentListener {

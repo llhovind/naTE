@@ -171,6 +171,7 @@ void Parser::HandleCsiFinal(unsigned char byte)
     case 'L': doc_->InsertLines(ParseFirstParam(1));                                break;
     case 'M': doc_->DeleteLines(ParseFirstParam(1));                                break;
     case 'X': doc_->EraseChar(ParseFirstParam(1));                                  break;
+    case 'n': screen_.OnDeviceStatusReport(ParseFirstParam(0));                     break;
     case 'h': if (ParseFirstParam(0) == 4) doc_->SetInsertMode(true);              break;
     case 'l': if (ParseFirstParam(0) == 4) doc_->SetInsertMode(false);             break;
     case '~': {
@@ -210,6 +211,7 @@ void Parser::HandleCsiPrivate(unsigned char byte)
         switch (code) {
         case 1:    screen_.OnSetApplicationCursorKeys(true);  break;
         case 25:   screen_.OnSetCursorVisibility(true);       break;
+        case 47:   // fall-through: older alt-screen without save/restore cursor
         case 1049: screen_.OnEnterAltScreen();                break;
         case 2004: screen_.OnSetBracketedPaste(true);         break;
         default:   break;
@@ -218,6 +220,7 @@ void Parser::HandleCsiPrivate(unsigned char byte)
         switch (code) {
         case 1:    screen_.OnSetApplicationCursorKeys(false); break;
         case 25:   screen_.OnSetCursorVisibility(false);      break;
+        case 47:   // fall-through: older alt-screen without save/restore cursor
         case 1049: screen_.OnExitAltScreen();                 break;
         case 2004: screen_.OnSetBracketedPaste(false);        break;
         default:   break;

@@ -26,8 +26,9 @@ void DocLayout::SetDocument(Document& newDoc)
     doc_->RemoveListener(this);
     doc_ = &newDoc;
     doc_->AddListener(this);
-    topAnchor_  = {0, 0};
-    autoScroll_ = true;
+    autoScroll_   = true;
+    allViewDirty_ = true;
+    ScrollToEndLocked();
     ComputeMaxVisibleWidthLocked();
 }
 
@@ -324,6 +325,10 @@ void DocLayout::ScrollToEndLocked()
     const int lastDocLine = (int)lines.size() - 1;
     const int lastSubRow  = VisualCount(lines.back()) - 1;
     topAnchor_  = WalkAnchorBy({lastDocLine, lastSubRow}, -(rows_ - 1));
+    // Never auto-scroll above the current canvas origin — old scrollback stays hidden.
+    const int origin = static_cast<int>(doc_->GetScrollbackOrigin());
+    if (topAnchor_.docLine < origin)
+        topAnchor_ = { origin, 0 };
     autoScroll_ = true;
 }
 
@@ -693,5 +698,16 @@ void DocLayout::OnDocumentChanged(DocChangeType type, size_t lineIndex)
         allViewDirty_ = true;
         break;
     }
+
+    case DocChangeType::CanvasReset:
+        // A new canvas started at idx.  The document is authoritative for the
+        // origin (GetScrollbackOrigin() == idx at this point); set the anchor
+        // directly so SetTopRowLocked's clamp logic doesn't interfere.
+        topAnchor_    = { static_cast<int>(idx), 0 };
+        autoScroll_   = true;
+        allViewDirty_ = true;
+        return;
+
+    default: break;
     }
 }

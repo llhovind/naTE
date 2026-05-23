@@ -396,20 +396,21 @@ TEST_CASE("given ptyCols=80 and empty line when NewLine then new DocLine created
     REQUIRE(doc.GetCursor().col == 0);
 }
 
-TEST_CASE("given ptyCols=80 when MoveCursorToPosition(2,5) then only col is used") {
-    // row is an absolute terminal row — not a virtual command row — so it is
-    // ignored.  Only the col parameter (1-indexed) is applied.
+TEST_CASE("given ptyCols=80 when MoveCursorToPosition(2,5) then canvas-relative row and col are set") {
     MainScreenDocument doc;
     doc.SetPtyCols(80);
     doc.MoveCursorToPosition(2, 5);
-    REQUIRE(doc.GetCursor().col == 4);
+    // Row 2 relative to virtualDocStartLine_=0 → doc line 1 (blank line appended on demand).
+    REQUIRE(doc.GetCursor().line == 1);
+    REQUIRE(doc.GetCursor().col  == 4);
 }
 
-TEST_CASE("given ptyCols=80 when MoveCursorToPosition(1,1) then cursor at col 0") {
+TEST_CASE("given ptyCols=80 when MoveCursorToPosition(1,1) then cursor at canvas origin") {
     MainScreenDocument doc;
     doc.SetPtyCols(80);
     doc.MoveCursorToPosition(1, 1);
-    REQUIRE(doc.GetCursor().col == 0);
+    REQUIRE(doc.GetCursor().line == 0);
+    REQUIRE(doc.GetCursor().col  == 0);
 }
 
 TEST_CASE("given ptyCols=80 when MoveCursorToColumn(5) from col 85 then cursor at col 84") {
@@ -421,13 +422,14 @@ TEST_CASE("given ptyCols=80 when MoveCursorToColumn(5) from col 85 then cursor a
     REQUIRE(doc.GetCursor().col == 84);
 }
 
-TEST_CASE("given ptyCols=80 when MoveCursorToRow(2) then cursor is unchanged") {
-    // CSI d sends an absolute terminal row — ignored like the row in CSI H.
+TEST_CASE("given ptyCols=80 when MoveCursorToRow(2) then canvas-relative row is set and col unchanged") {
     MainScreenDocument doc;
     doc.SetPtyCols(80);
     doc.MoveCursorRight(10);
     doc.MoveCursorToRow(2);
-    REQUIRE(doc.GetCursor().col == 10);
+    // Row 2 relative to virtualDocStartLine_=0 → doc line 1; col is not touched.
+    REQUIRE(doc.GetCursor().line == 1);
+    REQUIRE(doc.GetCursor().col  == 10);
 }
 
 TEST_CASE("given ptyCols=80 when CarriageReturn from col 85 then cursor at col 80") {
@@ -455,11 +457,101 @@ TEST_CASE("given ptyCols=2048 (default) when MoveCursorUp(1) from col 90 then cu
     REQUIRE(doc.GetCursor().col == 0);
 }
 
-TEST_CASE("given ptyCols=2048 when MoveCursorToPosition(1,91) then cursor at col 90") {
+TEST_CASE("given ptyCols=2048 when MoveCursorToPosition(1,91) then cursor at row 0 col 90") {
     MainScreenDocument doc;
-    // row is always ignored; col 91 (1-indexed) → 90
     doc.MoveCursorToPosition(1, 91);
-    REQUIRE(doc.GetCursor().col == 90);
+    REQUIRE(doc.GetCursor().line == 0);
+    REQUIRE(doc.GetCursor().col  == 90);
+}
+
+TEST_CASE("given fresh document when AdvanceCanvas then virtualDocStartLine advances and one blank line exists") {
+    MainScreenDocument doc;
+    doc.AppendInsertChar(U'A'); // writes to line 0; doc still has 1 line: ["A"]
+    doc.AdvanceCanvas();
+    // virtualDocStartLine_ = 1 (1 prior line); 1 new blank line appended → 2 total
+    REQUIRE(doc.GetScrollbackOrigin() == 1);
+    REQUIRE(doc.GetLines().size() == 2);
+    REQUIRE(doc.GetLines().back().text.empty());
+    REQUIRE(doc.GetCursor().line == 1);
+    REQUIRE(doc.GetCursor().col  == 0);
+}
+
+TEST_CASE("given virtualDocStartLine=1 when MoveCursorToPosition(3,1) then blank lines appended on demand") {
+    MainScreenDocument doc;
+    doc.AppendInsertChar(U'A');
+    doc.AdvanceCanvas(); // virtualDocStartLine_ = 1, lines = ["A", ""]
+    doc.MoveCursorToPosition(3, 1);
+    // canvas row 3 = abs line 1 + 2 = 3; lines 2 and 3 must be appended on demand
+    REQUIRE(doc.GetLines().size() == 4);
+    REQUIRE(doc.GetCursor().line == 3);
+    REQUIRE(doc.GetCursor().col  == 0);
+}
+
+TEST_CASE("given cursor at canvas top when EraseInDisplay(0) then new canvas is started") {
+    MainScreenDocument doc;
+    doc.AppendInsertChar(U'A');   // line 0: "A"
+    doc.NewLine();                 // line 1: ""
+    doc.AppendInsertChar(U'B');   // line 1: "B"
+    // cursor is at line 1, not canvas top (line 0) — move it there
+    doc.MoveCursorToPosition(1, 1); // canvas row 1 = abs line 0
+    REQUIRE(doc.GetCursor().line == 0);
+    doc.EraseInDisplay(0);
+    // AdvanceCanvas fired: virtualDocStartLine_ = 2 (prior "A", "B" lines), new blank appended
+    REQUIRE(doc.GetScrollbackOrigin() == 2);
+    REQUIRE(doc.GetLines().size() == 3);
+    REQUIRE(doc.GetCursor().line == 2);
+}
+
+TEST_CASE("given cursor mid-canvas when EraseInDisplay(0) then lines below are blanked not popped") {
+    MainScreenDocument doc;
+    doc.AppendInsertChar(U'A');
+    doc.NewLine();
+    doc.AppendInsertChar(U'B');
+    doc.NewLine();
+    doc.AppendInsertChar(U'C');  // lines: ["A", "B", "C"]
+    doc.MoveCursorToPosition(2, 1); // canvas row 2 = abs line 1 ("B")
+    const size_t linesBefore = doc.GetLines().size();
+    doc.EraseInDisplay(0);
+    REQUIRE(doc.GetLines().size() == linesBefore);   // no lines popped
+    REQUIRE(doc.GetLines()[1].text.empty());          // "B" blanked
+    REQUIRE(doc.GetLines()[2].text.empty());          // "C" blanked
+    REQUIRE(doc.GetScrollbackOrigin() == 0);       // no canvas advance
+}
+
+TEST_CASE("given EraseInDisplay(1) when called then blanks from canvas origin not from doc line 0") {
+    MainScreenDocument doc;
+    doc.AppendInsertChar(U'X');  // line 0: "X"  ← will become scrollback
+    doc.AdvanceCanvas();          // virtualDocStartLine_ = 1, lines: ["X", ""]
+    doc.AppendInsertChar(U'A');  // line 1 (canvas start): "A"
+    doc.NewLine();                 // line 2: ""
+    doc.AppendInsertChar(U'B');  // line 2: "B"  ← cursor here (canvas row 2)
+    doc.EraseInDisplay(1);       // erase from canvas origin (line 1) to cursor (line 2)
+    REQUIRE(doc.GetLines()[0].text == U"X");  // scrollback line 0 untouched
+    REQUIRE(doc.GetLines()[1].text.empty());   // canvas line 0 (was "A") blanked
+    // cursor line (line 2) is partially blanked up to col
+}
+
+TEST_CASE("given NewLine pops front when maxLines hit then virtualDocStartLine is decremented") {
+    MainScreenDocument doc(3); // maxLines = 3
+    doc.AppendInsertChar(U'A');
+    doc.AdvanceCanvas(); // virtualDocStartLine_ = 2, lines: ["", "A", ""]
+    // Adding another line will trigger a pop since maxLines=3
+    doc.AppendInsertChar(U'B');
+    doc.NewLine();        // lines would be ["", "A", "B", ""] → pop front → ["A", "B", ""]
+    REQUIRE(doc.GetLines().size() == 3);
+    REQUIRE(doc.GetScrollbackOrigin() == 1); // decremented from 2 to 1
+}
+
+TEST_CASE("given SaveCursor then AdvanceCanvas then RestoreCursor then cursor in new canvas") {
+    MainScreenDocument doc;
+    doc.AppendInsertChar(U'A');
+    doc.NewLine();
+    doc.AppendInsertChar(U'B');  // cursor at line 1 (canvas row 2)
+    doc.SaveCursor();
+    doc.AdvanceCanvas();          // virtualDocStartLine_ advances past "A","B"
+    doc.RestoreCursor();
+    // Saved canvas row 2 → restored as canvas row 2 in new canvas
+    REQUIRE(doc.GetCursor().line == doc.GetScrollbackOrigin() + 1);
 }
 
 TEST_CASE("given ptyCols=10 and 20-char line when readline multi-row clear sequence then no phantom DocLine") {

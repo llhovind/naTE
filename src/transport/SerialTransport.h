@@ -18,6 +18,7 @@ public:
     ~SerialTransport() override;
 
     void Write(const std::string& data) override;
+    void SendResetSequence() override { Write("\021"); }  // XON only; see SshTransport.h
     void Start() override;
     void Stop()  override;
     void Resize(unsigned short cols, unsigned short rows) override;

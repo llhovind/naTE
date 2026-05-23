@@ -423,7 +423,7 @@ TEST_CASE("given CSI 2P when processed then two characters at cursor are deleted
     REQUIRE(line.text == U"abe");
 }
 
-TEST_CASE("given CSI 2J when processed then all lines cleared") {
+TEST_CASE("given CSI 2J when processed then new canvas started and prior content in scrollback") {
     Connection conn{"test", LoopbackDesc{}};
     Session session(conn, 1000, 80, 24, {}, {});
 
@@ -432,9 +432,13 @@ TEST_CASE("given CSI 2J when processed then all lines cleared") {
     session.OnData("line three");
     session.OnData("\033[2J");
 
-    REQUIRE(session.GetDocLayout().GetLineCount() == 1);
+    // Prior content is preserved in scrollback; a new blank canvas line is appended.
+    // "line one", "line two", "line three", "" = 4 doc lines total.
+    REQUIRE(session.GetDocLayout().GetLineCount() == 4);
+    // Viewport anchors to the new canvas: rendered row 0 is the blank canvas line.
     REQUIRE(session.GetDocLayout().GetRenderedLine(0).text.empty());
-    REQUIRE(session.GetDocLayout().GetCursorDocPos().line == 0);
+    // Cursor is at the new canvas start (absolute doc line 3).
+    REQUIRE(session.GetDocLayout().GetCursorDocPos().line == 3);
     REQUIRE(session.GetDocLayout().GetCursorDocPos().col  == 0);
 }
 

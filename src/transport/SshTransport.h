@@ -39,6 +39,11 @@ public:
 
     // Called from UI/input thread — enqueues data; worker drains it.
     void Write(const std::string& data) override;
+    // Ctrl-Q (XON): unstick software flow control if Ctrl-S was accidentally pressed.
+    // ESC c (RIS) is intentionally omitted — sent as keyboard input it reaches the
+    // remote shell's line editor, not a terminal emulator, and shells like ash/busybox
+    // echo the 'c' rather than silently consuming the sequence.
+    void SendResetSequence() override { Write("\021"); }
 
     // Spawns the worker thread that connects, authenticates, and reads.
     void Start() override;

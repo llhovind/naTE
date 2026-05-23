@@ -23,6 +23,13 @@ public:
     virtual void Resize(unsigned short cols, unsigned short rows) = 0;
     virtual void OnViewportColsChanged(unsigned short /*cols*/) {}
 
+    // Sends ESC c (RIS) to re-sync the remote terminal's parser state.
+    // Only meaningful for transports with a remote terminal (SSH, Serial).
+    // PTY and Loopback are no-ops: the local shell sees raw keyboard input, not
+    // terminal control, so ESC c would be echoed as a stray 'c' by some shells
+    // (e.g. ash/busybox) instead of being silently consumed.
+    virtual void SendResetSequence() {}
+
     // Enqueues an X11 forwarding request on the active channel; no-op for non-SSH transports.
     virtual void RequestX11Forwarding() {}
 

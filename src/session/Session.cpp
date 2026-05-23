@@ -83,6 +83,7 @@ void Session::ReplaceConnection(const Connection& conn,
     // Old transport is already stopped — its worker thread joined before
     // OnDisconnect() propagated to us. Reset it before creating the new one.
     transport_.reset();
+    main_doc_->AdvanceCanvas();   // fresh canvas — prior output stays in scrollback
     const bool wrapMode = docLayout_->GetWrapMode();
     transport_ = MakeTransport(*this, conn,
                                wrapMode ? lastCols_ : ptyLineWidth_,
@@ -163,27 +164,31 @@ void Session::RequestX11Forwarding()
 
 void Session::ResetTerminal(bool clearScrollback)
 {
-    if (altScreenActive_) {
-        for (auto* l : externalListeners_) alt_doc_->RemoveListener(l);
-        active_doc_ = main_doc_.get();
-        parser_.SetDocTarget(active_doc_);
-        docLayout_->SetDocument(*main_doc_);
-        for (auto* l : externalListeners_) main_doc_->AddListener(l);
-        if (!docLayout_->GetWrapMode())
-            transport_->Resize(ptyLineWidth_, lastRows_);
-        altScreenActive_ = false;
-        if (onAltScreenChanged_) onAltScreenChanged_(false);
-    }
+    if (altScreenActive_) OnExitAltScreen();
     bracketedPaste_ = false;
-    main_doc_->FullReset(clearScrollback);
+    if (clearScrollback) {
+        main_doc_->FullReset(true);   // wipe all content; fires CanvasReset(0)
+    } else {
+        main_doc_->SoftReset();       // reset modes only; canvas and content stay
+    }
     alt_doc_->FullReset(false);
     parser_.Reset();
-    transport_->Write("\021\033c");
+    transport_->SendResetSequence();
 }
 
 void Session::OnSetApplicationCursorKeys(bool enabled)
 {
     encoder_.SetApplicationCursorKeys(enabled);
+}
+
+void Session::OnDeviceStatusReport(int param)
+{
+    if (param != 6 || !transport_) return;
+    const CursorPos pos    = active_doc_->GetCursor();
+    const size_t    vStart = altScreenActive_ ? 0 : main_doc_->GetScrollbackOrigin();
+    const int row = static_cast<int>(pos.line - vStart) + 1;
+    const int col = static_cast<int>(pos.col)           + 1;
+    transport_->Write("\x1b[" + std::to_string(row) + ";" + std::to_string(col) + "R");
 }
 
 void Session::OnBell()
@@ -193,19 +198,31 @@ void Session::OnBell()
 
 void Session::OnResetTerminal()
 {
-    if (altScreenActive_) {
-        for (auto* l : externalListeners_) alt_doc_->RemoveListener(l);
-        active_doc_ = main_doc_.get();
-        parser_.SetDocTarget(active_doc_);
-        docLayout_->SetDocument(*main_doc_);
-        for (auto* l : externalListeners_) main_doc_->AddListener(l);
-        altScreenActive_ = false;
-        if (onAltScreenChanged_) onAltScreenChanged_(false);
-    }
+    // ESC c — RIS (Reset to Initial State), sent by the remote application.
+    // Common sources: tmux/vim on exit, shells on startup, SSH session teardown.
+    //
+    // We exit alt-screen first (which also resizes the PTY back to ptyLineWidth_
+    // in non-wrap mode) so the canvas is always main_doc_ when the reset fires.
+    //
+    // We then advance the main canvas (FullReset(false)) so prior output stays
+    // in scrollback, and resize the transport so the remote's PTY dimensions
+    // are re-synchronised after any geometry drift.
+    //
+    // NOTE: the unconditional resize below may generate a spurious SIGWINCH on
+    // the remote side if the dimensions haven't actually changed.  This is
+    // intentional: it re-anchors the remote PTY after a full reset.  If this
+    // causes visible artifacts (e.g. a TUI immediately re-wrapping), consider
+    // gating on lastCols_/lastRows_ having changed.
+    if (altScreenActive_) OnExitAltScreen();
+
     encoder_.SetApplicationCursorKeys(false);
     bracketedPaste_ = false;
     main_doc_->FullReset(false);
     alt_doc_->FullReset(false);
+
+    const int ptyCols = docLayout_->GetWrapMode() ? lastCols_ : ptyLineWidth_;
+    transport_->Resize(static_cast<unsigned short>(ptyCols), lastRows_);
+
     // parser_.Reset() is called by HandleEscape immediately after this returns
 }
 

@@ -16,6 +16,7 @@ public:
     virtual void OnResetTerminal()               {}
     virtual void OnBell()                        {}
     virtual void OnSetBracketedPaste(bool /*enabled*/) {}
+    virtual void OnDeviceStatusReport(int /*param*/)   {}  // CSI n — reply expected for param==6
 };
 
 } // namespace term::parser

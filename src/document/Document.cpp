@@ -262,8 +262,8 @@ void MainScreenDocument::NewLine()
     if ((int)lines_.size() > maxLines_) {
         lines_.pop_front();
         --cursor_.line;
-        if (savedCursor_.line > 0)
-            --savedCursor_.line;
+        if (virtualDocStartLine_ > 0) --virtualDocStartLine_;
+        // savedCursor_ is canvas-relative — no adjustment needed.
         NotifyListeners(DocChangeType::DeleteLine, 0);
     }
 }
@@ -301,12 +301,16 @@ void MainScreenDocument::SetPtyCols(int cols)
 
 void MainScreenDocument::SaveCursor()
 {
-    savedCursor_ = cursor_;
+    // Store canvas-relative row so restore survives a canvas advance.
+    savedCursor_ = { cursor_.line - virtualDocStartLine_, cursor_.col };
 }
 
 void MainScreenDocument::RestoreCursor()
 {
-    cursor_ = savedCursor_;
+    const size_t target = virtualDocStartLine_ + savedCursor_.line;
+    while (lines_.size() <= target)
+        lines_.emplace_back();
+    cursor_ = { target, savedCursor_.col };
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
@@ -408,20 +412,26 @@ void MainScreenDocument::MoveCursorToLineEnd()
 }
 
 // row and col are 1-indexed (VT100 convention).
-// The row parameter is ignored: readline sends absolute terminal rows
-// (e.g. row=24 in a 24-row terminal), which are not the same as virtual
-// command rows and cannot be translated without knowing where the command
-// started on screen.  Cursor-up/down cover all intra-command row navigation.
-void MainScreenDocument::MoveCursorToPosition(int /*row*/, int col)
+// Row is canvas-relative: row 1 == virtualDocStartLine_.
+// Blank lines are appended on demand if the target row doesn't exist yet.
+void MainScreenDocument::MoveCursorToPosition(int row, int col)
 {
-    cursor_.col = static_cast<size_t>(std::max(1, col) - 1);
+    const size_t target = virtualDocStartLine_ + static_cast<size_t>(std::max(1, row) - 1);
+    while (lines_.size() <= target)
+        lines_.emplace_back();
+    cursor_.line = target;
+    cursor_.col  = static_cast<size_t>(std::max(1, col) - 1);
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
-// Same reasoning as MoveCursorToPosition: CSI d sends an absolute terminal
-// row, not a virtual command row.  No-op keeps the cursor on the last line.
-void MainScreenDocument::MoveCursorToRow(int /*row*/)
+// CSI d — canvas-relative row, same semantics as MoveCursorToPosition.
+void MainScreenDocument::MoveCursorToRow(int row)
 {
+    const size_t target = virtualDocStartLine_ + static_cast<size_t>(std::max(1, row) - 1);
+    while (lines_.size() <= target)
+        lines_.emplace_back();
+    cursor_.line = target;
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void MainScreenDocument::EraseChar(int count)
@@ -479,10 +489,36 @@ void MainScreenDocument::DeleteLines(int count)
     }
 }
 
+void MainScreenDocument::AdvanceCanvas()
+{
+    virtualDocStartLine_ = lines_.size();
+    lines_.emplace_back();
+    cursor_ = { virtualDocStartLine_, 0 };
+    // CanvasReset carries the new cursor position implicitly; no separate CursorMove
+    // needed — firing one would trigger ScrollToEndLocked and override the anchor.
+    NotifyListeners(DocChangeType::CanvasReset, virtualDocStartLine_);
+}
+
+void MainScreenDocument::SoftReset()
+{
+    insertMode_         = false;
+    pendingSubRowClear_ = false;
+    // Scroll the viewport to show the current cursor so the user can see where
+    // output will land after the remote re-initialises.
+    NotifyListeners(DocChangeType::CursorMove, cursor_.line);
+}
+
 void MainScreenDocument::EraseInDisplay(int mode)
 {
     switch (mode) {
-    case 0: { // erase from cursor to end of display
+    case 0: { // erase from cursor to end of canvas
+        if (cursor_.line == virtualDocStartLine_ && cursor_.col == 0) {
+            // Cursor at canvas top-left — server wants a new canvas.
+            AdvanceCanvas();
+            break;
+        }
+        // Mid-canvas: blank cursor line from cursor col, then blank lines below.
+        // Lines are kept (not popped) to preserve document structure.
         DocLine& cur = lines_[cursor_.line];
         if (cursor_.col < cur.text.size()) {
             cur.text.erase(cursor_.col);
@@ -497,17 +533,15 @@ void MainScreenDocument::EraseInDisplay(int mode)
                 }
             }
         }
-        // Notify deletions from end down to the line after cursor
-        const size_t oldSize = lines_.size();
-        while (lines_.size() > cursor_.line + 1)
-            lines_.pop_back();
-        for (size_t i = oldSize - 1; i > cursor_.line; --i)
-            NotifyListeners(DocChangeType::DeleteLine, i);
         NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+        for (size_t i = cursor_.line + 1; i < lines_.size(); ++i) {
+            lines_[i].Clear();
+            NotifyListeners(DocChangeType::UpdateLine, i);
+        }
         break;
     }
-    case 1: { // erase from beginning of display to cursor
-        for (size_t i = 0; i < cursor_.line; ++i) {
+    case 1: { // erase from beginning of canvas to cursor
+        for (size_t i = virtualDocStartLine_; i < cursor_.line; ++i) {
             lines_[i].Clear();
             NotifyListeners(DocChangeType::UpdateLine, i);
         }
@@ -518,16 +552,8 @@ void MainScreenDocument::EraseInDisplay(int mode)
         break;
     }
     case 2: // fall-through
-    case 3: { // erase entire display (+ scrollback for mode 3)
-        const size_t oldSize = lines_.size();
-        lines_.clear();
-        lines_.emplace_back();
-        cursor_ = {0, 0};
-        // Notify removals from end down to line 1; then update line 0.
-        for (size_t i = oldSize - 1; i >= 1; --i)
-            NotifyListeners(DocChangeType::DeleteLine, i);
-        NotifyListeners(DocChangeType::UpdateLine, 0);
-        NotifyListeners(DocChangeType::CursorMove, 0);
+    case 3: { // server wants a new canvas (mode 3 also clears scrollback in xterm, ignored here)
+        AdvanceCanvas();
         break;
     }
     }
@@ -540,15 +566,14 @@ void MainScreenDocument::FullReset(bool clearContent)
     title_.clear();
 
     if (clearContent) {
-        const size_t oldSize = lines_.size();
         lines_.clear();
         lines_.emplace_back();
-        cursor_ = {0, 0};
-        for (size_t i = oldSize - 1; i >= 1; --i)
-            NotifyListeners(DocChangeType::DeleteLine, i);
+        cursor_              = {0, 0};
+        virtualDocStartLine_ = 0;
+        NotifyListeners(DocChangeType::CanvasReset, 0);
+    } else {
+        AdvanceCanvas();
     }
-    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
-    NotifyListeners(DocChangeType::CursorMove, 0);
 }
 
 // ---------------------------------------------------------------------------

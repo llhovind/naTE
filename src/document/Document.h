@@ -127,6 +127,12 @@ public:
     virtual void InsertChar(int count) = 0;              // CSI @ — insert blank chars, shift right
     virtual void SetInsertMode(bool on) { insertMode_ = on; }
 
+    // Returns the index of the first line that belongs to the "current canvas"
+    // (i.e. the virtual top of the display, past any scrollback).  AltScreen
+    // always returns 0; MainScreenDocument returns virtualDocStartLine_.
+    // DocLayout uses this to restore the viewport origin on document switch.
+    virtual size_t GetScrollbackOrigin() const { return 0; }
+
     CursorPos GetCursor() const { return cursor_; }
 
     const std::string& GetTitle() const { return title_; }
@@ -180,12 +186,19 @@ public:
     void SaveCursor()                          override;
     void RestoreCursor()                       override;
 
+    size_t GetScrollbackOrigin()    const override { return virtualDocStartLine_; }
+    void   AdvanceCanvas();
+    // Resets soft terminal modes (insert mode, pending-wrap) without touching
+    // content, cursor, or canvas origin.  Used by Session::ResetTerminal(false).
+    void   SoftReset();
+
 private:
     std::deque<DocLine> lines_;
     int       maxLines_;
-    int       cols_               = 2048;  // PTY-configured column count; drives virtual-row cursor translation
-    bool      pendingSubRowClear_ = false; // set by DeleteChar on multi-subRow line; consumed by EraseInLine(0)
-    CursorPos savedCursor_        = {};
+    int       cols_                = 2048;
+    size_t    virtualDocStartLine_ = 0;    // origin of the current canvas within the scrollback buffer
+    bool      pendingSubRowClear_  = false;
+    CursorPos savedCursor_         = {};   // stored canvas-relative (row offset from virtualDocStartLine_)
 };
 
 class AltScreenDocument : public Document {

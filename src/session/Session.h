@@ -70,6 +70,7 @@ public:
     void OnResetTerminal()                           override;
     void OnSetApplicationCursorKeys(bool enabled)    override;
     void OnSetBracketedPaste(bool enabled)           override;
+    void OnDeviceStatusReport(int param)             override;
     void OnBell()                                    override;
 
     // transport::ITransportTarget
@@ -128,8 +129,8 @@ private:
     std::unique_ptr<transport::Transport> transport_;
     InputEncoder                          encoder_;
 
-    std::unique_ptr<Document> main_doc_;
-    std::unique_ptr<Document> alt_doc_;
+    std::unique_ptr<MainScreenDocument> main_doc_;
+    std::unique_ptr<Document>           alt_doc_;
     Document*                 active_doc_;
 
     parser::Parser                        parser_;
