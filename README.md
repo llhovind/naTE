@@ -32,8 +32,10 @@ for you.
 - UTF-8 text rendering (basic BMP characters; combining characters and wide/CJK characters not yet supported)
 - Configurable scrollback buffer (default 100,000 lines)
 - Alternate screen support (vim, htop, tmux) — also manually toggled via the alt-screen button in the tile title bar
+- **Wrap mode and viewport width** — in a classic terminal the shell's reported width equals the window width, so any output beyond that column is silently truncated and lost. naTE decouples these: you can set a **column width** (what the shell believes the terminal is, e.g. 220 columns) independently of the visible tile width. Long lines are captured in full rather than discarded. The wrap button in the tile title bar then controls how those lines are presented — wrap on reflows them into the visible area; wrap off lets the viewport scroll horizontally so each line stays on one row. Per-connection column-width overrides are available in the connection profile.
 - Bracketed paste with optional confirmation dialog
 - URL detection and click-to-open
+- **Find in Terminal** (`Ctrl+Shift+F` / **Edit → Find in Terminal**) — case-insensitive search across the full scrollback buffer; all matches are highlighted and the current match is distinguished; navigate with `Enter` / `F3` (forward) and `Shift+F3` (back); pre-populates from the active selection
 
 ### Tiling & tabs
 - Each window holds one or more **tiles** arranged in a grid; each tile has its own tab strip
@@ -41,6 +43,7 @@ for you.
 - Move a session to its own tile in the same window with **Terminal → Move to New Tile**
 - Move a session or tile to a separate window with **Terminal → Move to New Window**
 - Open a blank second window from **Window → New Window**
+- **Tile split direction** (horizontal or vertical) is set per-window via **Window → Tile Layout**, with a global default in **Edit → Preferences → Appearance**
 - Drag a **tab** to reorder it within the same tile, move it to a different tile, or drop it onto another window
 - Drag the **tile header** (blank area to the right of the `+` button) to move all sessions in that tile to another window
 - Broadcast mode — send the same input to multiple sessions simultaneously
@@ -77,7 +80,7 @@ for you.
 
 ### Connection manager
 - Save connection profiles (SSH, serial, local shell) with per-profile settings
-- Word-wrap and column-width overrides per connection
+- Per-profile word-wrap and column-width overrides (override the global defaults for specific hosts or devices)
 
 ---
 
@@ -197,7 +200,7 @@ ctest --preset debug
 ```
 
 Tests are written with [Catch2](https://github.com/catchorg/Catch2). The suite
-currently covers 246 scenarios across all major subsystems.
+currently covers 256 scenarios across all major subsystems.
 
 ### Packaging (AppImage)
 
