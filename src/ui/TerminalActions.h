@@ -10,6 +10,11 @@ enum class TerminalAction
     ToggleBroadcast, // Ctrl+click / right-click broadcast menu
     ToggleAltScr,
     ToggleX11Fwd,
+    ResetTerminal,
+    ResetAndClear,
+    SaveToFile,
+    SendFiles,
+    ReceiveFiles,
 };
 
 // Forward-declare so wxDECLARE_EVENT can reference the type before the class body.

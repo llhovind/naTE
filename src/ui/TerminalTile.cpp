@@ -106,6 +106,32 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
             menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
                 EmitTileAction(TileAction::MoveToNewWindow, sid);
             }, newWindowItem->GetId());
+            menu.AppendSeparator();
+            auto* resetItem = menu.Append(wxID_ANY, "Reset Terminal");
+            menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
+                TerminalActionEvent evt(TerminalAction::ResetTerminal, sid);
+                ProcessWindowEvent(evt);
+            }, resetItem->GetId());
+            auto* resetClearItem = menu.Append(wxID_ANY, "Reset and Clear...");
+            menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
+                TerminalActionEvent evt(TerminalAction::ResetAndClear, sid);
+                ProcessWindowEvent(evt);
+            }, resetClearItem->GetId());
+            auto* saveItem = menu.Append(wxID_ANY, "Save Session to File...");
+            menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
+                TerminalActionEvent evt(TerminalAction::SaveToFile, sid);
+                ProcessWindowEvent(evt);
+            }, saveItem->GetId());
+            auto* sendItem = menu.Append(wxID_ANY, "Send Files to Remote...");
+            menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
+                TerminalActionEvent evt(TerminalAction::SendFiles, sid);
+                ProcessWindowEvent(evt);
+            }, sendItem->GetId());
+            auto* receiveItem = menu.Append(wxID_ANY, "Receive Files from Remote...");
+            menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
+                TerminalActionEvent evt(TerminalAction::ReceiveFiles, sid);
+                ProcessWindowEvent(evt);
+            }, receiveItem->GetId());
             PopupMenu(&menu);
         } else {
             // Tile context menu — background area, no specific tab.

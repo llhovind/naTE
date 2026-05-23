@@ -415,16 +415,16 @@ void UIManager::ToggleWrapModeForSession(term::session::SessionId id)
         frame_->SyncwrapModeMenuItem(newWrap);
 }
 
-void UIManager::ResetActiveTerminal()
+void UIManager::ResetTerminalForSession(term::session::SessionId id)
 {
-    if (activeId_) sm_.ResetTerminal(activeId_, false);
+    if (id) sm_.ResetTerminal(id, false);
 }
 
-void UIManager::ResetAndClearActiveTerminal()
+void UIManager::ResetAndClearSession(term::session::SessionId id)
 {
-    if (!activeId_) return;
+    if (!id) return;
 
-    DocLayout& layout = sm_.GetDocLayout(activeId_);
+    DocLayout& layout = sm_.GetDocLayout(id);
     if (layout.GetLineCount() > 1) {
         const int answer = wxMessageBox(
             "Save scrollback before clearing?",
@@ -441,24 +441,29 @@ void UIManager::ResetAndClearActiveTerminal()
         }
     }
 
-    sm_.ResetTerminal(activeId_, true);
+    sm_.ResetTerminal(id, true);
 }
 
-void UIManager::SendFilesForActive()
+void UIManager::SendFilesForSession(term::session::SessionId id)
 {
-    if (!activeId_ || !sm_.SupportsFileTransfer(activeId_)) return;
-    const std::string remote = sm_.GetRemoteDescription(activeId_);
-    ui::FileTransferDialog dlg(frame_, activeId_, sm_, remote, ui::TransferDirection::Send);
+    if (!id || !sm_.SupportsFileTransfer(id)) return;
+    const std::string remote = sm_.GetRemoteDescription(id);
+    ui::FileTransferDialog dlg(frame_, id, sm_, remote, ui::TransferDirection::Send);
     dlg.ShowModal();
 }
 
-void UIManager::ReceiveFilesForActive()
+void UIManager::ReceiveFilesForSession(term::session::SessionId id)
 {
-    if (!activeId_ || !sm_.SupportsFileTransfer(activeId_)) return;
-    const std::string remote = sm_.GetRemoteDescription(activeId_);
-    ui::FileTransferDialog dlg(frame_, activeId_, sm_, remote, ui::TransferDirection::Receive);
+    if (!id || !sm_.SupportsFileTransfer(id)) return;
+    const std::string remote = sm_.GetRemoteDescription(id);
+    ui::FileTransferDialog dlg(frame_, id, sm_, remote, ui::TransferDirection::Receive);
     dlg.ShowModal();
 }
+
+void UIManager::ResetActiveTerminal()         { ResetTerminalForSession(activeId_); }
+void UIManager::ResetAndClearActiveTerminal() { ResetAndClearSession(activeId_); }
+void UIManager::SendFilesForActive()          { SendFilesForSession(activeId_); }
+void UIManager::ReceiveFilesForActive()       { ReceiveFilesForSession(activeId_); }
 
 void UIManager::SaveSessionToFile(term::session::SessionId id)
 {
@@ -730,6 +735,21 @@ void UIManager::OnTerminalAction(TerminalActionEvent& evt)
         }
         case TerminalAction::ToggleX11Fwd:
             // No-op: X11 forwarding is configured at connect time only.
+            break;
+        case TerminalAction::ResetTerminal:
+            ResetTerminalForSession(evt.GetSessionId());
+            break;
+        case TerminalAction::ResetAndClear:
+            ResetAndClearSession(evt.GetSessionId());
+            break;
+        case TerminalAction::SaveToFile:
+            SaveSessionToFile(evt.GetSessionId());
+            break;
+        case TerminalAction::SendFiles:
+            SendFilesForSession(evt.GetSessionId());
+            break;
+        case TerminalAction::ReceiveFiles:
+            ReceiveFilesForSession(evt.GetSessionId());
             break;
     }
 }

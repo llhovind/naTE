@@ -230,6 +230,11 @@ private:
     bool             HasActiveSelection() const;
     std::u32string   GetFullActiveSelectedText() const;
 
+    void ResetTerminalForSession(term::session::SessionId id);
+    void ResetAndClearSession(term::session::SessionId id);
+    void SendFilesForSession(term::session::SessionId id);
+    void ReceiveFilesForSession(term::session::SessionId id);
+
     // Wire tile-level callbacks.  Called once when a tile is first created.
     void WireTileCallbacks(TerminalTile* tile);
 
