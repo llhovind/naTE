@@ -200,7 +200,8 @@ void MainFrame::OnPreferences(wxCommandEvent&)
 
 void MainFrame::OnClose(wxCloseEvent& event)
 {
-    if (event.CanVeto() && m_uiManager && m_uiManager->HasAnySessions()) {
+    if (!wxGetApp().IsSessionManagerShutdown() &&
+        event.CanVeto() && m_uiManager && m_uiManager->HasAnySessions()) {
         const int n = static_cast<int>(m_uiManager->GetSessionList().size());
         const wxString msg = wxString::Format(
             "Closing this window will end %d session%s. "

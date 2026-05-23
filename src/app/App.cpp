@@ -12,6 +12,7 @@
 #include <wx/stdpaths.h>
 #include <wx/string.h>
 #include <libssh2.h>
+#include <atomic>
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
@@ -23,6 +24,8 @@
 #include <algorithm>
 #include <sys/stat.h>
 #include <unistd.h>
+
+static std::atomic<bool> g_sigtermReceived{false};
 
 namespace {
     std::string NateDir() {
@@ -148,6 +151,15 @@ bool App::OnInit() {
         m_saveTimer.Start(m_cfg.sessionSaveInterval * 1000);
     }
 
+    Bind(wxEVT_QUERY_END_SESSION, &App::OnQueryEndSession, this);
+    Bind(wxEVT_END_SESSION,       &App::OnEndSession,       this);
+    Bind(wxEVT_IDLE,              &App::OnIdle,             this);
+
+    std::signal(SIGTERM, [](int) {
+        g_sigtermReceived.store(true, std::memory_order_relaxed);
+        wxWakeUpIdle();
+    });
+
     return true;
 }
 
@@ -268,22 +280,24 @@ term::session::SessionId App::CreateSessionInTile(
 
 void App::QuitAll()
 {
-    int totalSessions = 0;
-    for (auto& w : m_windows)
-        if (w->uiManager)
-            totalSessions += static_cast<int>(w->uiManager->GetSessionList().size());
+    if (!m_sessionManagerShutdown) {
+        int totalSessions = 0;
+        for (auto& w : m_windows)
+            if (w->uiManager)
+                totalSessions += static_cast<int>(w->uiManager->GetSessionList().size());
 
-    if (totalSessions > 0) {
-        const int nw = static_cast<int>(m_windows.size());
-        const wxString msg = wxString::Format(
-            "Closing all windows will end %d session%s across %d window%s. "
-            "Any unsaved work may be lost.\n\nClose all?",
-            totalSessions, totalSessions == 1 ? "" : "s",
-            nw, nw == 1 ? "" : "s");
-        MainFrame* parent = m_windows.empty() ? nullptr : m_windows.front()->frame;
-        if (wxMessageBox(msg, "Confirm Close All",
-                         wxYES_NO | wxICON_WARNING, parent) != wxYES)
-            return;
+        if (totalSessions > 0) {
+            const int nw = static_cast<int>(m_windows.size());
+            const wxString msg = wxString::Format(
+                "Closing all windows will end %d session%s across %d window%s. "
+                "Any unsaved work may be lost.\n\nClose all?",
+                totalSessions, totalSessions == 1 ? "" : "s",
+                nw, nw == 1 ? "" : "s");
+            MainFrame* parent = m_windows.empty() ? nullptr : m_windows.front()->frame;
+            if (wxMessageBox(msg, "Confirm Close All",
+                             wxYES_NO | wxICON_WARNING, parent) != wxYES)
+                return;
+        }
     }
 
     // Snapshot before any windows are closed (FireBeforeClose only handles the
@@ -296,6 +310,29 @@ void App::QuitAll()
         frames.push_back(w->frame);
     for (auto* f : frames)
         f->Close(true);  // force=true: OnClose will not re-prompt
+}
+
+void App::OnQueryEndSession(wxCloseEvent& event)
+{
+    m_sessionManagerShutdown = true;
+    SaveRestoreSnapshot();
+    event.Skip(); // do not veto — allow logout to proceed
+}
+
+void App::OnEndSession(wxCloseEvent& event)
+{
+    m_sessionManagerShutdown = true;
+    QuitAll();
+    event.Skip();
+}
+
+void App::OnIdle(wxIdleEvent& event)
+{
+    if (g_sigtermReceived.exchange(false, std::memory_order_relaxed)) {
+        m_sessionManagerShutdown = true;
+        QuitAll();
+    }
+    event.Skip();
 }
 
 void App::RebuildWindowMenus()

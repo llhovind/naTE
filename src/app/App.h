@@ -22,6 +22,8 @@ public:
     bool OnInit() override;
     int  OnExit() override;
 
+    bool IsSessionManagerShutdown() const { return m_sessionManagerShutdown; }
+
     // Creates a new independent window; returns its frame.
     MainFrame* CreateNewWindow();
 
@@ -91,6 +93,10 @@ private:
     static int  AcquireInstanceId();
     static void ReleaseInstanceId(int id);
 
+    void OnQueryEndSession(wxCloseEvent& event);
+    void OnEndSession(wxCloseEvent& event);
+    void OnIdle(wxIdleEvent& event);
+
     WindowContext* FindContext(MainFrame* frame);
     WindowContext* FindContextForSession(term::session::SessionId id);
 
@@ -108,8 +114,9 @@ private:
     std::unique_ptr<term::db::INamedSnapshotRepository>  m_namedRepo;
     wxTimer                                             m_saveTimer;
     std::vector<std::unique_ptr<WindowContext>>        m_windows;
-    int                                                m_instanceId    = 0;
-    int                                                m_nextWindowId  = 0;
+    int                                                m_instanceId           = 0;
+    int                                                m_nextWindowId         = 0;
+    bool                                               m_sessionManagerShutdown = false;
 };
 
 wxDECLARE_APP(App);
