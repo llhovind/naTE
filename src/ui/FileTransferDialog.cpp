@@ -75,7 +75,7 @@ FileTransferDialog::FileTransferDialog(wxWindow* parent,
         auto* destLabel = new wxStaticText(this, wxID_ANY, "Local Destination Folder:");
         outer->Add(destLabel, 0, wxLEFT | wxBOTTOM, 10);
         auto* destRow = new wxBoxSizer(wxHORIZONTAL);
-        destCtrl_ = new wxTextCtrl(this, wxID_ANY);
+        destCtrl_ = new wxTextCtrl(this, wxID_ANY, wxGetCwd());
         destCtrl_->SetHint("Leave blank to use current directory");
         auto* browseBtn = new wxButton(this, wxID_ANY, "Browse...",
                                        wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
