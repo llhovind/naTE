@@ -221,6 +221,7 @@ void ConnectionManagerDialog::OnNew(wxCommandEvent&)
 
     NewConnectionDialog dlg(this, defaultShell, m_cfg.defaultWorkingDir,
                             m_cfg.defaultWrapMode,
+                            m_cfg.defaultLoginShell,
                             m_cfg.geometryPresets, {}, LaunchContext::ProfileOnly);
     if (dlg.ShowModal() != wxID_OK) return;
 
@@ -249,6 +250,7 @@ void ConnectionManagerDialog::OnEdit(wxCommandEvent&)
 
     NewConnectionDialog dlg(this, defaultShell, m_cfg.defaultWorkingDir,
                             m_cfg.defaultWrapMode,
+                            m_cfg.defaultLoginShell,
                             m_cfg.geometryPresets, {}, LaunchContext::ProfileOnly, &*it);
     if (dlg.ShowModal() != wxID_OK) return;
 

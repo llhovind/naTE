@@ -58,6 +58,7 @@ NewConnectionDialog::NewConnectionDialog(
         const std::string& defaultShell,
         const std::string& defaultWorkingDir,
         bool defaultWrapMode,
+        bool defaultLoginShell,
         const std::vector<GeometryPreset>& geometryPresets,
         const std::vector<term::db::ConnectionProfile>& existingProfiles,
         LaunchContext context,
@@ -220,6 +221,7 @@ NewConnectionDialog::NewConnectionDialog(
 
             m_cbPtyLoginShell = new wxCheckBox(page, wxID_ANY,
                                                "Login shell (sources .profile / .bash_profile)");
+            m_cbPtyLoginShell->SetValue(defaultLoginShell);
             box->Add(m_cbPtyLoginShell, 0, wxLEFT | wxRIGHT | wxBOTTOM, 6);
 
             sizer->Add(box, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);

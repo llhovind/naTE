@@ -298,6 +298,7 @@ bool MainFrame::RunConnectionDialog(ui::LaunchContext context,
 
     ui::NewConnectionDialog dlg(this, defaultShell, m_cfg.defaultWorkingDir,
                                 m_cfg.defaultWrapMode,
+                                m_cfg.defaultLoginShell,
                                 m_cfg.geometryPresets,
                                 m_store.GetAll(),
                                 context);
