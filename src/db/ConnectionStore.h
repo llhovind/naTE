@@ -13,7 +13,7 @@ class ConnectionStore {
 public:
     explicit ConnectionStore(std::unique_ptr<IConnectionRepository> repo);
 
-    // Returns all saved profiles, ordered by insertion time.
+    // Returns all saved profiles, ordered alphabetically by name.
     const std::vector<ConnectionProfile>& GetAll() const;
 
     // Creates a new profile with a generated UUID and current timestamp.
@@ -37,6 +37,7 @@ public:
 
 private:
     static std::string GenerateId();
+    void SortByName();
 
     std::unique_ptr<IConnectionRepository> m_repo;
     std::vector<ConnectionProfile>         m_profiles;

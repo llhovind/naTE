@@ -10,6 +10,7 @@ ConnectionStore::ConnectionStore(std::unique_ptr<IConnectionRepository> repo)
     : m_repo(std::move(repo))
 {
     m_profiles = m_repo->LoadAll();
+    SortByName();
 }
 
 const std::vector<ConnectionProfile>& ConnectionStore::GetAll() const
@@ -41,7 +42,10 @@ const ConnectionProfile& ConnectionStore::Add(const std::string& name,
 
     m_repo->Save(p);
     m_profiles.push_back(p);
-    return m_profiles.back();
+    SortByName();
+    auto it = std::find_if(m_profiles.begin(), m_profiles.end(),
+                           [&](const ConnectionProfile& cp){ return cp.id == p.id; });
+    return *it;
 }
 
 void ConnectionStore::Update(const ConnectionProfile& profile)
@@ -53,6 +57,7 @@ void ConnectionStore::Update(const ConnectionProfile& profile)
 
     *it = profile;
     m_repo->Save(profile);
+    SortByName();
 }
 
 void ConnectionStore::Remove(const std::string& id)
@@ -73,6 +78,14 @@ void ConnectionStore::UpdateLastUsed(const std::string& id)
 
     it->lastUsed = std::time(nullptr);
     m_repo->Save(*it);
+}
+
+void ConnectionStore::SortByName()
+{
+    std::sort(m_profiles.begin(), m_profiles.end(),
+              [](const ConnectionProfile& a, const ConnectionProfile& b){
+                  return a.name < b.name;
+              });
 }
 
 std::string ConnectionStore::GenerateId()
