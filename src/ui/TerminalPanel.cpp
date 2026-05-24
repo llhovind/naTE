@@ -919,9 +919,32 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
             dc.SetTextForeground(fg);
             dc.SetTextBackground(bg);
 
-            // Walk the run drawing narrow segments and wide chars individually.
-            // Each segment / wide char starts at its exact col*cw pixel position,
-            // making the layout independent of font advance metrics.
+            // Fast path: pure ASCII run — single DrawText.  ASCII glyphs are in
+            // every monospace font with exactly the right advance width.
+            bool hasNonAscii = false;
+            for (int c = start; c < end && !hasNonAscii; ++c)
+                hasNonAscii = (row.text[c] >= 0x80);
+
+            if (!hasNonAscii) {
+                std::wstring str;
+                str.reserve(static_cast<size_t>(end - start));
+                for (int c = start; c < end; ++c)
+                    str += static_cast<wchar_t>(row.text[c]);
+                const int x = start * cw + m_cfg.padding;
+                dc.DrawText(wxString(str), x, rowY);
+                if (s.underline) {
+                    dc.SetPen(wxPen(fg, 1));
+                    dc.DrawLine(x, rowY + ch - 1, x + (end - start) * cw, rowY + ch - 1);
+                }
+                return;
+            }
+
+            // Mixed / non-ASCII path: draw each non-ASCII character individually
+            // at its exact col*cw pixel position.  This prevents font-fallback
+            // advance drift — when a glyph isn't in the primary monospace font,
+            // the fallback font's advance width may differ from cw, causing all
+            // subsequent characters in the same DrawText batch to shift.
+            // ASCII runs between non-ASCII characters are still batched.
             int segStart = -1;
 
             auto flushSeg = [&](int segEnd) {
@@ -942,14 +965,17 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
             for (int c = start; c < end; ++c) {
                 const char32_t ch32 = row.text[c];
                 if (ch32 == kWideFiller) {
+                    // Second cell of a wide char — flush any ASCII segment and skip.
                     flushSeg(c);
-                } else if (CharWidth(ch32) == 2) {
+                } else if (ch32 >= 0x80) {
+                    // Non-ASCII: flush ASCII segment, then draw at exact col*cw.
                     flushSeg(c);
+                    const int w = CharWidth(ch32);
                     const int x = c * cw + m_cfg.padding;
                     dc.DrawText(wxString(static_cast<wchar_t>(ch32)), x, rowY);
                     if (s.underline) {
                         dc.SetPen(wxPen(fg, 1));
-                        dc.DrawLine(x, rowY + ch - 1, x + 2 * cw, rowY + ch - 1);
+                        dc.DrawLine(x, rowY + ch - 1, x + w * cw, rowY + ch - 1);
                     }
                 } else {
                     if (segStart < 0) segStart = c;
