@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config \
+            libgtk-3-dev libssl-dev
+
+      - name: Cache FetchContent downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/_deps
+            build-release/_deps
+            build-appimage/_deps
+          key: fetchcontent-release-${{ hashFiles('CMakeLists.txt', 'tests/CMakeLists.txt') }}
+          restore-keys: fetchcontent-release-
+
+      - name: Configure (debug)
+        run: cmake --preset debug
+
+      - name: Build tests
+        run: cmake --build --preset debug --target naTE_tests
+
+      - name: Run tests
+        run: ctest --preset debug
+
+      - name: Configure (release)
+        run: cmake --preset release
+
+      - name: Build release binary
+        run: cmake --build build-release --parallel $(nproc)
+
+      - name: Stage release binary
+        run: cp build-release/naTE naTE-linux-x86_64
+
+      - name: Build AppImage
+        run: ./scripts/build-appimage.sh
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            naTE-linux-x86_64 \
+            naTE-x86_64.AppImage \
+            --title "naTE ${{ github.ref_name }}" \
+            --generate-notes
