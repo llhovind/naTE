@@ -9,6 +9,16 @@
 #include "config/Color.h"
 #include "document/IDocumentListener.h"
 
+// Written into the cell immediately right of a wide (2-column) character so
+// that the slot is claimed and the renderer can skip it.  U+FFFE is a
+// guaranteed non-character that never appears in valid terminal output.
+inline constexpr char32_t kWideFiller = U'￾';
+
+// Returns the number of terminal columns occupied by codepoint cp: 2 for
+// East-Asian Wide/Fullwidth characters, 1 for everything else printable.
+// Does not rely on setlocale so it works regardless of the process locale.
+int CharWidth(char32_t cp);
+
 struct Style {
     int fg = -1;  // -1 = terminal default, 0–255 = palette index
     int bg = -1;

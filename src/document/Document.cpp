@@ -2,6 +2,49 @@
 #include <algorithm>
 #include <stdexcept>
 
+// Unicode East-Asian Width table (Unicode 15, TR#11).
+// Ranges marked W (Wide) or F (Fullwidth) display in 2 terminal columns.
+int CharWidth(char32_t cp)
+{
+    // clang-format off
+    // Zero-width: combining / non-spacing marks
+    if (cp == 0) return 0;
+    if ((cp >= 0x0300 && cp <= 0x036F) ||
+        (cp >= 0x0483 && cp <= 0x0489) ||
+        (cp >= 0x0591 && cp <= 0x05BD) ||
+        (cp >= 0x0610 && cp <= 0x061A) ||
+        (cp >= 0x064B && cp <= 0x065F) ||
+        (cp >= 0x1DC0 && cp <= 0x1DFF) ||
+        (cp >= 0x20D0 && cp <= 0x20FF) ||
+        (cp >= 0xFE20 && cp <= 0xFE2F))
+        return 0;
+    // Wide / Fullwidth ranges
+    if ((cp >= 0x1100 && cp <= 0x115F)  ||  // Hangul Jamo
+        (cp >= 0x2E80 && cp <= 0x303E)  ||  // CJK Radicals / Kangxi
+        (cp >= 0x3041 && cp <= 0x33FF)  ||  // Kana, Bopomofo, CJK Compat
+        (cp >= 0x3400 && cp <= 0x4DBF)  ||  // CJK Extension A
+        (cp >= 0x4E00 && cp <= 0x9FFF)  ||  // CJK Unified Ideographs
+        (cp >= 0xA000 && cp <= 0xA4CF)  ||  // Yi
+        (cp >= 0xA960 && cp <= 0xA97F)  ||  // Hangul Jamo Extended-A
+        (cp >= 0xAC00 && cp <= 0xD7A3)  ||  // Hangul Syllables
+        (cp >= 0xF900 && cp <= 0xFAFF)  ||  // CJK Compat Ideographs
+        (cp >= 0xFE10 && cp <= 0xFE19)  ||  // Vertical Forms
+        (cp >= 0xFE30 && cp <= 0xFE6F)  ||  // CJK Compat Forms / Small Forms
+        (cp >= 0xFF01 && cp <= 0xFF60)  ||  // Fullwidth Forms
+        (cp >= 0xFFE0 && cp <= 0xFFE6)  ||  // Fullwidth Signs
+        (cp >= 0x1B000 && cp <= 0x1B2FF)||  // Kana Extended
+        (cp >= 0x1F004 && cp <= 0x1F004)||  // Mahjong tile
+        (cp >= 0x1F0CF && cp <= 0x1F0CF)||  // Playing card
+        (cp >= 0x1F200 && cp <= 0x1F2FF)||  // Enclosed CJK
+        (cp >= 0x1F300 && cp <= 0x1F64F)||  // Misc Symbols / Emoticons
+        (cp >= 0x1F900 && cp <= 0x1F9FF)||  // Supplemental Symbols
+        (cp >= 0x20000 && cp <= 0x2FFFD)||  // CJK Extension B–F
+        (cp >= 0x30000 && cp <= 0x3FFFD))   // CJK Extension G+
+        return 2;
+    // clang-format on
+    return 1;
+}
+
 // ---------------------------------------------------------------------------
 // DocLine
 // ---------------------------------------------------------------------------
@@ -223,11 +266,15 @@ MainScreenDocument::MainScreenDocument(int maxLines)
 
 void MainScreenDocument::AppendInsertChar(char32_t ch)
 {
-    if (insertMode_)
+    const int w = CharWidth(ch);
+    if (insertMode_) {
         lines_.back().InsertAt(cursor_.col, ch);
-    else
+        if (w == 2) lines_.back().InsertAt(cursor_.col + 1, kWideFiller);
+    } else {
         lines_.back().WriteAt(cursor_.col, ch);
-    ++cursor_.col;
+        if (w == 2) lines_.back().WriteAt(cursor_.col + 1, kWideFiller);
+    }
+    cursor_.col += static_cast<size_t>(w);
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 
@@ -618,16 +665,24 @@ void AltScreenDocument::AppendInsertChar(char32_t ch)
         NewLine();
     }
 
-    if (insertMode_)
+    const int    w      = CharWidth(ch);
+    const size_t newCol = cursor_.col + static_cast<size_t>(w);
+
+    if (insertMode_) {
         lines_[cursor_.line].InsertAt(cursor_.col, ch);
-    else
+        if (w == 2 && cursor_.col + 1 < static_cast<size_t>(cols_))
+            lines_[cursor_.line].InsertAt(cursor_.col + 1, kWideFiller);
+    } else {
         lines_[cursor_.line].WriteAt(cursor_.col, ch);
+        if (w == 2 && cursor_.col + 1 < static_cast<size_t>(cols_))
+            lines_[cursor_.line].WriteAt(cursor_.col + 1, kWideFiller);
+    }
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 
-    if (cursor_.col + 1 >= static_cast<size_t>(cols_))
+    if (newCol >= static_cast<size_t>(cols_))
         pendingWrap_ = true;  // wrap deferred until next printable char
     else
-        ++cursor_.col;
+        cursor_.col = newCol;
 }
 
 void AltScreenDocument::Backspace()

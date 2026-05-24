@@ -883,6 +883,13 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
         // Batch consecutive characters that share the same style into a single
         // DrawText call.  This reduces draw calls from O(cols) to O(style-runs),
         // typically 1 per row for plain text and 5–10 for colorised prompts.
+        //
+        // Wide chars (kWideFiller cells mark their second column) are drawn
+        // individually at their exact pixel column so we never rely on Pango
+        // font-fallback metrics advancing by exactly 2*cw.  This also fixes the
+        // case where a filler lands at the start of a wrapped subrow: each
+        // narrow segment still starts at its own col*cw, so a leading filler
+        // cannot shift the rest of the row left by one cell.
         int runStart = 0;
         const int textLen = static_cast<int>(row.text.size());
 
@@ -912,18 +919,43 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
             dc.SetTextForeground(fg);
             dc.SetTextBackground(bg);
 
-            std::wstring runStr;
-            runStr.reserve(static_cast<size_t>(end - start));
-            for (int c = start; c < end; ++c)
-                runStr += static_cast<wchar_t>(row.text[c]);
+            // Walk the run drawing narrow segments and wide chars individually.
+            // Each segment / wide char starts at its exact col*cw pixel position,
+            // making the layout independent of font advance metrics.
+            int segStart = -1;
 
-            const int startX = start * cw + m_cfg.padding;
-            dc.DrawText(wxString(runStr), startX, rowY);
+            auto flushSeg = [&](int segEnd) {
+                if (segStart < 0 || segStart >= segEnd) { segStart = -1; return; }
+                std::wstring str;
+                str.reserve(static_cast<size_t>(segEnd - segStart));
+                for (int c = segStart; c < segEnd; ++c)
+                    str += static_cast<wchar_t>(row.text[c]);
+                const int x = segStart * cw + m_cfg.padding;
+                dc.DrawText(wxString(str), x, rowY);
+                if (s.underline) {
+                    dc.SetPen(wxPen(fg, 1));
+                    dc.DrawLine(x, rowY + ch - 1, x + (segEnd - segStart) * cw, rowY + ch - 1);
+                }
+                segStart = -1;
+            };
 
-            if (s.underline) {
-                dc.SetPen(wxPen(fg, 1));
-                dc.DrawLine(startX, rowY + ch - 1, startX + (end - start) * cw, rowY + ch - 1);
+            for (int c = start; c < end; ++c) {
+                const char32_t ch32 = row.text[c];
+                if (ch32 == kWideFiller) {
+                    flushSeg(c);
+                } else if (CharWidth(ch32) == 2) {
+                    flushSeg(c);
+                    const int x = c * cw + m_cfg.padding;
+                    dc.DrawText(wxString(static_cast<wchar_t>(ch32)), x, rowY);
+                    if (s.underline) {
+                        dc.SetPen(wxPen(fg, 1));
+                        dc.DrawLine(x, rowY + ch - 1, x + 2 * cw, rowY + ch - 1);
+                    }
+                } else {
+                    if (segStart < 0) segStart = c;
+                }
             }
+            flushSeg(end);
         };
 
         for (int col = 1; col < textLen; ++col) {
@@ -956,7 +988,8 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
                 dc.SetBrush(wxBrush(cursorWx));
                 dc.DrawRectangle(cursorRect.x, cursorRect.y, cursorRect.w, cursorRect.h);
                 // Invert the character under the cursor only for block style (full-cell coverage).
-                if (m_cfg.cursorStyle == CursorStyle::Block && row.cursorCol < textLen) {
+                if (m_cfg.cursorStyle == CursorStyle::Block && row.cursorCol < textLen
+                        && row.text[row.cursorCol] != kWideFiller) {
                     dc.SetTextForeground(wxColour(m_cfg.bgColour.r,   m_cfg.bgColour.g,   m_cfg.bgColour.b));
                     dc.SetTextBackground(wxColour(m_cfg.textColour.r, m_cfg.textColour.g, m_cfg.textColour.b));
                     dc.DrawText(wxString(static_cast<wchar_t>(row.text[row.cursorCol])), cx, cy);

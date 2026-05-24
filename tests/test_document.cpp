@@ -713,6 +713,109 @@ TEST_CASE("given save on line 1 when RestoreCursor then cursor line is restored"
     REQUIRE(doc.GetCursor().col == 1);
 }
 
+// ---------------------------------------------------------------------------
+// CharWidth — Unicode East-Asian Width
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given ASCII codepoint when CharWidth then returns 1") {
+    REQUIRE(CharWidth(U'A')    == 1);
+    REQUIRE(CharWidth(U' ')    == 1);
+    REQUIRE(CharWidth(U'~')    == 1);
+}
+
+TEST_CASE("given fullwidth quotation mark U+FF02 when CharWidth then returns 2") {
+    REQUIRE(CharWidth(U'＂') == 2);
+}
+
+TEST_CASE("given CJK unified ideograph when CharWidth then returns 2") {
+    REQUIRE(CharWidth(U'中') == 2);  // 中
+}
+
+TEST_CASE("given combining diacritical mark when CharWidth then returns 0") {
+    REQUIRE(CharWidth(U'́') == 0);  // combining acute accent
+}
+
+// ---------------------------------------------------------------------------
+// Wide character handling in MainScreenDocument
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given wide char when AppendInsertChar then cursor advances 2") {
+    MainScreenDocument doc;
+    doc.AppendInsertChar(U'＂');  // FULLWIDTH QUOTATION MARK
+
+    REQUIRE(doc.GetCursor().col == 2);
+}
+
+TEST_CASE("given wide char when AppendInsertChar then filler placed at col+1") {
+    MainScreenDocument doc;
+    doc.AppendInsertChar(U'＂');
+
+    const auto& text = doc.GetLines().back().text;
+    REQUIRE(text.size() == 2);
+    REQUIRE(text[0] == U'＂');
+    REQUIRE(text[1] == kWideFiller);
+}
+
+TEST_CASE("given wide char followed by narrow when AppendInsertChar then narrow at correct col") {
+    MainScreenDocument doc;
+    doc.AppendInsertChar(U'＂');  // wide — cols 0–1
+    doc.AppendInsertChar(U'A');       // narrow — col 2
+
+    const auto& text = doc.GetLines().back().text;
+    REQUIRE(text.size() == 3);
+    REQUIRE(text[0] == U'＂');
+    REQUIRE(text[1] == kWideFiller);
+    REQUIRE(text[2] == U'A');
+    REQUIRE(doc.GetCursor().col == 3);
+}
+
+TEST_CASE("given narrow wide narrow sequence when AppendInsertChar then layout correct") {
+    MainScreenDocument doc;
+    doc.AppendInsertChar(U'X');       // col 0
+    doc.AppendInsertChar(U'中'); // wide CJK — cols 1–2
+    doc.AppendInsertChar(U'Y');       // col 3
+
+    const auto& text = doc.GetLines().back().text;
+    REQUIRE(text.size() == 4);
+    REQUIRE(text[0] == U'X');
+    REQUIRE(text[1] == U'中');
+    REQUIRE(text[2] == kWideFiller);
+    REQUIRE(text[3] == U'Y');
+    REQUIRE(doc.GetCursor().col == 4);
+}
+
+// ---------------------------------------------------------------------------
+// Wide character handling in AltScreenDocument
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given wide char in AltScreen when AppendInsertChar then cursor advances 2") {
+    AltScreenDocument doc(5, 20);
+    doc.AppendInsertChar(U'＂');
+
+    REQUIRE(doc.GetCursor().col == 2);
+}
+
+TEST_CASE("given wide char in AltScreen when AppendInsertChar then filler at col+1") {
+    AltScreenDocument doc(5, 20);
+    doc.AppendInsertChar(U'＂');
+
+    const auto& text = doc.GetLines().front().text;
+    REQUIRE(text.size() >= 2);
+    REQUIRE(text[0] == U'＂');
+    REQUIRE(text[1] == kWideFiller);
+}
+
+TEST_CASE("given wide char at last AltScreen column when AppendInsertChar then pendingWrap set") {
+    // cols=3: writing a 2-wide char at col 1 means newCol=3 >= cols → wrap
+    AltScreenDocument doc(3, 3);
+    doc.AppendInsertChar(U'A');        // col 0 → cursor at 1
+    doc.AppendInsertChar(U'＂');   // wide: cols 1–2 → newCol=3 → pendingWrap
+
+    // Next printable char should trigger a new line
+    doc.AppendInsertChar(U'B');
+    REQUIRE(doc.GetCursor().line == 1);
+}
+
 TEST_CASE("given save then maxLines trimmed when RestoreCursor then savedCursor line does not underflow") {
     // maxLines = 2 so that the third NewLine evicts the first line.
     MainScreenDocument doc{2};
