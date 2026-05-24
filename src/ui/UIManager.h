@@ -22,6 +22,7 @@
 #include "ui/ISessionDropTarget.h"
 #include "ui/SearchController.h"
 #include "ui/SelectionActionRegistry.h"
+#include "ui/DragGhost.h"
 #include "ui/TerminalActions.h"
 #include "ui/TileActions.h"
 
@@ -260,6 +261,7 @@ private:
     void OnTileDragStart(TerminalTile* tile, wxPoint screenAnchor);
     void OnTabDragStart (term::session::SessionId id, wxPoint screenAnchor);
     void OnDragRelease  (wxMouseEvent& evt);
+    void OnDragMotion   (wxMouseEvent& evt);
 
     void OnTerminalAction(TerminalActionEvent& evt);
     void OnTileAction    (TileActionEvent& evt);
@@ -288,6 +290,7 @@ private:
         TerminalTile* srcTile = nullptr;  // non-null only when intent == DragIntent::Tile
     };
     std::optional<DragState> dragState_;
+    std::unique_ptr<DragGhost> dragGhost_;
 
     std::function<void()> onGridEmptyCb_;
     std::function<void()> onSessionListChanged_;

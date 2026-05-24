@@ -829,7 +829,7 @@ void UIManager::OnNewTabRequest(TerminalTile* tile)
 // Drag support
 // ---------------------------------------------------------------------------
 
-void UIManager::OnTileDragStart(TerminalTile* tile, wxPoint /*screenAnchor*/)
+void UIManager::OnTileDragStart(TerminalTile* tile, wxPoint screenAnchor)
 {
     if (!tile || dragState_) return;
 
@@ -844,17 +844,40 @@ void UIManager::OnTileDragStart(TerminalTile* tile, wxPoint /*screenAnchor*/)
     state.intent  = DragIntent::Tile;
     state.srcTile = tile;
     dragState_ = std::move(state);
+
+    wxString label = wxString::FromUTF8(sm_.GetLabel(tile->GetActiveSessionId()));
+    if (dragState_->ids.size() > 1)
+        label += wxString::Format(" (+%d)", (int)dragState_->ids.size() - 1);
+    dragGhost_ = std::make_unique<DragGhost>(frame_, label);
+    dragGhost_->MoveTo(screenAnchor);
+    dragGhost_->Show();
+
     frame_->CaptureMouse();
     frame_->Bind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
+    frame_->Bind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
 }
 
-void UIManager::OnTabDragStart(term::session::SessionId id, wxPoint /*screenAnchor*/)
+void UIManager::OnTabDragStart(term::session::SessionId id, wxPoint screenAnchor)
 {
     if (!FindSessionUI(id) || dragState_) return;
 
     dragState_ = DragState{{ id }};
+
+    wxString label = wxString::FromUTF8(sm_.GetLabel(id));
+    dragGhost_ = std::make_unique<DragGhost>(frame_, label);
+    dragGhost_->MoveTo(screenAnchor);
+    dragGhost_->Show();
+
     frame_->CaptureMouse();
     frame_->Bind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
+    frame_->Bind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
+}
+
+void UIManager::OnDragMotion(wxMouseEvent& evt)
+{
+    if (dragGhost_)
+        dragGhost_->MoveTo(frame_->ClientToScreen(evt.GetPosition()));
+    evt.Skip();
 }
 
 void UIManager::OnDragRelease(wxMouseEvent& evt)
@@ -862,11 +885,14 @@ void UIManager::OnDragRelease(wxMouseEvent& evt)
     if (frame_->HasCapture()) frame_->ReleaseMouse();
     wxSetCursor(wxNullCursor);
 
+    dragGhost_.reset();
+
     // Defer Unbind — calling it here modifies the dynamic event table while
     // wxEvtHandler::SearchDynamicEventTable is still iterating it, triggering
     // a wx assertion.  CallAfter defers to the next event loop iteration.
     frame_->CallAfter([this]() {
         frame_->Unbind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
+        frame_->Unbind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
     });
 
     if (!dragState_) { evt.Skip(); return; }
