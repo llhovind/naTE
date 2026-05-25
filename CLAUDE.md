@@ -30,6 +30,27 @@ more robust one is warranted.
 - Identify and isolate **side effects** — pure functions are the default,
   impure is the exception
 - Apply **bounded contexts**: never let one domain's models bleed into another
+- **Layer ownership rule**: `Transport` is a replaceable port (SSH, PTY, Serial, Loopback all satisfy the same interface); `Session` is the domain core; `INamedWorkspaceRepository` / `ConnectionManager` are persistence adapters; wx UI is an outer adapter. When adding a feature, ask "which layer owns this?" before writing a line of code. A change that reaches across two layers (e.g. Session touching a wx type, or Transport knowing about Document) is a boundary violation — flag it and restructure
+- **wx-free boundary**: `transport/`, `session/`, `document/`, `parser/`, and `config/` must never include wx headers — this is what makes headless unit and integration tests possible; a wx dependency in these layers is an architectural violation
+- **Interface naming**: pure abstract interfaces use the `I`-prefix (`ISessionObserver`, `IDocumentListener`, `INamedWorkspaceRepository`); concrete types do not
+
+---
+
+### Data Flow
+
+Terminal I/O runs as a pipeline loop — not a controller dispatching to a view:
+
+```
+User keypress → InputRouter → Transport → remote process
+                                               ↓
+TerminalPanel ← Document ← Parser ← Transport (read thread)
+```
+
+- The **read thread** (one per Transport) blocks on I/O and feeds raw bytes to Parser
+- **Parser** applies ANSI/VT sequences to Document — no wx, no Session knowledge
+- **Document** notifies registered `IDocumentListener`s (e.g. TerminalPanel) via `wxTheApp->CallAfter()`
+- **InputRouter** converts wx key events to byte sequences and writes to Transport
+- Nothing in this loop knows about the UI framework except TerminalPanel and InputRouter
 
 ---
 
@@ -39,8 +60,8 @@ more robust one is warranted.
 - Functions longer than 20 lines are a signal to decompose
 - **No magic numbers or strings** — all constants are named and located centrally
 - **Error handling is explicit** — never silently swallow exceptions
-- All public interfaces are **typed completely** — no `any`, no implicit returns
-- **Logging is structured** (JSON), includes correlation IDs, and never logs PII
+- All allocations use **RAII** — no raw owning pointers; prefer `unique_ptr`, `shared_ptr`, or stack allocation
+- **Errors surface through typed structs** (`TransportError`, status enums) — never swallowed silently or stringified at the wrong layer
 - **No premature optimisation**, but no naive implementations that will
   obviously break at scale
 
@@ -50,11 +71,11 @@ more robust one is warranted.
 
 | Concern | Pattern |
 |---|---|
-| Async complexity | Promise chains → async/await, never nested callbacks |
+| Async complexity | Worker-thread reads + `wxTheApp->CallAfter()` for UI delivery; never block the UI thread; callbacks are `std::function<>` passed at construction |
 | Conditional sprawl | Strategy pattern or lookup map over long if/else chains |
 | Object construction | Builder or factory pattern when > 3 constructor params |
 | Cross-cutting concerns | Middleware / decorator — never inline |
-| External I/O | Repository pattern — never query DB from a controller |
+| External I/O | Repository pattern (`INamedWorkspaceRepository`, `ConnectionManager`) — never touch JSON files from Session or Transport layer |
 | Config & secrets | Environment-injected, validated at startup, typed |
 | Retries / timeouts | Always present on any external call |
 
@@ -62,11 +83,12 @@ more robust one is warranted.
 
 ### Testing Standards
 
-- **Unit tests** cover all business logic in Services — fully isolated with mocks
-- **Integration tests** cover the full Route→Controller→Service→DB path
+- **Unit tests** cover all business logic in Session, Document, Transport, and Config — isolated with stubs/fakes; use Catch2 `SECTION` blocks for scenario variation
+- **Integration tests** cover the full UI→Session→Transport→Document path using the headless core (`naTE_core_tests`, `naTE_restore_tests` require no wx)
 - Tests are written **before or alongside** code, never after
 - Test names follow: `given [context] when [action] then [outcome]`
 - **No testing implementation details** — test behaviour and contracts only
+- All three test executables (`naTE_tests`, `naTE_core_tests`, `naTE_restore_tests`) must stay green before any commit
 
 ---
 
@@ -86,10 +108,47 @@ respecting that the human makes the final call.
 ### What You Will Never Do
 
 - Produce `TODO: implement later` stubs without flagging them
-- Use `any` type without a documented, justified reason
+- Use raw owning pointers (`T*`) for heap allocation — use `unique_ptr`, `shared_ptr`, or stack allocation instead
 - Write a function that does more than one thing
 - Leave error paths unhandled
 - Repeat logic instead of abstracting it (DRY is not optional)
 - Implement something you know to be an antipattern without saying so
+
+---
+
+### C++ and wxWidgets Rules
+
+- **wxString literals**: always `wxString::FromUTF8("…")` for any non-ASCII content; the implicit `char*` constructor mangles multi-byte sequences
+- **wx ellipsis**: use ASCII `"..."` not Unicode `"…"` in menu/widget labels — wx asserts on empty label when that character is unsupported
+- **UI thread safety**: wxWidgets is single-threaded; all wx calls from worker threads must go through `wxTheApp->CallAfter()`
+- **wx clipboard**: try `wxDF_UNICODETEXT` before `wxDF_TEXT`; use `ToUTF8()` not `ToStdString()` when extracting clipboard text
+- **Default button**: use `wxStdDialogButtonSizer` explicitly; `CreateStdDialogButtonSizer` overrides any prior `SetDefault()` call
+- **Smart pointers**: `unique_ptr` for sole ownership, `shared_ptr` only when shared lifetime is genuinely required; pass raw ref/ptr to non-owning observers
+- **Build and test**: `cmake --build build -j$(nproc)` then `ctest --test-dir build --output-on-failure`
+- **Character width**: use `CharWidth()` for terminal cell-width decisions; draw non-ASCII glyphs individually — never batch with `DrawText` across mixed-width characters
+
+---
+
+### Project Structure
+
+| Directory | Owns | Must not contain |
+|---|---|---|
+| `transport/` | Raw I/O: SSH, PTY, Serial, Loopback | wx headers, Document, Session |
+| `session/` | Session lifecycle, orchestration | wx types, JSON files |
+| `document/` | Terminal buffer: lines, cells, scroll | wx headers, Parser internals |
+| `parser/` | ANSI/VT sequence parsing | wx headers, direct Document mutation |
+| `config/` | AppConfig, color schemes, enums | wx types |
+| `db/` | JSON persistence: connections, workspaces | Session, Transport, wx |
+| `ui/` | All wxWidgets UI: frames, panels, dialogs, widgets | Business logic |
+| `input/` | Key event → byte sequence translation | wx beyond event types |
+| `app/` | App lifecycle, multi-window management | Domain logic |
+
+**Adding a new feature — standard checklist:**
+
+1. **Config field**: add to `AppConfig` in `config/Config.h`
+2. **Transport/session flag**: thread the field through the relevant descriptor and transport init
+3. **Preferences UI**: add control to the relevant tab in `PreferencesDialog`
+4. **Live apply**: hook into `ApplyConfig()` so changes take effect without restart
+5. **Tests**: unit-test the config/session logic headlessly; add a Catch2 test to the appropriate executable
 
 ---
