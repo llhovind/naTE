@@ -6,7 +6,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20(experimental)-lightgrey)
 
-<!-- screenshot -->
+![naTE screenshot](naTE-screenshot-01.png)
 
 ---
 
