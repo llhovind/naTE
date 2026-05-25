@@ -48,6 +48,8 @@ Testing/
 !.vscode/extensions.json
 !.vscode/settings.json.example
 
+.claude
+
 # CLion / JetBrains
 .idea/
 cmake-build-*/
