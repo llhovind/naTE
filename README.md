@@ -3,7 +3,7 @@
 **not another Terminal Emulator — tiling layouts, SSH, and serial support.**
 
 [![CI](https://github.com/lhovind/naTE/actions/workflows/ci.yml/badge.svg)](https://github.com/lhovind/naTE/actions/workflows/ci.yml)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.md)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20(experimental)-lightgrey)
 
 ![naTE screenshot](naTE-screenshot-01.png)
@@ -200,7 +200,7 @@ ctest --preset debug
 ```
 
 Tests are written with [Catch2](https://github.com/catchorg/Catch2). The suite
-currently covers 256 scenarios across all major subsystems.
+currently covers 267 scenarios across all major subsystems.
 
 ### Packaging (AppImage)
 
@@ -246,4 +246,4 @@ issues and pull requests.
 
 ## License
 
-GPL v3 — see [LICENSE](LICENSE).
+GPL v3 — see [LICENSE](LICENSE.md).
