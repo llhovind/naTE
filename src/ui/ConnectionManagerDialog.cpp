@@ -9,22 +9,18 @@
 #include <wx/dataview.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
-#include <wx/statline.h>
 #include <wx/stattext.h>
 
 #include <algorithm>
-#include <ctime>
 
 namespace ui {
 
 namespace {
 
-constexpr int ID_BTN_CONNECT     = wxID_HIGHEST + 300;
-constexpr int ID_BTN_NEW         = wxID_HIGHEST + 301;
-constexpr int ID_BTN_EDIT        = wxID_HIGHEST + 302;
-constexpr int ID_BTN_DELETE      = wxID_HIGHEST + 303;
-constexpr int ID_BTN_QUICK_SHELL = wxID_HIGHEST + 304;
-constexpr int ID_BTN_QUICK_LB    = wxID_HIGHEST + 305;
+constexpr int ID_BTN_CONNECT = wxID_HIGHEST + 300;
+constexpr int ID_BTN_NEW     = wxID_HIGHEST + 301;
+constexpr int ID_BTN_EDIT    = wxID_HIGHEST + 302;
+constexpr int ID_BTN_DELETE  = wxID_HIGHEST + 303;
 
 std::string TransportTypeName(const term::session::TransportDesc& t)
 {
@@ -38,36 +34,36 @@ std::string TransportTypeName(const term::session::TransportDesc& t)
     }, t);
 }
 
-std::string TransportInfo(const term::session::TransportDesc& t)
+std::string TransportHost(const term::session::TransportDesc& t)
 {
     return std::visit([](const auto& d) -> std::string {
         using T = std::decay_t<decltype(d)>;
-        if constexpr (std::is_same_v<T, term::session::SshDesc>)
-            return d.username + "@" + d.host + ":" + std::to_string(d.port);
-        if constexpr (std::is_same_v<T, term::session::PtyDesc>)
-            return d.shell;
+        if constexpr (std::is_same_v<T, term::session::SshDesc>) {
+            std::string h = d.username + "@" + d.host;
+            if (d.port != 22) h += ":" + std::to_string(d.port);
+            return h;
+        }
         if constexpr (std::is_same_v<T, term::session::SerialDesc>)
-            return d.device + " " + std::to_string(d.baudRate) + "bps";
-        return {};
+            return d.device;
+        return "Local";
     }, t);
 }
 
-std::string FormatLastUsed(std::time_t t)
+std::string TransportFlags(const term::session::TransportDesc& t)
 {
-    if (t == 0) return "Never";
-    const std::time_t now = std::time(nullptr);
-    const double secs = std::difftime(now, t);
-    if (secs < 60)         return "Just now";
-    if (secs < 3600)       return std::to_string(static_cast<int>(secs / 60)) + "m ago";
-    if (secs < 86400)      return std::to_string(static_cast<int>(secs / 3600)) + "h ago";
-    if (secs < 86400 * 7)  return std::to_string(static_cast<int>(secs / 86400)) + "d ago";
-    char buf[32];
-    struct tm tm_info{};
-    localtime_r(&t, &tm_info);
-    strftime(buf, sizeof(buf), "%Y-%m-%d", &tm_info);
-    return buf;
+    return std::visit([](const auto& d) -> std::string {
+        using T = std::decay_t<decltype(d)>;
+        if constexpr (std::is_same_v<T, term::session::SshDesc>) {
+            std::string f;
+            if (d.x11Forwarding)           f += "X11 ";
+            if (d.agentForwarding)         f += "Agent ";
+            if (d.proxyJump.has_value() && !d.proxyJump->host.empty()) f += "Jump";
+            if (!f.empty() && f.back() == ' ') f.pop_back();
+            return f.empty() ? "-" : f;
+        }
+        return "-";
+    }, t);
 }
-
 
 } // namespace
 
@@ -78,7 +74,7 @@ ConnectionManagerDialog::ConnectionManagerDialog(wxWindow* parent,
                                                   const AppConfig& cfg,
                                                   ConnectFn onConnect)
     : wxDialog(parent, wxID_ANY, "Connection Manager",
-               wxDefaultPosition, wxSize(600, 420),
+               wxDefaultPosition, wxSize(840, 420),
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
     , m_store(store)
     , m_cfg(cfg)
@@ -86,39 +82,36 @@ ConnectionManagerDialog::ConnectionManagerDialog(wxWindow* parent,
 {
     auto* outer = new wxBoxSizer(wxVERTICAL);
 
-    // ---- Quick start --------------------------------------------------------
-    outer->Add(new wxStaticText(this, wxID_ANY, "Quick start:"), 0,
-               wxLEFT | wxTOP, 12);
-
-    auto* quickRow = new wxBoxSizer(wxHORIZONTAL);
-    quickRow->Add(new wxButton(this, ID_BTN_QUICK_SHELL, "Local Shell"), 0, wxRIGHT, 6);
-    quickRow->Add(new wxButton(this, ID_BTN_QUICK_LB,   "Loopback"),    0);
-    outer->Add(quickRow, 0, wxLEFT | wxTOP | wxBOTTOM, 12);
-
-    outer->Add(new wxStaticLine(this), 0, wxEXPAND | wxLEFT | wxRIGHT, 12);
-    outer->Add(new wxStaticText(this, wxID_ANY, "Saved connections:"), 0,
-               wxLEFT | wxTOP, 12);
+    // ---- Top action bar -----------------------------------------------------
+    auto* topRow = new wxBoxSizer(wxHORIZONTAL);
+    topRow->Add(new wxStaticText(this, wxID_ANY, "Saved connections:"),
+                0, wxALIGN_CENTER_VERTICAL);
+    topRow->AddStretchSpacer();
+    m_cbOpenNewWindow = new wxCheckBox(this, wxID_ANY, "Open in New Window");
+    topRow->Add(m_cbOpenNewWindow, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+    m_btnConn = new wxButton(this, ID_BTN_CONNECT, "Connect");
+    topRow->Add(m_btnConn, 0);
+    outer->Add(topRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 12);
 
     // ---- Saved connections list ---------------------------------------------
     m_list = new wxDataViewListCtrl(this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                     wxDV_ROW_LINES | wxDV_SINGLE);
-    m_list->AppendTextColumn("Name",      wxDATAVIEW_CELL_INERT, 160, wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
-    m_list->AppendTextColumn("Type",      wxDATAVIEW_CELL_INERT,  70, wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
-    m_list->AppendTextColumn("Host/Info", wxDATAVIEW_CELL_INERT, 200, wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
-    m_list->AppendTextColumn("Last Used", wxDATAVIEW_CELL_INERT, 100, wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
+    m_list->AppendTextColumn("Name",      wxDATAVIEW_CELL_INERT, 150, wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
+    m_list->AppendTextColumn("Transport", wxDATAVIEW_CELL_INERT,  70, wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
+    m_list->AppendTextColumn("Host",      wxDATAVIEW_CELL_INERT, 150, wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
+    m_list->AppendTextColumn("Flags",     wxDATAVIEW_CELL_INERT, 100, wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
+    m_list->AppendTextColumn("CWD",       wxDATAVIEW_CELL_INERT, 110, wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
+    m_list->AppendTextColumn("Geometry",  wxDATAVIEW_CELL_INERT,  65, wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
+    m_list->AppendTextColumn("Wrap",      wxDATAVIEW_CELL_INERT,  50, wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
     outer->Add(m_list, 1, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 12);
 
     // ---- Action buttons -----------------------------------------------------
     auto* btnRow = new wxBoxSizer(wxHORIZONTAL);
-    m_btnConn = new wxButton(this, ID_BTN_CONNECT, "Connect");
-    m_btnEdit = new wxButton(this, ID_BTN_EDIT,    "Edit...");
-    m_btnDel  = new wxButton(this, ID_BTN_DELETE,  "Delete");
-    btnRow->Add(m_btnConn, 0, wxRIGHT, 6);
+    m_btnEdit = new wxButton(this, ID_BTN_EDIT,   "Edit...");
+    m_btnDel  = new wxButton(this, ID_BTN_DELETE, "Delete");
     btnRow->Add(new wxButton(this, ID_BTN_NEW, "New..."), 0, wxRIGHT, 6);
-    btnRow->Add(m_btnEdit,  0, wxRIGHT, 6);
-    btnRow->Add(m_btnDel,   0, wxRIGHT, 20);
-    m_cbOpenNewWindow = new wxCheckBox(this, wxID_ANY, "Open in New Window");
-    btnRow->Add(m_cbOpenNewWindow, 0, wxALIGN_CENTER_VERTICAL);
+    btnRow->Add(m_btnEdit, 0, wxRIGHT, 6);
+    btnRow->Add(m_btnDel,  0);
     btnRow->AddStretchSpacer();
     btnRow->Add(new wxButton(this, wxID_CLOSE, "Close"), 0);
     outer->Add(btnRow, 0, wxEXPAND | wxALL, 12);
@@ -129,12 +122,10 @@ ConnectionManagerDialog::ConnectionManagerDialog(wxWindow* parent,
     UpdateButtonState();
 
     // Events
-    Bind(wxEVT_BUTTON, &ConnectionManagerDialog::OnConnect,        this, ID_BTN_CONNECT);
-    Bind(wxEVT_BUTTON, &ConnectionManagerDialog::OnNew,            this, ID_BTN_NEW);
-    Bind(wxEVT_BUTTON, &ConnectionManagerDialog::OnEdit,           this, ID_BTN_EDIT);
-    Bind(wxEVT_BUTTON, &ConnectionManagerDialog::OnDelete,         this, ID_BTN_DELETE);
-    Bind(wxEVT_BUTTON, &ConnectionManagerDialog::OnQuickLocalShell,this, ID_BTN_QUICK_SHELL);
-    Bind(wxEVT_BUTTON, &ConnectionManagerDialog::OnQuickLoopback,  this, ID_BTN_QUICK_LB);
+    Bind(wxEVT_BUTTON, &ConnectionManagerDialog::OnConnect, this, ID_BTN_CONNECT);
+    Bind(wxEVT_BUTTON, &ConnectionManagerDialog::OnNew,     this, ID_BTN_NEW);
+    Bind(wxEVT_BUTTON, &ConnectionManagerDialog::OnEdit,    this, ID_BTN_EDIT);
+    Bind(wxEVT_BUTTON, &ConnectionManagerDialog::OnDelete,  this, ID_BTN_DELETE);
     Bind(wxEVT_BUTTON, [this](wxCommandEvent&){ EndModal(wxID_CLOSE); }, wxID_CLOSE);
 
     m_list->Bind(wxEVT_DATAVIEW_ITEM_ACTIVATED,
@@ -150,8 +141,11 @@ void ConnectionManagerDialog::PopulateList()
         wxVector<wxVariant> row;
         row.push_back(p.name);
         row.push_back(TransportTypeName(p.transport));
-        row.push_back(TransportInfo(p.transport));
-        row.push_back(FormatLastUsed(p.lastUsed));
+        row.push_back(TransportHost(p.transport));
+        row.push_back(TransportFlags(p.transport));
+        row.push_back(p.sessionInit.workingDir.empty() ? "-" : p.sessionInit.workingDir);
+        row.push_back(std::to_string(p.columnWidth) + "x" + std::to_string(p.rows));
+        row.push_back(p.wrapMode ? "On" : "Off");
         m_list->AppendItem(row, reinterpret_cast<wxUIntPtr>(new std::string(p.id)));
     }
 }
@@ -279,33 +273,6 @@ void ConnectionManagerDialog::OnDelete(wxCommandEvent&)
     m_store.Remove(id);
     PopulateList();
     UpdateButtonState();
-}
-
-void ConnectionManagerDialog::OnQuickLocalShell(wxCommandEvent&)
-{
-    const char* s = std::getenv("SHELL");
-    const std::string shell = s ? s : "/bin/sh";
-
-    term::session::Connection conn;
-    conn.label     = "Local Shell";
-    conn.transport = term::session::PtyDesc{shell};
-    conn.wrapMode  = false;
-    conn.columnWidth = m_cfg.geometryPresets.empty() ? 80 : m_cfg.geometryPresets[0].cols;
-
-    m_onConnect(conn, m_cbOpenNewWindow->GetValue());
-    EndModal(wxID_OK);
-}
-
-void ConnectionManagerDialog::OnQuickLoopback(wxCommandEvent&)
-{
-    term::session::Connection conn;
-    conn.label     = "Loopback";
-    conn.transport = term::session::LoopbackDesc{};
-    conn.wrapMode  = true;
-    conn.columnWidth = m_cfg.geometryPresets.empty() ? 80 : m_cfg.geometryPresets[0].cols;
-
-    m_onConnect(conn, m_cbOpenNewWindow->GetValue());
-    EndModal(wxID_OK);
 }
 
 } // namespace ui

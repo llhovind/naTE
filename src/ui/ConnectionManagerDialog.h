@@ -37,10 +37,6 @@ private:
     void OnItemActivated(wxDataViewEvent&);
     void OnSelectionChanged(wxDataViewEvent&);
 
-    // Quick-start handlers (hardcoded Defaults)
-    void OnQuickLocalShell(wxCommandEvent&);
-    void OnQuickLoopback(wxCommandEvent&);
-
     void LaunchProfile(const std::string& id);
 
     term::db::ConnectionStore& m_store;
