@@ -20,7 +20,7 @@ std::unique_ptr<transport::Transport> Session::MakeTransport(
         using T = std::decay_t<decltype(desc)>;
         if constexpr (std::is_same_v<T, PtyDesc>)
             return std::make_unique<transport::PtyTransport>(
-                target, desc.shell, ptyCols, rows, viewportCols, conn.sessionInit, appDefaults);
+                target, desc.shell, desc.command, ptyCols, rows, viewportCols, conn.sessionInit, appDefaults);
         else if constexpr (std::is_same_v<T, SshDesc>)
             return std::make_unique<transport::SshTransport>(
                 target, desc, ptyCols, rows, viewportCols, conn.sessionInit, appDefaults);

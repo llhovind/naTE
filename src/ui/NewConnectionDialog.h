@@ -21,7 +21,6 @@ class wxListBox;
 class wxNotebook;
 class wxPanel;
 class wxRadioBox;
-class wxRadioButton;
 class wxSimplebook;
 class wxSpinCtrl;
 class wxTextCtrl;
@@ -55,6 +54,7 @@ enum class LaunchPlacement {
 // ---------------------------------------------------------------------------
 struct PtyParams {
     std::string    shell;
+    std::string    command;       // empty = interactive shell; non-empty = shell -c command
     bool           wrapMode       = false;
     unsigned short columnWidth    = 80;
     unsigned short rows           = 24;
@@ -105,6 +105,7 @@ struct SshParams {
     std::string                        workingDir;
     std::vector<term::session::EnvVar> envVars;
     std::string                        envFilePath;
+    bool                               loginShell     = false;
     // Profile title override
     std::string    profileTitle;
     bool           useProfileTitle = false;
@@ -170,7 +171,7 @@ private:
     void OnSshFieldChanged(wxCommandEvent&);
     void OnHostDetectTimer(wxTimerEvent&);
     void DetectProxyJumpFromConfig();
-    void OnAuthMethodChanged(wxCommandEvent&);
+    void OnAuthChoiceChanged(wxCommandEvent&);
     void OnGeometryChanged(wxCommandEvent&);
     void OnProfileSelected(wxCommandEvent&);
     void OnProfileTextChanged(wxCommandEvent&);
@@ -199,6 +200,7 @@ private:
 
     // PTY tab fields
     wxTextCtrl*  m_shellCtrl       = nullptr;
+    wxTextCtrl*  m_ptyCmdCtrl      = nullptr;  // optional command: shell -c <command>
     wxTextCtrl*  m_ptyWorkDirCtrl  = nullptr;
     wxButton*    m_ptyWorkDirBtn   = nullptr;
     wxCheckBox*  m_cbPtyLoginShell = nullptr;
@@ -216,28 +218,30 @@ private:
     wxTextCtrl*        m_jumpUserCtrl      = nullptr;
     wxChoice*          m_jumpAuthChoice    = nullptr;
     wxSimplebook*      m_jumpAuthBook      = nullptr;  // pages: Agent/Password/PrivKey/KbdInt
-    wxFilePickerCtrl*  m_jumpHintPicker    = nullptr;  // Agent page
-    wxTextCtrl*        m_jumpPassCtrl      = nullptr;  // Password page
-    wxFilePickerCtrl*  m_jumpKeyPicker     = nullptr;  // PrivKey page
-    wxTextCtrl*        m_jumpPassphraseCtrl = nullptr; // PrivKey page
+    wxFilePickerCtrl*  m_jumpHintPicker       = nullptr;  // Agent page
+    wxTextCtrl*        m_jumpPassCtrl         = nullptr;  // Password page
+    wxFilePickerCtrl*  m_jumpKeyPicker        = nullptr;  // PrivKey page (key file)
+    wxTextCtrl*        m_jumpPassphraseCtrl   = nullptr;  // PrivKey page (passphrase)
     void OnJumpAuthChoiceChanged(wxCommandEvent&);
+
+    // SSH Authentication (dropdown + simplebook — consistent with Jump Host)
+    wxChoice*          m_authChoice       = nullptr;  // SSH Agent / Password / Private Key / KbdInt
+    wxSimplebook*      m_authBook         = nullptr;  // pages: Agent/Password/PrivKey(key only)/KbdInt
+    wxFilePickerCtrl*  m_agentHintPicker  = nullptr;  // Agent page
+    wxTextCtrl*        m_passCtrl         = nullptr;  // Password page
+    wxFilePickerCtrl*  m_keyPicker        = nullptr;  // PrivKey page (key file)
+    wxTextCtrl*        m_passphraseCtrl   = nullptr;  // PrivKey page (passphrase)
+
+    // SSH options
     wxSpinCtrl*      m_timeoutCtrl     = nullptr;
-    wxRadioButton*   m_rbAuthAgent     = nullptr;
-    wxRadioButton*   m_rbAuthPass      = nullptr;
-    wxRadioButton*   m_rbAuthKey       = nullptr;
-    wxRadioButton*   m_rbAuthKbd       = nullptr;
-    wxPanel*          m_agentPanel      = nullptr;
-    wxFilePickerCtrl* m_agentHintPicker = nullptr;
-    wxPanel*          m_passPanel       = nullptr;
-    wxTextCtrl*       m_passCtrl        = nullptr;
-    wxPanel*          m_keyPanel        = nullptr;
-    wxFilePickerCtrl* m_keyPicker       = nullptr;
-    wxTextCtrl*       m_passphraseCtrl  = nullptr;
     wxSpinCtrl*      m_keepaliveCtrl   = nullptr;
-    wxTextCtrl*      m_remoteCmdCtrl   = nullptr;
     wxCheckBox*      m_cbCompress      = nullptr;
     wxCheckBox*      m_cbX11Fwd        = nullptr;
     wxCheckBox*      m_cbAgentFwd      = nullptr;
+
+    // SSH Session Init
+    wxTextCtrl*      m_remoteCmdCtrl   = nullptr;
+    wxCheckBox*      m_cbSshLoginShell = nullptr;
     wxTextCtrl*      m_sshWorkDirCtrl  = nullptr;
     wxButton*        m_sshWorkDirBtn   = nullptr;
 

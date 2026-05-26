@@ -14,7 +14,7 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
         if constexpr (std::is_same_v<T, PtyParams>) {
             conn.label       = labelIdx ? wxString::Format("Local Shell %d", labelIdx).ToStdString()
                                         : "Local Shell";
-            conn.transport   = term::session::PtyDesc{ p.shell };
+            conn.transport   = term::session::PtyDesc{ p.shell, p.command };
             conn.wrapMode    = p.wrapMode;
             conn.columnWidth = p.columnWidth;
             conn.rows        = p.rows;
@@ -83,6 +83,7 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
             conn.sessionInit.workingDir  = p.workingDir;
             conn.sessionInit.envVars     = p.envVars;
             conn.sessionInit.envFilePath = p.envFilePath;
+            conn.sessionInit.loginShell  = p.loginShell;
             conn.profileTitle            = p.profileTitle;
             conn.useProfileTitle         = p.useProfileTitle;
 

@@ -14,7 +14,10 @@ struct SessionInit {
     bool                loginShell = false; // prefix argv[0] with '-' (PTY) or use exec -l (SSH) to source .profile
 };
 
-struct PtyDesc      { std::string shell; };
+struct PtyDesc {
+    std::string shell;
+    std::string command; // empty = interactive shell; non-empty = exec shell -c command
+};
 struct LoopbackDesc {};
 
 enum class SshAuthMethod { Agent, Password, PrivateKey, KbdInteractive };

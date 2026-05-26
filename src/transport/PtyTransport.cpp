@@ -37,12 +37,13 @@ std::string GenerateVpColumnsFilePath() {
 
 PtyTransport::PtyTransport(ITransportTarget& target,
                            std::string shell,
+                           std::string command,
                            unsigned short cols,
                            unsigned short rows,
                            unsigned short viewportCols,
                            const term::session::SessionInit& sessionInit,
                            const term::session::AppSessionDefaults& appDefaults)
-    : target_(target), shell_(std::move(shell)),
+    : target_(target), shell_(std::move(shell)), command_(std::move(command)),
       vpcolumns_file_(GenerateVpColumnsFilePath())
 {
     struct winsize ws{};
@@ -82,8 +83,13 @@ PtyTransport::PtyTransport(ITransportTarget& target,
         const bool useLogin = sessionInit.loginShell || appDefaults.loginShell;
         const std::string argv0 = useLogin ? MakeLoginShellArg0(shell_) : shell_;
 
-        const char* args[] = { argv0.c_str(), nullptr };
-        execve(shell_.c_str(), const_cast<char* const*>(args), envBlock.ptrs.data());
+        if (command_.empty()) {
+            const char* args[] = { argv0.c_str(), nullptr };
+            execve(shell_.c_str(), const_cast<char* const*>(args), envBlock.ptrs.data());
+        } else {
+            const char* args[] = { argv0.c_str(), "-c", command_.c_str(), nullptr };
+            execve(shell_.c_str(), const_cast<char* const*>(args), envBlock.ptrs.data());
+        }
         _exit(1);
     }
     // Parent: write the initial viewport width so the file exists before the shell

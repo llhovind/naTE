@@ -15,6 +15,7 @@ class PtyTransport : public Transport {
 public:
     PtyTransport(ITransportTarget& target,
                  std::string shell,
+                 std::string command,
                  unsigned short cols,
                  unsigned short rows,
                  unsigned short viewportCols,
@@ -38,6 +39,7 @@ private:
 
     ITransportTarget& target_;
     std::string       shell_;
+    std::string       command_;
     std::string       vpcolumns_file_;
     int               master_fd_ = -1;
     pid_t             child_pid_ = -1;

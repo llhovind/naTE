@@ -14,7 +14,6 @@
 #include <wx/msgdlg.h>
 #include <wx/notebook.h>
 #include <wx/panel.h>
-#include <wx/radiobut.h>
 #include <wx/radiobox.h>
 #include <wx/simplebook.h>
 #include <wx/sizer.h>
@@ -33,21 +32,18 @@ namespace ui
 
 namespace
 {
-    constexpr int ID_RB_AUTH_AGENT          = wxID_HIGHEST + 205;
-    constexpr int ID_RB_AUTH_PASS           = wxID_HIGHEST + 206;
-    constexpr int ID_RB_AUTH_KEY            = wxID_HIGHEST + 207;
-    constexpr int ID_RB_AUTH_KBD            = wxID_HIGHEST + 230;
-    constexpr int ID_JUMP_AUTH_CHOICE       = wxID_HIGHEST + 231;
-    constexpr int ID_GEOMETRY_COMBO         = wxID_HIGHEST + 208;
-    constexpr int ID_PROFILE_COMBO          = wxID_HIGHEST + 209;
+    constexpr int ID_SSH_AUTH_CHOICE      = wxID_HIGHEST + 205;
+    constexpr int ID_JUMP_AUTH_CHOICE     = wxID_HIGHEST + 231;
+    constexpr int ID_GEOMETRY_COMBO       = wxID_HIGHEST + 208;
+    constexpr int ID_PROFILE_COMBO        = wxID_HIGHEST + 209;
     constexpr int ID_BTN_BROWSE_WORKDIR_PTY = wxID_HIGHEST + 210;
     constexpr int ID_BTN_BROWSE_WORKDIR_SSH = wxID_HIGHEST + 211;
-    constexpr int ID_LIST_ENV               = wxID_HIGHEST + 212;
-    constexpr int ID_BTN_ADD_ENV            = wxID_HIGHEST + 215;
-    constexpr int ID_BTN_EDIT_ENV           = wxID_HIGHEST + 216;
-    constexpr int ID_BTN_REMOVE_ENV         = wxID_HIGHEST + 217;
-    constexpr int ID_CB_USE_PROFILE_TITLE   = wxID_HIGHEST + 224;
-    constexpr int ID_BTN_CONNECT            = wxID_HIGHEST + 225;
+    constexpr int ID_LIST_ENV             = wxID_HIGHEST + 212;
+    constexpr int ID_BTN_ADD_ENV          = wxID_HIGHEST + 215;
+    constexpr int ID_BTN_EDIT_ENV         = wxID_HIGHEST + 216;
+    constexpr int ID_BTN_REMOVE_ENV       = wxID_HIGHEST + 217;
+    constexpr int ID_CB_USE_PROFILE_TITLE = wxID_HIGHEST + 224;
+    constexpr int ID_BTN_CONNECT          = wxID_HIGHEST + 225;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,22 +101,41 @@ NewConnectionDialog::NewConnectionDialog(
         outer->Add(row, 0, wxLEFT | wxRIGHT | wxTOP | wxEXPAND, 12);
     }
 
-    // ---- Placement (UserChoice only) — near top, before separator -----------
-    if (context == LaunchContext::UserChoice) {
-        wxArrayString opts;
-        opts.Add("Current Tile"); opts.Add("New Tile"); opts.Add("New Window");
-        m_placementCtrl = new wxRadioBox(this, wxID_ANY, "Open in",
-                                         wxDefaultPosition, wxDefaultSize,
-                                         opts, 3, wxRA_SPECIFY_COLS);
-        m_placementCtrl->SetSelection(1);  // default: New Tile
-        outer->Add(m_placementCtrl, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 12);
+    // ---- Save as Profile + Open In (combined row, below profile) -------------
+    // "Save as Profile" left-aligned; "Open In" right-aligned (UserChoice only).
+    // Row is omitted entirely for ProfileOnly (neither control is shown).
+    {
+        const bool showSave      = (context != LaunchContext::ProfileOnly);
+        const bool showPlacement = (context == LaunchContext::UserChoice);
+
+        if (showSave || showPlacement) {
+            auto* row = new wxBoxSizer(wxHORIZONTAL);
+
+            if (showSave) {
+                m_cbSaveProfile = new wxCheckBox(this, wxID_ANY, "Save as Profile");
+                row->Add(m_cbSaveProfile, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 50);
+            }
+
+            if (showPlacement) {
+                row->AddStretchSpacer();
+                wxArrayString opts;
+                opts.Add("Current Tile"); opts.Add("New Tile"); opts.Add("New Window");
+                m_placementCtrl = new wxRadioBox(this, wxID_ANY, "Open in",
+                                                 wxDefaultPosition, wxDefaultSize,
+                                                 opts, 3, wxRA_SPECIFY_COLS );
+                m_placementCtrl->SetSelection(1);  // default: New Tile
+                row->Add(m_placementCtrl, 0, wxALIGN_CENTER_VERTICAL);
+            }
+
+            outer->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 12);
+        }
     }
 
     outer->AddSpacer(8);
     outer->Add(new wxStaticLine(this), 0, wxEXPAND | wxLEFT | wxRIGHT, 12);
     outer->AddSpacer(6);
 
-    // ---- Shared terminal options --------------------------------------------
+    // ---- Shared terminal options (Geometry · Wrap · Override Title) ----------
     {
         auto* termRow = new wxBoxSizer(wxHORIZONTAL);
         termRow->Add(new wxStaticText(this, wxID_ANY, "Geometry:"),
@@ -157,31 +172,23 @@ NewConnectionDialog::NewConnectionDialog(
             m_customGeomPanel->SetSizer(s);
         }
         m_customGeomPanel->Show(false);
-        termRow->Add(m_customGeomPanel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 20);
+        termRow->Add(m_customGeomPanel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
 
         m_cbWrapMode = new wxCheckBox(this, wxID_ANY, "Wrap mode");
         m_cbWrapMode->SetValue(defaultWrapMode);
-        termRow->Add(m_cbWrapMode, 0, wxALIGN_CENTER_VERTICAL);
+        termRow->Add(m_cbWrapMode, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 20);
 
-        outer->Add(termRow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
-    }
-
-    {
-        auto* titleRow = new wxBoxSizer(wxHORIZONTAL);
+        // Override Title — right side of the same row
+        termRow->AddStretchSpacer();
         m_cbUseProfileTitle = new wxCheckBox(this, ID_CB_USE_PROFILE_TITLE, "Override title:");
-        titleRow->Add(m_cbUseProfileTitle, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+        termRow->Add(m_cbUseProfileTitle, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
         m_profileTitleCtrl = new wxTextCtrl(this, wxID_ANY, wxEmptyString,
-                                            wxDefaultPosition, wxSize(220, -1));
+                                            wxDefaultPosition, wxSize(180, -1));
         m_profileTitleCtrl->SetHint("(empty = transport-provided)");
         m_profileTitleCtrl->Enable(false);
-        titleRow->Add(m_profileTitleCtrl, 1, wxEXPAND);
-        outer->Add(titleRow, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
-    }
+        termRow->Add(m_profileTitleCtrl, 0);
 
-    // Save as Profile checkbox (not for ProfileOnly)
-    if (context != LaunchContext::ProfileOnly) {
-        m_cbSaveProfile = new wxCheckBox(this, wxID_ANY, "Save as Profile");
-        outer->Add(m_cbSaveProfile, 0, wxLEFT | wxBOTTOM, 12);
+        outer->Add(termRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 12);
     }
 
     outer->AddSpacer(2);
@@ -208,16 +215,31 @@ NewConnectionDialog::NewConnectionDialog(
         {
             auto* box = new wxStaticBoxSizer(wxVERTICAL, page, "Session Init");
 
-            auto* dirRow = new wxBoxSizer(wxHORIZONTAL);
-            dirRow->Add(new wxStaticText(page, wxID_ANY, "Working directory:"),
-                        0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-            m_ptyWorkDirCtrl = new wxTextCtrl(page, wxID_ANY,
-                                              wxString::FromUTF8(defaultWorkingDir),
-                                              wxDefaultPosition, wxSize(160, -1));
-            dirRow->Add(m_ptyWorkDirCtrl, 1, wxEXPAND | wxRIGHT, 4);
-            m_ptyWorkDirBtn = new wxButton(page, ID_BTN_BROWSE_WORKDIR_PTY, "Browse...");
-            dirRow->Add(m_ptyWorkDirBtn, 0);
-            box->Add(dirRow, 0, wxEXPAND | wxALL, 4);
+            // FlexGrid aligns the input field left-edges for both rows
+            auto* initGrid = new wxFlexGridSizer(2, 2, 4, 6);
+            initGrid->AddGrowableCol(1);
+
+            initGrid->Add(new wxStaticText(page, wxID_ANY, "Working directory:"),
+                          0, wxALIGN_CENTER_VERTICAL | wxALIGN_RIGHT);
+            {
+                auto* inner = new wxBoxSizer(wxHORIZONTAL);
+                m_ptyWorkDirCtrl = new wxTextCtrl(page, wxID_ANY,
+                                                  wxString::FromUTF8(defaultWorkingDir),
+                                                  wxDefaultPosition, wxSize(160, -1));
+                inner->Add(m_ptyWorkDirCtrl, 1, wxEXPAND | wxRIGHT, 4);
+                m_ptyWorkDirBtn = new wxButton(page, ID_BTN_BROWSE_WORKDIR_PTY, "Browse...");
+                inner->Add(m_ptyWorkDirBtn, 0);
+                initGrid->Add(inner, 1, wxEXPAND);
+            }
+
+            initGrid->Add(new wxStaticText(page, wxID_ANY, "Command:"),
+                          0, wxALIGN_CENTER_VERTICAL | wxALIGN_RIGHT);
+            m_ptyCmdCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
+                                          wxDefaultPosition, wxSize(280, -1));
+            m_ptyCmdCtrl->SetHint("(optional) command to run in shell");
+            initGrid->Add(m_ptyCmdCtrl, 1, wxEXPAND);
+
+            box->Add(initGrid, 0, wxEXPAND | wxALL, 4);
 
             m_cbPtyLoginShell = new wxCheckBox(page, wxID_ANY,
                                                "Login shell (sources .profile / .bash_profile)");
@@ -236,32 +258,34 @@ NewConnectionDialog::NewConnectionDialog(
         auto* page = new wxPanel(m_notebook, wxID_ANY);
         auto* sizer = new wxBoxSizer(wxVERTICAL);
 
-        // Host + Port on the same row
+        // Host + Port and Username — FlexGrid keeps input left-edges aligned
         {
-            auto* row = new wxBoxSizer(wxHORIZONTAL);
-            row->Add(new wxStaticText(page, wxID_ANY, "Host:"),
-                     0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-            m_hostCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
-                                        wxDefaultPosition, wxSize(220, -1));
-            row->Add(m_hostCtrl, 1, wxEXPAND | wxRIGHT, 12);
-            row->Add(new wxStaticText(page, wxID_ANY, "Port:"),
-                     0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-            m_portCtrl = new wxTextCtrl(page, wxID_ANY, "22",
-                                        wxDefaultPosition, wxSize(55, -1));
-            row->Add(m_portCtrl, 0);
-            sizer->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
-        }
+            auto* grid = new wxFlexGridSizer(2, 2, 4, 6);
+            grid->AddGrowableCol(1);
 
-        // Username
-        {
-            auto* row = new wxBoxSizer(wxHORIZONTAL);
-            row->Add(new wxStaticText(page, wxID_ANY, "Username:"),
-                     0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+            grid->Add(new wxStaticText(page, wxID_ANY, "Host:"),
+                      0, wxALIGN_CENTER_VERTICAL | wxALIGN_RIGHT);
+            {
+                auto* inner = new wxBoxSizer(wxHORIZONTAL);
+                m_hostCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
+                                            wxDefaultPosition, wxSize(220, -1));
+                inner->Add(m_hostCtrl, 1, wxEXPAND | wxRIGHT, 12);
+                inner->Add(new wxStaticText(page, wxID_ANY, "Port:"),
+                           0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                m_portCtrl = new wxTextCtrl(page, wxID_ANY, "22",
+                                            wxDefaultPosition, wxSize(55, -1));
+                inner->Add(m_portCtrl, 0);
+                grid->Add(inner, 1, wxEXPAND);
+            }
+
+            grid->Add(new wxStaticText(page, wxID_ANY, "Username:"),
+                      0, wxALIGN_CENTER_VERTICAL | wxALIGN_RIGHT);
             m_userCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
                                         wxDefaultPosition, wxSize(260, -1));
             m_userCtrl->SetHint("defaults to current user");
-            row->Add(m_userCtrl, 1, wxEXPAND);
-            sizer->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
+            grid->Add(m_userCtrl, 1, wxEXPAND);
+
+            sizer->Add(grid, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
         }
 
         // Via Jump Host (ProxyJump) — collapsible, collapsed by default
@@ -271,35 +295,37 @@ NewConnectionDialog::NewConnectionDialog(
             auto* pw = m_jumpPane->GetPane();
             auto* ps = new wxBoxSizer(wxVERTICAL);
 
-            // Host + Port
+            // Host + Port and Username — FlexGrid keeps input left-edges aligned
             {
-                auto* r = new wxBoxSizer(wxHORIZONTAL);
-                r->Add(new wxStaticText(pw, wxID_ANY, "Host:"),
-                       0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-                m_jumpHostCtrl = new wxTextCtrl(pw, wxID_ANY, wxEmptyString,
-                                                wxDefaultPosition, wxSize(200, -1));
-                r->Add(m_jumpHostCtrl, 1, wxEXPAND | wxRIGHT, 12);
-                r->Add(new wxStaticText(pw, wxID_ANY, "Port:"),
-                       0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-                m_jumpPortCtrl = new wxTextCtrl(pw, wxID_ANY, "22",
-                                                wxDefaultPosition, wxSize(55, -1));
-                r->Add(m_jumpPortCtrl, 0);
-                ps->Add(r, 0, wxEXPAND | wxBOTTOM, 4);
-            }
+                auto* grid = new wxFlexGridSizer(2, 2, 4, 6);
+                grid->AddGrowableCol(1);
 
-            // Jump User
-            {
-                auto* r = new wxBoxSizer(wxHORIZONTAL);
-                r->Add(new wxStaticText(pw, wxID_ANY, "User:"),
-                       0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                grid->Add(new wxStaticText(pw, wxID_ANY, "Host:"),
+                          0, wxALIGN_CENTER_VERTICAL | wxALIGN_RIGHT);
+                {
+                    auto* inner = new wxBoxSizer(wxHORIZONTAL);
+                    m_jumpHostCtrl = new wxTextCtrl(pw, wxID_ANY, wxEmptyString,
+                                                    wxDefaultPosition, wxSize(200, -1));
+                    inner->Add(m_jumpHostCtrl, 1, wxEXPAND | wxRIGHT, 12);
+                    inner->Add(new wxStaticText(pw, wxID_ANY, "Port:"),
+                               0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                    m_jumpPortCtrl = new wxTextCtrl(pw, wxID_ANY, "22",
+                                                    wxDefaultPosition, wxSize(55, -1));
+                    inner->Add(m_jumpPortCtrl, 0);
+                    grid->Add(inner, 1, wxEXPAND);
+                }
+
+                grid->Add(new wxStaticText(pw, wxID_ANY, "Username:"),
+                          0, wxALIGN_CENTER_VERTICAL | wxALIGN_RIGHT);
                 m_jumpUserCtrl = new wxTextCtrl(pw, wxID_ANY, wxEmptyString,
                                                 wxDefaultPosition, wxSize(180, -1));
                 m_jumpUserCtrl->SetHint("defaults to target user");
-                r->Add(m_jumpUserCtrl, 1, wxEXPAND);
-                ps->Add(r, 0, wxEXPAND | wxBOTTOM, 4);
+                grid->Add(m_jumpUserCtrl, 1, wxEXPAND);
+
+                ps->Add(grid, 0, wxEXPAND | wxBOTTOM, 4);
             }
 
-            // Auth method choice
+            // Auth: dropdown + compact simplebook on the same row
             {
                 auto* r = new wxBoxSizer(wxHORIZONTAL);
                 r->Add(new wxStaticText(pw, wxID_ANY, "Auth:"),
@@ -310,166 +336,194 @@ NewConnectionDialog::NewConnectionDialog(
                 m_jumpAuthChoice->Append("Private Key File");
                 m_jumpAuthChoice->Append("Keyboard Interactive");
                 m_jumpAuthChoice->SetSelection(0);
-                r->Add(m_jumpAuthChoice, 0);
+                r->Add(m_jumpAuthChoice, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+
+                m_jumpAuthBook = new wxSimplebook(pw, wxID_ANY);
+
+                // Page 0: Agent — identity hint (single row; optional)
+                {
+                    auto* pg = new wxPanel(m_jumpAuthBook, wxID_ANY);
+                    auto* s  = new wxBoxSizer(wxHORIZONTAL);
+                    s->Add(new wxStaticText(pg, wxID_ANY, "Identity hint:"),
+                           0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                    m_jumpHintPicker = new wxFilePickerCtrl(
+                        pg, wxID_ANY, wxEmptyString,
+                        "Select private key to prefer for agent auth", "All files (*)|*",
+                        wxDefaultPosition, wxSize(200, -1),
+                        wxFLP_OPEN | wxFLP_USE_TEXTCTRL);
+                    if (m_jumpHintPicker->GetTextCtrl())
+                        m_jumpHintPicker->GetTextCtrl()->SetHint("(optional)");
+                    s->Add(m_jumpHintPicker, 1, wxEXPAND);
+                    pg->SetSizer(s);
+                    m_jumpAuthBook->AddPage(pg, "Agent");
+                }
+
+                // Page 1: Password (single row)
+                {
+                    auto* pg = new wxPanel(m_jumpAuthBook, wxID_ANY);
+                    auto* s  = new wxBoxSizer(wxHORIZONTAL);
+                    s->Add(new wxStaticText(pg, wxID_ANY, "Password:"),
+                           0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                    m_jumpPassCtrl = new wxTextCtrl(pg, wxID_ANY, wxEmptyString,
+                                                    wxDefaultPosition, wxSize(180, -1), wxTE_PASSWORD);
+                    s->Add(m_jumpPassCtrl, 1, wxALIGN_CENTER_VERTICAL);
+                    pg->SetSizer(s);
+                    m_jumpAuthBook->AddPage(pg, "Password");
+                }
+
+                // Page 2: Private Key — key file + passphrase (two rows)
+                {
+                    auto* pg = new wxPanel(m_jumpAuthBook, wxID_ANY);
+                    auto* s  = new wxBoxSizer(wxVERTICAL);
+                    {
+                        auto* r = new wxBoxSizer(wxHORIZONTAL);
+                        r->Add(new wxStaticText(pg, wxID_ANY, "Key file:"),
+                               0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                        m_jumpKeyPicker = new wxFilePickerCtrl(
+                            pg, wxID_ANY, wxEmptyString,
+                            "Select private key", "All files (*)|*",
+                            wxDefaultPosition, wxSize(200, -1),
+                            wxFLP_OPEN | wxFLP_FILE_MUST_EXIST | wxFLP_USE_TEXTCTRL);
+                        r->Add(m_jumpKeyPicker, 1, wxEXPAND);
+                        s->Add(r, 0, wxEXPAND | wxBOTTOM, 4);
+                    }
+                    {
+                        auto* r = new wxBoxSizer(wxHORIZONTAL);
+                        r->Add(new wxStaticText(pg, wxID_ANY, "Passphrase:"),
+                               0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+                        m_jumpPassphraseCtrl = new wxTextCtrl(pg, wxID_ANY, wxEmptyString,
+                                                              wxDefaultPosition, wxSize(180, -1),
+                                                              wxTE_PASSWORD);
+                        r->Add(m_jumpPassphraseCtrl, 1, 0);
+                        s->Add(r, 0, wxEXPAND);
+                    }
+                    pg->SetSizer(s);
+                    m_jumpAuthBook->AddPage(pg, "PrivKey");
+                }
+
+                // Page 3: Keyboard Interactive (no extra fields)
+                {
+                    auto* pg = new wxPanel(m_jumpAuthBook, wxID_ANY);
+                    pg->SetSizer(new wxBoxSizer(wxVERTICAL));
+                    m_jumpAuthBook->AddPage(pg, "KbdInt");
+                }
+
+                r->Add(m_jumpAuthBook, 1, wxALIGN_CENTER_VERTICAL);
                 ps->Add(r, 0, wxEXPAND | wxBOTTOM, 4);
             }
 
-            // Auth sub-panels via wxSimplebook (4 pages, matching choice indices)
-            m_jumpAuthBook = new wxSimplebook(pw, wxID_ANY);
+            auto* padded = new wxBoxSizer(wxVERTICAL);
+            padded->Add(ps, 1, wxEXPAND | wxALL, 8);
+            pw->SetSizer(padded);
+        }
 
-            // Page 0: Agent — identity hint
+        // Authentication box — dropdown + compact simplebook (consistent with Jump Host)
+        {
+            auto* authBox = new wxStaticBoxSizer(wxVERTICAL, page, "Authentication");
+
+            auto* authRow = new wxBoxSizer(wxHORIZONTAL);
+            authRow->Add(new wxStaticText(page, wxID_ANY, "Auth:"),
+                         0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+
+            m_authChoice = new wxChoice(page, ID_SSH_AUTH_CHOICE);
+            m_authChoice->Append("SSH Agent");
+            m_authChoice->Append("Password");
+            m_authChoice->Append("Private Key File");
+            m_authChoice->Append("Keyboard Interactive");
+            m_authChoice->SetSelection(0);
+            authRow->Add(m_authChoice, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+
+            m_authBook = new wxSimplebook(page, wxID_ANY);
+
+            // Page 0: Agent — identity hint (single row; optional)
             {
-                auto* pg = new wxPanel(m_jumpAuthBook, wxID_ANY);
+                auto* pg = new wxPanel(m_authBook, wxID_ANY);
                 auto* s  = new wxBoxSizer(wxHORIZONTAL);
                 s->Add(new wxStaticText(pg, wxID_ANY, "Identity hint:"),
                        0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-                m_jumpHintPicker = new wxFilePickerCtrl(
+                m_agentHintPicker = new wxFilePickerCtrl(
                     pg, wxID_ANY, wxEmptyString,
                     "Select private key to prefer for agent auth", "All files (*)|*",
-                    wxDefaultPosition, wxSize(240, -1),
+                    wxDefaultPosition, wxSize(200, -1),
                     wxFLP_OPEN | wxFLP_USE_TEXTCTRL);
-                s->Add(m_jumpHintPicker, 1, wxEXPAND);
+                if (m_agentHintPicker->GetTextCtrl())
+                    m_agentHintPicker->GetTextCtrl()->SetHint("(optional)");
+                s->Add(m_agentHintPicker, 1, wxEXPAND);
                 pg->SetSizer(s);
-                m_jumpAuthBook->AddPage(pg, "Agent");
+                m_authBook->AddPage(pg, "Agent");
             }
 
-            // Page 1: Password
+            // Page 1: Password (single row)
             {
-                auto* pg = new wxPanel(m_jumpAuthBook, wxID_ANY);
+                auto* pg = new wxPanel(m_authBook, wxID_ANY);
                 auto* s  = new wxBoxSizer(wxHORIZONTAL);
                 s->Add(new wxStaticText(pg, wxID_ANY, "Password:"),
                        0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-                m_jumpPassCtrl = new wxTextCtrl(pg, wxID_ANY, wxEmptyString,
-                                                wxDefaultPosition, wxSize(220, -1), wxTE_PASSWORD);
-                s->Add(m_jumpPassCtrl, 1, wxEXPAND);
+                m_passCtrl = new wxTextCtrl(pg, wxID_ANY, wxEmptyString,
+                                            wxDefaultPosition, wxSize(200, -1), wxTE_PASSWORD);
+                s->Add(m_passCtrl, 1, wxALIGN_CENTER_VERTICAL);
                 pg->SetSizer(s);
-                m_jumpAuthBook->AddPage(pg, "Password");
+                m_authBook->AddPage(pg, "Password");
             }
 
-            // Page 2: Private Key
+            // Page 2: Private Key — key file + passphrase (two rows)
             {
-                auto* pg = new wxPanel(m_jumpAuthBook, wxID_ANY);
+                auto* pg = new wxPanel(m_authBook, wxID_ANY);
                 auto* s  = new wxBoxSizer(wxVERTICAL);
                 {
                     auto* r = new wxBoxSizer(wxHORIZONTAL);
                     r->Add(new wxStaticText(pg, wxID_ANY, "Key file:"),
                            0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-                    m_jumpKeyPicker = new wxFilePickerCtrl(
+                    m_keyPicker = new wxFilePickerCtrl(
                         pg, wxID_ANY, wxEmptyString,
                         "Select private key", "All files (*)|*",
-                        wxDefaultPosition, wxSize(240, -1),
+                        wxDefaultPosition, wxSize(200, -1),
                         wxFLP_OPEN | wxFLP_FILE_MUST_EXIST | wxFLP_USE_TEXTCTRL);
-                    r->Add(m_jumpKeyPicker, 1, wxEXPAND);
+                    r->Add(m_keyPicker, 1, wxEXPAND);
                     s->Add(r, 0, wxEXPAND | wxBOTTOM, 4);
                 }
                 {
                     auto* r = new wxBoxSizer(wxHORIZONTAL);
                     r->Add(new wxStaticText(pg, wxID_ANY, "Passphrase:"),
                            0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-                    m_jumpPassphraseCtrl = new wxTextCtrl(
-                        pg, wxID_ANY, wxEmptyString,
-                        wxDefaultPosition, wxSize(220, -1), wxTE_PASSWORD);
-                    r->Add(m_jumpPassphraseCtrl, 1, wxEXPAND);
+                    m_passphraseCtrl = new wxTextCtrl(pg, wxID_ANY, wxEmptyString,
+                                                      wxDefaultPosition, wxSize(200, -1),
+                                                      wxTE_PASSWORD);
+                    r->Add(m_passphraseCtrl, 1, 0);
                     s->Add(r, 0, wxEXPAND);
                 }
                 pg->SetSizer(s);
-                m_jumpAuthBook->AddPage(pg, "PrivKey");
+                m_authBook->AddPage(pg, "PrivKey");
             }
 
             // Page 3: Keyboard Interactive (no extra fields)
             {
-                auto* pg = new wxPanel(m_jumpAuthBook, wxID_ANY);
+                auto* pg = new wxPanel(m_authBook, wxID_ANY);
                 pg->SetSizer(new wxBoxSizer(wxVERTICAL));
-                m_jumpAuthBook->AddPage(pg, "KbdInt");
+                m_authBook->AddPage(pg, "KbdInt");
             }
 
-            ps->Add(m_jumpAuthBook, 0, wxEXPAND);
-            pw->SetSizer(ps);
+            authRow->Add(m_authBook, 1, wxALIGN_CENTER_VERTICAL);
+            authBox->Add(authRow, 0, wxEXPAND | wxALL, 6);
+
+            sizer->Add(authBox, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
         }
+
         sizer->Add(m_jumpPane, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
 
-        // Authentication box
-        auto* authBox = new wxStaticBoxSizer(wxVERTICAL, page, "Authentication");
-
-        m_rbAuthAgent = new wxRadioButton(page, ID_RB_AUTH_AGENT,
-                                          "SSH Agent (SSH_AUTH_SOCK)",
-                                          wxDefaultPosition, wxDefaultSize, wxRB_GROUP);
-        m_rbAuthPass  = new wxRadioButton(page, ID_RB_AUTH_PASS, "Password");
-        m_rbAuthKey   = new wxRadioButton(page, ID_RB_AUTH_KEY,  "Private Key File");
-        m_rbAuthAgent->SetValue(true);
-
-        authBox->Add(m_rbAuthAgent, 0, wxALL, 4);
-
-        // Agent identity hint sub-panel (optional key path to prefer from agent)
-        m_agentPanel = new wxPanel(page, wxID_ANY);
-        {
-            auto* s = new wxBoxSizer(wxHORIZONTAL);
-            s->Add(new wxStaticText(m_agentPanel, wxID_ANY, "Identity hint:"),
-                   0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-            m_agentHintPicker = new wxFilePickerCtrl(
-                m_agentPanel, wxID_ANY, wxEmptyString,
-                "Select private key to prefer for agent auth", "All files (*)|*",
-                wxDefaultPosition, wxSize(240, -1),
-                wxFLP_OPEN | wxFLP_USE_TEXTCTRL);
-            s->Add(m_agentHintPicker, 1, wxEXPAND);
-            m_agentPanel->SetSizer(s);
-        }
-        authBox->Add(m_agentPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
-
-        // Password sub-panel
-        m_passPanel = new wxPanel(page, wxID_ANY);
-        {
-            auto* s = new wxBoxSizer(wxHORIZONTAL);
-            s->Add(new wxStaticText(m_passPanel, wxID_ANY, "Password:"),
-                   0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-            m_passCtrl = new wxTextCtrl(m_passPanel, wxID_ANY, wxEmptyString,
-                                        wxDefaultPosition, wxSize(220, -1), wxTE_PASSWORD);
-            s->Add(m_passCtrl, 1, wxEXPAND);
-            m_passPanel->SetSizer(s);
-        }
-        m_passPanel->Show(false);
-
-        authBox->Add(m_rbAuthPass,  0, wxLEFT | wxRIGHT | wxBOTTOM, 4);
-        authBox->Add(m_passPanel,   0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
-
-        // Private key sub-panel
-        m_keyPanel = new wxPanel(page, wxID_ANY);
-        {
-            auto* s = new wxBoxSizer(wxVERTICAL);
-
-            auto* keyRow = new wxBoxSizer(wxHORIZONTAL);
-            keyRow->Add(new wxStaticText(m_keyPanel, wxID_ANY, "Key file:"),
-                        0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-            m_keyPicker = new wxFilePickerCtrl(m_keyPanel, wxID_ANY, wxEmptyString,
-                                               "Select private key", "All files (*)|*",
-                                               wxDefaultPosition, wxSize(240, -1),
-                                               wxFLP_OPEN | wxFLP_FILE_MUST_EXIST | wxFLP_USE_TEXTCTRL);
-            keyRow->Add(m_keyPicker, 1, wxEXPAND);
-            s->Add(keyRow, 0, wxEXPAND | wxBOTTOM, 4);
-
-            auto* ppRow = new wxBoxSizer(wxHORIZONTAL);
-            ppRow->Add(new wxStaticText(m_keyPanel, wxID_ANY, "Passphrase:"),
-                       0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-            m_passphraseCtrl = new wxTextCtrl(m_keyPanel, wxID_ANY, wxEmptyString,
-                                              wxDefaultPosition, wxSize(220, -1), wxTE_PASSWORD);
-            ppRow->Add(m_passphraseCtrl, 1, wxEXPAND);
-            s->Add(ppRow, 0, wxEXPAND);
-            m_keyPanel->SetSizer(s);
-        }
-        m_keyPanel->Show(false);
-
-        authBox->Add(m_rbAuthKey,  0, wxLEFT | wxRIGHT | wxBOTTOM, 4);
-        authBox->Add(m_keyPanel,   0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
-
-        m_rbAuthKbd = new wxRadioButton(page, ID_RB_AUTH_KBD,
-                                        "Keyboard Interactive");
-        authBox->Add(m_rbAuthKbd, 0, wxLEFT | wxRIGHT | wxBOTTOM, 4);
-
-        sizer->Add(authBox, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
-
-        // Options row — Timeout + Keep-alive + Remote command + Compress
+        // Options row — X11 · Agent · Compress · Timeout · Keep-alive
         {
             auto* row = new wxBoxSizer(wxHORIZONTAL);
+
+            m_cbX11Fwd = new wxCheckBox(page, wxID_ANY, "Forward X11");
+            row->Add(m_cbX11Fwd, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
+
+            m_cbAgentFwd = new wxCheckBox(page, wxID_ANY, "Forward Agent");
+            row->Add(m_cbAgentFwd, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
+
+            m_cbCompress = new wxCheckBox(page, wxID_ANY, "Compress");
+            row->Add(m_cbCompress, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 20);
+
             row->Add(new wxStaticText(page, wxID_ANY, "Timeout (s):"),
                      0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
             m_timeoutCtrl = new wxSpinCtrl(page, wxID_ANY, "10",
@@ -482,22 +536,7 @@ NewConnectionDialog::NewConnectionDialog(
             m_keepaliveCtrl = new wxSpinCtrl(page, wxID_ANY, "30",
                                              wxDefaultPosition, wxDefaultSize,
                                              wxSP_ARROW_KEYS, 0, 300, 30);
-            row->Add(m_keepaliveCtrl, 0, wxRIGHT, 12);
-
-            row->Add(new wxStaticText(page, wxID_ANY, "Command:"),
-                     0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
-            m_remoteCmdCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
-                                             wxDefaultPosition, wxSize(140, -1));
-            row->Add(m_remoteCmdCtrl, 1, wxRIGHT, 12);
-
-            m_cbCompress = new wxCheckBox(page, wxID_ANY, "Compress");
-            row->Add(m_cbCompress, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
-
-            m_cbX11Fwd = new wxCheckBox(page, wxID_ANY, "Forward X11");
-            row->Add(m_cbX11Fwd, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
-
-            m_cbAgentFwd = new wxCheckBox(page, wxID_ANY, "Forward Agent");
-            row->Add(m_cbAgentFwd, 0, wxALIGN_CENTER_VERTICAL);
+            row->Add(m_keepaliveCtrl, 0);
 
             sizer->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
         }
@@ -506,16 +545,36 @@ NewConnectionDialog::NewConnectionDialog(
         {
             auto* box = new wxStaticBoxSizer(wxVERTICAL, page, "Session Init");
 
-            auto* dirRow = new wxBoxSizer(wxHORIZONTAL);
-            dirRow->Add(new wxStaticText(page, wxID_ANY, "Working directory:"),
-                        0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-            m_sshWorkDirCtrl = new wxTextCtrl(page, wxID_ANY,
-                                              wxString::FromUTF8(defaultWorkingDir),
-                                              wxDefaultPosition, wxSize(160, -1));
-            dirRow->Add(m_sshWorkDirCtrl, 1, wxEXPAND | wxRIGHT, 4);
-            m_sshWorkDirBtn = new wxButton(page, ID_BTN_BROWSE_WORKDIR_SSH, "Browse...");
-            dirRow->Add(m_sshWorkDirBtn, 0);
-            box->Add(dirRow, 0, wxEXPAND | wxALL, 4);
+            // FlexGrid aligns the input field left-edges for both rows
+            auto* initGrid = new wxFlexGridSizer(2, 2, 4, 6);
+            initGrid->AddGrowableCol(1);
+
+            initGrid->Add(new wxStaticText(page, wxID_ANY, "Working directory:"),
+                          0, wxALIGN_CENTER_VERTICAL | wxALIGN_RIGHT);
+            {
+                auto* inner = new wxBoxSizer(wxHORIZONTAL);
+                m_sshWorkDirCtrl = new wxTextCtrl(page, wxID_ANY,
+                                                  wxString::FromUTF8(defaultWorkingDir),
+                                                  wxDefaultPosition, wxSize(160, -1));
+                inner->Add(m_sshWorkDirCtrl, 1, wxEXPAND | wxRIGHT, 4);
+                m_sshWorkDirBtn = new wxButton(page, ID_BTN_BROWSE_WORKDIR_SSH, "Browse...");
+                inner->Add(m_sshWorkDirBtn, 0);
+                initGrid->Add(inner, 1, wxEXPAND);
+            }
+
+            initGrid->Add(new wxStaticText(page, wxID_ANY, "Command:"),
+                          0, wxALIGN_CENTER_VERTICAL | wxALIGN_RIGHT );
+            m_remoteCmdCtrl = new wxTextCtrl(page, wxID_ANY, wxEmptyString,
+                                             wxDefaultPosition, wxSize(280, -1));
+            m_remoteCmdCtrl->SetHint("(optional) remote command");
+            initGrid->Add(m_remoteCmdCtrl, 1, wxEXPAND);
+
+            box->Add(initGrid, 0, wxEXPAND | wxALL, 4);
+
+            m_cbSshLoginShell = new wxCheckBox(page, wxID_ANY,
+                                               "Login shell (sources .profile / .bash_profile)");
+            m_cbSshLoginShell->SetValue(defaultLoginShell);
+            box->Add(m_cbSshLoginShell, 0, wxLEFT | wxRIGHT | wxBOTTOM, 6);
 
             sizer->Add(box, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, 8);
         }
@@ -672,11 +731,8 @@ NewConnectionDialog::NewConnectionDialog(
     SetMinSize(GetSize());
 
     // ---- Event bindings -----------------------------------------------------
-    Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_AGENT);
-    Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_PASS);
-    Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_KEY);
-    Bind(wxEVT_RADIOBUTTON, &NewConnectionDialog::OnAuthMethodChanged, this, ID_RB_AUTH_KBD);
-    Bind(wxEVT_COMBOBOX,    &NewConnectionDialog::OnGeometryChanged,   this, ID_GEOMETRY_COMBO);
+    Bind(wxEVT_CHOICE,   &NewConnectionDialog::OnAuthChoiceChanged,      this, ID_SSH_AUTH_CHOICE);
+    Bind(wxEVT_COMBOBOX, &NewConnectionDialog::OnGeometryChanged,         this, ID_GEOMETRY_COMBO);
 
     if (m_connectBtn)
         Bind(wxEVT_BUTTON, &NewConnectionDialog::OnConnectClicked, this, ID_BTN_CONNECT);
@@ -755,6 +811,7 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
         if constexpr (std::is_same_v<T, term::session::PtyDesc>) {
             m_notebook->SetSelection(kTabPty);
             m_shellCtrl->SetValue(desc.shell);
+            if (m_ptyCmdCtrl) m_ptyCmdCtrl->SetValue(desc.command);
         } else if constexpr (std::is_same_v<T, term::session::SshDesc>) {
             m_notebook->SetSelection(kTabSsh);
             m_hostCtrl->SetValue(desc.host);
@@ -766,28 +823,20 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
             m_cbCompress->SetValue(desc.compress);
             m_cbX11Fwd->SetValue(desc.x11Forwarding);
             m_cbAgentFwd->SetValue(desc.agentForwarding);
-            switch (desc.authMethod) {
-                case term::session::SshAuthMethod::Password:
-                    m_rbAuthPass->SetValue(true);
-                    m_agentPanel->Show(false);
-                    m_passPanel->Show(true);
-                    break;
-                case term::session::SshAuthMethod::PrivateKey:
-                    m_rbAuthKey->SetValue(true);
-                    m_agentPanel->Show(false);
-                    m_keyPicker->SetPath(desc.privateKeyPath);
-                    m_keyPanel->Show(true);
-                    break;
-                case term::session::SshAuthMethod::KbdInteractive:
-                    m_rbAuthKbd->SetValue(true);
-                    m_agentPanel->Show(false);
-                    break;
-                default:
-                    m_rbAuthAgent->SetValue(true);
-                    m_agentHintPicker->SetPath(desc.agentIdentityHint);
-                    m_agentPanel->Show(true);
-                    break;
-            }
+            const int sel = [&]() -> int {
+                switch (desc.authMethod) {
+                    case term::session::SshAuthMethod::Password:       return 1;
+                    case term::session::SshAuthMethod::PrivateKey:     return 2;
+                    case term::session::SshAuthMethod::KbdInteractive: return 3;
+                    default:                                            return 0;
+                }
+            }();
+            m_authChoice->SetSelection(sel);
+            m_authBook->SetSelection(static_cast<size_t>(sel));
+            if (desc.authMethod == term::session::SshAuthMethod::PrivateKey)
+                m_keyPicker->SetPath(desc.privateKeyPath);
+            if (desc.authMethod == term::session::SshAuthMethod::Agent)
+                m_agentHintPicker->SetPath(desc.agentIdentityHint);
             // Jump host
             if (desc.proxyJump && !desc.proxyJump->host.empty()) {
                 m_jumpHostCtrl->SetValue(desc.proxyJump->host);
@@ -795,7 +844,7 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
                 m_jumpUserCtrl->SetValue(desc.proxyJump->user);
                 m_jumpHintPicker->SetPath(desc.proxyJump->agentIdentityHint);
                 m_jumpKeyPicker->SetPath(desc.proxyJump->privateKeyPath);
-                const int sel = [&]() -> int {
+                const int jsel = [&]() -> int {
                     switch (desc.proxyJump->authMethod) {
                         case term::session::SshAuthMethod::Password:       return 1;
                         case term::session::SshAuthMethod::PrivateKey:     return 2;
@@ -803,8 +852,8 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
                         default:                                            return 0;
                     }
                 }();
-                m_jumpAuthChoice->SetSelection(sel);
-                m_jumpAuthBook->SetSelection(static_cast<size_t>(sel));
+                m_jumpAuthChoice->SetSelection(jsel);
+                m_jumpAuthBook->SetSelection(static_cast<size_t>(jsel));
                 m_jumpPane->Expand();
             }
         } else if constexpr (std::is_same_v<T, term::session::SerialDesc>) {
@@ -838,6 +887,7 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
     if (m_ptyWorkDirCtrl)  m_ptyWorkDirCtrl->SetValue(si.workingDir);
     if (m_sshWorkDirCtrl)  m_sshWorkDirCtrl->SetValue(si.workingDir);
     if (m_cbPtyLoginShell) m_cbPtyLoginShell->SetValue(si.loginShell);
+    if (m_cbSshLoginShell) m_cbSshLoginShell->SetValue(si.loginShell);
 
     if (m_envFileCtrl && !si.envFilePath.empty())
         m_envFileCtrl->SetPath(si.envFilePath);
@@ -946,11 +996,23 @@ void NewConnectionDialog::OnCollapsiblePaneChanged(wxCollapsiblePaneEvent&)
 
 void NewConnectionDialog::OnJumpAuthChoiceChanged(wxCommandEvent&)
 {
+    const int sel = m_jumpAuthChoice->GetSelection();
     if (m_jumpAuthBook)
-        m_jumpAuthBook->SetSelection(
-            static_cast<size_t>(m_jumpAuthChoice->GetSelection()));
+        m_jumpAuthBook->SetSelection(static_cast<size_t>(sel));
     if (m_jumpPane && m_jumpPane->GetPane())
         m_jumpPane->GetPane()->Layout();
+    Layout();
+    Fit();
+    SetMinSize(GetSize());
+}
+
+void NewConnectionDialog::OnAuthChoiceChanged(wxCommandEvent&)
+{
+    const int sel = m_authChoice->GetSelection();
+    if (m_authBook)
+        m_authBook->SetSelection(static_cast<size_t>(sel));
+    if (m_notebook->GetCurrentPage())
+        m_notebook->GetCurrentPage()->Layout();
     Layout();
     Fit();
     SetMinSize(GetSize());
@@ -1077,20 +1139,6 @@ void NewConnectionDialog::OnUseProfileTitleToggled(wxCommandEvent&)
         m_profileTitleCtrl->Enable(m_cbUseProfileTitle->GetValue());
 }
 
-void NewConnectionDialog::OnAuthMethodChanged(wxCommandEvent&)
-{
-    m_agentPanel->Show(m_rbAuthAgent->GetValue());
-    m_passPanel->Show(m_rbAuthPass->GetValue());
-    m_keyPanel->Show(m_rbAuthKey->GetValue());
-    // SSH panel's sizer needs a re-layout to accommodate the shown/hidden sub-panels.
-    if (m_notebook->GetSelection() == kTabSsh) {
-        m_notebook->GetCurrentPage()->Layout();
-        Layout();
-        Fit();
-        SetMinSize(GetSize());
-    }
-}
-
 void NewConnectionDialog::OnGeometryChanged(wxCommandEvent&)
 {
     const bool isCustom =
@@ -1183,6 +1231,7 @@ ConnectionParams NewConnectionDialog::GetParams() const
     if (tab == kTabPty) {
         PtyParams p;
         p.shell       = m_shellCtrl->GetValue().ToStdString();
+        p.command     = m_ptyCmdCtrl ? m_ptyCmdCtrl->GetValue().ToStdString() : std::string{};
         p.wrapMode    = wrapMode;
         p.columnWidth = cols;
         p.rows        = rows;
@@ -1213,7 +1262,8 @@ ConnectionParams NewConnectionDialog::GetParams() const
         p.wrapMode    = wrapMode;
         p.columnWidth = cols;
         p.rows        = rows;
-        if (m_sshWorkDirCtrl) p.workingDir  = m_sshWorkDirCtrl->GetValue().ToStdString();
+        if (m_sshWorkDirCtrl)    p.workingDir  = m_sshWorkDirCtrl->GetValue().ToStdString();
+        if (m_cbSshLoginShell)   p.loginShell  = m_cbSshLoginShell->GetValue();
         p.envFilePath = envFilePath;
         p.envVars     = envVars;
         if (m_profileTitleCtrl)  p.profileTitle    = m_profileTitleCtrl->GetValue().ToStdString();
@@ -1224,18 +1274,23 @@ ConnectionParams NewConnectionDialog::GetParams() const
         m_portCtrl->GetValue().ToULong(&port);
         p.port = static_cast<unsigned short>(std::clamp(port, 1UL, 65535UL));
 
-        if (m_rbAuthPass->GetValue()) {
-            p.authMethod = SshAuthChoice::Password;
-            p.password   = m_passCtrl->GetValue().ToStdString();
-        } else if (m_rbAuthKey->GetValue()) {
-            p.authMethod     = SshAuthChoice::PrivateKey;
-            p.privateKeyPath = m_keyPicker->GetPath().ToStdString();
-            p.passphrase     = m_passphraseCtrl->GetValue().ToStdString();
-        } else if (m_rbAuthKbd->GetValue()) {
-            p.authMethod = SshAuthChoice::KeyboardInteractive;
-        } else {
-            p.authMethod         = SshAuthChoice::Agent;
-            p.agentIdentityHint  = m_agentHintPicker->GetPath().ToStdString();
+        switch (m_authChoice->GetSelection()) {
+            case 1:
+                p.authMethod = SshAuthChoice::Password;
+                p.password   = m_passCtrl->GetValue().ToStdString();
+                break;
+            case 2:
+                p.authMethod     = SshAuthChoice::PrivateKey;
+                p.privateKeyPath = m_keyPicker->GetPath().ToStdString();
+                p.passphrase     = m_passphraseCtrl->GetValue().ToStdString();
+                break;
+            case 3:
+                p.authMethod = SshAuthChoice::KeyboardInteractive;
+                break;
+            default:
+                p.authMethod        = SshAuthChoice::Agent;
+                p.agentIdentityHint = m_agentHintPicker->GetPath().ToStdString();
+                break;
         }
 
         // Jump host — populated only when the pane is expanded and host is non-empty

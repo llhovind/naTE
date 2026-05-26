@@ -77,7 +77,7 @@ inline json SerialiseTransport(const term::session::TransportDesc& transport)
     return std::visit([](const auto& desc) -> json {
         using T = std::decay_t<decltype(desc)>;
         if constexpr (std::is_same_v<T, term::session::PtyDesc>) {
-            return json{{"type", "pty"}, {"shell", desc.shell}};
+            return json{{"type", "pty"}, {"shell", desc.shell}, {"command", desc.command}};
         } else if constexpr (std::is_same_v<T, term::session::SshDesc>) {
             // passwords and passphrases are intentionally excluded
             json j{
@@ -130,7 +130,10 @@ inline term::session::TransportDesc DeserialiseTransport(const json& j)
     const std::string type = j.value("type", "loopback");
 
     if (type == "pty") {
-        return term::session::PtyDesc{ j.value("shell", std::string{}) };
+        return term::session::PtyDesc{
+            j.value("shell",   std::string{}),
+            j.value("command", std::string{}),
+        };
     }
     if (type == "ssh") {
         term::session::SshDesc d;
