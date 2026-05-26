@@ -98,12 +98,11 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
         m_cursorStyleChoice->SetSelection(preselect);
     }
     appSizer->Add(m_cursorStyleChoice, {row, 1}, {1, 1});
-    ++row;
 
-    // Cursor blink
+    // Cursor blink — on the same row as cursor style
     m_cursorBlinkChk = new wxCheckBox(appPage, wxID_ANY, "Blinking cursor");
     m_cursorBlinkChk->SetValue(current.cursorBlink);
-    appSizer->Add(m_cursorBlinkChk, {row, 0}, {1, 2}, wxALIGN_CENTER_VERTICAL);
+    appSizer->Add(m_cursorBlinkChk, {row, 2}, {1, 1}, wxALIGN_CENTER_VERTICAL);
     ++row;
 
     // Tile layout

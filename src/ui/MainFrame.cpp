@@ -195,7 +195,7 @@ void MainFrame::SetUIManager(ui::UIManager* ui)
 {
     m_uiManager = ui;
     m_editMenu->AppendSeparator();
-    m_editMenu->Append(ID_PREFERENCES, "Preferences...");
+    m_editMenu->Append(ID_PREFERENCES, "&Preferences...");
     Bind(wxEVT_MENU, &MainFrame::OnPreferences, this, ID_PREFERENCES);
 }
 
