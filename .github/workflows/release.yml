@@ -20,7 +20,8 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends \
             ninja-build pkg-config \
-            libgtk-3-dev libssl-dev
+            libgtk-3-dev libssl-dev \
+            dpkg-dev rpm
 
       - name: Cache FetchContent downloads
         uses: actions/cache@v4
@@ -47,18 +48,38 @@ jobs:
       - name: Build release binary
         run: cmake --build build-release --parallel $(nproc)
 
-      - name: Stage release binary
-        run: cp build-release/naTE naTE-linux-x86_64
+      - name: Create portable tarball
+        run: |
+          TAG="${{ github.ref_name }}"
+          DIR="naTE-${TAG}-linux-x86_64"
+          mkdir -p "${DIR}"
+          cp build-release/naTE "${DIR}/"
+          cp config.ini "${DIR}/"
+          cp -r themes "${DIR}/"
+          tar -czf "${DIR}.tar.gz" "${DIR}"
 
       - name: Build AppImage
         run: ./scripts/build-appimage.sh
+
+      - name: Package DEB
+        working-directory: build-appimage
+        run: cpack -G DEB
+
+      - name: Package RPM
+        working-directory: build-appimage
+        run: cpack -G RPM
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            naTE-linux-x86_64 \
+          TAG="${{ github.ref_name }}"
+          DEB=$(ls build-appimage/*.deb)
+          RPM=$(ls build-appimage/*.rpm)
+          gh release create "${TAG}" \
+            "naTE-${TAG}-linux-x86_64.tar.gz" \
+            "${DEB}" \
+            "${RPM}" \
             naTE-x86_64.AppImage \
-            --title "naTE ${{ github.ref_name }}" \
+            --title "naTE ${TAG}" \
             --generate-notes

@@ -84,10 +84,19 @@ bool App::OnInit() {
     m_themesDir  = NateDir() + "/themes";
     mkdir(m_themesDir.c_str(), 0700);
 
+    // Resolve factory data directory.
+    // Dev/portable build: config.ini and themes/ sit next to the executable.
+    // Installed build (AppImage, DEB, RPM): binary is in bin/, data is in ../share/nate/.
+    const std::string factoryDataDir = [&]() -> std::string {
+        const std::string adj = exeDir.ToStdString();
+        if (std::ifstream(adj + "/config.ini").is_open())
+            return adj;
+        return adj + "/../share/nate";
+    }();
+
     // Seed user config from factory default on first run.
     if (!std::ifstream(m_configPath).is_open()) {
-        const std::string factoryPath =
-            (exeDir + wxFileName::GetPathSeparator() + "config.ini").ToStdString();
+        const std::string factoryPath = factoryDataDir + "/config.ini";
         if (std::ifstream src{factoryPath, std::ios::binary}) {
             std::ofstream dst{m_configPath, std::ios::binary | std::ios::trunc};
             dst << src.rdbuf();
@@ -96,8 +105,7 @@ bool App::OnInit() {
 
     // Copy any factory theme files not yet present in the user themes dir.
     {
-        const std::string factoryThemes =
-            (exeDir + wxFileName::GetPathSeparator() + "themes").ToStdString();
+        const std::string factoryThemes = factoryDataDir + "/themes";
         for (const auto& scheme : ColorScheme::scanDirectory(factoryThemes)) {
             const std::string dst = m_themesDir + "/" + scheme.stem + ".ini";
             if (!std::ifstream(dst).is_open())
