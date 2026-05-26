@@ -291,6 +291,9 @@ void MainScreenDocument::Backspace()
 
 void MainScreenDocument::NewLine()
 {
+    const bool   prevCR     = crPriorToNewLine_;
+    crPriorToNewLine_ = false;
+
     const size_t lineLen    = lines_[cursor_.line].text.size();
     const int    lastSubRow = lineLen == 0 ? 0 : (int)((lineLen - 1) / (size_t)cols_);
     const int    cursorSubRow = (int)(cursor_.col / (size_t)cols_);
@@ -300,6 +303,11 @@ void MainScreenDocument::NewLine()
         NotifyListeners(DocChangeType::CursorMove, cursor_.line);
         return;
     }
+
+    // A readline phantom is created when the cursor is past the last sub-row
+    // AND no CarriageReturn preceded this call. A preceding \r means this is
+    // a \r\n sequence (legitimate new line), not readline sub-row navigation.
+    newLineWasPhantom_ = (cursorSubRow > lastSubRow) && !prevCR;
 
     lines_.emplace_back();
     ++cursor_.line;
@@ -319,6 +327,7 @@ void MainScreenDocument::CarriageReturn()
 {
     const size_t c = static_cast<size_t>(cols_);
     cursor_.col = (cursor_.col / c) * c;
+    crPriorToNewLine_ = true;
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
@@ -385,10 +394,11 @@ void MainScreenDocument::EraseInLine(int mode)
         // to what it believed was a second visual row, but the preceding
         // EraseInLine had already erased that row's content. Remove the
         // phantom and restore cursor to the end of the now-current line.
-        if (cursor_.col == 0 && line.text.empty() && cursor_.line > 0) {
+        if (cursor_.col == 0 && line.text.empty() && cursor_.line > 0 && newLineWasPhantom_) {
             lines_.pop_back();
             --cursor_.line;
             cursor_.col = lines_[cursor_.line].text.size();
+            newLineWasPhantom_ = false;
             NotifyListeners(DocChangeType::DeleteLine, cursor_.line + 1);
             return;
         }

@@ -578,6 +578,45 @@ TEST_CASE("given ptyCols=10 and 20-char line when readline multi-row clear seque
     REQUIRE(doc.GetCursor().col == doc.GetLines()[doc.GetCursor().line].text.size());
 }
 
+TEST_CASE("given short command and bash CRLF then EraseInLine does not remove the new line") {
+    // Regression: bash sends \r\n after a command, then grep --color sends
+    // ESC[K at column 0 of the new blank line. The phantom-removal heuristic
+    // must NOT fire here because the new DocLine was preceded by \r.
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    // Write a short command (< 80 chars) to simulate a prompt + command line.
+    for (int i = 0; i < 32; ++i) doc.AppendInsertChar(U'A');
+    const size_t linesBefore = doc.GetLines().size();
+
+    doc.CarriageReturn();  // \r
+    doc.NewLine();         // \n  → new DocLine (cursorSubRow == lastSubRow, preceded by CR)
+    doc.CarriageReturn();  // bash pre-output \r
+    doc.EraseInLine(0);    // grep color ESC[K — must NOT remove the new DocLine
+
+    REQUIRE(doc.GetLines().size() == linesBefore + 1);  // new line preserved
+    REQUIRE(doc.GetCursor().line == (int)(linesBefore)); // cursor on new line
+    REQUIRE(doc.GetCursor().col == 0);
+}
+
+TEST_CASE("given command of exactly ptyCols chars and bash CRLF then EraseInLine does not remove the new line") {
+    // Edge case: command fills exactly one terminal row (cols_ chars). After \r,
+    // cursor is at col cols_ (cursorSubRow > lastSubRow — looks like a readline
+    // phantom geometrically). The preceding \r must prevent phantom removal.
+    MainScreenDocument doc;
+    doc.SetPtyCols(10);
+    for (int i = 0; i < 10; ++i) doc.AppendInsertChar(U'A'); // exactly cols_ chars
+    const size_t linesBefore = doc.GetLines().size();
+
+    doc.CarriageReturn();  // \r  — cursor at col 10 (cursorSubRow=1 > lastSubRow=0)
+    doc.NewLine();         // \n  → new DocLine; crPriorToNewLine_ prevents phantom flag
+    doc.CarriageReturn();  // bash pre-output \r
+    doc.EraseInLine(0);    // must NOT remove the new DocLine
+
+    REQUIRE(doc.GetLines().size() == linesBefore + 1);
+    REQUIRE(doc.GetCursor().line == (int)(linesBefore));
+    REQUIRE(doc.GetCursor().col == 0);
+}
+
 TEST_CASE("given ptyCols=10 and 15-char line when new-readline history-cycle sequence then DocLine contains new command") {
     // Newer readline clears a wrapped line via:
     //   CursorUp → Backspace(n) → DeleteChar(n) → WriteChars → NewLine → EraseInLine(0)

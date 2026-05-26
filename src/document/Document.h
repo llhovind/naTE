@@ -207,7 +207,9 @@ private:
     int       maxLines_;
     int       cols_                = 2048;
     size_t    virtualDocStartLine_ = 0;    // origin of the current canvas within the scrollback buffer
-    bool      pendingSubRowClear_  = false;
+    bool      pendingSubRowClear_      = false;
+    bool      crPriorToNewLine_        = false; // set by CarriageReturn(), consumed by NewLine()
+    bool      newLineWasPhantom_       = false; // true only when readline navigated past last sub-row without a preceding CR
     CursorPos savedCursor_         = {};   // stored canvas-relative (row offset from virtualDocStartLine_)
 };
 

@@ -200,7 +200,7 @@ ctest --preset debug
 ```
 
 Tests are written with [Catch2](https://github.com/catchorg/Catch2). The suite
-currently covers 267 scenarios across all major subsystems.
+currently covers 269 scenarios across all major subsystems.
 
 ### Packaging (AppImage)
 
