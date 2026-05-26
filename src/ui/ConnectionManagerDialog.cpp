@@ -136,6 +136,8 @@ ConnectionManagerDialog::ConnectionManagerDialog(wxWindow* parent,
 
 void ConnectionManagerDialog::PopulateList()
 {
+    for (unsigned r = 0; r < m_list->GetItemCount(); ++r)
+        delete reinterpret_cast<std::string*>(m_list->GetItemData(m_list->RowToItem(r)));
     m_list->DeleteAllItems();
     for (const auto& p : m_store.GetAll()) {
         wxVector<wxVariant> row;
