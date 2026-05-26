@@ -48,6 +48,10 @@ public:
     // Closes every open window and exits the application.
     void QuitAll();
 
+    // Closes all sessions across every open window.
+    // callerFrame is used as the parent for the confirmation dialog.
+    void CloseAllSessionsGlobal(MainFrame* callerFrame);
+
     // Notifies all open windows to rebuild their Window menu.
     void RebuildWindowMenus();
 
@@ -116,7 +120,8 @@ private:
     std::vector<std::unique_ptr<WindowContext>>        m_windows;
     int                                                m_instanceId           = 0;
     int                                                m_nextWindowId         = 0;
-    bool                                               m_sessionManagerShutdown = false;
+    bool                                               m_sessionManagerShutdown  = false;
+    bool                                               m_globalCloseInProgress   = false;
 };
 
 wxDECLARE_APP(App);

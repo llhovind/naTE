@@ -238,18 +238,7 @@ void MainFrame::OnClose(wxCloseEvent& event)
 
 void MainFrame::OnCloseAllSessions(wxCommandEvent&)
 {
-    if (!m_uiManager || !m_uiManager->HasAnySessions())
-        return;
-
-    const int n = static_cast<int>(m_uiManager->GetSessionList().size());
-    const wxString msg = wxString::Format(
-        "This will close %d session%s. Any unsaved work may be lost.\n\nContinue?",
-        n, n == 1 ? "" : "s");
-    if (wxMessageBox(msg, "Close All Sessions",
-                     wxYES_NO | wxICON_WARNING, this) != wxYES)
-        return;
-
-    m_uiManager->CloseAllSessions();
+    static_cast<App*>(wxTheApp)->CloseAllSessionsGlobal(this);
 }
 
 void MainFrame::OnCloseThisWindow(wxCommandEvent&)

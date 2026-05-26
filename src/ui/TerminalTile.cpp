@@ -117,11 +117,13 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
                 TerminalActionEvent evt(TerminalAction::ResetAndClear, sid);
                 ProcessWindowEvent(evt);
             }, resetClearItem->GetId());
+            menu.AppendSeparator();
             auto* saveItem = menu.Append(wxID_ANY, "Save Session to File...");
             menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
                 TerminalActionEvent evt(TerminalAction::SaveToFile, sid);
                 ProcessWindowEvent(evt);
             }, saveItem->GetId());
+            menu.AppendSeparator();
             auto* sendItem = menu.Append(wxID_ANY, "Send Files to Remote...");
             menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
                 TerminalActionEvent evt(TerminalAction::SendFiles, sid);

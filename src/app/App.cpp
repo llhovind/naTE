@@ -179,6 +179,8 @@ MainFrame* App::CreateNewWindow()
     frame->SetUIManager(wc->uiManager.get());
 
     wc->uiManager->SetOnGridEmptyCallback([this, mgr = wc->uiManager.get(), frame]() {
+        if (m_globalCloseInProgress)
+            return; // CloseAllSessionsGlobal handles window teardown explicitly
         if (m_windows.size() > 1)
             frame->CallAfter([this, mgr, frame]() {
                 // Re-check: a same-window session move temporarily empties
@@ -310,6 +312,46 @@ void App::QuitAll()
         frames.push_back(w->frame);
     for (auto* f : frames)
         f->Close(true);  // force=true: OnClose will not re-prompt
+}
+
+void App::CloseAllSessionsGlobal(MainFrame* callerFrame)
+{
+    int totalSessions = 0;
+    for (auto& w : m_windows)
+        if (w->uiManager)
+            totalSessions += static_cast<int>(w->uiManager->GetSessionList().size());
+
+    if (totalSessions == 0)
+        return;
+
+    const wxString msg = wxString::Format(
+        "This will close %d session%s. Any unsaved work may be lost.\n\nContinue?",
+        totalSessions, totalSessions == 1 ? "" : "s");
+    if (wxMessageBox(msg, "Close All Sessions",
+                     wxYES_NO | wxICON_WARNING, callerFrame) != wxYES)
+        return;
+
+    // Snapshot non-anchor frames before any teardown modifies m_windows.
+    // Anchor = oldest window (index 0); it keeps its frame open after sessions close.
+    MainFrame* anchor = m_windows.front()->frame;
+    std::vector<MainFrame*> toClose;
+    toClose.reserve(m_windows.size() - 1);
+    for (auto& w : m_windows)
+        if (w->frame != anchor)
+            toClose.push_back(w->frame);
+
+    // Suppress onGridEmptyCb_ auto-close for the duration of session teardown
+    // so we control exactly which windows close and which stays open.
+    m_globalCloseInProgress = true;
+    for (auto it = m_windows.rbegin(); it != m_windows.rend(); ++it)
+        if ((*it)->uiManager)
+            (*it)->uiManager->CloseAllSessions();
+    m_globalCloseInProgress = false;
+
+    // Explicitly close every non-anchor window. Sessions are already gone so
+    // OnClose will not prompt; it will just proceed with destruction.
+    for (auto* f : toClose)
+        f->Close();
 }
 
 void App::OnQueryEndSession(wxCloseEvent& event)

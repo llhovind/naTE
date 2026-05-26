@@ -1022,7 +1022,7 @@ void UIManager::SetupEditMenu(wxMenu* menu)
     menu->Append(kEditMenuFind,            "Find in Terminal\tCtrl+Shift+F");
     menu->Append(kEditMenuSelectAll,       "Select All\tCtrl+Shift+A");
     menu->AppendSeparator();
-    menu->Append(kEditMenuSaveFile,        "Save to File...");
+    menu->Append(kEditMenuSaveFile,        "Save Selection to File...");
     menu->Append(kEditMenuSaveSessionFile, "Save Session to File...");
     menu->Append(kEditMenuWebSearch,       "Search the Web");
 
