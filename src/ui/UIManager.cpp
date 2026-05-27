@@ -355,7 +355,11 @@ void UIManager::TakeSession(term::session::SessionId     id,
         sm_.CloseSession(id);
     });
 
-    const int tabIdx = targetTile->AddTab(id, panel, wxString::FromUTF8(label));
+    const std::string resolvedLabel = [&]() -> std::string {
+        auto t = getTitle();
+        return t.empty() ? label : t;
+    }();
+    const int tabIdx = targetTile->AddTab(id, panel, wxString::FromUTF8(resolvedLabel));
 
     // Sync the tile's wrap control to the session's persisted wrap state.
     targetTile->SetWrapMode(sm_.GetDocLayout(id).GetWrapMode());
