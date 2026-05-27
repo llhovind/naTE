@@ -58,6 +58,8 @@ set(wxUSE_XRC         OFF CACHE BOOL "" FORCE)
 set(wxUSE_STC         OFF CACHE BOOL "" FORCE)
 set(wxUSE_HELP        OFF CACHE BOOL "" FORCE)
 set(wxUSE_WXHTML_HELP OFF CACHE BOOL "" FORCE)
+set(wxUSE_LIBJPEG     OFF CACHE STRING "" FORCE)
+set(wxUSE_LIBTIFF     OFF CACHE STRING "" FORCE)
 FetchContent_MakeAvailable(wxWidgets)
 
 # GTK3 — Linux only, always system-provided.

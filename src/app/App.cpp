@@ -76,7 +76,7 @@ void App::ReleaseInstanceId(int id) {
 
 bool App::OnInit() {
     m_instanceId = AcquireInstanceId();
-    wxInitAllImageHandlers();
+    wxImage::AddHandler(new wxPNGHandler());
     libssh2_init(0);
 
     const wxString exeDir =
