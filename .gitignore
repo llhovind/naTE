@@ -82,3 +82,7 @@ vgcore.*
 
 tmp/
 docs/
+
+# Binaries and Releases
+*.tar.gz
+naTE-*-linux-x86_64/
