@@ -109,6 +109,9 @@ private:
 
     term::session::RestoreState BuildCurrentState() const;
 
+    // Returns paths of instance-restore-N.json files whose owning process is dead.
+    std::vector<std::string> FindOrphanedRestoreFiles() const;
+
     AppConfig                                           m_cfg;
     std::string                                         m_configPath;
     std::string                                         m_themesDir;
