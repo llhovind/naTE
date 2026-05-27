@@ -58,6 +58,8 @@ set(wxUSE_XRC         OFF CACHE BOOL "" FORCE)
 set(wxUSE_STC         OFF CACHE BOOL "" FORCE)
 set(wxUSE_HELP        OFF CACHE BOOL "" FORCE)
 set(wxUSE_WXHTML_HELP OFF CACHE BOOL "" FORCE)
+set(wxUSE_LIBJPEG     OFF CACHE STRING "" FORCE)
+set(wxUSE_LIBTIFF     OFF CACHE STRING "" FORCE)
 FetchContent_MakeAvailable(wxWidgets)
 
 # GTK3 — Linux only, always system-provided.
@@ -167,11 +169,28 @@ set(SOURCES
     src/ui/AboutDialog.cpp
 )
 
+# ---------------------------------------------------------------------------
+# Embedded application icon — rasterise nate.svg → PNGs → AppIcon.h
+# Regenerated automatically whenever packaging/nate.svg changes.
+# ---------------------------------------------------------------------------
+set(APPICON_HEADER "${CMAKE_SOURCE_DIR}/src/ui/resources/AppIcon.h")
+set(APPICON_SVG    "${CMAKE_SOURCE_DIR}/packaging/nate.svg")
+set(APPICON_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/gen-icon-header.sh")
+
+add_custom_command(
+    OUTPUT  "${APPICON_HEADER}"
+    COMMAND bash "${APPICON_SCRIPT}"
+    DEPENDS "${APPICON_SVG}" "${APPICON_SCRIPT}"
+    COMMENT "Generating embedded app icon from nate.svg"
+)
+add_custom_target(nate_icon_header DEPENDS "${APPICON_HEADER}")
+
 if(APPLE)
     add_executable(naTE MACOSX_BUNDLE ${SOURCES})
 else()
     add_executable(naTE ${SOURCES})
 endif()
+add_dependencies(naTE nate_icon_header)
 
 # Apply LTO to naTE directly rather than via cmake's IPO mechanism.
 # cmake 4.x + GCC generates thin LTO (-fno-fat-lto-objects) which breaks when
@@ -221,6 +240,12 @@ if(UNIX AND NOT APPLE)
     install(FILES packaging/nate.svg
         DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
     )
+    foreach(_size 16 32 48 128 256)
+        install(FILES "src/ui/resources/nate_${_size}.png"
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/${_size}x${_size}/apps"
+            RENAME nate.png
+        )
+    endforeach()
     install(FILES packaging/io.github.lhovind.naTE.metainfo.xml
         DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
     )
