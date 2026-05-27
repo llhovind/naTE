@@ -65,7 +65,13 @@ PtyTransport::PtyTransport(ITransportTarget& target,
             : sessionInit.envFilePath;
         const std::string envFile = ExpandTilde(rawEnvFile, homeDir);
 
-        const std::vector<std::string> parentEnv = CaptureParentEnv();
+        auto parentEnv = CaptureParentEnv();
+        // PTY is always xterm-compatible; inject TERM if the parent process had none.
+        const bool hasTerm = std::any_of(parentEnv.cbegin(), parentEnv.cend(),
+            [](const std::string& e){ return e.size() >= 5 && e.substr(0, 5) == "TERM="; });
+        if (!hasTerm)
+            parentEnv.push_back("TERM=xterm-256color");
+
         const std::vector<term::session::EnvVar> fileVars = ParseEnvFile(envFile);
 
         // Inject NATE_VPCOLUMNS_FILE alongside the profile vars so the shell
