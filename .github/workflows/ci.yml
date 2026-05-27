@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |
@@ -20,7 +20,7 @@ jobs:
             libgtk-3-dev libssl-dev
 
       - name: Cache FetchContent downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: build/_deps
           key: fetchcontent-${{ hashFiles('CMakeLists.txt', 'tests/CMakeLists.txt') }}
@@ -30,7 +30,7 @@ jobs:
         run: cmake --preset debug
 
       - name: Build tests
-        run: cmake --build --preset debug --target naTE_tests
+        run: cmake --build --preset debug --target naTE_tests naTE_core_tests naTE_restore_tests
 
       - name: Run tests
         run: ctest --preset debug
