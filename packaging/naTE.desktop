@@ -6,3 +6,4 @@ Icon=nate
 Type=Application
 Categories=Network;TerminalEmulator;
 Terminal=false
+StartupWMClass=naTE

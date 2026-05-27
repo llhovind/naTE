@@ -8,6 +8,7 @@
 #include "ui/MainFrame.h"
 #include "ui/TerminalTile.h"
 #include <wx/filename.h>
+#include <wx/image.h>
 #include <wx/msgdlg.h>
 #include <wx/stdpaths.h>
 #include <wx/string.h>
@@ -75,6 +76,7 @@ void App::ReleaseInstanceId(int id) {
 
 bool App::OnInit() {
     m_instanceId = AcquireInstanceId();
+    wxInitAllImageHandlers();
     libssh2_init(0);
 
     const wxString exeDir =
