@@ -432,6 +432,77 @@ TEST_CASE("given ptyCols=80 when MoveCursorToRow(2) then canvas-relative row is 
     REQUIRE(doc.GetCursor().col  == 10);
 }
 
+// ---------------------------------------------------------------------------
+// PtyToDoc correctness — exercised via MoveCursorToPosition / MoveCursorToRow
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given ptyCols=80 and 90-char DocLine when MoveCursorToPosition(2,5) then cursor lands on subRow 1 of DocLine 0") {
+    // Regression: before PtyToDoc, CUP row 2 with a wrapped first DocLine
+    // incorrectly jumped to DocLine 1 instead of sub-row 1 of DocLine 0.
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    for (int i = 0; i < 90; ++i) doc.AppendInsertChar(U'A'); // DocLine 0: 90 chars → 2 PTY rows
+    doc.NewLine();                                             // DocLine 1: ""
+    doc.MoveCursorToPosition(2, 5);
+    REQUIRE(doc.GetCursor().line == 0);
+    REQUIRE(doc.GetCursor().col  == 84); // subRow 1 * 80 + (5-1)
+}
+
+TEST_CASE("given ptyCols=80 and 90-char DocLine when MoveCursorToPosition(3,1) then cursor lands on DocLine 1") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    for (int i = 0; i < 90; ++i) doc.AppendInsertChar(U'A'); // DocLine 0: 2 PTY rows
+    doc.NewLine();                                             // DocLine 1: ""
+    doc.MoveCursorToPosition(3, 1);
+    REQUIRE(doc.GetCursor().line == 1);
+    REQUIRE(doc.GetCursor().col  == 0);
+}
+
+TEST_CASE("given ptyCols=80 and exactly 160-char DocLine when MoveCursorToPosition(2,1) then cursor lands on subRow 1") {
+    // 160 chars / 80 cols = exactly 2 rows; no padding, no off-by-one.
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    for (int i = 0; i < 160; ++i) doc.AppendInsertChar(U'A');
+    doc.NewLine();
+    doc.MoveCursorToPosition(2, 1);
+    REQUIRE(doc.GetCursor().line == 0);
+    REQUIRE(doc.GetCursor().col  == 80); // subRow 1, col 0
+}
+
+TEST_CASE("given ptyCols=80 and cursor on subRow 1 when MoveCursorToRow(1) then PTY column is preserved in subRow 0") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    doc.MoveCursorRight(85); // col=85 → subRow 1, PTY col 5 (0-indexed)
+    doc.MoveCursorToRow(1);
+    // PTY col = 85 % 80 + 1 = 6 (1-indexed); PtyToDoc(1,6) on empty doc → {0, 5}
+    REQUIRE(doc.GetCursor().line == 0);
+    REQUIRE(doc.GetCursor().col  == 5);
+}
+
+TEST_CASE("given ptyCols=80 and 90-char DocLine when MoveCursorToPosition(2,5) then MoveCursorDown(1) is sub-row-consistent") {
+    // Before fix: CUP(2,5) set cursor.line=1, so MoveCursorDown targeted the wrong DocLine.
+    // After fix: CUP(2,5) places cursor at {0,84}; Down adds 80 → {0,164} = subRow 2, col 4.
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    for (int i = 0; i < 90; ++i) doc.AppendInsertChar(U'A');
+    doc.NewLine();
+    doc.MoveCursorToPosition(2, 5);
+    REQUIRE(doc.GetCursor().line == 0);
+    doc.MoveCursorDown(1);
+    REQUIRE(doc.GetCursor().line == 0);
+    REQUIRE(doc.GetCursor().col  == 164);
+}
+
+TEST_CASE("given ptyCols=80 and empty doc when MoveCursorToPosition(3,1) then two blank DocLines are emplaced by PtyToDoc") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    doc.MoveCursorToPosition(3, 1);
+    // PtyToDoc: lines[0] empty→1 row, lines[1] empty→1 row, land on lines[2]
+    REQUIRE(doc.GetLines().size() >= 3);
+    REQUIRE(doc.GetCursor().line == 2);
+    REQUIRE(doc.GetCursor().col  == 0);
+}
+
 TEST_CASE("given ptyCols=80 when CarriageReturn from col 85 then cursor at col 80") {
     MainScreenDocument doc;
     doc.SetPtyCols(80);

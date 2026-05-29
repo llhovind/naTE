@@ -51,10 +51,25 @@ int DocLayout::VisualCount(const DocLine& line) const
 DocLayout::ViewportAnchor
 DocLayout::WalkAnchorBy(ViewportAnchor a, int delta) const
 {
-    const auto& lines = doc_->GetLines();
+    const auto&    lines = doc_->GetLines();
+    const CursorPos cur  = doc_->GetCursor();
+
+    // Returns the visual row count for docLine, adding one extra sub-row when
+    // the cursor sits exactly at a sub-row boundary end (pending-wrap state).
+    // VisualCount only counts text rows; the cursor needs the empty row too.
+    auto effectiveVC = [&](int docLine) {
+        int vc = VisualCount(lines[docLine]);
+        if (wrapMode_ && cols_ > 0 && (int)cur.line == docLine) {
+            const auto& txt = lines[docLine].text;
+            if (!txt.empty() && txt.size() % (size_t)cols_ == 0
+                    && cur.col == txt.size())
+                ++vc;
+        }
+        return vc;
+    };
 
     while (delta > 0 && a.docLine < (int)lines.size()) {
-        const int remaining = VisualCount(lines[a.docLine]) - a.subRow - 1;
+        const int remaining = effectiveVC(a.docLine) - a.subRow - 1;
         if (delta <= remaining) { a.subRow += delta; return a; }
         delta -= remaining + 1;
         ++a.docLine;
@@ -66,7 +81,7 @@ DocLayout::WalkAnchorBy(ViewportAnchor a, int delta) const
         delta += a.subRow + 1;
         if (a.docLine == 0) { a.subRow = 0; return a; }
         --a.docLine;
-        a.subRow = VisualCount(lines[a.docLine]) - 1;
+        a.subRow = effectiveVC(a.docLine) - 1;
     }
 
     return a;
@@ -323,7 +338,16 @@ void DocLayout::ScrollToEndLocked()
     if (lines.empty()) { topAnchor_ = {0, 0}; autoScroll_ = true; return; }
 
     const int lastDocLine = (int)lines.size() - 1;
-    const int lastSubRow  = VisualCount(lines.back()) - 1;
+    int       lastSubRow  = VisualCount(lines.back()) - 1;
+    // If the cursor is at a sub-row boundary end of the last DocLine, add the
+    // extra empty sub-row so it is included in the viewport.
+    if (wrapMode_ && cols_ > 0) {
+        const CursorPos cur = doc_->GetCursor();
+        const auto&     txt = lines.back().text;
+        if ((int)cur.line == lastDocLine && !txt.empty()
+                && txt.size() % (size_t)cols_ == 0 && cur.col == txt.size())
+            ++lastSubRow;
+    }
     topAnchor_  = WalkAnchorBy({lastDocLine, lastSubRow}, -(rows_ - 1));
     // Never auto-scroll above the current canvas origin — old scrollback stays hidden.
     const int origin = static_cast<int>(doc_->GetScrollbackOrigin());

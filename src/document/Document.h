@@ -203,13 +203,18 @@ public:
     void   SoftReset();
 
 private:
+    // Converts 1-indexed canvas-relative PTY row/col to a CursorPos in the
+    // sub-row encoding.  Emplaces blank DocLines on demand if the target row
+    // doesn't exist yet.  O(canvas rows) — bounded by terminal height.
+    CursorPos PtyToDoc(int ptyRow, int ptyCol);
     std::deque<DocLine> lines_;
     int       maxLines_;
     int       cols_                = 2048;
     size_t    virtualDocStartLine_ = 0;    // origin of the current canvas within the scrollback buffer
     bool      pendingSubRowClear_      = false;
     bool      crPriorToNewLine_        = false; // set by CarriageReturn(), consumed by NewLine()
-    bool      newLineWasPhantom_       = false; // true only when readline navigated past last sub-row without a preceding CR
+    bool      newLineWasPhantom_       = false; // \n alone past last sub-row: EraseInLine(0) pops the new DocLine
+    bool      newLineCRPhantom_        = false; // \r\n emplace: MoveCursorUp pops the new DocLine if no content lands first
     CursorPos savedCursor_         = {};   // stored canvas-relative (row offset from virtualDocStartLine_)
 };
 
