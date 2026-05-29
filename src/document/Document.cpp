@@ -378,13 +378,15 @@ void MainScreenDocument::RestoreCursor()
 
 void MainScreenDocument::MoveCursorUp(int n)
 {
-    // readline backspace-across-wrap phantom cleanup: readline creates a blank DocLine
-    // via \r\n, clears it with \r\033[K, then sends cursor-up to return to the real
-    // content. Cursor-up is the earliest reliable signal that the DocLine is phantom —
-    // bash also sends \r\n\r\033[K but follows with AppendInsertChar (which clears
-    // newLineCRPhantom_), so only readline triggers this guard.
-    if (newLineCRPhantom_
-            && cursor_.col == 0
+    // Backspace-across-wrap cleanup: some readline flavours (bash, busybox) use
+    // explicit \r\n to advance to the next physical row when a command wraps,
+    // creating a real DocLine for the wrapped content.  When the user backspaces
+    // all the way back across the wrap, that DocLine ends up empty at col 0.
+    // CUU is then sent to return to the previous DocLine.  The structural guards
+    // below are sufficient: on the main screen, col=0 on an empty last DocLine
+    // followed by CUU is exclusively the readline cross-wrap pattern — stream
+    // programs never use cursor positioning, and full-screen apps use AltScreen.
+    if (cursor_.col == 0
             && cursor_.line > virtualDocStartLine_
             && (int)cursor_.line == (int)lines_.size() - 1
             && lines_[cursor_.line].text.empty())
@@ -393,6 +395,7 @@ void MainScreenDocument::MoveCursorUp(int n)
         --cursor_.line;
         cursor_.col = lines_[cursor_.line].text.size();
         newLineCRPhantom_ = false;
+        newLineWasPhantom_ = false;
         NotifyListeners(DocChangeType::DeleteLine, cursor_.line + 1);
     }
 
