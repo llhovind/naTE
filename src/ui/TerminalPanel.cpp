@@ -873,11 +873,13 @@ void TerminalPanel::OnPaint(wxPaintEvent&)
     const int firstRow    = std::max(0, (clip.y - m_cfg.padding) / ch);
     const int lastRow     = std::min(view.y, (clip.GetBottom() - m_cfg.padding) / ch + 1);
 
-    // GetRenderedLine(r) is viewport-relative: 0 = topmost visible line.
-    // It returns an empty RenderedLine (no text, no cursor) once past the
-    // end of the document, so we stop early when the document is short.
+    // Fetch all visible rows in one lock acquisition, walking the anchor
+    // incrementally rather than re-walking from the top for each row.
+    const std::vector<RenderedLine> renderedRows =
+        docLayout_->GetRenderedLines(firstRow, lastRow);
+
     for (int r = firstRow; r < lastRow; ++r) {
-        const RenderedLine row = docLayout_->GetRenderedLine(r);
+        const RenderedLine& row = renderedRows[static_cast<size_t>(r - firstRow)];
         const int rowY = r * ch + m_cfg.padding;
 
         // Batch consecutive characters that share the same style into a single

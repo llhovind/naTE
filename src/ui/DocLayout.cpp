@@ -120,13 +120,9 @@ void DocLayout::SetViewportSize(int newCols, int newRows)
     allViewDirty_ = true;
 }
 
-// r is viewport-relative: 0 = topmost visible line.
-RenderedLine DocLayout::GetRenderedLine(int r)
+RenderedLine DocLayout::BuildRenderedLineLocked(ViewportAnchor pos) const
 {
-    std::lock_guard<std::mutex> lk(mtx_);
-
-    const auto&    lines = doc_->GetLines();
-    const ViewportAnchor pos = WalkAnchorBy(topAnchor_, r);
+    const auto& lines = doc_->GetLines();
 
     if (pos.docLine >= (int)lines.size())
         return {};  // empty row — past end of document
@@ -226,6 +222,26 @@ RenderedLine DocLayout::GetRenderedLine(int r)
     }
 
     return result;
+}
+
+// r is viewport-relative: 0 = topmost visible line.
+RenderedLine DocLayout::GetRenderedLine(int r)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    return BuildRenderedLineLocked(WalkAnchorBy(topAnchor_, r));
+}
+
+std::vector<RenderedLine> DocLayout::GetRenderedLines(int first, int last)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    std::vector<RenderedLine> out;
+    out.reserve(static_cast<size_t>(last - first));
+    ViewportAnchor pos = WalkAnchorBy(topAnchor_, first);
+    for (int r = first; r < last; ++r) {
+        out.push_back(BuildRenderedLineLocked(pos));
+        pos = WalkAnchorBy(pos, 1);
+    }
+    return out;
 }
 
 int DocLayout::GetLineCount() const
