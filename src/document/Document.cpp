@@ -266,13 +266,15 @@ MainScreenDocument::MainScreenDocument(int maxLines)
 
 void MainScreenDocument::AppendInsertChar(char32_t ch)
 {
+    newLineWasPhantom_ = false;  // real content — line is no longer phantom-eligible
+    newLineCRPhantom_  = false;
     const int w = CharWidth(ch);
     if (insertMode_) {
-        lines_.back().InsertAt(cursor_.col, ch);
-        if (w == 2) lines_.back().InsertAt(cursor_.col + 1, kWideFiller);
+        lines_[cursor_.line].InsertAt(cursor_.col, ch);
+        if (w == 2) lines_[cursor_.line].InsertAt(cursor_.col + 1, kWideFiller);
     } else {
-        lines_.back().WriteAt(cursor_.col, ch);
-        if (w == 2) lines_.back().WriteAt(cursor_.col + 1, kWideFiller);
+        lines_[cursor_.line].WriteAt(cursor_.col, ch);
+        if (w == 2) lines_[cursor_.line].WriteAt(cursor_.col + 1, kWideFiller);
     }
     cursor_.col += static_cast<size_t>(w);
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
@@ -280,7 +282,7 @@ void MainScreenDocument::AppendInsertChar(char32_t ch)
 
 void MainScreenDocument::Backspace()
 {
-    DocLine& line = lines_.back();
+    DocLine& line = lines_[cursor_.line];
     if (cursor_.col == 0 || line.text.empty())
         return;
 
@@ -304,10 +306,14 @@ void MainScreenDocument::NewLine()
         return;
     }
 
-    // A readline phantom is created when the cursor is past the last sub-row
-    // AND no CarriageReturn preceded this call. A preceding \r means this is
-    // a \r\n sequence (legitimate new line), not readline sub-row navigation.
+    // Phantom detection — two distinct patterns:
+    //   \n alone (prevCR=false, cursor past last sub-row): readline sub-row navigation.
+    //     → newLineWasPhantom_=true so EraseInLine(0) can immediately pop the line.
+    //   \r\n (prevCR=true): readline backspace-across-wrap dance; bash command end.
+    //     → newLineCRPhantom_=true so MoveCursorUp can pop the line if no content
+    //       lands first (AppendInsertChar clears both flags when the line is used).
     newLineWasPhantom_ = (cursorSubRow > lastSubRow) && !prevCR;
+    newLineCRPhantom_  = prevCR;
 
     lines_.emplace_back();
     ++cursor_.line;
@@ -333,7 +339,7 @@ void MainScreenDocument::CarriageReturn()
 
 void MainScreenDocument::SetCurrentStyle(const Style& style)
 {
-    lines_.back().currentStyle = style;
+    lines_[cursor_.line].currentStyle = style;
 }
 
 void MainScreenDocument::MoveCursorLeft(int n)
@@ -372,6 +378,27 @@ void MainScreenDocument::RestoreCursor()
 
 void MainScreenDocument::MoveCursorUp(int n)
 {
+    // Backspace-across-wrap cleanup: some readline flavours (bash, busybox) use
+    // explicit \r\n to advance to the next physical row when a command wraps,
+    // creating a real DocLine for the wrapped content.  When the user backspaces
+    // all the way back across the wrap, that DocLine ends up empty at col 0.
+    // CUU is then sent to return to the previous DocLine.  The structural guards
+    // below are sufficient: on the main screen, col=0 on an empty last DocLine
+    // followed by CUU is exclusively the readline cross-wrap pattern — stream
+    // programs never use cursor positioning, and full-screen apps use AltScreen.
+    if (cursor_.col == 0
+            && cursor_.line > virtualDocStartLine_
+            && (int)cursor_.line == (int)lines_.size() - 1
+            && lines_[cursor_.line].text.empty())
+    {
+        lines_.pop_back();
+        --cursor_.line;
+        cursor_.col = lines_[cursor_.line].text.size();
+        newLineCRPhantom_ = false;
+        newLineWasPhantom_ = false;
+        NotifyListeners(DocChangeType::DeleteLine, cursor_.line + 1);
+    }
+
     const size_t delta = static_cast<size_t>(n) * static_cast<size_t>(cols_);
     cursor_.col = (cursor_.col >= delta) ? cursor_.col - delta : 0;
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
@@ -385,16 +412,12 @@ void MainScreenDocument::MoveCursorDown(int n)
 
 void MainScreenDocument::EraseInLine(int mode)
 {
-    DocLine& line = lines_.back();
     switch (mode) {
     case 0: { // cursor to end of line
         const bool hadPendingClear = pendingSubRowClear_;
         pendingSubRowClear_ = false;
-        // Phantom line: NewLine() appended a DocLine when readline navigated
-        // to what it believed was a second visual row, but the preceding
-        // EraseInLine had already erased that row's content. Remove the
-        // phantom and restore cursor to the end of the now-current line.
-        if (cursor_.col == 0 && line.text.empty() && cursor_.line > 0 && newLineWasPhantom_) {
+        // Guard checked before binding line reference: pop_back() would dangle it.
+        if (cursor_.col == 0 && lines_[cursor_.line].text.empty() && cursor_.line > 0 && newLineWasPhantom_) {
             lines_.pop_back();
             --cursor_.line;
             cursor_.col = lines_[cursor_.line].text.size();
@@ -402,6 +425,7 @@ void MainScreenDocument::EraseInLine(int mode)
             NotifyListeners(DocChangeType::DeleteLine, cursor_.line + 1);
             return;
         }
+        DocLine& line = lines_[cursor_.line];
         if (cursor_.col < line.text.size()) {
             line.text.erase(cursor_.col);
             for (auto it = line.styles.begin(); it != line.styles.end(); ) {
@@ -437,12 +461,14 @@ void MainScreenDocument::EraseInLine(int mode)
         }
         break;
     }
-    case 1: // beginning of line to cursor (inclusive) — fill with spaces
+    case 1: { // beginning of line to cursor (inclusive) — fill with spaces
+        DocLine& line = lines_[cursor_.line];
         for (size_t i = 0; i <= cursor_.col && i < line.text.size(); ++i)
             line.text[i] = U' ';
         break;
+    }
     case 2: // entire line
-        line.Clear();
+        lines_[cursor_.line].Clear();
         break;
     }
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
@@ -468,26 +494,49 @@ void MainScreenDocument::MoveCursorToLineEnd()
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
+// Converts 1-indexed canvas-relative PTY row/col to the sub-row CursorPos
+// used throughout MainScreenDocument.  Walks from virtualDocStartLine_,
+// consuming max(1, ceil(text.size()/cols_)) PTY rows per DocLine, until
+// the remaining row count falls within a DocLine.  Emplaces blank DocLines
+// on demand if the target row doesn't exist yet.
+CursorPos MainScreenDocument::PtyToDoc(int ptyRow, int ptyCol)
+{
+    int remaining = std::max(1, ptyRow) - 1;
+    size_t docLine = virtualDocStartLine_;
+
+    while (true) {
+        if (docLine >= lines_.size())
+            lines_.emplace_back();
+        const size_t textSize = lines_[docLine].text.size();
+        const int lineRows = (textSize == 0)
+            ? 1
+            : (int)((textSize + (size_t)cols_ - 1) / (size_t)cols_);
+        if (remaining < lineRows)
+            break;
+        remaining -= lineRows;
+        ++docLine;
+    }
+
+    return {
+        docLine,
+        (size_t)remaining * (size_t)cols_ + (size_t)(std::max(1, ptyCol) - 1)
+    };
+}
+
 // row and col are 1-indexed (VT100 convention).
 // Row is canvas-relative: row 1 == virtualDocStartLine_.
-// Blank lines are appended on demand if the target row doesn't exist yet.
+// PtyToDoc walks wrapped DocLines correctly and emplaces blank lines on demand.
 void MainScreenDocument::MoveCursorToPosition(int row, int col)
 {
-    const size_t target = virtualDocStartLine_ + static_cast<size_t>(std::max(1, row) - 1);
-    while (lines_.size() <= target)
-        lines_.emplace_back();
-    cursor_.line = target;
-    cursor_.col  = static_cast<size_t>(std::max(1, col) - 1);
+    cursor_ = PtyToDoc(row, col);
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
-// CSI d — canvas-relative row, same semantics as MoveCursorToPosition.
+// CSI d — canvas-relative row; column preserved as PTY col (cursor_.col % cols_).
 void MainScreenDocument::MoveCursorToRow(int row)
 {
-    const size_t target = virtualDocStartLine_ + static_cast<size_t>(std::max(1, row) - 1);
-    while (lines_.size() <= target)
-        lines_.emplace_back();
-    cursor_.line = target;
+    const int ptyCol = (int)(cursor_.col % (size_t)cols_) + 1;
+    cursor_ = PtyToDoc(row, ptyCol);
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 

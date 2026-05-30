@@ -432,6 +432,77 @@ TEST_CASE("given ptyCols=80 when MoveCursorToRow(2) then canvas-relative row is 
     REQUIRE(doc.GetCursor().col  == 10);
 }
 
+// ---------------------------------------------------------------------------
+// PtyToDoc correctness — exercised via MoveCursorToPosition / MoveCursorToRow
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given ptyCols=80 and 90-char DocLine when MoveCursorToPosition(2,5) then cursor lands on subRow 1 of DocLine 0") {
+    // Regression: before PtyToDoc, CUP row 2 with a wrapped first DocLine
+    // incorrectly jumped to DocLine 1 instead of sub-row 1 of DocLine 0.
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    for (int i = 0; i < 90; ++i) doc.AppendInsertChar(U'A'); // DocLine 0: 90 chars → 2 PTY rows
+    doc.NewLine();                                             // DocLine 1: ""
+    doc.MoveCursorToPosition(2, 5);
+    REQUIRE(doc.GetCursor().line == 0);
+    REQUIRE(doc.GetCursor().col  == 84); // subRow 1 * 80 + (5-1)
+}
+
+TEST_CASE("given ptyCols=80 and 90-char DocLine when MoveCursorToPosition(3,1) then cursor lands on DocLine 1") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    for (int i = 0; i < 90; ++i) doc.AppendInsertChar(U'A'); // DocLine 0: 2 PTY rows
+    doc.NewLine();                                             // DocLine 1: ""
+    doc.MoveCursorToPosition(3, 1);
+    REQUIRE(doc.GetCursor().line == 1);
+    REQUIRE(doc.GetCursor().col  == 0);
+}
+
+TEST_CASE("given ptyCols=80 and exactly 160-char DocLine when MoveCursorToPosition(2,1) then cursor lands on subRow 1") {
+    // 160 chars / 80 cols = exactly 2 rows; no padding, no off-by-one.
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    for (int i = 0; i < 160; ++i) doc.AppendInsertChar(U'A');
+    doc.NewLine();
+    doc.MoveCursorToPosition(2, 1);
+    REQUIRE(doc.GetCursor().line == 0);
+    REQUIRE(doc.GetCursor().col  == 80); // subRow 1, col 0
+}
+
+TEST_CASE("given ptyCols=80 and cursor on subRow 1 when MoveCursorToRow(1) then PTY column is preserved in subRow 0") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    doc.MoveCursorRight(85); // col=85 → subRow 1, PTY col 5 (0-indexed)
+    doc.MoveCursorToRow(1);
+    // PTY col = 85 % 80 + 1 = 6 (1-indexed); PtyToDoc(1,6) on empty doc → {0, 5}
+    REQUIRE(doc.GetCursor().line == 0);
+    REQUIRE(doc.GetCursor().col  == 5);
+}
+
+TEST_CASE("given ptyCols=80 and 90-char DocLine when MoveCursorToPosition(2,5) then MoveCursorDown(1) is sub-row-consistent") {
+    // Before fix: CUP(2,5) set cursor.line=1, so MoveCursorDown targeted the wrong DocLine.
+    // After fix: CUP(2,5) places cursor at {0,84}; Down adds 80 → {0,164} = subRow 2, col 4.
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    for (int i = 0; i < 90; ++i) doc.AppendInsertChar(U'A');
+    doc.NewLine();
+    doc.MoveCursorToPosition(2, 5);
+    REQUIRE(doc.GetCursor().line == 0);
+    doc.MoveCursorDown(1);
+    REQUIRE(doc.GetCursor().line == 0);
+    REQUIRE(doc.GetCursor().col  == 164);
+}
+
+TEST_CASE("given ptyCols=80 and empty doc when MoveCursorToPosition(3,1) then two blank DocLines are emplaced by PtyToDoc") {
+    MainScreenDocument doc;
+    doc.SetPtyCols(80);
+    doc.MoveCursorToPosition(3, 1);
+    // PtyToDoc: lines[0] empty→1 row, lines[1] empty→1 row, land on lines[2]
+    REQUIRE(doc.GetLines().size() >= 3);
+    REQUIRE(doc.GetCursor().line == 2);
+    REQUIRE(doc.GetCursor().col  == 0);
+}
+
 TEST_CASE("given ptyCols=80 when CarriageReturn from col 85 then cursor at col 80") {
     MainScreenDocument doc;
     doc.SetPtyCols(80);
@@ -655,6 +726,65 @@ TEST_CASE("given ptyCols=10 and 15-char line when new-readline history-cycle seq
     REQUIRE(doc.GetCursor().line == lineBefore);           // still on original line
     REQUIRE(doc.GetLines()[lineBefore].text == U"$ BBBBB"); // trimmed to actual content
     REQUIRE(doc.GetCursor().col == doc.GetLines()[lineBefore].text.size());
+}
+
+TEST_CASE("given ptyCols=10 and busybox wrap-backspace sequence when MoveCursorUp then rewrite lands on original DocLine") {
+    // Busybox readline does not rely on terminal auto-wrap: it explicitly emits
+    // \r\n when a command wraps, creating a real DocLine for the wrapped content.
+    // When the user backspaces all the way across the wrap, busybox sends:
+    //   ESC[J (erase to end) + CR + CUU1 + redrawn-command.
+    // ESC[J empties DocLine L+1; CUU1 then sees an empty last DocLine at col=0
+    // and must pop it so the rewrite lands on DocLine L.
+    //
+    // Setup: cols_=10, "AAAAAAAAAA" (10 chars) on DocLine L.
+    //   busybox \r\n → DocLine L+1; "BB" echoed there.
+    //   User presses backspace twice; busybox echoes each as \b SPACE \b
+    //   (space-overwrite, not actual deletion) → L+1 has "  ", cursor at col 0.
+    //   Busybox then sends ESC[J CR CUU1 to erase and redraw.
+    MainScreenDocument doc;
+    doc.SetPtyCols(10);
+    // sub-row 0 of the command
+    for (int i = 0; i < 10; ++i) doc.AppendInsertChar(U'A');
+    REQUIRE(doc.GetCursor().col == 10);
+
+    // busybox \r\n — creates real DocLine L+1
+    doc.CarriageReturn();
+    doc.NewLine();
+    REQUIRE((int)doc.GetLines().size() == 2);
+    REQUIRE(doc.GetCursor().col == 0);
+
+    // busybox echoes "BB" onto L+1
+    doc.AppendInsertChar(U'B');
+    doc.AppendInsertChar(U'B');
+    REQUIRE(doc.GetCursor().col == 2);
+
+    const int lineL = doc.GetCursor().line - 1; // DocLine L index
+
+    // Backspace 1: \b SPACE \b  (cursor 2→1, write ' ', cursor 2→1)
+    doc.MoveCursorLeft(1);
+    doc.AppendInsertChar(U' ');
+    doc.MoveCursorLeft(1);
+    // Backspace 2: \b SPACE \b  (cursor 1→0, write ' ', cursor 1→0)
+    doc.MoveCursorLeft(1);
+    doc.AppendInsertChar(U' ');
+    doc.MoveCursorLeft(1);
+
+    REQUIRE(doc.GetCursor().col == 0);
+    // L+1 has two spaces — not yet empty, ESC[J will clear it
+    REQUIRE(doc.GetLines()[doc.GetCursor().line].text == std::u32string(U"  "));
+
+    // busybox: ESC[J empties L+1 from col 0, CR stays at col 0, CUU1 pops L+1
+    doc.EraseInDisplay(0);
+    REQUIRE(doc.GetLines()[doc.GetCursor().line].text.empty()); // L+1 now empty
+    doc.CarriageReturn();
+    doc.MoveCursorUp(1);  // must pop L+1 and land at col 0 of DocLine L
+
+    // Rewrite shorter command "AAAAAAAA" (8 chars)
+    for (int i = 0; i < 8; ++i) doc.AppendInsertChar(U'A');
+
+    REQUIRE((int)doc.GetLines().size() == lineL + 1); // L+1 was popped
+    REQUIRE(doc.GetCursor().line == (size_t)lineL);   // cursor on DocLine L
+    REQUIRE(doc.GetCursor().col == 8);                 // after 8 written chars
 }
 
 TEST_CASE("given ptyCols=10 and 15-char line when DeleteChar at col 2 then sub-row 1 chars are unchanged") {

@@ -33,6 +33,11 @@ public:
     // points past the end of the document.
     RenderedLine GetRenderedLine(int r);
 
+    // Returns rendered content for [first, last) visual rows in one lock
+    // acquisition, walking the anchor incrementally (O(rows) instead of
+    // O(rows²)).  Prefer this over repeated GetRenderedLine calls in paint loops.
+    std::vector<RenderedLine> GetRenderedLines(int first, int last);
+
     void SetDocument(Document& newDoc);
 
     // Document line count.
@@ -119,6 +124,7 @@ private:
 
     // All *Locked methods assume mtx_ is already held by the caller.
     ViewportAnchor WalkAnchorBy(ViewportAnchor a, int delta) const;
+    RenderedLine   BuildRenderedLineLocked(ViewportAnchor pos) const;
     int            VisualCount(const DocLine& line) const;
     int            TotalVisualLinesLocked() const;
     void           ComputeMaxVisibleWidthLocked() const;
@@ -139,6 +145,7 @@ private:
     mutable int    maxVisibleWidth_      = 0;
     mutable bool   maxVisibleWidthDirty_ = true;
     bool           autoScroll_           = true;
+    bool           leftClamped_          = true;   // set only by SetLeftCol(); suppresses left-scroll when false
     bool           wrapMode_             = false;
 
     bool              allViewDirty_  = true;

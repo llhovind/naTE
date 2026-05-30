@@ -51,10 +51,25 @@ int DocLayout::VisualCount(const DocLine& line) const
 DocLayout::ViewportAnchor
 DocLayout::WalkAnchorBy(ViewportAnchor a, int delta) const
 {
-    const auto& lines = doc_->GetLines();
+    const auto&    lines = doc_->GetLines();
+    const CursorPos cur  = doc_->GetCursor();
+
+    // Returns the visual row count for docLine, adding one extra sub-row when
+    // the cursor sits exactly at a sub-row boundary end (pending-wrap state).
+    // VisualCount only counts text rows; the cursor needs the empty row too.
+    auto effectiveVC = [&](int docLine) {
+        int vc = VisualCount(lines[docLine]);
+        if (wrapMode_ && cols_ > 0 && (int)cur.line == docLine) {
+            const auto& txt = lines[docLine].text;
+            if (!txt.empty() && txt.size() % (size_t)cols_ == 0
+                    && cur.col == txt.size())
+                ++vc;
+        }
+        return vc;
+    };
 
     while (delta > 0 && a.docLine < (int)lines.size()) {
-        const int remaining = VisualCount(lines[a.docLine]) - a.subRow - 1;
+        const int remaining = effectiveVC(a.docLine) - a.subRow - 1;
         if (delta <= remaining) { a.subRow += delta; return a; }
         delta -= remaining + 1;
         ++a.docLine;
@@ -66,7 +81,7 @@ DocLayout::WalkAnchorBy(ViewportAnchor a, int delta) const
         delta += a.subRow + 1;
         if (a.docLine == 0) { a.subRow = 0; return a; }
         --a.docLine;
-        a.subRow = VisualCount(lines[a.docLine]) - 1;
+        a.subRow = effectiveVC(a.docLine) - 1;
     }
 
     return a;
@@ -96,7 +111,8 @@ void DocLayout::SetViewportSize(int newCols, int newRows)
         // undersized viewport (e.g. before panel layout completes on startup).
         // Reset to the leftmost position that still keeps the cursor visible.
         const int cursorCol = (int)doc_->GetCursor().col;
-        leftCol_ = std::max(0, cursorCol - cols_ + 1);
+        leftCol_     = std::max(0, cursorCol - cols_ + 1);
+        leftClamped_ = (leftCol_ == 0);
     }
 
     if (autoScroll_) ScrollToEndLocked();
@@ -105,13 +121,9 @@ void DocLayout::SetViewportSize(int newCols, int newRows)
     allViewDirty_ = true;
 }
 
-// r is viewport-relative: 0 = topmost visible line.
-RenderedLine DocLayout::GetRenderedLine(int r)
+RenderedLine DocLayout::BuildRenderedLineLocked(ViewportAnchor pos) const
 {
-    std::lock_guard<std::mutex> lk(mtx_);
-
-    const auto&    lines = doc_->GetLines();
-    const ViewportAnchor pos = WalkAnchorBy(topAnchor_, r);
+    const auto& lines = doc_->GetLines();
 
     if (pos.docLine >= (int)lines.size())
         return {};  // empty row — past end of document
@@ -213,6 +225,26 @@ RenderedLine DocLayout::GetRenderedLine(int r)
     return result;
 }
 
+// r is viewport-relative: 0 = topmost visible line.
+RenderedLine DocLayout::GetRenderedLine(int r)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    return BuildRenderedLineLocked(WalkAnchorBy(topAnchor_, r));
+}
+
+std::vector<RenderedLine> DocLayout::GetRenderedLines(int first, int last)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    std::vector<RenderedLine> out;
+    out.reserve(static_cast<size_t>(last - first));
+    ViewportAnchor pos = WalkAnchorBy(topAnchor_, first);
+    for (int r = first; r < last; ++r) {
+        out.push_back(BuildRenderedLineLocked(pos));
+        pos = WalkAnchorBy(pos, 1);
+    }
+    return out;
+}
+
 int DocLayout::GetLineCount() const
 {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -291,6 +323,7 @@ bool DocLayout::IsAtEnd() const
 void DocLayout::EnsureCursorVisible()
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    leftClamped_ = true;   // user interaction: resume horizontal cursor tracking
     EnsureCursorVisibleVertically();
     EnsureCursorVisibleHorizontally();
 }
@@ -323,7 +356,16 @@ void DocLayout::ScrollToEndLocked()
     if (lines.empty()) { topAnchor_ = {0, 0}; autoScroll_ = true; return; }
 
     const int lastDocLine = (int)lines.size() - 1;
-    const int lastSubRow  = VisualCount(lines.back()) - 1;
+    int       lastSubRow  = VisualCount(lines.back()) - 1;
+    // If the cursor is at a sub-row boundary end of the last DocLine, add the
+    // extra empty sub-row so it is included in the viewport.
+    if (wrapMode_ && cols_ > 0) {
+        const CursorPos cur = doc_->GetCursor();
+        const auto&     txt = lines.back().text;
+        if ((int)cur.line == lastDocLine && !txt.empty()
+                && txt.size() % (size_t)cols_ == 0 && cur.col == txt.size())
+            ++lastSubRow;
+    }
     topAnchor_  = WalkAnchorBy({lastDocLine, lastSubRow}, -(rows_ - 1));
     // Never auto-scroll above the current canvas origin — old scrollback stays hidden.
     const int origin = static_cast<int>(doc_->GetScrollbackOrigin());
@@ -370,11 +412,14 @@ void DocLayout::EnsureCursorVisibleVertically()
 void DocLayout::EnsureCursorVisibleHorizontally()
 {
     if (wrapMode_) return;
-    const int docCol = (int)doc_->GetCursor().col;
-    if (docCol < leftCol_)
-        leftCol_ = docCol;
-    else if (docCol >= leftCol_ + cols_)
+    if (!leftClamped_) return;  // viewport pinned by user; skip cursor tracking in both directions
+    const int docCol     = (int)doc_->GetCursor().col;
+    const int leftMargin = leftCol_ + cols_ * 3 / 10;  // 30% soft margin from left edge
+    if (docCol < leftMargin) {
+        leftCol_ = std::max(0, docCol - cols_ / 2);    // jump left: half-viewport of context
+    } else if (docCol >= leftCol_ + cols_) {
         leftCol_ = docCol - cols_ + 1;
+    }
 }
 
 void DocLayout::ComputeMaxVisibleWidthLocked() const
@@ -406,6 +451,7 @@ void DocLayout::SetWrapMode(bool wrap)
     if (wrapMode_ == wrap) return;
     wrapMode_         = wrap;
     leftCol_          = 0;
+    leftClamped_      = true;
     topAnchor_.subRow = 0;  // subRow is wrap-relative; reset on mode change
     if (autoScroll_) ScrollToEndLocked();
     ComputeMaxVisibleWidthLocked();
@@ -423,7 +469,8 @@ void DocLayout::SetLeftCol(int col)
     if (maxVisibleWidthDirty_)
         ComputeMaxVisibleWidthLocked();
     const int maxLeft = std::max(0, maxVisibleWidth_ - cols_);
-    leftCol_ = std::clamp(col, 0, maxLeft);
+    leftCol_     = std::clamp(col, 0, maxLeft);
+    leftClamped_ = (leftCol_ == 0);
 }
 
 int DocLayout::GetLeftCol() const

@@ -12,6 +12,7 @@
 #include <wx/msgdlg.h>
 #include <wx/stdpaths.h>
 #include <wx/string.h>
+#include <wx/utils.h>
 #include <libssh2.h>
 #include <atomic>
 #include <cerrno>
@@ -36,6 +37,10 @@ namespace {
 
     std::string LockPath(int n) {
         return NateDir() + "/instance-" + std::to_string(n) + ".lock";
+    }
+
+    std::string InstanceRestorePath(int n) {
+        return NateDir() + "/instance-restore-" + std::to_string(n) + ".json";
     }
 
     bool TryClaimSlot(int n) {
@@ -72,6 +77,26 @@ int App::AcquireInstanceId() {
 void App::ReleaseInstanceId(int id) {
     if (id < 32)
         std::remove(LockPath(id).c_str());
+}
+
+std::vector<std::string> App::FindOrphanedRestoreFiles() const {
+    std::vector<std::string> paths;
+    for (int n = 0; n < 32; ++n) {
+        const std::string path = InstanceRestorePath(n);
+        if (!std::ifstream(path).is_open())
+            continue;
+        if (n != m_instanceId) {
+            std::ifstream lock(LockPath(n));
+            if (lock.is_open()) {
+                pid_t pid = 0;
+                lock >> pid;
+                if (pid > 0 && kill(pid, 0) == 0)
+                    continue; // live instance owns this file — leave it alone
+            }
+        }
+        paths.push_back(path);
+    }
+    return paths;
 }
 
 bool App::OnInit() {
@@ -127,31 +152,72 @@ bool App::OnInit() {
 
     m_sessionManager = std::make_unique<term::session::SessionManager>();
 
-    const std::string restorePath = NateDir() + "/session-restore.json";
+    const std::string restorePath = InstanceRestorePath(m_instanceId);
     m_restoreRepo = std::make_unique<term::db::JsonSessionRestoreRepository>(restorePath);
     m_namedRepo   = std::make_unique<term::db::JsonNamedWorkspaceRepository>(NateDir() + "/workspaces");
 
-    // Parse --no-restore / --restore-last-workspace CLI flags.
+    // Parse CLI flags.
     // --no-restore:              suppress restore even when config enables it.
     // --restore-last-workspace:  force restore even when config disables it.
-    // --no-restore takes precedence if both are supplied.
-    bool noRestoreFlag    = false;
-    bool forceRestoreFlag = false;
+    // --restore-instance N:      restore instance-restore-N.json (spawned by a peer); no further spawning.
+    // --no-restore takes precedence over --restore-last-workspace.
+    bool noRestoreFlag      = false;
+    bool forceRestoreFlag   = false;
+    int  restoreInstanceSlot = -1;
     for (int i = 1; i < argc; ++i) {
         const auto arg = argv[i].ToStdString();
-        if (arg == "--no-restore")               { noRestoreFlag    = true; }
-        else if (arg == "--restore-last-workspace") { forceRestoreFlag = true; }
+        if (arg == "--no-restore")
+            noRestoreFlag = true;
+        else if (arg == "--restore-last-workspace")
+            forceRestoreFlag = true;
+        else if (arg == "--restore-instance" && i + 1 < argc) {
+            try { restoreInstanceSlot = std::stoi(argv[++i].ToStdString()); } catch (...) {}
+        }
     }
 
-    const bool autoRestore = (m_cfg.autoRestoreSession || forceRestoreFlag)
-                             && !noRestoreFlag
-                             && m_restoreRepo->HasSnapshot();
-    if (!autoRestore) {
-        CreateNewWindow();
+    if (restoreInstanceSlot >= 0) {
+        // Spawned by a peer instance to own a specific prior instance's state.
+        term::db::JsonSessionRestoreRepository repo(InstanceRestorePath(restoreInstanceSlot));
+        auto state = repo.Load();
+        if (!state.windows.empty())
+            RestoreStateImpl(state, nullptr);
+        else
+            CreateNewWindow();
+        repo.Delete();
     } else {
-        auto state = m_restoreRepo->Load();
-        RestoreStateImpl(state, nullptr);
-        m_restoreRepo->Delete();
+        const bool wantsRestore = (m_cfg.autoRestoreSession || forceRestoreFlag) && !noRestoreFlag;
+        if (!wantsRestore) {
+            CreateNewWindow();
+        } else {
+            const auto orphans = FindOrphanedRestoreFiles();
+            if (orphans.empty()) {
+                CreateNewWindow();
+            } else {
+                const std::string myFile = InstanceRestorePath(m_instanceId);
+                const wxString exePath   = wxStandardPaths::Get().GetExecutablePath();
+                bool restoredSelf        = false;
+                for (const auto& path : orphans) {
+                    if (path == myFile) {
+                        term::db::JsonSessionRestoreRepository repo(path);
+                        auto state = repo.Load();
+                        if (!state.windows.empty())
+                            RestoreStateImpl(state, nullptr);
+                        repo.Delete();
+                        restoredSelf = true;
+                    } else {
+                        for (int n = 0; n < 32; ++n) {
+                            if (InstanceRestorePath(n) == path) {
+                                wxExecute(wxString::Format("\"%s\" --restore-instance %d", exePath, n),
+                                          wxEXEC_ASYNC);
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!restoredSelf)
+                    CreateNewWindow();
+            }
+        }
     }
 
     if (m_cfg.sessionSaveInterval > 0) {

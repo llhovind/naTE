@@ -1,5 +1,20 @@
 cmake_minimum_required(VERSION 3.20)
-project(naTE VERSION 0.1.2 LANGUAGES CXX)
+
+# Derive version from the nearest annotated or lightweight git tag (e.g. v1.2.3).
+# Fallback to 0.0.0 when building outside a git repo or before the first tag.
+execute_process(
+    COMMAND git describe --tags --abbrev=0
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE _GIT_TAG
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+string(REGEX REPLACE "^v" "" _GIT_VERSION "${_GIT_TAG}")
+if(NOT _GIT_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+")
+    set(_GIT_VERSION "0.0.0")
+endif()
+
+project(naTE VERSION "${_GIT_VERSION}" LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
