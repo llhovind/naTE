@@ -145,6 +145,7 @@ private:
     mutable int    maxVisibleWidth_      = 0;
     mutable bool   maxVisibleWidthDirty_ = true;
     bool           autoScroll_           = true;
+    bool           leftClamped_          = true;   // set only by SetLeftCol(); suppresses left-scroll when false
     bool           wrapMode_             = false;
 
     bool              allViewDirty_  = true;

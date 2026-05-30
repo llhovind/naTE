@@ -624,6 +624,56 @@ TEST_CASE("given line longer than viewport when wrap mode off then horizontal sc
     REQUIRE(row1.text == U"KLMNOPQRSTUVWXYZABCD");
 }
 
+TEST_CASE("given cursor enters 30pct left margin via backspace when leftClamped then viewport jumps by half cols")
+{
+    // 20-column viewport; feed 40 chars so cursor-driven right-scroll fires.
+    // leftCol_ ends at 21 (= 40 - 20 + 1); leftClamped_ stays true (cursor-driven, not user-driven).
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 20, 5, {}, {});
+    session.OnData("ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMN");
+
+    DocLayout& layout = session.GetDocLayout();
+    const int leftBefore = layout.GetLeftCol();  // 21
+    REQUIRE(leftBefore > 0);
+
+    // 30% margin = 20 * 3/10 = 6.  leftMargin = 21 + 6 = 27.
+    // 14 backspaces move cursor from 40 to 26, which is < 27 — triggers the early jump
+    // while the cursor is still to the RIGHT of the original leftCol (21).
+    session.OnData(std::string(14, '\x08'));
+
+    const int cursorCol = (int)layout.GetCursorDocPos().col;  // 26
+    const int leftAfter  = layout.GetLeftCol();               // 16
+
+    REQUIRE(cursorCol >= leftBefore);                          // cursor still right of original left edge (early trigger)
+    REQUIRE(leftAfter < leftBefore);                           // viewport scrolled left
+    REQUIRE(leftAfter == std::max(0, cursorCol - 10));         // half-viewport jump (cols_/2 = 10)
+}
+
+TEST_CASE("given user manually scrolled right then viewport ignores cursor movement in both directions")
+{
+    // 20-column viewport; feed 40 chars then explicitly scroll to col 10 (leftClamped_ = false).
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 20, 5, {}, {});
+    session.OnData("ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMN");
+
+    DocLayout& layout = session.GetDocLayout();
+    layout.SetLeftCol(10);
+    REQUIRE(layout.GetLeftCol() == 10);
+
+    // Cursor goes to col 0 (new line, left of viewport at col 10) — must not snap left.
+    session.OnData("\r\n");
+    REQUIRE(layout.GetLeftCol() == 10);
+
+    // Cursor moves past right edge (col 40 > 10+20=30) — must not scroll right.
+    session.OnData("ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMN");
+    REQUIRE(layout.GetLeftCol() == 10);
+
+    // Scrolling back to col 0 re-engages clamping (leftClamped_ = true).
+    layout.SetLeftCol(0);
+    session.OnData("\r\n");
+    REQUIRE(layout.GetLeftCol() == 0);
+}
+
 // ---------------------------------------------------------------------------
 // MakeTitleGetter profile-title overload
 // ---------------------------------------------------------------------------

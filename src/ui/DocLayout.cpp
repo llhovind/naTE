@@ -111,7 +111,8 @@ void DocLayout::SetViewportSize(int newCols, int newRows)
         // undersized viewport (e.g. before panel layout completes on startup).
         // Reset to the leftmost position that still keeps the cursor visible.
         const int cursorCol = (int)doc_->GetCursor().col;
-        leftCol_ = std::max(0, cursorCol - cols_ + 1);
+        leftCol_     = std::max(0, cursorCol - cols_ + 1);
+        leftClamped_ = (leftCol_ == 0);
     }
 
     if (autoScroll_) ScrollToEndLocked();
@@ -322,6 +323,7 @@ bool DocLayout::IsAtEnd() const
 void DocLayout::EnsureCursorVisible()
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    leftClamped_ = true;   // user interaction: resume horizontal cursor tracking
     EnsureCursorVisibleVertically();
     EnsureCursorVisibleHorizontally();
 }
@@ -410,11 +412,14 @@ void DocLayout::EnsureCursorVisibleVertically()
 void DocLayout::EnsureCursorVisibleHorizontally()
 {
     if (wrapMode_) return;
-    const int docCol = (int)doc_->GetCursor().col;
-    if (docCol < leftCol_)
-        leftCol_ = docCol;
-    else if (docCol >= leftCol_ + cols_)
+    if (!leftClamped_) return;  // viewport pinned by user; skip cursor tracking in both directions
+    const int docCol     = (int)doc_->GetCursor().col;
+    const int leftMargin = leftCol_ + cols_ * 3 / 10;  // 30% soft margin from left edge
+    if (docCol < leftMargin) {
+        leftCol_ = std::max(0, docCol - cols_ / 2);    // jump left: half-viewport of context
+    } else if (docCol >= leftCol_ + cols_) {
         leftCol_ = docCol - cols_ + 1;
+    }
 }
 
 void DocLayout::ComputeMaxVisibleWidthLocked() const
@@ -446,6 +451,7 @@ void DocLayout::SetWrapMode(bool wrap)
     if (wrapMode_ == wrap) return;
     wrapMode_         = wrap;
     leftCol_          = 0;
+    leftClamped_      = true;
     topAnchor_.subRow = 0;  // subRow is wrap-relative; reset on mode change
     if (autoScroll_) ScrollToEndLocked();
     ComputeMaxVisibleWidthLocked();
@@ -463,7 +469,8 @@ void DocLayout::SetLeftCol(int col)
     if (maxVisibleWidthDirty_)
         ComputeMaxVisibleWidthLocked();
     const int maxLeft = std::max(0, maxVisibleWidth_ - cols_);
-    leftCol_ = std::clamp(col, 0, maxLeft);
+    leftCol_     = std::clamp(col, 0, maxLeft);
+    leftClamped_ = (leftCol_ == 0);
 }
 
 int DocLayout::GetLeftCol() const
