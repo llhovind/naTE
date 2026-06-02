@@ -328,8 +328,15 @@ void Session::SetWrapMode(bool wrap)
     }
 }
 
+void Session::OnCwdChanged(const std::string& path)
+{
+    lastCwd_ = path;
+}
+
 std::string Session::GetCurrentWorkingDir() const
 {
+    if (!lastCwd_.empty())
+        return lastCwd_;
     return transport_->GetCurrentWorkingDir();
 }
 

@@ -74,6 +74,7 @@ public:
     void OnDeviceStatusReport(int param)             override;
     void OnBell()                                    override;
     void OnSetCursorVisibility(bool visible)         override;
+    void OnCwdChanged(const std::string& path)       override;
 
     // transport::ITransportTarget
     void OnData(const std::string& data) override;
@@ -148,6 +149,7 @@ private:
     std::function<void()>                                    onBell_;
     std::function<void(bool)>                                onCursorVisibilityChanged_;
 
+    std::string        lastCwd_;
     unsigned short     lastCols_{0};
     unsigned short     lastRows_{0};
     unsigned short     ptyLineWidth_{1024};

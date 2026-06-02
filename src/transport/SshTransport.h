@@ -8,6 +8,7 @@
 #include "transport/TransportError.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -153,6 +154,14 @@ private:
     // Must be called only from the worker thread.
     void RemoteWriteVpCols(unsigned short cols);
 
+    // Execs cmd on a short-lived channel and returns trimmed stdout, or "" on
+    // failure.  Must be called only from the worker thread (non-blocking mode).
+    std::string RemoteExecRead(const std::string& cmd);
+
+    // Runs readlink /proc/{remotePid_}/cwd and fires OnCwdChanged if the
+    // capture interval has elapsed.  Must be called only from the worker thread.
+    void CaptureCwdPeriodic();
+
     // Connects a Unix or TCP socket to the local X11 server (parses $DISPLAY).
     // Returns the socket fd on success, -1 if no display is available.
     // Worker-thread-only.
@@ -212,6 +221,16 @@ private:
 
     // SSH agent forwarding — worker-thread-only after Start().
     std::vector<AgentChannel>   agent_channels_;
+
+    // Worker-thread-only: timestamp of the last periodic CWD capture.
+    // Default-initialised to epoch so the first capture fires immediately.
+    std::chrono::steady_clock::time_point lastCwdCapture_{};
+    // PID of the remote shell process, read from the first stdout line at startup.
+    int  remotePid_       = 0;
+    // Set false on the first readlink failure so we stop trying on non-Linux servers.
+    bool procFsAvailable_ = true;
+    // Bytes read past the PID newline during startup; drained at ReadWriteLoop start.
+    std::string pidOvershoot_;
 
     // Shared between UI thread (Write/Resize/OnViewportColsChanged) and worker.
     std::mutex                  queue_mutex_;

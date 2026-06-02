@@ -33,8 +33,9 @@ namespace term::transport {
 
 namespace {
 
-constexpr char kTermType[]     = "xterm-256color";
-constexpr int  kPollTimeoutMs  = 100;
+constexpr char kTermType[]            = "xterm-256color";
+constexpr int  kPollTimeoutMs         = 100;
+constexpr int  kCwdCaptureIntervalSec = 120;
 
 // TCP keepalive parameters applied to every established SSH socket.
 // The kernel sends the first probe after kTcpKeepIdleSec of silence, then
@@ -334,6 +335,30 @@ void SshTransport::WorkerThread()
     if (desc_.agentForwarding) SetupAgentForwarding();
     if (!StartShell())         return;
 
+    // Read the remote shell's PID from the first stdout line emitted by the
+    // startup command ("printf '%d\n' $$; ...").  Any bytes read past the
+    // newline are stashed in pidOvershoot_ and fed to the parser at the start
+    // of ReadWriteLoop so no terminal output is lost.
+    {
+        std::string acc;
+        while (running_ && acc.find('\n') == std::string::npos) {
+            char tmp[256];
+            const ssize_t n = libssh2_channel_read(channel_, tmp, sizeof(tmp));
+            if (n > 0)
+                acc.append(tmp, static_cast<size_t>(n));
+            else if (n == LIBSSH2_ERROR_EAGAIN)
+                PollUntilReady(kPollTimeoutMs);
+            else
+                break;
+        }
+        const auto nl = acc.find('\n');
+        if (nl != std::string::npos) {
+            try { remotePid_ = std::stoi(acc.substr(0, nl)); } catch (...) {}
+            if (nl + 1 < acc.size())
+                pidOvershoot_ = acc.substr(nl + 1);
+        }
+    }
+
     // SSH application-level keepalive is intentionally disabled.  SO_KEEPALIVE
     // (set in ConnectSocket) handles both dead-connection detection (~40 s) and
     // NAT state maintenance at the kernel level.  The libssh2 keepalive would
@@ -353,19 +378,22 @@ void SshTransport::WorkerThread()
     // teardown steps; just free the in-memory resources and close the fd.
     const bool socketDead = (disconnectReason == DisconnectReason::Interrupted);
 
-    // Best-effort: remove the remote vpcolumns file before tearing down.
-    // Only meaningful when the socket is still alive (Deliberate or Clean exit).
-    if (!socketDead && !vpcolumns_remote_path_.empty() && session_) {
+    // Best-effort teardown operations while the socket is still alive.
+    if (!socketDead && session_) {
         libssh2_session_set_blocking(session_, 1);
-        LIBSSH2_CHANNEL* ch = libssh2_channel_open_session(session_);
-        if (ch) {
-            const std::string rm = "rm -f '" + vpcolumns_remote_path_ + "'";
-            if (libssh2_channel_exec(ch, rm.c_str()) == 0) {
-                char discard[64];
-                while (libssh2_channel_read(ch, discard, sizeof(discard)) > 0) {}
+
+        if (!vpcolumns_remote_path_.empty()) {
+            LIBSSH2_CHANNEL* ch = libssh2_channel_open_session(session_);
+            if (ch) {
+                const std::string rm = "rm -f '" + vpcolumns_remote_path_ + "'";
+                if (libssh2_channel_exec(ch, rm.c_str()) == 0) {
+                    char discard[64];
+                    while (libssh2_channel_read(ch, discard, sizeof(discard)) > 0) {}
+                }
+                libssh2_channel_free(ch);
             }
-            libssh2_channel_free(ch);
         }
+
     }
 
     // Orderly teardown: send close/disconnect messages only when the socket is
@@ -934,6 +962,11 @@ bool SshTransport::StartShell()
     else if (!envPrefix.empty())
         effectiveCmd = envPrefix + effectiveCmd;
 
+    // Prepend a PID write as the very first action.  $$ is the PID of the
+    // process executing this command string; exec $SHELL preserves it, so
+    // remotePid_ stays valid for the lifetime of the session.
+    effectiveCmd = "printf '%d\\n' $$; " + effectiveCmd;
+
     int rc;
     while ((rc = libssh2_channel_exec(channel_, effectiveCmd.c_str()))
            == LIBSSH2_ERROR_EAGAIN) {
@@ -959,6 +992,12 @@ DisconnectReason SshTransport::ReadWriteLoop()
     char buf[kReadBuf];
 
     DisconnectReason reason = DisconnectReason::Deliberate;
+
+    // Feed any bytes read past the PID newline during startup into the parser.
+    if (!pidOvershoot_.empty()) {
+        target_.OnData(pidOvershoot_);
+        pidOvershoot_.clear();
+    }
 
     while (running_) {
         // --- Service pending mid-session X11 forwarding request -----------
@@ -1094,6 +1133,7 @@ DisconnectReason SshTransport::ReadWriteLoop()
 
         // --- Drain writes + resize + vpcolumns ---------------------------
         DrainWriteQueue();
+        CaptureCwdPeriodic();
 
     }
 
@@ -1201,6 +1241,68 @@ void SshTransport::RemoteWriteVpCols(unsigned short cols)
     char discard[64];
     while (libssh2_channel_read(ch, discard, sizeof(discard)) > 0) {}
     libssh2_channel_free(ch);
+}
+
+std::string SshTransport::RemoteExecRead(const std::string& cmd)
+{
+    LIBSSH2_CHANNEL* ch = nullptr;
+    while (running_) {
+        ch = libssh2_channel_open_session(session_);
+        if (ch) break;
+        if (libssh2_session_last_error(session_, nullptr, nullptr, 0) != LIBSSH2_ERROR_EAGAIN)
+            return {};
+        if (!PollUntilReady(kPollTimeoutMs)) return {};
+    }
+    if (!ch) return {};
+
+    int rc;
+    while ((rc = libssh2_channel_exec(ch, cmd.c_str())) == LIBSSH2_ERROR_EAGAIN) {
+        if (!running_) { libssh2_channel_free(ch); return {}; }
+        PollUntilReady(kPollTimeoutMs);
+    }
+
+    std::string output;
+    if (rc == 0) {
+        char buf[4096];
+        ssize_t n;
+        while (running_) {
+            n = libssh2_channel_read(ch, buf, sizeof(buf));
+            if (n > 0)
+                output.append(buf, static_cast<size_t>(n));
+            else if (n == LIBSSH2_ERROR_EAGAIN)
+                PollUntilReady(kPollTimeoutMs);
+            else
+                break;
+        }
+        if (!output.empty() && output.back() == '\n')
+            output.pop_back();
+    }
+
+    libssh2_channel_free(ch);
+    return output;
+}
+
+void SshTransport::CaptureCwdPeriodic()
+{
+    using namespace std::chrono;
+    if (duration_cast<seconds>(steady_clock::now() - lastCwdCapture_).count()
+            < kCwdCaptureIntervalSec)
+        return;
+
+    // Update unconditionally so a transient failure doesn't cause a tight
+    // retry loop on every subsequent poll iteration.
+    lastCwdCapture_ = steady_clock::now();
+
+    if (remotePid_ <= 0 || !procFsAvailable_)
+        return;
+
+    const std::string cwd = RemoteExecRead(
+        "readlink /proc/" + std::to_string(remotePid_) + "/cwd");
+    if (cwd.empty()) {
+        procFsAvailable_ = false;  // /proc not available on this server
+        return;
+    }
+    target_.OnCwdChanged(cwd);
 }
 
 // ---------------------------------------------------------------------------

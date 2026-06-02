@@ -53,6 +53,7 @@ add_executable(naTE_core_tests
     test_document.cpp
     test_session_manager.cpp
     test_x11_utils.cpp
+    test_cwd.cpp
     ${CORE_SOURCES}
 )
 target_link_libraries(naTE_core_tests PRIVATE Catch2::Catch2WithMain ${NATE_LIBSSH2_LINK})
