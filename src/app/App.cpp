@@ -269,6 +269,7 @@ MainFrame* App::CreateNewWindow()
     });
 
     wc->uiManager->SetSessionListChangedCallback([this]() {
+        SaveRestoreState();
         CallAfter([this]() { RebuildWindowMenus(); });
     });
 
