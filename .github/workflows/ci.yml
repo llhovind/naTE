@@ -25,11 +25,39 @@ jobs:
         uses: actions/cache@v5
         with:
           path: build/_deps
-          key: fetchcontent-${{ hashFiles('CMakeLists.txt', 'tests/CMakeLists.txt') }}
-          restore-keys: fetchcontent-
+          key: fetchcontent-linux-${{ hashFiles('CMakeLists.txt', 'tests/CMakeLists.txt') }}
+          restore-keys: fetchcontent-linux-
 
       - name: Configure
         run: cmake --preset debug
+
+      - name: Build tests
+        run: cmake --build --preset debug --target naTE_tests naTE_core_tests naTE_restore_tests
+
+      - name: Run tests
+        run: ctest --preset debug
+
+  test-macos:
+    if: false
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: brew install ninja
+
+      - name: Cache FetchContent downloads
+        uses: actions/cache@v5
+        with:
+          path: build/_deps
+          key: fetchcontent-macos-${{ hashFiles('CMakeLists.txt', 'tests/CMakeLists.txt') }}
+          restore-keys: fetchcontent-macos-
+
+      - name: Configure
+        run: cmake --preset debug -DOPENSSL_ROOT_DIR=$(brew --prefix openssl)
 
       - name: Build tests
         run: cmake --build --preset debug --target naTE_tests naTE_core_tests naTE_restore_tests
