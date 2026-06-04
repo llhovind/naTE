@@ -183,4 +183,5 @@ private:
     wxColour colActive_;
     wxColour colInactive_;
     wxColour colBroadcast_;
+    wxColour glyphBright_ { 253, 246, 227 };  // Solarized Dark base07 default
 };

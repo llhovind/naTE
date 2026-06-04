@@ -282,7 +282,6 @@ UiColors ColorScheme::deriveUiColors() const
         u.searchBarBg       = blendRgb(p[0], p[13], 0.20);
 
         u.controlActive     = contrastOn(p[3], p[7], p[0]);
-        u.controlInactive   = p[3];
 
         u.selectionBg     = p[13];  // base0D — accent blue, high contrast against terminal bg
         u.selectionFg     = contrastOn(p[13], p[7], p[0]);
@@ -322,7 +321,6 @@ UiColors ColorScheme::deriveUiColors() const
         u.searchBarBg        = blendRgb(a[0], a[4], 0.20);  // slight blue tint on bg
 
         u.controlActive      = a[15];   // ANSI bright-white
-        u.controlInactive    = a[8];    // ANSI bright-black
 
         u.selectionBg     = a[12];   // ANSI bright-blue — visible accent
         u.selectionFg     = contrastOn(a[12], a[15], a[0]);

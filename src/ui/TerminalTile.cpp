@@ -370,12 +370,7 @@ void TerminalTile::ApplyConfig(const AppConfig& cfg)
 
     if (tabStrip_) tabStrip_->SetUiColors(u);
 
-    const wxColour active   = toWx(u.controlActive);
-    const wxColour inactive = toWx(u.controlInactive);
-    if (wrapCtrl_)   wrapCtrl_->SetGlyphColours(active, inactive);
-    if (altScrCtrl_) altScrCtrl_->SetGlyphColours(active, inactive);
-    if (x11Ctrl_)    x11Ctrl_->SetGlyphColours(active, inactive);
-
+    glyphBright_ = toWx(u.controlActive);
     UpdateTitleBarColor();
 }
 
@@ -384,12 +379,21 @@ void TerminalTile::UpdateTitleBarColor()
     // isFocused_ only produces the blue "active" tint when broadcast mode is
     // off — otherwise the focused tile has no more input claim than any other
     // non-broadcasting tile and should appear inactive.
-    const wxColour& c = inBroadcast_                      ? colBroadcast_
+    const wxColour& c = inBroadcast_                           ? colBroadcast_
                         : (isFocused_ && !broadcastModeActive_) ? colActive_
-                                                              : colInactive_;
+                                                               : colInactive_;
     titleBar_->SetBackgroundColour(c);
+
+    // Derive glyph colors from the current tile background so they always
+    // contrast regardless of focus state or theme.  "off" glyphs are blended
+    // 45 % toward the background — visually dimmed but never invisible.
+    const wxColour glyphOn  = glyphBright_;
+    const wxColour glyphOff = blendWx(glyphBright_, c, 0.45);
+    if (wrapCtrl_)   wrapCtrl_->SetGlyphColours(glyphOn, glyphOff);
+    if (altScrCtrl_) altScrCtrl_->SetGlyphColours(glyphOn, glyphOff);
+    if (x11Ctrl_)    x11Ctrl_->SetGlyphColours(glyphOn, glyphOff);
+
     titleBar_->Refresh();
-    if (wrapCtrl_) wrapCtrl_->Refresh();
 }
 
 void TerminalTile::SetFocused(bool focused)

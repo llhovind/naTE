@@ -42,8 +42,8 @@ struct UiColors {
     Rgb searchBarBg      = {  8,  68,  84 };  // blend(base00×80% + base0D×20%)
 
     // Indicator control glyphs (WrapControl, AltScrControl, X11Control)
+    // "off" glyph color is computed dynamically per tile state in UpdateTitleBarColor().
     Rgb controlActive    = {253, 246, 227 };  // base07 — glyph when feature is on
-    Rgb controlInactive  = {101, 123, 131 };  // base03 — glyph when feature is off
 
     // Terminal text selection and search match highlights
     Rgb selectionBg     = { 38, 139, 210 };  // base0D — accent blue (high contrast)
