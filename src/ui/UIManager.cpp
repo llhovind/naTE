@@ -587,7 +587,7 @@ void UIManager::TearDownSessionUI(term::session::SessionId id)
     SessionUI* ui = FindSessionUI(id);
     if (!ui) return;
 
-    if (onSessionListChanged_) onSessionListChanged_();
+    if (onSessionListChanged_ && !teardownInProgress_) onSessionListChanged_();
 
     if (ui->searchCtrl) ui->searchCtrl->SetBar(nullptr);
 

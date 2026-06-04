@@ -144,8 +144,10 @@ public:
     void SetOnBeforeCloseCallback(std::function<void()> cb) { onBeforeClose_ = std::move(cb); }
 
     // Called from MainFrame::OnClose before CloseAllSessions, allowing App to
-    // snapshot session state while sessions are still alive.
-    void FireBeforeClose() { if (onBeforeClose_) onBeforeClose_(); }
+    // snapshot session state while sessions are still alive.  Sets
+    // teardownInProgress_ so that individual session removals during window
+    // destruction do not fire onSessionListChanged_ and overwrite the snapshot.
+    void FireBeforeClose() { teardownInProgress_ = true; if (onBeforeClose_) onBeforeClose_(); }
 
     struct TileSnapshot {
         std::vector<term::session::SessionId> tabOrder;
@@ -294,6 +296,8 @@ private:
     };
     std::optional<DragState> dragState_;
     std::unique_ptr<DragGhost> dragGhost_;
+
+    bool teardownInProgress_ = false;
 
     std::function<void()> onGridEmptyCb_;
     std::function<void()> onSessionListChanged_;
