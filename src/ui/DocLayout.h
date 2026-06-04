@@ -63,6 +63,7 @@ public:
     void SetWrapMode(bool wrap);
     bool GetWrapMode() const;
     void SetLeftCol(int col);
+    void SetLeftColRaw(int col);  // sets leftCol_ without modifying leftClamped_; for animation only
     int  GetLeftCol() const;
     int  GetMaxVisibleWidth() const;
     int  GetViewportRows() const;

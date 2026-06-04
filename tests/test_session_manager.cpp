@@ -624,29 +624,28 @@ TEST_CASE("given line longer than viewport when wrap mode off then horizontal sc
     REQUIRE(row1.text == U"KLMNOPQRSTUVWXYZABCD");
 }
 
-TEST_CASE("given cursor enters 30pct left margin via backspace when leftClamped then viewport jumps by half cols")
+TEST_CASE("given cursor backspaces past left margin when leftClamped then viewport tracks incrementally")
 {
     // 20-column viewport; feed 40 chars so cursor-driven right-scroll fires.
-    // leftCol_ ends at 21 (= 40 - 20 + 1); leftClamped_ stays true (cursor-driven, not user-driven).
+    // With 5-column margin and right edge at leftCol+15, leftCol_ ends at 26 (= 40 - 14).
     Connection conn{"test", LoopbackDesc{}};
     Session session(conn, 1000, 20, 5, {}, {});
     session.OnData("ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMN");
 
     DocLayout& layout = session.GetDocLayout();
-    const int leftBefore = layout.GetLeftCol();  // 21
+    const int leftBefore = layout.GetLeftCol();  // 26
     REQUIRE(leftBefore > 0);
 
-    // 30% margin = 20 * 3/10 = 6.  leftMargin = 21 + 6 = 27.
-    // 14 backspaces move cursor from 40 to 26, which is < 27 — triggers the early jump
-    // while the cursor is still to the RIGHT of the original leftCol (21).
+    // 5-column left margin: trigger fires once cursor drops below leftCol_ + 5.
+    // 14 backspaces move cursor from 40 to 26.  The last 5 each fire one scroll
+    // step so leftCol_ tracks down by 5 columns total (26 → 21).
     session.OnData(std::string(14, '\x08'));
 
     const int cursorCol = (int)layout.GetCursorDocPos().col;  // 26
-    const int leftAfter  = layout.GetLeftCol();               // 16
+    const int leftAfter  = layout.GetLeftCol();               // 21
 
-    REQUIRE(cursorCol >= leftBefore);                          // cursor still right of original left edge (early trigger)
     REQUIRE(leftAfter < leftBefore);                           // viewport scrolled left
-    REQUIRE(leftAfter == std::max(0, cursorCol - 10));         // half-viewport jump (cols_/2 = 10)
+    REQUIRE(leftAfter == std::max(0, cursorCol - 5));          // cursor kept at 5-column margin
 }
 
 TEST_CASE("given user manually scrolled right then viewport ignores cursor movement in both directions")

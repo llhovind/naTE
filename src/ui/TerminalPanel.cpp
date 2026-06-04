@@ -95,6 +95,8 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
     Bind(wxEVT_TIMER,      &TerminalPanel::OnFlashTimer,     this, m_flashTimer_.GetId());
     m_blinkTimer_.SetOwner(this);
     Bind(wxEVT_TIMER,      &TerminalPanel::OnBlinkTimer,     this, m_blinkTimer_.GetId());
+    m_hScrollAnimTimer_.SetOwner(this);
+    Bind(wxEVT_TIMER,      &TerminalPanel::OnHScrollAnim,    this, m_hScrollAnimTimer_.GetId());
 
     reconnectBar_ = new ReconnectBar(this);
 
@@ -325,7 +327,35 @@ void TerminalPanel::SyncScrollbars()
 void TerminalPanel::EnsureCursorVisible()
 {
     if (!docLayout_) return;
+    const int oldLeft = docLayout_->GetLeftCol();
     docLayout_->EnsureCursorVisible();
+    const int newLeft = docLayout_->GetLeftCol();
+    UpdateScrollbars();
+    if (newLeft != oldLeft) {
+        // Restore the visual position and animate toward the target so the
+        // jump is eased rather than instantaneous.  SetLeftColRaw preserves
+        // leftClamped_ so cursor tracking stays engaged during the animation.
+        docLayout_->SetLeftColRaw(oldLeft);
+        m_hScrollAnimTarget_ = newLeft;
+        if (!m_hScrollAnimTimer_.IsRunning())
+            m_hScrollAnimTimer_.Start(16);
+    } else {
+        Refresh();
+    }
+}
+
+void TerminalPanel::OnHScrollAnim(wxTimerEvent&)
+{
+    if (!docLayout_) { m_hScrollAnimTimer_.Stop(); return; }
+    const int cur = docLayout_->GetLeftCol();
+    if (cur == m_hScrollAnimTarget_) {
+        m_hScrollAnimTimer_.Stop();
+        Refresh();
+        return;
+    }
+    const int delta = m_hScrollAnimTarget_ - cur;
+    const int step  = (delta > 0) ? std::max(1, delta / 2) : std::min(-1, delta / 2);
+    docLayout_->SetLeftColRaw(cur + step);
     UpdateScrollbars();
     Refresh();
 }

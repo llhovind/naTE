@@ -413,12 +413,12 @@ void DocLayout::EnsureCursorVisibleHorizontally()
 {
     if (wrapMode_) return;
     if (!leftClamped_) return;  // viewport pinned by user; skip cursor tracking in both directions
-    const int docCol     = (int)doc_->GetCursor().col;
-    const int leftMargin = leftCol_ + cols_ * 3 / 10;  // 30% soft margin from left edge
-    if (docCol < leftMargin) {
-        leftCol_ = std::max(0, docCol - cols_ / 2);    // jump left: half-viewport of context
-    } else if (docCol >= leftCol_ + cols_) {
-        leftCol_ = docCol - cols_ + 1;
+    static constexpr int kMargin = 5;
+    const int docCol = (int)doc_->GetCursor().col;
+    if (docCol < leftCol_ + kMargin) {
+        leftCol_ = std::max(0, docCol - kMargin);
+    } else if (docCol >= leftCol_ + cols_ - kMargin) {
+        leftCol_ = std::max(0, docCol - cols_ + kMargin + 1);
     }
 }
 
@@ -471,6 +471,12 @@ void DocLayout::SetLeftCol(int col)
     const int maxLeft = std::max(0, maxVisibleWidth_ - cols_);
     leftCol_     = std::clamp(col, 0, maxLeft);
     leftClamped_ = (leftCol_ == 0);
+}
+
+void DocLayout::SetLeftColRaw(int col)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    leftCol_ = std::clamp(col, 0, std::max(0, maxVisibleWidth_ - cols_));
 }
 
 int DocLayout::GetLeftCol() const

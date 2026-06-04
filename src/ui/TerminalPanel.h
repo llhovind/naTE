@@ -98,6 +98,7 @@ private:
     void OnMiddleDown(wxMouseEvent&);
     void OnRightDown(wxMouseEvent&);
     void OnSelScrollTimer(wxTimerEvent&);
+    void OnHScrollAnim(wxTimerEvent&);
     void OnKeyDown(wxKeyEvent&);
     void OnChar(wxKeyEvent&);
     void OnFocus(wxFocusEvent&);
@@ -149,6 +150,10 @@ private:
     bool    m_selecting_    = false;
     wxTimer m_selScrollTimer_;
     wxPoint m_lastMousePos_{-1, -1};
+
+    // Horizontal scroll animation
+    wxTimer m_hScrollAnimTimer_;
+    int     m_hScrollAnimTarget_ = 0;
 
     bool m_hasFocus_            = false;
     bool m_inBroadcast_         = false;
