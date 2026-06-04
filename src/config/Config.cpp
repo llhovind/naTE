@@ -106,7 +106,8 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
         } else if (sec == "Behavior") {
             if      (key == "Encoding"      && !val.empty()) cfg.encoding     = val;
             else if (key == "WebSearchUrl"  && !val.empty()) cfg.webSearchUrl = val;
-            else if (key == "CopyOnSelect")                  cfg.copyOnSelect = (val == "true" || val == "1");
+            else if (key == "CopyOnSelect")        cfg.copyOnSelect       = (val == "true" || val == "1");
+            else if (key == "ConfirmCloseWindow") cfg.confirmCloseWindow = (val == "true" || val == "1");
             else if (key == "BellMode") {
                 if      (val == "None")    cfg.bellMode = BellMode::None;
                 else if (val == "Audible") cfg.bellMode = BellMode::Audible;
@@ -197,7 +198,8 @@ void AppConfig::save(const std::string& configPath) const
       << "Encoding="     << encoding                          << "\n"
       << "WebSearchUrl=" << webSearchUrl                      << "\n"
       << "BellMode="     << bellModeStr                       << "\n"
-      << "CopyOnSelect=" << (copyOnSelect ? "true" : "false") << "\n"
+      << "CopyOnSelect="        << (copyOnSelect       ? "true" : "false") << "\n"
+      << "ConfirmCloseWindow=" << (confirmCloseWindow ? "true" : "false") << "\n"
       << "\n"
       << "[Panel]\n"
       << "Columns="         << columns         << "\n"

@@ -279,6 +279,34 @@ TEST_CASE("given AppConfig with copyOnSelect=true when saved and reloaded then f
     REQUIRE(loaded.copyOnSelect == true);
 }
 
+TEST_CASE("given ini with ConfirmCloseWindow=false when loaded then confirmCloseWindow is false")
+{
+    const TempIni ini{"[Behavior]\nConfirmCloseWindow=false\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.confirmCloseWindow == false);
+}
+
+TEST_CASE("given no ConfirmCloseWindow key when loaded then confirmCloseWindow defaults to true")
+{
+    const TempIni ini{"[Behavior]\nCopyOnSelect=true\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.confirmCloseWindow == true);
+}
+
+TEST_CASE("given AppConfig with confirmCloseWindow=false when saved and reloaded then field round-trips")
+{
+    AppConfig original;
+    original.confirmCloseWindow = false;
+
+    const auto savePath = (std::filesystem::temp_directory_path()
+                           / "nate_test_confirmclose.ini").string();
+    original.save(savePath);
+    const auto loaded = AppConfig::load(savePath);
+    std::filesystem::remove(savePath);
+
+    REQUIRE(loaded.confirmCloseWindow == false);
+}
+
 TEST_CASE("given ini with TileLayout=ColumnFirst when loaded then tileLayout is ColumnFirst")
 {
     const TempIni ini{"[Appearance]\nTileLayout=ColumnFirst\n"};

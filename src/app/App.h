@@ -52,6 +52,12 @@ public:
     // callerFrame is used as the parent for the confirmation dialog.
     void CloseAllSessionsGlobal(MainFrame* callerFrame);
 
+    // Shows a close-confirmation dialog unless suppressed by config or already
+    // confirmed.  Returns true if the action should proceed.
+    // withDontAskAgain adds a checkbox that persists confirmCloseWindow=false.
+    bool ConfirmClose(wxWindow* parent, const wxString& title,
+                      const wxString& heading, bool withDontAskAgain);
+
     // Notifies all open windows to rebuild their Window menu.
     void RebuildWindowMenus();
 

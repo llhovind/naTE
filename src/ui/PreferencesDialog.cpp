@@ -167,6 +167,11 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
     m_copyOnSelectChk->SetValue(current.copyOnSelect);
     behSizer->Add(m_copyOnSelectChk, {3, 0}, {1, 2}, wxALIGN_CENTER_VERTICAL);
 
+    m_confirmCloseChk = new wxCheckBox(behPage, wxID_ANY,
+        "Ask for confirmation when closing windows with active sessions");
+    m_confirmCloseChk->SetValue(current.confirmCloseWindow);
+    behSizer->Add(m_confirmCloseChk, {4, 0}, {1, 2}, wxALIGN_CENTER_VERTICAL);
+
     behSizer->AddGrowableCol(1);
     auto* behOuter = new wxBoxSizer(wxVERTICAL);
     behOuter->Add(behSizer, 1, wxEXPAND | wxALL, 12);
@@ -309,6 +314,7 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
     result_.sessionSaveInterval = m_saveIntervalCtrl->GetValue();
     result_.webSearchUrl       = m_webSearchCtrl->GetValue().ToStdString();
     result_.copyOnSelect       = m_copyOnSelectChk->IsChecked();
+    result_.confirmCloseWindow = m_confirmCloseChk->IsChecked();
 
     evt.Skip();
 }

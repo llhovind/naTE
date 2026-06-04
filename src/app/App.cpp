@@ -10,6 +10,7 @@
 #include <wx/filename.h>
 #include <wx/image.h>
 #include <wx/msgdlg.h>
+#include <wx/richmsgdlg.h>
 #include <wx/stdpaths.h>
 #include <wx/string.h>
 #include <wx/utils.h>
@@ -357,6 +358,31 @@ term::session::SessionId App::CreateSessionInTile(
 }
 
 
+bool App::ConfirmClose(wxWindow* parent, const wxString& title,
+                       const wxString& heading, bool withDontAskAgain)
+{
+    if (!m_cfg.confirmCloseWindow)
+        return true;
+
+    const wxString msg = heading + "\n\nAny running processes in these sessions will be terminated.";
+    if (withDontAskAgain) {
+        wxRichMessageDialog dlg(parent, msg, title, wxYES_NO | wxICON_WARNING);
+        dlg.ShowCheckBox("Don't ask again");
+        if (dlg.ShowModal() != wxID_YES)
+            return false;
+        if (dlg.IsCheckBoxChecked()) {
+            m_cfg.confirmCloseWindow = false;
+            m_cfg.save(m_configPath);
+            for (auto& wc : m_windows) {
+                if (wc->uiManager) wc->uiManager->UpdateConfig(m_cfg);
+                if (wc->frame)     wc->frame->UpdateConfig(m_cfg);
+            }
+        }
+        return true;
+    }
+    return wxMessageBox(msg, title, wxYES_NO | wxICON_WARNING, parent) == wxYES;
+}
+
 void App::QuitAll()
 {
     if (!m_sessionManagerShutdown) {
@@ -365,16 +391,13 @@ void App::QuitAll()
             if (w->uiManager)
                 totalSessions += static_cast<int>(w->uiManager->GetSessionList().size());
 
-        if (totalSessions > 0) {
+        if (totalSessions > 1) {
             const int nw = static_cast<int>(m_windows.size());
-            const wxString msg = wxString::Format(
-                "Closing all windows will end %d session%s across %d window%s. "
-                "Any unsaved work may be lost.\n\nClose all?",
-                totalSessions, totalSessions == 1 ? "" : "s",
-                nw, nw == 1 ? "" : "s");
+            const wxString heading = wxString::Format(
+                "Closing all windows will end %d sessions across %d window%s.",
+                totalSessions, nw, nw == 1 ? "" : "s");
             MainFrame* parent = m_windows.empty() ? nullptr : m_windows.front()->frame;
-            if (wxMessageBox(msg, "Confirm Close All",
-                             wxYES_NO | wxICON_WARNING, parent) != wxYES)
+            if (!ConfirmClose(parent, "Confirm Close All", heading, true))
                 return;
         }
     }
@@ -401,11 +424,10 @@ void App::CloseAllSessionsGlobal(MainFrame* callerFrame)
     if (totalSessions == 0)
         return;
 
-    const wxString msg = wxString::Format(
-        "This will close %d session%s. Any unsaved work may be lost.\n\nContinue?",
-        totalSessions, totalSessions == 1 ? "" : "s");
-    if (wxMessageBox(msg, "Close All Sessions",
-                     wxYES_NO | wxICON_WARNING, callerFrame) != wxYES)
+    if (!ConfirmClose(callerFrame, "Close All Sessions",
+                      wxString::Format("This will close %d session%s.",
+                                       totalSessions, totalSessions == 1 ? "" : "s"),
+                      false))
         return;
 
     // Snapshot non-anchor frames before any teardown modifies m_windows.

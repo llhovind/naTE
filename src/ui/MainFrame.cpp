@@ -236,15 +236,11 @@ void MainFrame::OnPreferences(wxCommandEvent&)
 
 void MainFrame::OnClose(wxCloseEvent& event)
 {
-    if (!wxGetApp().IsSessionManagerShutdown() &&
-        event.CanVeto() && m_uiManager && m_uiManager->HasAnySessions()) {
-        const int n = static_cast<int>(m_uiManager->GetSessionList().size());
-        const wxString msg = wxString::Format(
-            "Closing this window will end %d session%s. "
-            "Any unsaved work may be lost.\n\nClose anyway?",
-            n, n == 1 ? "" : "s");
-        if (wxMessageBox(msg, "Confirm Close",
-                         wxYES_NO | wxICON_WARNING, this) != wxYES) {
+    const int n = m_uiManager ? static_cast<int>(m_uiManager->GetSessionList().size()) : 0;
+    if (!wxGetApp().IsSessionManagerShutdown() && event.CanVeto() && n > 1) {
+        const wxString heading = wxString::Format(
+            "Closing this window will end %d sessions.", n);
+        if (!wxGetApp().ConfirmClose(this, "Confirm Close", heading, true)) {
             event.Veto();
             return;
         }

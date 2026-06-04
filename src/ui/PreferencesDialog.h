@@ -41,7 +41,8 @@ private:
     wxCheckBox* m_autoRestoreChk   = nullptr;
     wxSpinCtrl* m_saveIntervalCtrl = nullptr;
 
-    wxChoice*   m_bellModeChoice  = nullptr;
-    wxTextCtrl* m_webSearchCtrl   = nullptr;
-    wxCheckBox* m_copyOnSelectChk = nullptr;
+    wxChoice*   m_bellModeChoice    = nullptr;
+    wxTextCtrl* m_webSearchCtrl     = nullptr;
+    wxCheckBox* m_copyOnSelectChk   = nullptr;
+    wxCheckBox* m_confirmCloseChk   = nullptr;
 };
