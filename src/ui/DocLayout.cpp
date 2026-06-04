@@ -413,12 +413,21 @@ void DocLayout::EnsureCursorVisibleHorizontally()
 {
     if (wrapMode_) return;
     if (!leftClamped_) return;  // viewport pinned by user; skip cursor tracking in both directions
-    static constexpr int kMargin = 5;
-    const int docCol = (int)doc_->GetCursor().col;
-    if (docCol < leftCol_ + kMargin) {
-        leftCol_ = std::max(0, docCol - kMargin);
-    } else if (docCol >= leftCol_ + cols_ - kMargin) {
-        leftCol_ = std::max(0, docCol - cols_ + kMargin + 1);
+    static constexpr int kMarginLeft  = 12;  // columns of context kept to the left of the cursor
+    static constexpr int kMarginRight =  3;  // columns of context kept to the right of the cursor
+
+    const CursorPos cursor  = doc_->GetCursor();
+    const int       docCol  = (int)cursor.col;
+    const auto&     lines   = doc_->GetLines();
+    const int       lineLen = (cursor.line < lines.size())
+                            ? (int)lines[cursor.line].text.size() : 0;
+
+    if (lineLen + kMarginRight <= cols_) {
+        leftCol_ = 0;                                                // whole line fits — show all
+    } else if (docCol >= leftCol_ + cols_ - kMarginRight) {
+        leftCol_ = std::max(0, docCol - cols_ + kMarginRight + 1);   // cursor near right edge
+    } else if (docCol < leftCol_ + kMarginLeft) {
+        leftCol_ = std::max(0, docCol - kMarginLeft);                // cursor exited left edge
     }
 }
 

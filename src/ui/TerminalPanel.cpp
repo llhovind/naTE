@@ -23,7 +23,9 @@ static int QueryScrollbarThickness()
     return (t > 0) ? t : 16;
 }
 
-static constexpr int kResizeDebounceMs = 80;
+static constexpr int kResizeDebounceMs  = 80;
+static constexpr int kHScrollAnimMs     = 8;  // timer interval (~60 fps)
+static constexpr int kHScrollMinStep    = 3;   // minimum columns per tick (tune for speed)
 
 static wxFont BuildFont(const AppConfig& cfg, bool bold, bool italic)
 {
@@ -338,7 +340,7 @@ void TerminalPanel::EnsureCursorVisible()
         docLayout_->SetLeftColRaw(oldLeft);
         m_hScrollAnimTarget_ = newLeft;
         if (!m_hScrollAnimTimer_.IsRunning())
-            m_hScrollAnimTimer_.Start(16);
+            m_hScrollAnimTimer_.Start(kHScrollAnimMs);
     } else {
         Refresh();
     }
@@ -354,7 +356,10 @@ void TerminalPanel::OnHScrollAnim(wxTimerEvent&)
         return;
     }
     const int delta = m_hScrollAnimTarget_ - cur;
-    const int step  = (delta > 0) ? std::max(1, delta / 2) : std::min(-1, delta / 2);
+    // Geometric easing clamped to [kHScrollMinStep, |delta|] so we never overshoot.
+    const int step  = (delta > 0)
+        ? std::min(delta, std::max(kHScrollMinStep, delta / 2))
+        : std::max(delta, std::min(-kHScrollMinStep, delta / 2));
     docLayout_->SetLeftColRaw(cur + step);
     UpdateScrollbars();
     Refresh();
