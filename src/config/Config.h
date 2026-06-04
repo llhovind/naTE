@@ -1,5 +1,5 @@
 #pragma once
-#include "config/Color.h"
+#include "config/Color.h"     // Rgb, UiColors
 #include "session/EnvVar.h"
 #include <array>
 #include <string>
@@ -52,6 +52,11 @@ struct AppConfig {
     }};
 
     std::vector<GeometryPreset> geometryPresets = {{80, 24}, {132, 24}};
+
+    // UI chrome colors derived from the active theme's base16 palette.
+    // Defaults are Solarized Dark so the app is visually coherent even when
+    // no theme file is present.
+    UiColors uiColors = {};
 
     // [Appearance]
     std::string fontFamily  = "";              // empty = system monospace

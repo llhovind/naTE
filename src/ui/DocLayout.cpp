@@ -164,8 +164,8 @@ RenderedLine DocLayout::BuildRenderedLineLocked(ViewportAnchor pos) const
         const size_t overlapEnd   = std::min(mEnd, sliceEnd);
         const bool isCurrent = (mi == searchCurrentIdx_);
         Style hl;
-        hl.bg = isCurrent ? SearchHighlight::kCurrentBg : SearchHighlight::kMatchBg;
-        hl.fg = SearchHighlight::kFg;
+        hl.bgRgb = isCurrent ? searchCurrentBg_ : searchMatchBg_;
+        hl.fgRgb = searchMatchFg_;
         for (size_t c = overlapStart; c < overlapEnd; ++c)
             result.attrs[c - startCol] = hl;
     }
@@ -184,8 +184,8 @@ RenderedLine DocLayout::BuildRenderedLineLocked(ViewportAnchor pos) const
             const size_t overlapEnd   = std::min(to, sliceEnd);
             if (overlapStart < overlapEnd) {
                 Style selStyle;
-                selStyle.fg = SelectionHighlight::kFg;
-                selStyle.bg = SelectionHighlight::kBg;
+                selStyle.bgRgb = selectionBg_;
+                selStyle.fgRgb = selectionFg_;
                 for (size_t c = overlapStart; c < overlapEnd; ++c)
                     result.attrs[c - startCol] = selStyle;
             }
@@ -587,6 +587,17 @@ DocLayout::NormalizeSelectionLocked() const
     if (a.docLine < e.docLine || (a.docLine == e.docLine && a.docCol <= e.docCol))
         return {a, e};
     return {e, a};
+}
+
+void DocLayout::SetHighlightColors(const UiColors& u)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    selectionBg_     = u.selectionBg;
+    selectionFg_     = u.selectionFg;
+    searchMatchBg_   = u.searchMatchBg;
+    searchMatchFg_   = u.searchMatchFg;
+    searchCurrentBg_ = u.searchCurrentBg;
+    allViewDirty_    = true;
 }
 
 void DocLayout::SetSelection(const TextSelection& sel)

@@ -19,6 +19,9 @@ public:
     // Marks one tile as focused (blue title bar); clears all others.
     void SetActiveTile(TerminalTile* tile);
 
+    // Apply theme-derived colors (frame/grid background).
+    void ApplyConfig(const AppConfig& cfg);
+
     // Changes the fill axis and reflows immediately.
     void      SetDirection(TileLayout dir);
     TileLayout GetDirection() const { return direction_; }

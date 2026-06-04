@@ -5,6 +5,7 @@
 #include <wx/button.h>
 #include <wx/panel.h>
 #include <wx/stattext.h>
+#include "config/Config.h"
 
 // Full-width status strip that appears at the top of a TerminalPanel when the
 // session's transport has been unexpectedly interrupted. Offers three actions:
@@ -19,6 +20,9 @@ public:
     using Callback = std::function<void()>;
 
     explicit ReconnectBar(wxWindow* parent);
+
+    // Apply theme-derived colors.  Called by TerminalPanel::ApplyConfig.
+    void ApplyConfig(const AppConfig& cfg);
 
     // Show the bar with the given disconnect message.
     void ShowBar(const wxString& message);

@@ -8,8 +8,6 @@ namespace {
 
 constexpr int kPadX = 8;
 constexpr int kPadY = 4;
-// Match the inactive-tab background used by TabStrip.
-const wxColour kBgColour { 131, 136, 141 };
 // Cursor offset so the ghost doesn't cover the drop target under the pointer.
 constexpr int kCursorOffsetX = 12;
 constexpr int kCursorOffsetY = 12;
@@ -18,9 +16,11 @@ constexpr int kCursorOffsetY = 12;
 
 namespace ui {
 
-DragGhost::DragGhost(wxWindow* parent, const wxString& label)
+DragGhost::DragGhost(wxWindow* parent, const wxString& label, wxColour bg, wxColour fg)
     : wxPopupWindow(parent, wxBORDER_NONE)
     , label_(label)
+    , bg_(bg)
+    , fg_(fg)
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);
     Bind(wxEVT_PAINT, &DragGhost::OnPaint, this);
@@ -39,10 +39,10 @@ void DragGhost::MoveTo(wxPoint screenPt)
 void DragGhost::OnPaint(wxPaintEvent&)
 {
     wxAutoBufferedPaintDC dc(this);
-    dc.SetBackground(wxBrush(kBgColour));
+    dc.SetBackground(wxBrush(bg_));
     dc.Clear();
     dc.SetFont(GetFont());
-    dc.SetTextForeground(*wxWHITE);
+    dc.SetTextForeground(fg_);
     dc.DrawText(label_, kPadX, kPadY);
 }
 

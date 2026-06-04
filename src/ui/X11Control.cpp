@@ -4,19 +4,10 @@
 #include <wx/dcbuffer.h>
 
 X11Control::X11Control(wxWindow* parent)
-    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE)
+    : TileIndicatorControl(parent)
 {
-    SetBackgroundStyle(wxBG_STYLE_PAINT);
-    SetMinSize(wxSize(20, 20));
     Hide();  // shown only for SSH sessions via TerminalTile::ShowX11Control()
-
-    Bind(wxEVT_PAINT,     &X11Control::OnPaint,    this);
-    Bind(wxEVT_LEFT_DOWN, &X11Control::OnLeftDown, this);
-}
-
-void X11Control::SetClickCallback(std::function<void()> cb)
-{
-    clickCb_ = std::move(cb);
+    Bind(wxEVT_PAINT, &X11Control::OnPaint, this);
 }
 
 void X11Control::SetX11Active(bool active)
@@ -37,7 +28,7 @@ void X11Control::OnPaint(wxPaintEvent&)
     const int    cx = sz.x / 2;
     const int    cy = sz.y / 2;
 
-    const wxColour col = x11Active_ ? *wxWHITE : wxColour(160, 160, 160);
+    const wxColour col = x11Active_ ? glyphActive_ : glyphInactive_;
     dc.SetPen(wxPen(col, 1));
     dc.SetBrush(*wxTRANSPARENT_BRUSH);
 
@@ -54,7 +45,3 @@ void X11Control::OnPaint(wxPaintEvent&)
     dc.DrawLine(right - pad, top + pad, left + pad, bot - pad);
 }
 
-void X11Control::OnLeftDown(wxMouseEvent&)
-{
-    if (clickCb_) clickCb_();
-}

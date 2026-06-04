@@ -1,4 +1,5 @@
 #include "ui/UIManager.h"
+#include "ui/ColorUtils.h"
 #include "app/App.h"
 #include "ui/FileTransferDialog.h"
 #include "ui/KbdIntDialog.h"
@@ -24,6 +25,7 @@
 
 #include <future>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace ui {
@@ -109,10 +111,19 @@ void UIManager::UpdateConfig(const AppConfig& cfg)
 
     cfg_ = cfg;
     selectionActions_->UpdateWebSearchUrl(cfg_.webSearchUrl);
+
+    // Propagate to terminal panels and tile chrome.  Deduplicate tile updates
+    // by collecting unique tile pointers — multiple sessions share a tile.
+    std::unordered_set<TerminalTile*> visitedTiles;
     for (auto& [id, ui] : sessions_) {
         if (ui.panel)
-            ui.panel->ApplyConfig(cfg_);   // updates m_charSize synchronously
+            ui.panel->ApplyConfig(cfg_);
+        if (ui.tile && visitedTiles.insert(ui.tile).second)
+            ui.tile->ApplyConfig(cfg_);
     }
+
+    if (grid_) grid_->ApplyConfig(cfg_);
+
     if (fontChanged || paddingChanged)
         RefitAllTiles();
 }
@@ -833,6 +844,17 @@ void UIManager::OnNewTabRequest(TerminalTile* tile)
 // Drag support
 // ---------------------------------------------------------------------------
 
+void UIManager::BeginDragGesture(const wxString& label, wxPoint screenAnchor)
+{
+    const auto& u = cfg_.uiColors;
+    dragGhost_ = std::make_unique<DragGhost>(frame_, label, toWx(u.tileInactive), toWx(u.tabText));
+    dragGhost_->MoveTo(screenAnchor);
+    dragGhost_->Show();
+    frame_->CaptureMouse();
+    frame_->Bind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
+    frame_->Bind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
+}
+
 void UIManager::OnTileDragStart(TerminalTile* tile, wxPoint screenAnchor)
 {
     if (!tile || dragState_) return;
@@ -852,13 +874,7 @@ void UIManager::OnTileDragStart(TerminalTile* tile, wxPoint screenAnchor)
     wxString label = wxString::FromUTF8(sm_.GetLabel(tile->GetActiveSessionId()));
     if (dragState_->ids.size() > 1)
         label += wxString::Format(" (+%d)", (int)dragState_->ids.size() - 1);
-    dragGhost_ = std::make_unique<DragGhost>(frame_, label);
-    dragGhost_->MoveTo(screenAnchor);
-    dragGhost_->Show();
-
-    frame_->CaptureMouse();
-    frame_->Bind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
-    frame_->Bind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
+    BeginDragGesture(label, screenAnchor);
 }
 
 void UIManager::OnTabDragStart(term::session::SessionId id, wxPoint screenAnchor)
@@ -867,14 +883,7 @@ void UIManager::OnTabDragStart(term::session::SessionId id, wxPoint screenAnchor
 
     dragState_ = DragState{{ id }};
 
-    wxString label = wxString::FromUTF8(sm_.GetLabel(id));
-    dragGhost_ = std::make_unique<DragGhost>(frame_, label);
-    dragGhost_->MoveTo(screenAnchor);
-    dragGhost_->Show();
-
-    frame_->CaptureMouse();
-    frame_->Bind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
-    frame_->Bind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
+    BeginDragGesture(wxString::FromUTF8(sm_.GetLabel(id)), screenAnchor);
 }
 
 void UIManager::OnDragMotion(wxMouseEvent& evt)

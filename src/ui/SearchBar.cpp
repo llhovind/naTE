@@ -1,4 +1,5 @@
 #include "ui/SearchBar.h"
+#include "ui/ColorUtils.h"
 #include "ui/SearchController.h"
 #include "ui/StringUtils.h"
 #include <wx/sizer.h>
@@ -9,7 +10,7 @@ static constexpr int kBarPad = 4;
 SearchBar::SearchBar(wxWindow *parent, SearchController &ctrl)
     : wxPanel(parent, wxID_ANY), ctrl_(ctrl)
 {
-    SetBackgroundColour(wxColour(156, 189, 252));
+    SetBackgroundColour(toWx(UiColors{}.searchBarBg));
 
     wxFont btnfont(
         14,
@@ -18,16 +19,21 @@ SearchBar::SearchBar(wxWindow *parent, SearchController &ctrl)
         wxFONTWEIGHT_NORMAL,
         false);
 
+    const wxColour btnFg = toWx(UiColors{}.controlActive);
+
     input_ = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxSize(200, -1),
                             wxTE_PROCESS_ENTER);
     status_ = new wxStaticText(this, wxID_ANY, "", wxDefaultPosition, wxSize(80, -1));
-    status_->SetForegroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_INFOTEXT));
+    status_->SetForegroundColour(btnFg);
     prevBtn_ = new wxButton(this, wxID_ANY, L"\u2BC7", wxDefaultPosition, wxSize(28, -1), wxBORDER_NONE | wxBU_EXACTFIT);
     prevBtn_->SetFont(btnfont);
+    prevBtn_->SetForegroundColour(btnFg);
     nextBtn_ = new wxButton(this, wxID_ANY, L"\u2BC8", wxDefaultPosition, wxSize(28, -1), wxBORDER_NONE | wxBU_EXACTFIT);
     nextBtn_->SetFont(btnfont);
+    nextBtn_->SetForegroundColour(btnFg);
     closeBtn_ = new wxButton(this, wxID_ANY, "X", wxDefaultPosition, wxSize(28, -1), wxBORDER_NONE | wxBU_EXACTFIT);
     closeBtn_->SetFont(btnfont);
+    closeBtn_->SetForegroundColour(btnFg);
 
     auto *sizer = new wxBoxSizer(wxHORIZONTAL);
     sizer->AddSpacer(kBarPad);
@@ -48,6 +54,17 @@ SearchBar::SearchBar(wxWindow *parent, SearchController &ctrl)
     nextBtn_->Bind(wxEVT_BUTTON, &SearchBar::OnNext, this);
     prevBtn_->Bind(wxEVT_BUTTON, &SearchBar::OnPrev, this);
     closeBtn_->Bind(wxEVT_BUTTON, &SearchBar::OnClose, this);
+}
+
+void SearchBar::ApplyConfig(const AppConfig& cfg)
+{
+    SetBackgroundColour(toWx(cfg.uiColors.searchBarBg));
+    const wxColour btnFg = toWx(cfg.uiColors.controlActive);
+    status_->SetForegroundColour(btnFg);
+    prevBtn_->SetForegroundColour(btnFg);
+    nextBtn_->SetForegroundColour(btnFg);
+    closeBtn_->SetForegroundColour(btnFg);
+    Refresh();
 }
 
 void SearchBar::FocusInput()

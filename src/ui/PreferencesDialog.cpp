@@ -281,6 +281,7 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
         result_.cursorColour = themes_[sel].cursor;
         if (themes_[sel].hasPalette)
             result_.ansiColors = themes_[sel].ansiColors;
+        result_.uiColors = themes_[sel].deriveUiColors();
     }
 
     result_.fontFamily         = m_familyCtrl->GetValue().ToStdString();

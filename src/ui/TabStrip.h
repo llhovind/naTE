@@ -4,6 +4,7 @@
 #include <wx/window.h>
 #include <wx/string.h>
 #include <wx/colour.h>
+#include "config/Color.h"
 #include "session/SessionStatus.h"
 
 // Custom-drawn tab strip embedded in the TerminalTile title bar.
@@ -76,6 +77,10 @@ public:
     void SetHeaderCtrlClickCallback (HeaderCtrlClickCallback  cb) { headerCtrlClickCb_  = std::move(cb); }
     void SetHeaderRightClickCallback(HeaderRightClickCallback cb) { headerRightClickCb_ = std::move(cb); }
 
+    // Apply theme-derived chrome colors.  TerminalTile calls this whenever
+    // AppConfig changes so the strip always reflects the active palette.
+    void SetUiColors(const UiColors& u) { uiColors_ = u; Refresh(); }
+
     // Returns the insert-before index (0..n) for a drop at x-coordinate.
     // Left half of tab i → insert before i; right half → insert after (i+1).
     // Returns 0 when there are no tabs.
@@ -118,6 +123,8 @@ private:
     static constexpr int kPlusW   = 24;   // "+" button width
     static constexpr int kMinTabW = 50;
     static constexpr int kMaxTabW = 200;
+
+    UiColors uiColors_;  // theme-derived chrome colors; defaults = Solarized Dark
 
     // Query callbacks
     TabCountCallback       tabCountCb_;

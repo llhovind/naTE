@@ -71,8 +71,8 @@ for you.
 - Remote directory browser for picking files
 
 ### Appearance
-- Built-in themes: Solarized Dark, Solarized Light, xterm — all based on the [base16](https://github.com/chriskempson/base16) scheme
-- Custom themes: drop a base16-compatible `.ini` file in `~/.nate/themes/`
+- Built-in themes: Solarized Dark, Solarized Light, xterm
+- Custom themes: drop a base16 `.yaml` file or a naTE `.ini` file in `~/.nate/themes/`
 - Font family and size picker (monospace fonts only)
 - Cursor styles: Block, Bar, Underline — with optional blink
 - Bell modes: None, Visual (screen flash), Audible
@@ -169,12 +169,43 @@ immediately in open sessions.
 
 ### Custom themes
 
-Themes are INI files following the [base16](https://github.com/chriskempson/base16) scheme, so any base16 theme can be adapted with minimal effort. Copy one of the built-in themes as a starting point:
+naTE supports two theme file formats, both scanned from `~/.nate/themes/` at startup.
+
+#### base16 YAML (recommended)
+
+The easiest way to get new themes is to download them directly from the
+[tinted-theming/base16-schemes](https://github.com/tinted-theming/base16-schemes)
+repository, which hosts 250+ community-maintained palettes (Gruvbox, Nord, One Dark,
+Tokyo Night, Dracula, and many more):
+
+```bash
+# download a single theme
+curl -o ~/.nate/themes/gruvbox-dark.yaml \
+  https://raw.githubusercontent.com/tinted-theming/base16-schemes/main/gruvbox-dark.yaml
+
+# or clone the whole collection
+git clone https://github.com/tinted-theming/base16-schemes ~/.nate/themes/base16-schemes
+```
+
+Both the flat v0.x format (`scheme: "Name"` / `base00: "rrggbb"` at top level) and the
+nested v2 format (`name: "Name"` / `palette:` block) are supported. Restart naTE after
+adding files; the new themes appear in **Edit → Preferences → Appearance** sorted
+alphabetically.
+
+#### naTE INI format
+
+For themes that need independent regular and bright color variants (like the built-in
+xterm theme), naTE uses its own `.ini` format with either a `[Palette]` section
+(base16-style hex values) or an `[ANSI]` section (direct 0–15 index table). Copy a
+built-in theme as a starting point:
 
 ```bash
 cp themes/solarized-dark.ini ~/.nate/themes/my-theme.ini
 # edit my-theme.ini, then select it in Edit → Preferences → Appearance
 ```
+
+The `[Palette]` section uses the same `base00`–`base0F` key names as base16 YAML, so
+converting between the two formats is a straightforward find-and-replace.
 
 ---
 

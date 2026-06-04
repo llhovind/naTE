@@ -1,15 +1,10 @@
 #include "ui/TabStrip.h"
+#include "ui/ColorUtils.h"
 #include "ui/ISessionDropTarget.h"
 #include <wx/dcclient.h>
 #include <wx/dcbuffer.h>
 #include <algorithm>
 #include <cmath>
-
-static const wxColour kColBroadcast    { 255, 140,   0 };
-static const wxColour kColInactive     { 131, 136, 141 };
-static const wxColour kColUnread       { 100, 200, 255 };
-static const wxColour kColDisconnected { 255, 120,   0 };
-static const wxColour kColReconnecting { 255, 200,   0 };
 
 TabStrip::TabStrip(wxWindow* parent)
     : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE)
@@ -86,7 +81,7 @@ void TabStrip::OnPaint(wxPaintEvent&)
     wxAutoBufferedPaintDC dc(this);
     const wxSize sz = GetClientSize();
 
-    const wxColour bgColour = bgColourCb_ ? bgColourCb_() : wxColour(131, 136, 141);
+    const wxColour bgColour = bgColourCb_ ? bgColourCb_() : toWx(uiColors_.tileInactive);
     dc.SetBackground(wxBrush(bgColour));
     dc.Clear();
 
@@ -127,24 +122,26 @@ void TabStrip::OnPaint(wxPaintEvent&)
             // Every tab gets an explicit fill. Tabs that receive input are
             // coloured; tabs that don't are explicitly gray so the user always
             // knows where input will go.
-            wxColour tabBg = kColInactive;
+            const wxColour colInactive  = toWx(uiColors_.tileInactive);
+            const wxColour colBroadcast = toWx(uiColors_.tileBroadcast);
+            wxColour tabBg = colInactive;
             if (inBroadcast) {
                 // Active broadcast tab darkened slightly so it reads as "selected".
                 tabBg = (i == activeIdx)
-                    ? wxColour(std::max(0, (int)kColBroadcast.Red()   - 30),
-                               std::max(0, (int)kColBroadcast.Green() - 30),
-                               std::max(0, (int)kColBroadcast.Blue()  - 30))
-                    : kColBroadcast;
+                    ? wxColour(std::max(0, colBroadcast.Red()   - 30),
+                               std::max(0, colBroadcast.Green() - 30),
+                               std::max(0, colBroadcast.Blue()  - 30))
+                    : colBroadcast;
             } else if (i == activeIdx) {
                 // When the tile is in broadcast mode the tile background is
                 // orange, so bgColour+35 would produce a misleading orange tint
                 // for a tab that is not receiving any input.  Use a fixed
                 // light-gray instead — it reads as "focused here, not in cast".
                 tabBg = anyBroadcast
-                    ? wxColour(std::min(255, kColInactive.Red()   + 35),
-                               std::min(255, kColInactive.Green() + 35),
-                               std::min(255, kColInactive.Blue()  + 35))
-                    : activeTabBg;  // blue+35 or gray+35 in normal focused mode
+                    ? wxColour(std::min(255, colInactive.Red()   + 35),
+                               std::min(255, colInactive.Green() + 35),
+                               std::min(255, colInactive.Blue()  + 35))
+                    : activeTabBg;  // active-tile-colour+35 in normal focused mode
             }
             dc.SetBrush(wxBrush(tabBg));
             dc.SetPen(*wxTRANSPARENT_PEN);
@@ -163,7 +160,7 @@ void TabStrip::OnPaint(wxPaintEvent&)
                     label.RemoveLast();
                 label += L"…";
             }
-            dc.SetTextForeground(*wxWHITE);
+            dc.SetTextForeground(toWx(uiColors_.tabText));
             dc.DrawText(label, x + 6, ty);
 
             // Status / unread badge dot — status takes priority over unread.
@@ -173,9 +170,9 @@ void TabStrip::OnPaint(wxPaintEvent&)
                     ? statusQueryCb_(i)
                     : S::Connected;
                 wxColour badgeCol;
-                if      (status == S::Disconnected) badgeCol = kColDisconnected;
-                else if (status == S::Reconnecting) badgeCol = kColReconnecting;
-                else if (unreadQueryCb_ && unreadQueryCb_(i)) badgeCol = kColUnread;
+                if      (status == S::Disconnected) badgeCol = toWx(uiColors_.statusDisconnected);
+                else if (status == S::Reconnecting) badgeCol = toWx(uiColors_.statusReconnecting);
+                else if (unreadQueryCb_ && unreadQueryCb_(i)) badgeCol = toWx(uiColors_.statusUnread);
 
                 if (badgeCol.IsOk()) {
                     dc.SetBrush(wxBrush(badgeCol));
@@ -186,15 +183,15 @@ void TabStrip::OnPaint(wxPaintEvent&)
 
             // Close "×" — dimmer on inactive non-broadcast tabs.
             const wxColour closeCol = (i == activeIdx || inBroadcast)
-                ? wxColour(220, 220, 220)
-                : wxColour(160, 160, 160);
+                ? toWx(uiColors_.tabCloseActive)
+                : toWx(uiColors_.tabCloseInactive);
             dc.SetTextForeground(closeCol);
             dc.DrawText(L"×", x + g.tabW - kCloseW + 2, ty);
         }
     }
 
     // "+" button — drawn at its precise slot.
-    dc.SetTextForeground(*wxWHITE);
+    dc.SetTextForeground(toWx(uiColors_.tabText));
     dc.DrawText("+", g.plusX + 6, ty);
 }
 

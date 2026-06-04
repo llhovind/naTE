@@ -550,6 +550,149 @@ TEST_CASE("given ColorScheme with palette when saved then palette round-trips co
 }
 
 // ---------------------------------------------------------------------------
+// ColorScheme — YAML loader
+// ---------------------------------------------------------------------------
+
+// Flat v0.x format: scheme: / baseXX: at top level, quoted hex values.
+TEST_CASE("given base16 yaml v0 file when loaded then palette and name are parsed")
+{
+    const auto path = (std::filesystem::temp_directory_path()
+                       / "nate_test_flat.yaml").string();
+    std::ofstream{path}
+        << "scheme: \"Solarized Dark\"\n"
+        << "author: \"Ethan Schoonover\"\n"
+        << "base00: \"002b36\"\n"
+        << "base01: \"073642\"\n"
+        << "base02: \"586e75\"\n"
+        << "base03: \"657b83\"\n"
+        << "base04: \"839496\"\n"
+        << "base05: \"93a1a1\"\n"
+        << "base06: \"eee8d5\"\n"
+        << "base07: \"fdf6e3\"\n"
+        << "base08: \"dc322f\"\n"
+        << "base09: \"cb4b16\"\n"
+        << "base0A: \"b58900\"\n"
+        << "base0B: \"859900\"\n"
+        << "base0C: \"2aa198\"\n"
+        << "base0D: \"268bd2\"\n"
+        << "base0E: \"6c71c4\"\n"
+        << "base0F: \"d33682\"\n";
+
+    const auto scheme = ColorScheme::loadFromYaml(path);
+    std::filesystem::remove(path);
+
+    REQUIRE(scheme.has_value());
+    CHECK(scheme->displayName    == "Solarized Dark");
+    CHECK(scheme->hasPalette     == true);
+    CHECK(scheme->hasPaletteSection == true);
+    CHECK(scheme->palette[0]  == (Rgb{  0,  43,  54}));  // base00
+    CHECK(scheme->palette[5]  == (Rgb{147, 161, 161}));  // base05
+    CHECK(scheme->palette[13] == (Rgb{ 38, 139, 210}));  // base0D
+    // fg/bg derived from palette
+    CHECK(scheme->background  == scheme->palette[0]);
+    CHECK(scheme->foreground  == scheme->palette[5]);
+}
+
+// Tinted-theming v2 format: name: / palette: block with indented keys.
+TEST_CASE("given base16 yaml v2 file with palette block when loaded then palette and name are parsed")
+{
+    const auto path = (std::filesystem::temp_directory_path()
+                       / "nate_test_v2.yaml").string();
+    std::ofstream{path}
+        << "system: \"base16\"\n"
+        << "name: \"Gruvbox Dark\"\n"
+        << "author: \"Dawid Kurek\"\n"
+        << "variant: \"dark\"\n"
+        << "palette:\n"
+        << "  base00: \"282828\"\n"
+        << "  base01: \"3c3836\"\n"
+        << "  base02: \"504945\"\n"
+        << "  base03: \"665c54\"\n"
+        << "  base04: \"bdae93\"\n"
+        << "  base05: \"d5c4a1\"\n"
+        << "  base06: \"ebdbb2\"\n"
+        << "  base07: \"fbf1c7\"\n"
+        << "  base08: \"fb4934\"\n"
+        << "  base09: \"fe8019\"\n"
+        << "  base0A: \"fabd2f\"\n"
+        << "  base0B: \"b8bb26\"\n"
+        << "  base0C: \"8ec07c\"\n"
+        << "  base0D: \"83a598\"\n"
+        << "  base0E: \"d3869b\"\n"
+        << "  base0F: \"d65d0e\"\n";
+
+    const auto scheme = ColorScheme::loadFromYaml(path);
+    std::filesystem::remove(path);
+
+    REQUIRE(scheme.has_value());
+    CHECK(scheme->displayName == "Gruvbox Dark");
+    CHECK(scheme->palette[0]  == (Rgb{ 40,  40,  40}));  // base00 282828
+    CHECK(scheme->palette[8]  == (Rgb{251,  73,  52}));  // base08 fb4934
+    CHECK(scheme->background  == scheme->palette[0]);
+    CHECK(scheme->foreground  == scheme->palette[5]);
+}
+
+TEST_CASE("given yaml file with no palette entries when loaded then nullopt is returned")
+{
+    const auto path = (std::filesystem::temp_directory_path()
+                       / "nate_empty.yaml").string();
+    std::ofstream{path} << "scheme: \"Empty\"\nauthor: \"Nobody\"\n";
+
+    const auto scheme = ColorScheme::loadFromYaml(path);
+    std::filesystem::remove(path);
+
+    REQUIRE_FALSE(scheme.has_value());
+}
+
+TEST_CASE("given yaml file with hash-prefixed hex values when loaded then values are parsed")
+{
+    const auto path = (std::filesystem::temp_directory_path()
+                       / "nate_hash.yaml").string();
+    std::ofstream{path}
+        << "scheme: \"Hash Theme\"\n"
+        << "base00: \"#1a1a2e\"\n"
+        << "base05: \"#e0e0e0\"\n";
+
+    const auto scheme = ColorScheme::loadFromYaml(path);
+    std::filesystem::remove(path);
+
+    REQUIRE(scheme.has_value());
+    CHECK(scheme->palette[0] == (Rgb{26, 26, 46}));
+    CHECK(scheme->palette[5] == (Rgb{224, 224, 224}));
+}
+
+TEST_CASE("given missing yaml file when loadFromYaml called then nullopt is returned")
+{
+    const auto scheme = ColorScheme::loadFromYaml("/nonexistent/theme.yaml");
+    REQUIRE_FALSE(scheme.has_value());
+}
+
+TEST_CASE("given directory with yaml themes when scanned then yaml themes are included")
+{
+    const auto dir = std::filesystem::temp_directory_path() / "nate_yaml_themes";
+    std::filesystem::create_directories(dir);
+
+    std::ofstream(dir / "gruvbox.yaml")
+        << "scheme: \"Gruvbox\"\n"
+        << "base00: \"282828\"\nbase01: \"3c3836\"\nbase02: \"504945\"\nbase03: \"665c54\"\n"
+        << "base04: \"bdae93\"\nbase05: \"d5c4a1\"\nbase06: \"ebdbb2\"\nbase07: \"fbf1c7\"\n"
+        << "base08: \"fb4934\"\nbase09: \"fe8019\"\nbase0A: \"fabd2f\"\nbase0B: \"b8bb26\"\n"
+        << "base0C: \"8ec07c\"\nbase0D: \"83a598\"\nbase0E: \"d3869b\"\nbase0F: \"d65d0e\"\n";
+
+    std::ofstream(dir / "minimal.ini")
+        << "[Meta]\nName=Minimal\n\n[Colors]\nForeground=200,200,200\nBackground=10,10,10\n";
+
+    const auto result = ColorScheme::scanDirectory(dir.string());
+    std::filesystem::remove_all(dir);
+
+    REQUIRE(result.size() == 2);
+    // sorted: "Gruvbox" < "Minimal"
+    CHECK(result[0].stem        == "gruvbox");
+    CHECK(result[0].displayName == "Gruvbox");
+    CHECK(result[1].displayName == "Minimal");
+}
+
+// ---------------------------------------------------------------------------
 // cursorBlink
 // ---------------------------------------------------------------------------
 

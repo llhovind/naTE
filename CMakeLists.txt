@@ -163,6 +163,7 @@ set(SOURCES
     src/ui/PreferencesDialog.cpp
     src/ui/TerminalPanel.cpp
     src/ui/TerminalTile.cpp
+    src/ui/TileIndicatorControl.cpp
     src/ui/WrapControl.cpp
     src/ui/AltScrControl.cpp
     src/ui/X11Control.cpp

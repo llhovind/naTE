@@ -263,6 +263,9 @@ private:
     void OnDragRelease  (wxMouseEvent& evt);
     void OnDragMotion   (wxMouseEvent& evt);
 
+    // Creates the DragGhost, shows it at screenAnchor, and arms the drag event binds.
+    void BeginDragGesture(const wxString& label, wxPoint screenAnchor);
+
     void OnTerminalAction(TerminalActionEvent& evt);
     void OnTileAction    (TileActionEvent& evt);
 

@@ -1,4 +1,5 @@
 #include "ui/TerminalTile.h"
+#include "ui/ColorUtils.h"
 #include "ui/TerminalPanel.h"
 #include "ui/TabStrip.h"
 #include <wx/menu.h>
@@ -10,7 +11,7 @@
 wxDEFINE_EVENT(EVT_TERMINAL_ACTION, TerminalActionEvent);
 wxDEFINE_EVENT(EVT_TILE_ACTION,     TileActionEvent);
 
-TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
+TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& cfg)
     : wxPanel(parent, wxID_ANY)
 {
     // Title bar — plain panel so we can set background colour independently.
@@ -159,7 +160,8 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
 
     // Content area — the active TerminalPanel fills this completely.
     contentArea_ = new wxPanel(this, wxID_ANY);
-    contentArea_->SetBackgroundColour(*wxBLACK);
+    // TerminalPanel will set its own bg; this is just the gap between panels.
+    contentArea_->SetBackgroundColour(toWx(cfg.uiColors.frameBackground));
 
     // Route title bar events for tile drag (moves the active session to another window).
     titleBar_->Bind(wxEVT_LEFT_DOWN, &TerminalTile::OnTitleDown,       this);
@@ -168,6 +170,9 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
     titleBar_->Bind(wxEVT_RIGHT_DOWN, &TerminalTile::OnTitleRightClick, this);
 
     Bind(wxEVT_SIZE, &TerminalTile::OnSize, this);
+
+    // Apply initial theme colors (uses UiColors defaults if cfg has no palette).
+    ApplyConfig(cfg);
 }
 
 // ---------------------------------------------------------------------------
@@ -354,6 +359,24 @@ void TerminalTile::OnSize(wxSizeEvent& evt)
             p->SetSize(0, 0, sz.x, sz.y - kTitleBarHeight);
     }
     evt.Skip();
+}
+
+void TerminalTile::ApplyConfig(const AppConfig& cfg)
+{
+    const auto& u = cfg.uiColors;
+    colActive_    = toWx(u.tileActive);
+    colInactive_  = toWx(u.tileInactive);
+    colBroadcast_ = toWx(u.tileBroadcast);
+
+    if (tabStrip_) tabStrip_->SetUiColors(u);
+
+    const wxColour active   = toWx(u.controlActive);
+    const wxColour inactive = toWx(u.controlInactive);
+    if (wrapCtrl_)   wrapCtrl_->SetGlyphColours(active, inactive);
+    if (altScrCtrl_) altScrCtrl_->SetGlyphColours(active, inactive);
+    if (x11Ctrl_)    x11Ctrl_->SetGlyphColours(active, inactive);
+
+    UpdateTitleBarColor();
 }
 
 void TerminalTile::UpdateTitleBarColor()

@@ -4,18 +4,9 @@
 #include <wx/dcbuffer.h>
 
 AltScrControl::AltScrControl(wxWindow* parent)
-    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE)
+    : TileIndicatorControl(parent)
 {
-    SetBackgroundStyle(wxBG_STYLE_PAINT);
-    SetMinSize(wxSize(20, 20));
-
-    Bind(wxEVT_PAINT,     &AltScrControl::OnPaint,    this);
-    Bind(wxEVT_LEFT_DOWN, &AltScrControl::OnLeftDown, this);
-}
-
-void AltScrControl::SetClickCallback(std::function<void()> cb)
-{
-    clickCb_ = std::move(cb);
+    Bind(wxEVT_PAINT, &AltScrControl::OnPaint, this);
 }
 
 void AltScrControl::SetAltScrActive(bool active)
@@ -38,7 +29,7 @@ void AltScrControl::OnPaint(wxPaintEvent&)
     const int    cx = sz.x / 2;
     const int    cy = sz.y / 2;
 
-    const wxColour col = altScrActive_ ? *wxWHITE : wxColour(160, 160, 160);
+    const wxColour col = altScrActive_ ? glyphActive_ : glyphInactive_;
     dc.SetPen(wxPen(col, 1));
 
     // Four corner markers — L-shaped ticks at each corner of a 13×11 rectangle.
@@ -71,7 +62,3 @@ void AltScrControl::OnPaint(wxPaintEvent&)
     }
 }
 
-void AltScrControl::OnLeftDown(wxMouseEvent&)
-{
-    if (clickCb_) clickCb_();
-}

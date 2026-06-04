@@ -60,6 +60,10 @@ public:
     // Tile state (mirrors existing interface used by UIManager / TerminalGrid)
     // -------------------------------------------------------------------------
 
+    // Apply theme-derived colors to title bar, tabs, and indicator glyphs.
+    // Called by UIManager::UpdateConfig whenever the active theme changes.
+    void ApplyConfig(const AppConfig& cfg);
+
     // Highlights the title bar to indicate keyboard focus ownership.
     void SetFocused(bool focused);
 
@@ -175,7 +179,8 @@ private:
     bool                       inBroadcast_        = false;
     bool                       broadcastModeActive_ = false;
 
-    wxColour colActive_    {  45,  57, 160 };
-    wxColour colInactive_  { 131, 136, 141 };
-    wxColour colBroadcast_ { 255, 140,   0 };
+    // Set by ApplyConfig, which is called from the constructor.
+    wxColour colActive_;
+    wxColour colInactive_;
+    wxColour colBroadcast_;
 };

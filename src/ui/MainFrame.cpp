@@ -206,7 +206,7 @@ MainFrame::MainFrame(const AppConfig& cfg,
     menuBar->Append(helpMenu,     "&Help");
     SetMenuBar(menuBar);
 
-    SetBackgroundColour(wxColour(40, 40, 40));
+    SetBackgroundColour(toWx(cfg.uiColors.frameBackground));
     SetSizer(new wxBoxSizer(wxVERTICAL));
     SetClientSize(wxSize(1200, 700));
 }

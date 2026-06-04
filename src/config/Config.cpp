@@ -157,6 +157,7 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
             cfg.cursorColour = scheme->cursor;
             if (scheme->hasPalette)
                 cfg.ansiColors = scheme->ansiColors;
+            cfg.uiColors = scheme->deriveUiColors();
         }
     }
 

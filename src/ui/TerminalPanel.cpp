@@ -136,6 +136,10 @@ void TerminalPanel::ApplyConfig(const AppConfig& cfg)
         // cols×rows to the session without TerminalPanel needing to own that logic.
     }
 
+    if (reconnectBar_) reconnectBar_->ApplyConfig(cfg);
+    if (searchBar_)    searchBar_->ApplyConfig(cfg);
+    if (docLayout_)    docLayout_->SetHighlightColors(cfg.uiColors);
+
     Refresh();
 }
 
@@ -143,6 +147,7 @@ void TerminalPanel::SetDocLayout(::DocLayout* docLayout)
 {
     docLayout_ = docLayout;
     if (docLayout_) {
+        docLayout_->SetHighlightColors(m_cfg.uiColors);
         const wxSize v = ViewportChars();
         docLayout_->SetViewportSize(v.x, v.y);
         docLayout_->ScrollToEnd();

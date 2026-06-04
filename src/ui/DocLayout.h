@@ -1,5 +1,6 @@
 #pragma once
 
+#include "config/Color.h"
 #include "document/Document.h"
 #include "document/IDocumentListener.h"
 #include "ui/SearchMatch.h"
@@ -101,6 +102,10 @@ public:
     std::u32string GetSelectedText() const;
     bool           HasSelection() const;
 
+    // Update selection and search highlight colors from the active theme.
+    // Called by TerminalPanel::ApplyConfig.
+    void SetHighlightColors(const UiColors& u);
+
     void OnDocumentChanged(DocChangeType type, size_t lineIndex) override;
 
     // Snapshot of which viewport rows need repainting.  Consumed once per frame
@@ -153,6 +158,13 @@ private:
 
     std::vector<SearchMatch> searchMatches_;
     size_t                   searchCurrentIdx_ = 0;
+
+    // Theme-derived highlight colors — updated via SetHighlightColors().
+    Rgb selectionBg_     = UiColors{}.selectionBg;
+    Rgb selectionFg_     = UiColors{}.selectionFg;
+    Rgb searchMatchBg_   = UiColors{}.searchMatchBg;
+    Rgb searchMatchFg_   = UiColors{}.searchMatchFg;
+    Rgb searchCurrentBg_ = UiColors{}.searchCurrentBg;
 
     TextSelection              selection_;
     std::optional<DocPosition> hoveredUrlPos_;
