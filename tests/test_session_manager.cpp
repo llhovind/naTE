@@ -634,17 +634,17 @@ TEST_CASE("given cursor moves left past left margin when leftClamped then viewpo
 
     DocLayout& layout = session.GetDocLayout();
     const int cols       = layout.GetViewportCols();  // 20
-    const int marginLeft = cols / 3;                  // 6  (mirrors the runtime formula)
+    const int marginLeft = cols / 4;                  // 5  (mirrors the runtime formula)
     const int leftBefore = layout.GetLeftCol();       // 24
     REQUIRE(leftBefore > 0);
 
-    // marginLeft=6: trigger fires when cursor < leftCol_+6.
-    // 14 backspaces move cursor from 40 to 26; first fires at cursor=29,
-    // then tracks one column per backspace down to leftCol_=20.
+    // marginLeft=5: trigger fires when cursor < leftCol_+5.
+    // 14 backspaces move cursor from 40 to 26; first fires at cursor=28,
+    // then tracks one column per backspace down to leftCol_=21.
     session.OnData(std::string(14, '\x08'));
 
     const int cursorCol = (int)layout.GetCursorDocPos().col;  // 26
-    const int leftAfter  = layout.GetLeftCol();               // 20
+    const int leftAfter  = layout.GetLeftCol();               // 21
 
     REQUIRE(leftAfter < leftBefore);
     REQUIRE(leftAfter == std::max(0, cursorCol - marginLeft));
