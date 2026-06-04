@@ -244,14 +244,19 @@ void SessionManager::OnScroll(SessionId id, int topRow)
 
 void SessionManager::OnResize(SessionId id, unsigned short cols, unsigned short rows)
 {
-    if (SessionRecord* rec = FindRecord(id))
+    if (SessionRecord* rec = FindRecord(id)) {
         rec->session->SetViewportSize(cols, rows);
+        rec->connection.columnWidth = cols;
+        rec->connection.rows        = rows;
+    }
 }
 
 void SessionManager::SetWrapMode(SessionId id, bool wrap)
 {
-    if (SessionRecord* rec = FindRecord(id))
+    if (SessionRecord* rec = FindRecord(id)) {
         rec->session->SetWrapMode(wrap);
+        rec->connection.wrapMode = wrap;
+    }
 }
 
 term::input::InputTarget* SessionManager::GetInputTarget(SessionId id) const

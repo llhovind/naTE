@@ -807,3 +807,58 @@ TEST_CASE("given cursor visible when ResetTerminal called then onCursorVisibilit
 
     CHECK(callCount == 0);
 }
+
+// ---------------------------------------------------------------------------
+// Geometry sync: OnResize / SetWrapMode must keep the stored Connection
+// up-to-date so that BuildCurrentState() saves the live geometry.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given session exists when OnResize called then GetConnection reflects new cols and rows")
+{
+    SessionManager sm;
+    const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
+
+    sm.OnResize(id, 132, 50);
+
+    const Connection conn = sm.GetConnection(id);
+    CHECK(conn.columnWidth == 132);
+    CHECK(conn.rows == 50);
+
+    sm.CloseSession(id);
+}
+
+TEST_CASE("given session exists when SetWrapMode called then GetConnection reflects new wrap mode")
+{
+    SessionManager sm;
+    Connection c = loopbackConn();
+    c.wrapMode = false;
+    const SessionId id = sm.CreateSession(c, 1000, 80, 24);
+
+    sm.SetWrapMode(id, true);
+    CHECK(sm.GetConnection(id).wrapMode == true);
+
+    sm.SetWrapMode(id, false);
+    CHECK(sm.GetConnection(id).wrapMode == false);
+
+    sm.CloseSession(id);
+}
+
+TEST_CASE("given session resized and wrap toggled when GetConnection called then all three geometry fields are current")
+{
+    SessionManager sm;
+    Connection c = loopbackConn();
+    c.columnWidth = 80;
+    c.rows        = 24;
+    c.wrapMode    = false;
+    const SessionId id = sm.CreateSession(c, 1000, 80, 24);
+
+    sm.OnResize(id, 200, 60);
+    sm.SetWrapMode(id, true);
+
+    const Connection result = sm.GetConnection(id);
+    CHECK(result.columnWidth == 200);
+    CHECK(result.rows        == 60);
+    CHECK(result.wrapMode    == true);
+
+    sm.CloseSession(id);
+}
