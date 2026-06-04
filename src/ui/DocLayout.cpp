@@ -413,8 +413,8 @@ void DocLayout::EnsureCursorVisibleHorizontally()
 {
     if (wrapMode_) return;
     if (!leftClamped_) return;  // viewport pinned by user; skip cursor tracking in both directions
-    static constexpr int kMarginLeft  = 12;  // columns of context kept to the left of the cursor
-    static constexpr int kMarginRight =  3;  // columns of context kept to the right of the cursor
+    const int marginLeft  = cols_ / 4;  // context kept left of cursor — scales with viewport width
+    const int marginRight = 3;          // context kept right of cursor
 
     const CursorPos cursor  = doc_->GetCursor();
     const int       docCol  = (int)cursor.col;
@@ -422,12 +422,12 @@ void DocLayout::EnsureCursorVisibleHorizontally()
     const int       lineLen = (cursor.line < lines.size())
                             ? (int)lines[cursor.line].text.size() : 0;
 
-    if (lineLen + kMarginRight <= cols_) {
-        leftCol_ = 0;                                                // whole line fits — show all
-    } else if (docCol >= leftCol_ + cols_ - kMarginRight) {
-        leftCol_ = std::max(0, docCol - cols_ + kMarginRight + 1);   // cursor near right edge
-    } else if (docCol < leftCol_ + kMarginLeft) {
-        leftCol_ = std::max(0, docCol - kMarginLeft);                // cursor exited left edge
+    if (lineLen + marginRight <= cols_) {
+        leftCol_ = 0;                                                 // whole line fits — show all
+    } else if (docCol >= leftCol_ + cols_ - marginRight) {
+        leftCol_ = std::max(0, docCol - cols_ + marginRight + 1);    // cursor near right edge
+    } else if (docCol < leftCol_ + marginLeft) {
+        leftCol_ = std::max(0, docCol - marginLeft);                  // cursor inside left margin
     }
 }
 

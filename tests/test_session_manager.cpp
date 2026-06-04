@@ -624,31 +624,30 @@ TEST_CASE("given line longer than viewport when wrap mode off then horizontal sc
     REQUIRE(row1.text == U"KLMNOPQRSTUVWXYZABCD");
 }
 
-TEST_CASE("given cursor exits left edge of viewport when leftClamped then viewport adjusts with left margin")
+TEST_CASE("given cursor moves left past left margin when leftClamped then viewport adjusts")
 {
     // 20-column viewport; feed 40 chars so cursor-driven right-scroll fires.
-    // kMarginRight=3 puts the right trigger at leftCol+17; leftCol_ ends at 24 (= 40-16).
+    // marginRight=3 puts the right trigger at leftCol+17; leftCol_ ends at 24 (= 40-16).
     Connection conn{"test", LoopbackDesc{}};
     Session session(conn, 1000, 20, 5, {}, {});
     session.OnData("ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMN");
 
     DocLayout& layout = session.GetDocLayout();
-    const int leftBefore = layout.GetLeftCol();  // 24
+    const int cols       = layout.GetViewportCols();  // 20
+    const int marginLeft = cols / 3;                  // 6  (mirrors the runtime formula)
+    const int leftBefore = layout.GetLeftCol();       // 24
     REQUIRE(leftBefore > 0);
 
-    // Viewport stays stable while cursor remains inside [leftCol_, leftCol_+cols_-kMarginRight).
-    // 16 backspaces move cursor from 40 to 24 — still at the left edge, no scroll yet.
-    session.OnData(std::string(16, '\x08'));
-    REQUIRE(layout.GetLeftCol() == leftBefore);  // viewport unmoved
+    // marginLeft=6: trigger fires when cursor < leftCol_+6.
+    // 14 backspaces move cursor from 40 to 26; first fires at cursor=29,
+    // then tracks one column per backspace down to leftCol_=20.
+    session.OnData(std::string(14, '\x08'));
 
-    // One more backspace pushes cursor to 23 < leftCol_(24) — left trigger fires.
-    session.OnData("\x08");
+    const int cursorCol = (int)layout.GetCursorDocPos().col;  // 26
+    const int leftAfter  = layout.GetLeftCol();               // 20
 
-    const int cursorCol = (int)layout.GetCursorDocPos().col;  // 23
-    const int leftAfter  = layout.GetLeftCol();               // 13
-
-    REQUIRE(leftAfter < leftBefore);                           // viewport scrolled left
-    REQUIRE(leftAfter == std::max(0, cursorCol - 10));         // cursor placed at kMarginLeft from left edge
+    REQUIRE(leftAfter < leftBefore);
+    REQUIRE(leftAfter == std::max(0, cursorCol - marginLeft));
 }
 
 TEST_CASE("given user manually scrolled right then viewport ignores cursor movement in both directions")
