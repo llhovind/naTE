@@ -65,8 +65,9 @@ struct AppConfig {
     TileLayout  tileLayout  = TileLayout::RowFirst;
 
     // [Behavior]
-    std::string encoding      = "UTF-8";
-    std::string webSearchUrl  = "https://duckduckgo.com/?q=";
+    std::string encoding         = "UTF-8";
+    std::string webSearchUrl     = "https://duckduckgo.com/?q=";
+    std::string wordSelectRegex  = "[^\\s]+"; // regex matching a "word" for double-click selection
     BellMode    bellMode           = BellMode::Visual;
     bool        copyOnSelect       = true;   // copy to X11 primary selection on mouseup
     bool        confirmCloseWindow = true;   // false = suppress all close-confirmation dialogs

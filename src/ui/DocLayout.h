@@ -103,6 +103,13 @@ public:
     std::u32string GetSelectedText() const;
     bool           HasSelection() const;
 
+    // Double-click: find the regex match in pos.docLine that contains pos.docCol
+    // and set it as the active selection. Returns true if a non-empty word was found.
+    bool SelectWordAt(DocPosition pos, const std::string& regexPattern);
+
+    // Triple-click: select the entire logical line at pos (col 0 → text.size()).
+    void SelectLineAt(DocPosition pos);
+
     // Update selection and search highlight colors from the active theme.
     // Called by TerminalPanel::ApplyConfig.
     void SetHighlightColors(const UiColors& u);

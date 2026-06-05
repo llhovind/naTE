@@ -172,6 +172,7 @@ set(SOURCES
     src/ui/TerminalGrid.cpp
     src/ui/DocLayout.cpp
     src/ui/UrlScanner.cpp
+    src/ui/WordSelector.cpp
     src/ui/UIManager.cpp
     src/ui/SearchController.cpp
     src/ui/SearchBar.cpp

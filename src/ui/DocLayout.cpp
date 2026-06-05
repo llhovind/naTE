@@ -1,5 +1,6 @@
 #include "ui/DocLayout.h"
 #include "ui/SearchMatch.h"
+#include "ui/WordSelector.h"
 #include <algorithm>
 #include <limits>
 
@@ -670,6 +671,37 @@ std::u32string DocLayout::GetSelectedText() const
             result += U'\n';
     }
     return result;
+}
+
+bool DocLayout::SelectWordAt(DocPosition pos, const std::string& regexPattern)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    const auto& lines = doc_->GetLines();
+    if (pos.docLine < 0 || pos.docLine >= static_cast<int>(lines.size()))
+        return false;
+
+    const std::u32string& lineText = lines[static_cast<size_t>(pos.docLine)].text;
+    auto [startCol, endCol] = WordSelector::FindWordBounds(lineText, pos.docCol, regexPattern);
+
+    if (startCol == endCol) return false;
+
+    selection_ = { DocPosition{pos.docLine, startCol},
+                   DocPosition{pos.docLine, endCol},
+                   true };
+    return true;
+}
+
+void DocLayout::SelectLineAt(DocPosition pos)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    const auto& lines = doc_->GetLines();
+    if (pos.docLine < 0 || pos.docLine >= static_cast<int>(lines.size()))
+        return;
+
+    const int endCol = static_cast<int>(lines[static_cast<size_t>(pos.docLine)].text.size());
+    selection_ = { DocPosition{pos.docLine, 0},
+                   DocPosition{pos.docLine, endCol},
+                   true };
 }
 
 // Mark the viewport rows that correspond to docLine as dirty.

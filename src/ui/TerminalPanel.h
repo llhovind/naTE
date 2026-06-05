@@ -92,6 +92,7 @@ private:
     void OnScroll(wxScrollEvent&);
     void OnMouseWheel(wxMouseEvent&);
     void OnLeftDown(wxMouseEvent&);
+    void OnLeftDClick(wxMouseEvent&);
     void OnLeftUp(wxMouseEvent&);
     void OnMouseMove(wxMouseEvent&);
     void OnLeaveWindow(wxMouseEvent&);
@@ -150,6 +151,10 @@ private:
     bool    m_selecting_    = false;
     wxTimer m_selScrollTimer_;
     wxPoint m_lastMousePos_{-1, -1};
+
+    // Double/triple-click tracking
+    wxLongLong m_lastDClickMs_    = 0;
+    wxPoint    m_lastDClickPixel_ = {-1, -1};
 
     // Horizontal scroll animation
     wxTimer m_hScrollAnimTimer_;

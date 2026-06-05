@@ -83,8 +83,9 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
     Bind(wxEVT_TIMER,      &TerminalPanel::OnResizeTimer,    this, resizeTimer_.GetId());
     Bind(wxEVT_TIMER,      &TerminalPanel::OnSelScrollTimer, this, m_selScrollTimer_.GetId());
     Bind(wxEVT_MOUSEWHEEL, &TerminalPanel::OnMouseWheel,     this);
-    Bind(wxEVT_LEFT_DOWN,  &TerminalPanel::OnLeftDown,       this);
-    Bind(wxEVT_LEFT_UP,    &TerminalPanel::OnLeftUp,         this);
+    Bind(wxEVT_LEFT_DOWN,   &TerminalPanel::OnLeftDown,       this);
+    Bind(wxEVT_LEFT_DCLICK, &TerminalPanel::OnLeftDClick,    this);
+    Bind(wxEVT_LEFT_UP,     &TerminalPanel::OnLeftUp,        this);
     Bind(wxEVT_MOTION,       &TerminalPanel::OnMouseMove,    this);
     Bind(wxEVT_LEAVE_WINDOW, &TerminalPanel::OnLeaveWindow,  this);
     Bind(wxEVT_MIDDLE_DOWN,  &TerminalPanel::OnMiddleDown,   this);
@@ -567,15 +568,51 @@ void TerminalPanel::OnLeftDown(wxMouseEvent& e)
         return;
     }
 
-    auto [row, col]            = PixelToViewportChar(e.GetPosition());
+    // Triple-click: LEFT_DOWN that arrives within 400 ms of a double-click at
+    // roughly the same position → select the entire logical line.
+    static constexpr int    kTripleClickMs  = 400;
+    static constexpr int    kTripleClickPx  = 4;
+    const wxPoint           pos             = e.GetPosition();
+    const wxLongLong        nowMs           = wxGetLocalTimeMillis();
+    if ((nowMs - m_lastDClickMs_).GetValue() < kTripleClickMs) {
+        const wxPoint delta = pos - m_lastDClickPixel_;
+        const bool samePos = std::abs(delta.x) <= kTripleClickPx &&
+                             std::abs(delta.y) <= kTripleClickPx;
+        if (samePos) {
+            auto [row, col] = PixelToViewportChar(pos);
+            docLayout_->SelectLineAt(docLayout_->HitTest(row, col));
+            m_lastDClickMs_ = 0; // prevent quadruple-click cascading
+            CopySelectionToPrimary();
+            Refresh();
+            return;
+        }
+    }
+
+    auto [row, col]            = PixelToViewportChar(pos);
     const auto anchor          = docLayout_->HitTest(row, col);
     const DocLayout::TextSelection sel{anchor, anchor, true};
     docLayout_->SetSelection(sel);
 
     m_selecting_    = true;
-    m_lastMousePos_ = e.GetPosition();
+    m_lastMousePos_ = pos;
     CaptureMouse();
     m_selScrollTimer_.Start(50);
+    Refresh();
+}
+
+void TerminalPanel::OnLeftDClick(wxMouseEvent& e)
+{
+    if (!docLayout_) { e.Skip(); return; }
+
+    auto [row, col]          = PixelToViewportChar(e.GetPosition());
+    const auto pos           = docLayout_->HitTest(row, col);
+    docLayout_->SelectWordAt(pos, m_cfg.wordSelectRegex);
+
+    // Record position so the next LEFT_DOWN can detect a triple-click.
+    m_lastDClickMs_    = wxGetLocalTimeMillis();
+    m_lastDClickPixel_ = e.GetPosition();
+
+    CopySelectionToPrimary();
     Refresh();
 }
 

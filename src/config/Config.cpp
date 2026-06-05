@@ -104,8 +104,9 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
                 else                      cfg.tileLayout = TileLayout::RowFirst;
             }
         } else if (sec == "Behavior") {
-            if      (key == "Encoding"      && !val.empty()) cfg.encoding     = val;
-            else if (key == "WebSearchUrl"  && !val.empty()) cfg.webSearchUrl = val;
+            if      (key == "Encoding"         && !val.empty()) cfg.encoding        = val;
+            else if (key == "WebSearchUrl"     && !val.empty()) cfg.webSearchUrl    = val;
+            else if (key == "WordSelectRegex"  && !val.empty()) cfg.wordSelectRegex = val;
             else if (key == "CopyOnSelect")        cfg.copyOnSelect       = (val == "true" || val == "1");
             else if (key == "ConfirmCloseWindow") cfg.confirmCloseWindow = (val == "true" || val == "1");
             else if (key == "BellMode") {
@@ -195,9 +196,10 @@ void AppConfig::save(const std::string& configPath) const
       << "TileLayout="  << tileLayoutStr                    << "\n"
       << "\n"
       << "[Behavior]\n"
-      << "Encoding="     << encoding                          << "\n"
-      << "WebSearchUrl=" << webSearchUrl                      << "\n"
-      << "BellMode="     << bellModeStr                       << "\n"
+      << "Encoding="        << encoding                          << "\n"
+      << "WebSearchUrl="    << webSearchUrl                      << "\n"
+      << "WordSelectRegex=" << wordSelectRegex                   << "\n"
+      << "BellMode="        << bellModeStr                       << "\n"
       << "CopyOnSelect="        << (copyOnSelect       ? "true" : "false") << "\n"
       << "ConfirmCloseWindow=" << (confirmCloseWindow ? "true" : "false") << "\n"
       << "\n"
