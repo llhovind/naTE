@@ -35,6 +35,7 @@ for you.
 - **Wrap mode and viewport width** — in a classic terminal the shell's reported width equals the window width, so any output beyond that column is silently truncated and lost. naTE decouples these: you can set a **column width** (what the shell believes the terminal is, e.g. 220 columns) independently of the visible tile width. Long lines are captured in full rather than discarded. The wrap button in the tile title bar then controls how those lines are presented — wrap on reflows them into the visible area; wrap off lets the viewport scroll horizontally so each line stays on one row. Per-connection column-width overrides are available in the connection profile.
 - Bracketed paste with optional confirmation dialog
 - URL detection and click-to-open
+- **Mouse selection** — click-drag to select; double-click selects the word under the cursor (word boundary pattern is a configurable regex); triple-click selects the full line
 - **Find in Terminal** (`Ctrl+Shift+F` / **Edit → Find in Terminal**) — case-insensitive search across the full scrollback buffer; all matches are highlighted and the current match is distinguished; navigate with `Enter` / `F3` (forward) and `Shift+F3` (back); pre-populates from the active selection
 
 ### Tiling & tabs
@@ -43,7 +44,7 @@ for you.
 - Move a session to its own tile in the same window with **Terminal → Move to New Tile**
 - Move a session or tile to a separate window with **Terminal → Move to New Window**
 - Open a blank second window from **Window → New Window**
-- **Tile split direction** (horizontal or vertical) is set per-window via **Window → Tile Layout**, with a global default in **Edit → Preferences → Appearance**
+- **Tile layout direction** (horizontal or vertical) is set per-window via **Window → Tile Layout**, with a global default in **Edit → Preferences → Appearance**
 - Drag a **tab** to reorder it within the same tile, move it to a different tile, or drop it onto another window
 - Drag the **tile header** (blank area to the right of the `+` button) to move all sessions in that tile to another window
 - Broadcast mode — send the same input to multiple sessions simultaneously
@@ -260,9 +261,7 @@ without touching business logic.
   compatibility with servers that disable SCP
 - **Local port forwarding (`-L`)** — forward a local port through an SSH connection
 - **Remote port forwarding (`-R`)** — expose a local port on the remote host
-- **Double-click word delimiters** — configurable set of delimiter characters for
-  word selection
-- **Right-click action** — choose between paste and context menu on right-click
+
 
 
 ---
