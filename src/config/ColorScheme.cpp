@@ -361,13 +361,19 @@ std::optional<ColorScheme> ColorScheme::loadFromYaml(const std::string& path)
         std::string key = trim(t.substr(0, colon));
         std::string val = trim(t.substr(colon + 1));
 
-        // Strip surrounding quotes.
-        if (val.size() >= 2 &&
-            ((val.front() == '"' && val.back() == '"') ||
-             (val.front() == '\'' && val.back() == '\'')))
-            val = val.substr(1, val.size() - 2);
+        // Extract the value token, stripping quotes and inline comments (# ...).
+        // For quoted values find the closing quote; for unquoted take up to the
+        // first whitespace so " base00: f8f8f2 # comment" works correctly.
+        if (!val.empty() && (val[0] == '"' || val[0] == '\'')) {
+            const char q = val[0];
+            const auto close = val.find(q, 1);
+            val = (close != std::string::npos) ? val.substr(1, close - 1) : val.substr(1);
+        } else {
+            const auto sp = val.find_first_of(" \t");
+            if (sp != std::string::npos) val = val.substr(0, sp);
+        }
 
-        // Strip optional leading '#' from hex values.
+        // Strip optional leading '#' from hex values (e.g. "#f8f8f2").
         if (!val.empty() && val[0] == '#') val = val.substr(1);
 
         if (val.empty()) continue;  // e.g. the "palette:" key in v2 format

@@ -689,6 +689,43 @@ TEST_CASE("given yaml file with hash-prefixed hex values when loaded then values
     CHECK(scheme->palette[5] == (Rgb{224, 224, 224}));
 }
 
+TEST_CASE("given yaml file with inline comments when loaded then comments are stripped and palette is parsed")
+{
+    const auto path = (std::filesystem::temp_directory_path()
+                       / "nate_inline_comments.yaml").string();
+    std::ofstream{path}
+        << "system: \"base16\"\n"
+        << "name: \"Humanoid light\"\n"
+        << "author: \"Thomas Friese\" # author comment\n"
+        << "variant: \"light\"\n"
+        << "palette:\n"
+        << "  base00: \"f8f8f2\" # #f8f8f2 ----\n"
+        << "  base05: \"232629\" # #232629 ++\n"
+        << "  base08: \"b0151a\" # #b0151a red\n"
+        << "  base01: \"efefe9\"\n"
+        << "  base02: \"deded8\"\n"
+        << "  base03: \"c0c0bd\"\n"
+        << "  base04: \"60615d\"\n"
+        << "  base06: \"2f3337\"\n"
+        << "  base07: \"070708\"\n"
+        << "  base09: \"ff3d00\"\n"
+        << "  base0A: \"ffb627\"\n"
+        << "  base0B: \"388e3c\"\n"
+        << "  base0C: \"008e8e\"\n"
+        << "  base0D: \"0082c9\"\n"
+        << "  base0E: \"700f98\"\n"
+        << "  base0F: \"b27701\"\n";
+
+    const auto scheme = ColorScheme::loadFromYaml(path);
+    std::filesystem::remove(path);
+
+    REQUIRE(scheme.has_value());
+    CHECK(scheme->displayName == "Humanoid light");
+    CHECK(scheme->palette[0] == (Rgb{0xf8, 0xf8, 0xf2}));
+    CHECK(scheme->palette[5] == (Rgb{0x23, 0x26, 0x29}));
+    CHECK(scheme->palette[8] == (Rgb{0xb0, 0x15, 0x1a}));
+}
+
 TEST_CASE("given missing yaml file when loadFromYaml called then nullopt is returned")
 {
     const auto scheme = ColorScheme::loadFromYaml("/nonexistent/theme.yaml");
