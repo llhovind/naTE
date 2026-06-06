@@ -29,7 +29,7 @@ for you.
 
 ### Terminal emulation
 - VT100 / ANSI escape sequences, SGR attributes, OSC sequences
-- UTF-8 text rendering (basic BMP characters; combining characters and wide/CJK characters not yet supported)
+- UTF-8 text rendering with wide/CJK character support — double-width characters occupy two terminal cells; non-ASCII glyphs are drawn individually to prevent font-fallback advance drift (combining characters are not yet supported)
 - Configurable scrollback buffer (default 100,000 lines)
 - Alternate screen support (vim, htop, tmux) — also manually toggled via the alt-screen button in the tile title bar
 - **Wrap mode and viewport width** — in a classic terminal the shell's reported width equals the window width, so any output beyond that column is silently truncated and lost. naTE decouples these: you can set a **column width** (what the shell believes the terminal is, e.g. 220 columns) independently of the visible tile width. Long lines are captured in full rather than discarded. The wrap button in the tile title bar then controls how those lines are presented — wrap on reflows them into the visible area; wrap off lets the viewport scroll horizontally so each line stays on one row. Per-connection column-width overrides are available in the connection profile.
@@ -53,6 +53,7 @@ for you.
 - Auto-save and restore open sessions on launch
 - Named workspaces ("Save Workspace As...")
 - Reconnect bar when a connection drops — resume without re-entering credentials
+- Confirm-close protection — a dialog warns before closing a window with active sessions; auto-suppressed for single-session close; configurable via **Edit → Preferences → Behavior** or a "Don't ask again" option in the dialog itself
 
 ### SSH
 - Authentication: password, public key, SSH agent, keyboard-interactive (MFA — Duo, YubiKey, PAM)
@@ -62,6 +63,15 @@ for you.
 - Auto-populate from `~/.ssh/config` — hosts, identity files, ProxyJump rules
 - SSH agent identity hints for multi-key setups
 - Keepalive and optional compression
+- Working-directory tracking — shells that emit OSC 7 (`file://host/path`) update the tracked CWD continuously; a `pwd` subchannel captures the final CWD at disconnect for session-restore accuracy
+
+### Session initialization
+- Per-connection **working directory** — set the initial directory for PTY and SSH sessions
+- Per-connection **environment variables** — define key/value pairs in the connection profile, merged on top of the parent environment
+- **Environment file** — point to a `.env`-style file; variables are loaded and merged at session start
+- **Login shell** — opt in to a login-shell invocation for PTY and SSH sessions
+- **Profile title** — give a connection profile a fixed tab title that overrides the dynamic hostname/command title
+- App-wide defaults for working directory, login shell, and env file in **Edit → Preferences → Session**; per-profile overrides take precedence
 
 ### Serial
 - Configurable baud rate, data bits, stop bits, parity, and flow control
@@ -70,7 +80,7 @@ for you.
 ### File transfer
 - SFTP send and receive via the existing authenticated session (no re-authentication)
 - Remote directory browser with alphabetical listing
-- Remote directory browser for picking files
+- **Edit remote file** — open a remote file in your local editor (**Terminal → Edit Remote File**); naTE downloads it to a temp path, watches for saves via inotify, and re-uploads automatically on each write. Supports direct-save editors (vim, nano) and atomic-rename editors (VSCode, gedit). Configure the editor command in **Edit → Preferences → Behavior** or via the `$EDITOR` environment variable.
 
 ### Appearance
 - Built-in themes: Solarized Dark, Solarized Light, xterm
@@ -233,7 +243,7 @@ ctest --preset debug
 ```
 
 Tests are written with [Catch2](https://github.com/catchorg/Catch2). The suite
-currently covers 269 scenarios across all major subsystems.
+currently covers 312 scenarios across all major subsystems.
 
 ### Packaging (AppImage)
 
