@@ -14,7 +14,8 @@ RemoteFileBrowserDialog::RemoteFileBrowserDialog(
     wxWindow* parent,
     term::session::SessionId sessionId,
     term::session::SessionManager& sm,
-    const std::string& remoteDescription)
+    const std::string& remoteDescription,
+    const wxString& confirmLabel)
     : wxDialog(parent, wxID_ANY,
                remoteDescription.empty()
                    ? wxString("Browse Remote Files")
@@ -54,7 +55,7 @@ RemoteFileBrowserDialog::RemoteFileBrowserDialog(
     // --- Buttons ---
     auto* btnRow = new wxBoxSizer(wxHORIZONTAL);
     btnRow->AddStretchSpacer();
-    addBtn_      = new wxButton(this, wxID_ANY, "Add Selected");
+    addBtn_      = new wxButton(this, wxID_ANY, confirmLabel);
     auto* closeBtn = new wxButton(this, wxID_CANCEL, "Close");
     addBtn_->Disable();
     btnRow->Add(addBtn_,   0, wxRIGHT, 6);

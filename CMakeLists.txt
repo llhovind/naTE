@@ -158,6 +158,8 @@ set(SOURCES
     src/ui/KbdIntDialog.cpp
     src/ui/PasteConfirmDialog.cpp
     src/ui/RemoteFileBrowserDialog.cpp
+    src/ui/RemoteEditSession.cpp
+    src/ui/RemoteEditManager.cpp
     src/ui/WorkspaceManagerDialog.cpp
     src/ui/GeometryDialog.cpp
     src/ui/PreferencesDialog.cpp

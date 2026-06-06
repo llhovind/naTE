@@ -51,6 +51,7 @@ namespace {
     constexpr int ID_REFIT_WINDOW            = wxID_HIGHEST + 34;
     constexpr int ID_TILE_LAYOUT_ROW_FIRST   = wxID_HIGHEST + 35;
     constexpr int ID_TILE_LAYOUT_COL_FIRST   = wxID_HIGHEST + 36;
+    constexpr int ID_EDIT_REMOTE_FILE        = wxID_HIGHEST + 37;
 
     static bool IsValidWorkspaceName(const std::string& s)
     {
@@ -157,9 +158,14 @@ MainFrame::MainFrame(const AppConfig& cfg,
     termMenu->AppendSeparator();
     termMenu->Append(ID_SEND_FILES,              "Send Files to Remote...");
     termMenu->Append(ID_RECEIVE_FILES,           "Receive Files from Remote...");
+    termMenu->Append(ID_EDIT_REMOTE_FILE,        "Edit Remote File...");
     Bind(wxEVT_MENU, &MainFrame::OnSaveSessionFileTerminal, this, ID_SAVE_SESSION_FILE_TERM);
     Bind(wxEVT_MENU, &MainFrame::OnSendFiles,               this, ID_SEND_FILES);
     Bind(wxEVT_MENU, &MainFrame::OnReceiveFiles,            this, ID_RECEIVE_FILES);
+    Bind(wxEVT_MENU, &MainFrame::OnEditRemoteFile,          this, ID_EDIT_REMOTE_FILE);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
+        e.Enable(m_uiManager && m_uiManager->ActiveSessionSupportsFileTransfer());
+    }, ID_EDIT_REMOTE_FILE);
 
     termMenu->AppendSeparator();
     termMenu->Append(ID_OPEN_IN_NEW_TILE,        "Move to New Tile");
@@ -536,6 +542,11 @@ void MainFrame::OnSendFiles(wxCommandEvent&)
 void MainFrame::OnReceiveFiles(wxCommandEvent&)
 {
     if (m_uiManager) m_uiManager->ReceiveFilesForActive();
+}
+
+void MainFrame::OnEditRemoteFile(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->EditRemoteFileForActive();
 }
 
 void MainFrame::OnOpenInNewTile(wxCommandEvent&)

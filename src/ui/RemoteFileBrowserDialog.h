@@ -22,7 +22,8 @@ public:
     RemoteFileBrowserDialog(wxWindow* parent,
                             term::session::SessionId sessionId,
                             term::session::SessionManager& sm,
-                            const std::string& remoteDescription);
+                            const std::string& remoteDescription,
+                            const wxString& confirmLabel = "Add Selected");
 
     const std::vector<std::string>& GetSelectedPaths() const { return selectedPaths_; }
 

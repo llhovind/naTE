@@ -153,6 +153,8 @@ bool App::OnInit() {
 
     m_sessionManager = std::make_unique<term::session::SessionManager>();
 
+    m_remoteEditManager = std::make_unique<ui::RemoteEditManager>(*m_sessionManager);
+
     const std::string restorePath = InstanceRestorePath(m_instanceId);
     m_restoreRepo = std::make_unique<term::db::JsonSessionRestoreRepository>(restorePath);
     m_namedRepo   = std::make_unique<term::db::JsonNamedWorkspaceRepository>(NateDir() + "/workspaces");
@@ -254,6 +256,7 @@ MainFrame* App::CreateNewWindow()
         *wc->router, frame->GetEditMenu());
 
     frame->SetUIManager(wc->uiManager.get());
+    wc->uiManager->SetRemoteEditManager(m_remoteEditManager.get());
 
     wc->uiManager->SetOnGridEmptyCallback([this, mgr = wc->uiManager.get(), frame]() {
         if (m_globalCloseInProgress)
@@ -279,6 +282,10 @@ MainFrame* App::CreateNewWindow()
         // the multi-window case by calling SaveRestoreState() before Close()).
         if (m_windows.size() == 1)
             SaveRestoreState();
+    });
+
+    wc->uiManager->SetOnSessionDestroyedCallback([this](term::session::SessionId id) {
+        if (m_remoteEditManager) m_remoteEditManager->OnSessionDestroyed(id);
     });
 
     frame->Bind(wxEVT_DESTROY, [this, frame](wxWindowDestroyEvent& evt) {

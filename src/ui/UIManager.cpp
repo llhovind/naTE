@@ -2,6 +2,8 @@
 #include "ui/ColorUtils.h"
 #include "app/App.h"
 #include "ui/FileTransferDialog.h"
+#include "ui/RemoteEditManager.h"
+#include "ui/RemoteFileBrowserDialog.h"
 #include "ui/KbdIntDialog.h"
 #include "ui/PasteConfirmDialog.h"
 #include "ui/ISessionDropTarget.h"
@@ -206,6 +208,7 @@ void UIManager::OnSessionDestroyed(term::session::SessionId id)
         sm_.DetachSessionListener(id, ui->notifier.get());
         ui->notifier.reset();
     }
+    if (onSessionDestroyedCb_) onSessionDestroyedCb_(id);
     TearDownSessionUI(id);
 }
 
@@ -501,6 +504,35 @@ void UIManager::ResetActiveTerminal()         { ResetTerminalForSession(activeId
 void UIManager::ResetAndClearActiveTerminal() { ResetAndClearSession(activeId_); }
 void UIManager::SendFilesForActive()          { SendFilesForSession(activeId_); }
 void UIManager::ReceiveFilesForActive()       { ReceiveFilesForSession(activeId_); }
+
+bool UIManager::ActiveSessionSupportsFileTransfer() const
+{
+    return activeId_ && sm_.SupportsFileTransfer(activeId_);
+}
+
+void UIManager::EditRemoteFileForActive()
+{
+    if (!editMgr_ || !ActiveSessionSupportsFileTransfer()) return;
+
+    const std::string remote = sm_.GetRemoteDescription(activeId_);
+    RemoteFileBrowserDialog dlg(frame_, activeId_, sm_, remote, "Edit");
+    if (dlg.ShowModal() != wxID_OK) return;
+
+    const auto& paths = dlg.GetSelectedPaths();
+    if (paths.empty()) return;
+    const std::string remotePath = paths.front();
+
+    const std::string editorCommand = cfg_.remoteEditorCommand;
+    const term::session::SessionId id = activeId_;
+
+    editMgr_->OpenRemoteFile(id, remotePath, editorCommand,
+        [this](bool ok, std::string err) {
+            if (!ok) {
+                wxMessageBox(wxString::FromUTF8("Remote edit failed: " + err),
+                             "Edit Remote File", wxOK | wxICON_ERROR, frame_);
+            }
+        });
+}
 
 void UIManager::SaveSessionToFile(term::session::SessionId id)
 {

@@ -69,8 +69,9 @@ struct AppConfig {
     std::string webSearchUrl     = "https://duckduckgo.com/?q=";
     std::string wordSelectRegex  = "[^\\s]+"; // regex matching a "word" for double-click selection
     BellMode    bellMode           = BellMode::Visual;
-    bool        copyOnSelect       = true;   // copy to X11 primary selection on mouseup
-    bool        confirmCloseWindow = true;   // false = suppress all close-confirmation dialogs
+    bool        copyOnSelect           = true;   // copy to X11 primary selection on mouseup
+    bool        confirmCloseWindow     = true;   // false = suppress all close-confirmation dialogs
+    std::string remoteEditorCommand    = "";     // empty = $EDITOR; e.g. "code --wait"
 
     // [Session] defaults — applied to every new session, overridable per profile
     std::string                        defaultShell;        // empty = $SHELL → /bin/sh

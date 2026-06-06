@@ -182,6 +182,14 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
     m_confirmCloseChk->SetValue(current.confirmCloseWindow);
     behSizer->Add(m_confirmCloseChk, {5, 0}, {1, 2}, wxALIGN_CENTER_VERTICAL);
 
+    behSizer->Add(new wxStaticText(behPage, wxID_ANY, "Remote editor:"),
+                  {6, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+    m_remoteEditorCtrl = new wxTextCtrl(behPage, wxID_ANY,
+                                        wxString::FromUTF8(current.remoteEditorCommand),
+                                        wxDefaultPosition, {320, -1});
+    m_remoteEditorCtrl->SetHint("e.g. code --wait   (empty = $EDITOR)");
+    behSizer->Add(m_remoteEditorCtrl, {6, 1}, {1, 1}, wxEXPAND);
+
     behSizer->AddGrowableCol(1);
     auto* behOuter = new wxBoxSizer(wxVERTICAL);
     behOuter->Add(behSizer, 1, wxEXPAND | wxALL, 12);
@@ -335,8 +343,9 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
     result_.sessionSaveInterval = m_saveIntervalCtrl->GetValue();
     result_.webSearchUrl       = m_webSearchCtrl->GetValue().ToStdString();
     result_.wordSelectRegex    = wordRegex;
-    result_.copyOnSelect       = m_copyOnSelectChk->IsChecked();
-    result_.confirmCloseWindow = m_confirmCloseChk->IsChecked();
+    result_.copyOnSelect          = m_copyOnSelectChk->IsChecked();
+    result_.confirmCloseWindow    = m_confirmCloseChk->IsChecked();
+    result_.remoteEditorCommand   = m_remoteEditorCtrl->GetValue().ToStdString();
 
     evt.Skip();
 }

@@ -46,4 +46,5 @@ private:
     wxTextCtrl* m_wordSelectCtrl     = nullptr;
     wxCheckBox* m_copyOnSelectChk    = nullptr;
     wxCheckBox* m_confirmCloseChk    = nullptr;
+    wxTextCtrl* m_remoteEditorCtrl   = nullptr;
 };

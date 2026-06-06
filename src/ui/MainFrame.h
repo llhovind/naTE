@@ -105,6 +105,7 @@ private:
     void OnSaveSessionFileTerminal(wxCommandEvent&);
     void OnSendFiles(wxCommandEvent&);
     void OnReceiveFiles(wxCommandEvent&);
+    void OnEditRemoteFile(wxCommandEvent&);
     void OnOpenInNewTile(wxCommandEvent&);
     void OnOpenInNewWindowTerminal(wxCommandEvent&);
     void OnRefitWindow(wxCommandEvent&);
