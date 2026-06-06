@@ -1,6 +1,7 @@
 #pragma once
 #include "session/SessionManager.h"
 #include "ui/RemoteEditSession.h"
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
@@ -37,6 +38,7 @@ public:
 
 private:
     term::session::SessionManager&                  sm_;
+    std::shared_ptr<std::atomic<bool>>              alive_;
     std::vector<std::unique_ptr<RemoteEditSession>> sessions_;
 };
 

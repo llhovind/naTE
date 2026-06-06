@@ -6,13 +6,30 @@
 
 namespace ui {
 
+namespace {
+    // Wrap s in single-quotes, escaping embedded single-quotes as '\''.
+    // Produces a shell token that is safe regardless of spaces or special chars.
+    std::string ShellQuote(const std::string& s)
+    {
+        std::string out = "'";
+        for (char c : s) {
+            if (c == '\'') out += "'\\''";
+            else           out += c;
+        }
+        out += "'";
+        return out;
+    }
+} // namespace
+
 RemoteEditManager::RemoteEditManager(term::session::SessionManager& sm)
     : sm_(sm)
+    , alive_(std::make_shared<std::atomic<bool>>(true))
 {}
 
 RemoteEditManager::~RemoteEditManager()
 {
-    // Stop all sessions before destruction to join their watch threads.
+    // Invalidate before joining so any in-flight CallAfter callbacks no-op.
+    alive_->store(false, std::memory_order_release);
     for (auto& s : sessions_)
         s->Stop();
     sessions_.clear();
@@ -34,12 +51,17 @@ void RemoteEditManager::OpenRemoteFile(term::session::SessionId  id,
         return;
     }
 
+    std::weak_ptr<std::atomic<bool>> weakAlive = alive_;
     sm_.SftpDownloadFile(id, remotePath, localPath,
-        [this, id, remotePath, localPath, editorCommand, onReady = std::move(onReady)]
+        [this, weakAlive, id, remotePath, localPath, editorCommand, onReady = std::move(onReady)]
         (bool ok, std::string err) mutable {
             wxTheApp->CallAfter(
-                [this, id, remotePath, localPath, editorCommand,
+                [this, weakAlive, id, remotePath, localPath, editorCommand,
                  ok, err = std::move(err), onReady = std::move(onReady)]() mutable {
+                    auto alive = weakAlive.lock();
+                    if (!alive || !alive->load(std::memory_order_acquire))
+                        return;
+
                     if (!ok) {
                         if (onReady) onReady(false, err);
                         return;
@@ -50,7 +72,8 @@ void RemoteEditManager::OpenRemoteFile(term::session::SessionId  id,
                     session->Start();
                     sessions_.push_back(std::move(session));
 
-                    wxExecute(wxString::FromUTF8(editorCommand + " " + localPath), wxEXEC_ASYNC);
+                    wxExecute(wxString::FromUTF8(editorCommand + " " + ShellQuote(localPath)),
+                              wxEXEC_ASYNC);
 
                     if (onReady) onReady(true, "");
                 });
