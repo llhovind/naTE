@@ -123,6 +123,14 @@ public:
                     const std::string& remotePath,
                     std::function<void(std::vector<transport::RemoteDirEntry>,
                                        std::string)> onDone);
+    void        SftpDownloadFile(SessionId id,
+                                 const std::string& remotePath,
+                                 const std::string& localPath,
+                                 std::function<void(bool, std::string)> onDone);
+    void        SftpUploadFile(SessionId id,
+                               const std::string& localPath,
+                               const std::string& remotePath,
+                               std::function<void(bool, std::string)> onDone);
 
     term::input::InputTarget* GetInputTarget(SessionId id) const;
 

@@ -128,7 +128,9 @@ void FileTransferDialog::OnBrowseRemote(wxCommandEvent&)
 {
     const std::string remote = sm_.GetRemoteDescription(sessionId_);
     RemoteFileBrowserDialog dlg(this, sessionId_, sm_, remote);
-    if (dlg.ShowModal() != wxID_OK) return;
+    const int rc = dlg.ShowModal();
+    wxTheApp->CallAfter([this]{ Raise(); SetFocus(); });
+    if (rc != wxID_OK) return;
 
     for (const auto& path : dlg.GetSelectedPaths()) {
         const wxString wp = wxString::FromUTF8(path);

@@ -347,6 +347,24 @@ void SessionManager::ListRemoteDirectory(
     if (rec) rec->session->ListRemoteDirectory(remotePath, std::move(onDone));
 }
 
+void SessionManager::SftpDownloadFile(SessionId id,
+                                      const std::string& remotePath,
+                                      const std::string& localPath,
+                                      std::function<void(bool, std::string)> onDone)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (rec) rec->session->SftpDownloadFile(remotePath, localPath, std::move(onDone));
+}
+
+void SessionManager::SftpUploadFile(SessionId id,
+                                    const std::string& localPath,
+                                    const std::string& remotePath,
+                                    std::function<void(bool, std::string)> onDone)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (rec) rec->session->SftpUploadFile(localPath, remotePath, std::move(onDone));
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------

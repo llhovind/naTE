@@ -16,7 +16,7 @@ naTE (*not another Terminal Emulator*) is a graphical terminal emulator built fo
 gives you a tiling, tabbed interface where multiple terminals share a single window,
 remembers your sessions across restarts so you can pick up exactly where you left
 off, and ships with a full suite of SSH features — agent forwarding, X11 forwarding,
-ProxyJump, keyboard-interactive (MFA) auth, and SCP file transfer — all without
+ProxyJump, keyboard-interactive (MFA) auth, and SFTP file transfer — all without
 touching the command line.
 
 If you manage remote servers, work with serial consoles, or just want a terminal that
@@ -68,7 +68,8 @@ for you.
 - Optional dial script executed before I/O (for modem-style connections)
 
 ### File transfer
-- SCP send and receive
+- SFTP send and receive via the existing authenticated session (no re-authentication)
+- Remote directory browser with alphabetical listing
 - Remote directory browser for picking files
 
 ### Appearance
@@ -257,8 +258,6 @@ without touching business logic.
 
 ### Planned
 
-- **SFTP subsystem** — replaces SCP; enables resume, directory operations, and
-  compatibility with servers that disable SCP
 - **Local port forwarding (`-L`)** — forward a local port through an SSH connection
 - **Remote port forwarding (`-R`)** — expose a local port on the remote host
 

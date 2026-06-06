@@ -1,5 +1,7 @@
 #include "ui/RemoteFileBrowserDialog.h"
 
+#include <algorithm>
+#include <cctype>
 #include <wx/app.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
@@ -99,6 +101,15 @@ void RemoteFileBrowserDialog::Navigate(const std::string& path)
                     return;
                 }
                 currentEntries_ = std::move(es);
+                std::sort(currentEntries_.begin(), currentEntries_.end(),
+                    [](const term::transport::RemoteDirEntry& a,
+                       const term::transport::RemoteDirEntry& b) {
+                        if (a.isDir != b.isDir) return a.isDir > b.isDir;
+                        std::string la = a.name, lb = b.name;
+                        for (auto& c : la) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                        for (auto& c : lb) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                        return la < lb;
+                    });
                 PopulateList(currentEntries_);
                 upBtn_->Enable(currentPath_ != "/");
             });

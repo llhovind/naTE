@@ -118,6 +118,12 @@ public:
                     const std::string& remotePath,
                     std::function<void(std::vector<transport::RemoteDirEntry>,
                                        std::string)> onDone);
+    void        SftpDownloadFile(const std::string& remotePath,
+                                 const std::string& localPath,
+                                 std::function<void(bool, std::string)> onDone);
+    void        SftpUploadFile(const std::string& localPath,
+                               const std::string& remotePath,
+                               std::function<void(bool, std::string)> onDone);
 
 private:
     static std::unique_ptr<transport::Transport> MakeTransport(
