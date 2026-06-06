@@ -1,6 +1,9 @@
 #include "ui/UIManager.h"
+#include "ui/ColorUtils.h"
 #include "app/App.h"
 #include "ui/FileTransferDialog.h"
+#include "ui/RemoteEditManager.h"
+#include "ui/RemoteFileBrowserDialog.h"
 #include "ui/KbdIntDialog.h"
 #include "ui/PasteConfirmDialog.h"
 #include "ui/ISessionDropTarget.h"
@@ -22,8 +25,10 @@
 #include <wx/sizer.h>
 #include <wx/string.h>
 
+#include <cstdlib>
 #include <future>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace ui {
@@ -109,10 +114,19 @@ void UIManager::UpdateConfig(const AppConfig& cfg)
 
     cfg_ = cfg;
     selectionActions_->UpdateWebSearchUrl(cfg_.webSearchUrl);
+
+    // Propagate to terminal panels and tile chrome.  Deduplicate tile updates
+    // by collecting unique tile pointers — multiple sessions share a tile.
+    std::unordered_set<TerminalTile*> visitedTiles;
     for (auto& [id, ui] : sessions_) {
         if (ui.panel)
-            ui.panel->ApplyConfig(cfg_);   // updates m_charSize synchronously
+            ui.panel->ApplyConfig(cfg_);
+        if (ui.tile && visitedTiles.insert(ui.tile).second)
+            ui.tile->ApplyConfig(cfg_);
     }
+
+    if (grid_) grid_->ApplyConfig(cfg_);
+
     if (fontChanged || paddingChanged)
         RefitAllTiles();
 }
@@ -195,6 +209,7 @@ void UIManager::OnSessionDestroyed(term::session::SessionId id)
         sm_.DetachSessionListener(id, ui->notifier.get());
         ui->notifier.reset();
     }
+    if (onSessionDestroyedCb_) onSessionDestroyedCb_(id);
     TearDownSessionUI(id);
 }
 
@@ -392,6 +407,7 @@ void UIManager::TakeSession(term::session::SessionId     id,
     sessions_.emplace(id, std::move(sui));
 
     targetTile->ShowX11Control(sm_.SupportsX11Forwarding(id), x11Active);
+    targetTile->SetTabSupportsFileTransfer(id, sm_.SupportsFileTransfer(id));
 
     if (onSessionListChanged_) onSessionListChanged_();
     RequestActivate(id);
@@ -491,6 +507,51 @@ void UIManager::ResetAndClearActiveTerminal() { ResetAndClearSession(activeId_);
 void UIManager::SendFilesForActive()          { SendFilesForSession(activeId_); }
 void UIManager::ReceiveFilesForActive()       { ReceiveFilesForSession(activeId_); }
 
+bool UIManager::ActiveSessionSupportsFileTransfer() const
+{
+    return activeId_ && sm_.SupportsFileTransfer(activeId_);
+}
+
+void UIManager::EditRemoteFileForSession(term::session::SessionId id)
+{
+    if (!editMgr_ || !id || !sm_.SupportsFileTransfer(id)) return;
+
+    const std::string remote = sm_.GetRemoteDescription(id);
+    RemoteFileBrowserDialog dlg(frame_, id, sm_, remote, "Edit");
+    if (dlg.ShowModal() != wxID_OK) return;
+
+    const auto& paths = dlg.GetSelectedPaths();
+    if (paths.empty()) return;
+    const std::string remotePath = paths.front();
+
+    std::string editorCommand = cfg_.remoteEditorCommand;
+    if (editorCommand.empty()) {
+        const char* envEditor = std::getenv("EDITOR");
+        if (envEditor) editorCommand = envEditor;
+    }
+    if (editorCommand.empty()) {
+        wxMessageBox(
+            wxString::FromUTF8(
+                "No remote editor configured.\n\n"
+                "Set one in Edit \xe2\x86\x92 Preferences \xe2\x86\x92 Behavior \xe2\x86\x92 Remote editor."),
+            "Edit Remote File", wxOK | wxICON_INFORMATION, frame_);
+        return;
+    }
+
+    editMgr_->OpenRemoteFile(id, remotePath, editorCommand,
+        [this](bool ok, std::string err) {
+            if (!ok) {
+                wxMessageBox(wxString::FromUTF8("Remote edit failed: " + err),
+                             "Edit Remote File", wxOK | wxICON_ERROR, frame_);
+            }
+        });
+}
+
+void UIManager::EditRemoteFileForActive()
+{
+    EditRemoteFileForSession(activeId_);
+}
+
 void UIManager::SaveSessionToFile(term::session::SessionId id)
 {
     if (!id) return;
@@ -576,7 +637,7 @@ void UIManager::TearDownSessionUI(term::session::SessionId id)
     SessionUI* ui = FindSessionUI(id);
     if (!ui) return;
 
-    if (onSessionListChanged_) onSessionListChanged_();
+    if (onSessionListChanged_ && !teardownInProgress_) onSessionListChanged_();
 
     if (ui->searchCtrl) ui->searchCtrl->SetBar(nullptr);
 
@@ -777,6 +838,9 @@ void UIManager::OnTerminalAction(TerminalActionEvent& evt)
         case TerminalAction::ReceiveFiles:
             ReceiveFilesForSession(evt.GetSessionId());
             break;
+        case TerminalAction::EditRemoteFile:
+            EditRemoteFileForSession(evt.GetSessionId());
+            break;
     }
 }
 
@@ -833,6 +897,17 @@ void UIManager::OnNewTabRequest(TerminalTile* tile)
 // Drag support
 // ---------------------------------------------------------------------------
 
+void UIManager::BeginDragGesture(const wxString& label, wxPoint screenAnchor)
+{
+    const auto& u = cfg_.uiColors;
+    dragGhost_ = std::make_unique<DragGhost>(frame_, label, toWx(u.tileInactive), toWx(u.tabText));
+    dragGhost_->MoveTo(screenAnchor);
+    dragGhost_->Show();
+    frame_->CaptureMouse();
+    frame_->Bind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
+    frame_->Bind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
+}
+
 void UIManager::OnTileDragStart(TerminalTile* tile, wxPoint screenAnchor)
 {
     if (!tile || dragState_) return;
@@ -852,13 +927,7 @@ void UIManager::OnTileDragStart(TerminalTile* tile, wxPoint screenAnchor)
     wxString label = wxString::FromUTF8(sm_.GetLabel(tile->GetActiveSessionId()));
     if (dragState_->ids.size() > 1)
         label += wxString::Format(" (+%d)", (int)dragState_->ids.size() - 1);
-    dragGhost_ = std::make_unique<DragGhost>(frame_, label);
-    dragGhost_->MoveTo(screenAnchor);
-    dragGhost_->Show();
-
-    frame_->CaptureMouse();
-    frame_->Bind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
-    frame_->Bind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
+    BeginDragGesture(label, screenAnchor);
 }
 
 void UIManager::OnTabDragStart(term::session::SessionId id, wxPoint screenAnchor)
@@ -867,14 +936,7 @@ void UIManager::OnTabDragStart(term::session::SessionId id, wxPoint screenAnchor
 
     dragState_ = DragState{{ id }};
 
-    wxString label = wxString::FromUTF8(sm_.GetLabel(id));
-    dragGhost_ = std::make_unique<DragGhost>(frame_, label);
-    dragGhost_->MoveTo(screenAnchor);
-    dragGhost_->Show();
-
-    frame_->CaptureMouse();
-    frame_->Bind(wxEVT_LEFT_UP, &UIManager::OnDragRelease, this);
-    frame_->Bind(wxEVT_MOTION,  &UIManager::OnDragMotion,  this);
+    BeginDragGesture(wxString::FromUTF8(sm_.GetLabel(id)), screenAnchor);
 }
 
 void UIManager::OnDragMotion(wxMouseEvent& evt)

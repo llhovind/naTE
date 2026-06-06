@@ -4,18 +4,9 @@
 #include <wx/dcbuffer.h>
 
 WrapControl::WrapControl(wxWindow* parent)
-    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE)
+    : TileIndicatorControl(parent)
 {
-    SetBackgroundStyle(wxBG_STYLE_PAINT);
-    SetMinSize(wxSize(20, 20));
-
-    Bind(wxEVT_PAINT,      &WrapControl::OnPaint,    this);
-    Bind(wxEVT_LEFT_DOWN,  &WrapControl::OnLeftDown, this);
-}
-
-void WrapControl::SetClickCallback(std::function<void()> cb)
-{
-    clickCb_ = std::move(cb);
+    Bind(wxEVT_PAINT, &WrapControl::OnPaint, this);
 }
 
 void WrapControl::SetWrapActive(bool active)
@@ -38,8 +29,7 @@ void WrapControl::OnPaint(wxPaintEvent&)
     const int    cx = sz.x / 2;
     const int    cy = sz.y / 2;
 
-    // Glyph colour: white when wrap is on (prominent), dimmed when off.
-    const wxColour glyphCol = wrapActive_ ? *wxWHITE : wxColour(160, 160, 160);
+    const wxColour glyphCol = wrapActive_ ? glyphActive_ : glyphInactive_;
     dc.SetPen(wxPen(glyphCol, 1));
 
     if (wrapActive_) {
@@ -62,7 +52,3 @@ void WrapControl::OnPaint(wxPaintEvent&)
     dc.DrawLine(cx - 7, cy + 5, cx - 1, cy + 5);
 }
 
-void WrapControl::OnLeftDown(wxMouseEvent&)
-{
-    if (clickCb_) clickCb_();
-}

@@ -1,9 +1,11 @@
 #include "ui/PreferencesDialog.h"
+#include <regex>
 #include <wx/button.h>
 #include <wx/checkbox.h>
 #include <wx/choice.h>
 #include <wx/fontdlg.h>
 #include <wx/gbsizer.h>
+#include <wx/msgdlg.h>
 #include <wx/notebook.h>
 #include <wx/panel.h>
 #include <wx/sizer.h>
@@ -144,8 +146,16 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
     m_webSearchCtrl->SetHint("e.g. https://duckduckgo.com/?q=");
     behSizer->Add(m_webSearchCtrl, {1, 1}, {1, 1}, wxEXPAND);
 
-    behSizer->Add(new wxStaticText(behPage, wxID_ANY, "Bell mode:"),
+    behSizer->Add(new wxStaticText(behPage, wxID_ANY, "Word selection pattern:"),
                   {2, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+    m_wordSelectCtrl = new wxTextCtrl(behPage, wxID_ANY,
+                                      wxString::FromUTF8(current.wordSelectRegex),
+                                      wxDefaultPosition, {320, -1});
+    m_wordSelectCtrl->SetHint("e.g. [^\\s]+ or [a-zA-Z0-9_-]+");
+    behSizer->Add(m_wordSelectCtrl, {2, 1}, {1, 1}, wxEXPAND);
+
+    behSizer->Add(new wxStaticText(behPage, wxID_ANY, "Bell mode:"),
+                  {3, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
     {
         wxArrayString bellOpts;
         bellOpts.Add("Visual flash");
@@ -161,11 +171,24 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
         }
         m_bellModeChoice->SetSelection(preselect);
     }
-    behSizer->Add(m_bellModeChoice, {2, 1}, {1, 1});
+    behSizer->Add(m_bellModeChoice, {3, 1}, {1, 1});
 
     m_copyOnSelectChk = new wxCheckBox(behPage, wxID_ANY, "Copy to primary selection on select (X11)");
     m_copyOnSelectChk->SetValue(current.copyOnSelect);
-    behSizer->Add(m_copyOnSelectChk, {3, 0}, {1, 2}, wxALIGN_CENTER_VERTICAL);
+    behSizer->Add(m_copyOnSelectChk, {4, 0}, {1, 2}, wxALIGN_CENTER_VERTICAL);
+
+    m_confirmCloseChk = new wxCheckBox(behPage, wxID_ANY,
+        "Ask for confirmation when closing windows with active sessions");
+    m_confirmCloseChk->SetValue(current.confirmCloseWindow);
+    behSizer->Add(m_confirmCloseChk, {5, 0}, {1, 2}, wxALIGN_CENTER_VERTICAL);
+
+    behSizer->Add(new wxStaticText(behPage, wxID_ANY, "Remote editor:"),
+                  {6, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+    m_remoteEditorCtrl = new wxTextCtrl(behPage, wxID_ANY,
+                                        wxString::FromUTF8(current.remoteEditorCommand),
+                                        wxDefaultPosition, {320, -1});
+    m_remoteEditorCtrl->SetHint("e.g. code --wait   (empty = $EDITOR)");
+    behSizer->Add(m_remoteEditorCtrl, {6, 1}, {1, 1}, wxEXPAND);
 
     behSizer->AddGrowableCol(1);
     auto* behOuter = new wxBoxSizer(wxVERTICAL);
@@ -273,6 +296,17 @@ void PreferencesDialog::OnBrowseFont(wxCommandEvent&)
 
 void PreferencesDialog::OnOk(wxCommandEvent& evt)
 {
+    // Validate the word selection regex before accepting.
+    const std::string wordRegex = m_wordSelectCtrl->GetValue().ToStdString();
+    try {
+        std::regex{wordRegex};
+    } catch (const std::regex_error& ex) {
+        wxMessageBox(wxString::FromUTF8("Invalid word selection pattern: ") +
+                     wxString::FromUTF8(ex.what()),
+                     "Preferences", wxOK | wxICON_ERROR, this);
+        return;
+    }
+
     const int sel = m_themeChoice->GetSelection();
     if (sel >= 0 && sel < static_cast<int>(themes_.size())) {
         result_.themeName    = themes_[sel].stem;
@@ -281,6 +315,7 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
         result_.cursorColour = themes_[sel].cursor;
         if (themes_[sel].hasPalette)
             result_.ansiColors = themes_[sel].ansiColors;
+        result_.uiColors = themes_[sel].deriveUiColors();
     }
 
     result_.fontFamily         = m_familyCtrl->GetValue().ToStdString();
@@ -307,7 +342,10 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
     result_.autoRestoreSession  = m_autoRestoreChk->IsChecked();
     result_.sessionSaveInterval = m_saveIntervalCtrl->GetValue();
     result_.webSearchUrl       = m_webSearchCtrl->GetValue().ToStdString();
-    result_.copyOnSelect       = m_copyOnSelectChk->IsChecked();
+    result_.wordSelectRegex    = wordRegex;
+    result_.copyOnSelect          = m_copyOnSelectChk->IsChecked();
+    result_.confirmCloseWindow    = m_confirmCloseChk->IsChecked();
+    result_.remoteEditorCommand   = m_remoteEditorCtrl->GetValue().ToStdString();
 
     evt.Skip();
 }

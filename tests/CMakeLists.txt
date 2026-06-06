@@ -14,10 +14,12 @@ add_executable(naTE_tests
     test_config.cpp
     test_env_utils.cpp
     test_url_scanner.cpp
+    test_word_selector.cpp
     ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
     ${CMAKE_SOURCE_DIR}/src/config/ColorScheme.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/UrlScanner.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/WordSelector.cpp
 )
 target_link_libraries(naTE_tests PRIVATE Catch2::Catch2)
 target_include_directories(naTE_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -47,12 +49,14 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/transport/SshTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/DocLayout.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/UrlScanner.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/WordSelector.cpp
 )
 
 add_executable(naTE_core_tests
     test_document.cpp
     test_session_manager.cpp
     test_x11_utils.cpp
+    test_cwd.cpp
     ${CORE_SOURCES}
 )
 target_link_libraries(naTE_core_tests PRIVATE Catch2::Catch2WithMain ${NATE_LIBSSH2_LINK})

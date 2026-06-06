@@ -1,21 +1,15 @@
 #include "ui/ReconnectBar.h"
-
+#include "ui/ColorUtils.h"
+#include "config/Config.h"
 #include <wx/button.h>
 #include <wx/dcclient.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 
-namespace {
-// Warm-amber background that reads as "something went wrong" without being
-// as alarming as red. Keeps reasonable contrast for white text.
-const wxColour kBgColour { 160,  80,   0 };
-const wxColour kTextColour{ 255, 255, 255 };
-} // namespace
-
 ReconnectBar::ReconnectBar(wxWindow* parent)
     : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE)
 {
-    SetBackgroundColour(kBgColour);
+    SetBackgroundColour(toWx(UiColors{}.reconnectBarBg));
 
     label_        = new wxStaticText(this, wxID_ANY, wxEmptyString,
                                      wxDefaultPosition, wxDefaultSize,
@@ -27,7 +21,7 @@ ReconnectBar::ReconnectBar(wxWindow* parent)
     closeBtn_     = new wxButton(this, wxID_ANY, "Close",
                                   wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
 
-    label_->SetForegroundColour(kTextColour);
+    label_->SetForegroundColour(toWx(UiColors{}.reconnectBarText));
 
     auto* sizer = new wxBoxSizer(wxHORIZONTAL);
     sizer->AddSpacer(6);
@@ -46,6 +40,13 @@ ReconnectBar::ReconnectBar(wxWindow* parent)
     closeBtn_->Bind(wxEVT_BUTTON,     &ReconnectBar::OnClose,     this);
 
     Hide();
+}
+
+void ReconnectBar::ApplyConfig(const AppConfig& cfg)
+{
+    SetBackgroundColour(toWx(cfg.uiColors.reconnectBarBg));
+    label_->SetForegroundColour(toWx(cfg.uiColors.reconnectBarText));
+    Refresh();
 }
 
 void ReconnectBar::ShowBar(const wxString& message)

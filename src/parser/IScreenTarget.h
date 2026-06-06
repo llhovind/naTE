@@ -1,4 +1,5 @@
 #pragma once
+#include <string>
 
 namespace term::parser {
 
@@ -8,6 +9,8 @@ public:
 
     virtual void OnEnterAltScreen()              {}
     virtual void OnExitAltScreen()               {}
+    // Fired when the shell emits an OSC 7 working-directory notification.
+    virtual void OnCwdChanged(const std::string& /*path*/) {}
     virtual void OnSetCursorVisibility(bool /*visible*/)        {}
     virtual void OnSetApplicationCursorKeys(bool /*enabled*/)   {}
     virtual void OnFunctionKey(int /*n*/)        {}

@@ -5,6 +5,7 @@
 #include "transport/X11Utils.h"
 
 #include <libssh2.h>
+#include <libssh2_sftp.h>
 
 #include <algorithm>
 #include <atomic>
@@ -12,6 +13,7 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -33,8 +35,9 @@ namespace term::transport {
 
 namespace {
 
-constexpr char kTermType[]     = "xterm-256color";
-constexpr int  kPollTimeoutMs  = 100;
+constexpr char kTermType[]            = "xterm-256color";
+constexpr int  kPollTimeoutMs         = 100;
+constexpr int  kCwdCaptureIntervalSec = 120;
 
 // TCP keepalive parameters applied to every established SSH socket.
 // The kernel sends the first probe after kTcpKeepIdleSec of silence, then
@@ -188,7 +191,7 @@ struct KbdIntAuxCtx {
     term::transport::ITransportTarget* target;
 };
 
-// Keyboard-interactive callback for blocking auxiliary sessions (SCP/SFTP).
+// Keyboard-interactive callback for blocking auxiliary sessions.
 // abstract points to a KbdIntAuxCtx on the caller's stack.
 void KbdIntAuxCallback(
     const char* name,        int name_len,
@@ -334,6 +337,30 @@ void SshTransport::WorkerThread()
     if (desc_.agentForwarding) SetupAgentForwarding();
     if (!StartShell())         return;
 
+    // Read the remote shell's PID from the first stdout line emitted by the
+    // startup command ("printf '%d\n' $$; ...").  Any bytes read past the
+    // newline are stashed in pidOvershoot_ and fed to the parser at the start
+    // of ReadWriteLoop so no terminal output is lost.
+    {
+        std::string acc;
+        while (running_ && acc.find('\n') == std::string::npos) {
+            char tmp[256];
+            const ssize_t n = libssh2_channel_read(channel_, tmp, sizeof(tmp));
+            if (n > 0)
+                acc.append(tmp, static_cast<size_t>(n));
+            else if (n == LIBSSH2_ERROR_EAGAIN)
+                PollUntilReady(kPollTimeoutMs);
+            else
+                break;
+        }
+        const auto nl = acc.find('\n');
+        if (nl != std::string::npos) {
+            try { remotePid_ = std::stoi(acc.substr(0, nl)); } catch (...) {}
+            if (nl + 1 < acc.size())
+                pidOvershoot_ = acc.substr(nl + 1);
+        }
+    }
+
     // SSH application-level keepalive is intentionally disabled.  SO_KEEPALIVE
     // (set in ConnectSocket) handles both dead-connection detection (~40 s) and
     // NAT state maintenance at the kernel level.  The libssh2 keepalive would
@@ -346,6 +373,18 @@ void SshTransport::WorkerThread()
 
     const auto disconnectReason = ReadWriteLoop();
 
+    // Signal cancellation so pending SFTP tasks see !running_ and self-cancel.
+    running_.store(false);
+    {
+        std::deque<SftpTask> pending;
+        {
+            std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
+            pending.swap(sftp_queue_);
+        }
+        for (auto& task : pending)
+            task();  // task checks !running_, calls onDone(false,...), returns false
+    }
+
     // For Interrupted (dead socket), SO_ERROR was consumed by the recv() that
     // detected the failure.  Subsequent poll() calls on the socket may no longer
     // return POLLERR, causing any blocking libssh2 operation to wait indefinitely
@@ -353,24 +392,37 @@ void SshTransport::WorkerThread()
     // teardown steps; just free the in-memory resources and close the fd.
     const bool socketDead = (disconnectReason == DisconnectReason::Interrupted);
 
-    // Best-effort: remove the remote vpcolumns file before tearing down.
-    // Only meaningful when the socket is still alive (Deliberate or Clean exit).
-    if (!socketDead && !vpcolumns_remote_path_.empty() && session_) {
+    // Best-effort teardown operations while the socket is still alive.
+    if (!socketDead && session_) {
         libssh2_session_set_blocking(session_, 1);
-        LIBSSH2_CHANNEL* ch = libssh2_channel_open_session(session_);
-        if (ch) {
-            const std::string rm = "rm -f '" + vpcolumns_remote_path_ + "'";
-            if (libssh2_channel_exec(ch, rm.c_str()) == 0) {
-                char discard[64];
-                while (libssh2_channel_read(ch, discard, sizeof(discard)) > 0) {}
-            }
-            libssh2_channel_free(ch);
+
+        if (sftp_) {
+            libssh2_sftp_shutdown(sftp_);
+            sftp_ = nullptr;
         }
+
+        if (!vpcolumns_remote_path_.empty()) {
+            LIBSSH2_CHANNEL* ch = libssh2_channel_open_session(session_);
+            if (ch) {
+                const std::string rm = "rm -f '" + vpcolumns_remote_path_ + "'";
+                if (libssh2_channel_exec(ch, rm.c_str()) == 0) {
+                    char discard[64];
+                    while (libssh2_channel_read(ch, discard, sizeof(discard)) > 0) {}
+                }
+                libssh2_channel_free(ch);
+            }
+        }
+
     }
 
     // Orderly teardown: send close/disconnect messages only when the socket is
     // alive.  On a dead socket these sends would block in libssh2's internal
     // poll() loop waiting for a response the server can never deliver.
+    if (sftp_) {
+        // sftp_ was not shut down cleanly (socket was dead); free local resources.
+        libssh2_sftp_shutdown(sftp_);
+        sftp_ = nullptr;
+    }
     if (channel_) {
         if (!socketDead)
             libssh2_channel_close(channel_);
@@ -934,6 +986,11 @@ bool SshTransport::StartShell()
     else if (!envPrefix.empty())
         effectiveCmd = envPrefix + effectiveCmd;
 
+    // Prepend a PID write as the very first action.  $$ is the PID of the
+    // process executing this command string; exec $SHELL preserves it, so
+    // remotePid_ stays valid for the lifetime of the session.
+    effectiveCmd = "printf '%d\\n' $$; " + effectiveCmd;
+
     int rc;
     while ((rc = libssh2_channel_exec(channel_, effectiveCmd.c_str()))
            == LIBSSH2_ERROR_EAGAIN) {
@@ -959,6 +1016,12 @@ DisconnectReason SshTransport::ReadWriteLoop()
     char buf[kReadBuf];
 
     DisconnectReason reason = DisconnectReason::Deliberate;
+
+    // Feed any bytes read past the PID newline during startup into the parser.
+    if (!pidOvershoot_.empty()) {
+        target_.OnData(pidOvershoot_);
+        pidOvershoot_.clear();
+    }
 
     while (running_) {
         // --- Service pending mid-session X11 forwarding request -----------
@@ -1094,6 +1157,8 @@ DisconnectReason SshTransport::ReadWriteLoop()
 
         // --- Drain writes + resize + vpcolumns ---------------------------
         DrainWriteQueue();
+        CaptureCwdPeriodic();
+        ServiceSftpQueue();
 
     }
 
@@ -1201,6 +1266,68 @@ void SshTransport::RemoteWriteVpCols(unsigned short cols)
     char discard[64];
     while (libssh2_channel_read(ch, discard, sizeof(discard)) > 0) {}
     libssh2_channel_free(ch);
+}
+
+std::string SshTransport::RemoteExecRead(const std::string& cmd)
+{
+    LIBSSH2_CHANNEL* ch = nullptr;
+    while (running_) {
+        ch = libssh2_channel_open_session(session_);
+        if (ch) break;
+        if (libssh2_session_last_error(session_, nullptr, nullptr, 0) != LIBSSH2_ERROR_EAGAIN)
+            return {};
+        if (!PollUntilReady(kPollTimeoutMs)) return {};
+    }
+    if (!ch) return {};
+
+    int rc;
+    while ((rc = libssh2_channel_exec(ch, cmd.c_str())) == LIBSSH2_ERROR_EAGAIN) {
+        if (!running_) { libssh2_channel_free(ch); return {}; }
+        PollUntilReady(kPollTimeoutMs);
+    }
+
+    std::string output;
+    if (rc == 0) {
+        char buf[4096];
+        ssize_t n;
+        while (running_) {
+            n = libssh2_channel_read(ch, buf, sizeof(buf));
+            if (n > 0)
+                output.append(buf, static_cast<size_t>(n));
+            else if (n == LIBSSH2_ERROR_EAGAIN)
+                PollUntilReady(kPollTimeoutMs);
+            else
+                break;
+        }
+        if (!output.empty() && output.back() == '\n')
+            output.pop_back();
+    }
+
+    libssh2_channel_free(ch);
+    return output;
+}
+
+void SshTransport::CaptureCwdPeriodic()
+{
+    using namespace std::chrono;
+    if (duration_cast<seconds>(steady_clock::now() - lastCwdCapture_).count()
+            < kCwdCaptureIntervalSec)
+        return;
+
+    // Update unconditionally so a transient failure doesn't cause a tight
+    // retry loop on every subsequent poll iteration.
+    lastCwdCapture_ = steady_clock::now();
+
+    if (remotePid_ <= 0 || !procFsAvailable_)
+        return;
+
+    const std::string cwd = RemoteExecRead(
+        "readlink /proc/" + std::to_string(remotePid_) + "/cwd");
+    if (cwd.empty()) {
+        procFsAvailable_ = false;  // /proc not available on this server
+        return;
+    }
+    target_.OnCwdChanged(cwd);
 }
 
 // ---------------------------------------------------------------------------
@@ -1317,655 +1444,407 @@ std::string SshTransport::GetRemoteDescription() const
     return desc_.username + "@" + desc_.host;
 }
 
+// ---------------------------------------------------------------------------
+// SFTP task state machines (nested types — have access to SshTransport privates)
+// ---------------------------------------------------------------------------
+
+// Formats a POSIX permission bitmask as a "drwxr-xr-x" style string.
+static std::string SftpFormatPermissions(unsigned long mode)
+{
+    char buf[11];
+    buf[0] = LIBSSH2_SFTP_S_ISDIR(mode) ? 'd' :
+             LIBSSH2_SFTP_S_ISLNK(mode) ? 'l' : '-';
+    const unsigned long bits[9] = {0400, 0200, 0100, 0040, 0020, 0010, 0004, 0002, 0001};
+    const char         chars[3] = {'r', 'w', 'x'};
+    for (int i = 0; i < 9; ++i)
+        buf[1 + i] = (mode & bits[i]) ? chars[i % 3] : '-';
+    buf[10] = '\0';
+    return buf;
+}
+
+// Formats a Unix timestamp as "YYYY-MM-DD HH:MM".
+static std::string SftpFormatModTime(unsigned long mtime)
+{
+    char buf[32];
+    const time_t t = static_cast<time_t>(mtime);
+    struct tm tm{};
+    localtime_r(&t, &tm);
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &tm);
+    return buf;
+}
+
+struct SshTransport::SftpListDirTask {
+    enum class State { InitSftp, OpenDir, ReadLoop };
+
+    SshTransport* self  = nullptr;
+    State         state = State::InitSftp;
+    std::string   path;
+    LIBSSH2_SFTP_HANDLE* handle = nullptr;
+    std::vector<RemoteDirEntry> entries;
+    std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone;
+
+    SftpListDirTask() = default;
+    SftpListDirTask(SftpListDirTask&&) = default;
+    SftpListDirTask& operator=(SftpListDirTask&&) = default;
+    SftpListDirTask(const SftpListDirTask&) = delete;
+    SftpListDirTask& operator=(const SftpListDirTask&) = delete;
+
+    ~SftpListDirTask() { if (handle) libssh2_sftp_closedir(handle); }
+
+    bool operator()()
+    {
+        if (!self->running_) {
+            if (handle) { libssh2_sftp_closedir(handle); handle = nullptr; }
+            onDone({}, "Session closed");
+            return false;
+        }
+
+        if (state == State::InitSftp) {
+            if (!self->sftp_) {
+                LIBSSH2_SFTP* s = libssh2_sftp_init(self->session_);
+                if (!s) {
+                    if (libssh2_session_last_errno(self->session_) == LIBSSH2_ERROR_EAGAIN)
+                        return true;
+                    onDone({}, "SFTP unavailable: " + self->LastSshError());
+                    return false;
+                }
+                self->sftp_ = s;
+            }
+            state = State::OpenDir;
+        }
+
+        if (state == State::OpenDir) {
+            LIBSSH2_SFTP_HANDLE* h = libssh2_sftp_opendir(self->sftp_, path.c_str());
+            if (!h) {
+                if (libssh2_session_last_errno(self->session_) == LIBSSH2_ERROR_EAGAIN)
+                    return true;
+                onDone({}, "Cannot list '" + path + "': " + self->LastSshError());
+                return false;
+            }
+            handle = h;
+            state  = State::ReadLoop;
+        }
+
+        // ReadLoop: drain all available entries this iteration.
+        char namebuf[512];
+        LIBSSH2_SFTP_ATTRIBUTES attrs{};
+        while (true) {
+            const int rc = libssh2_sftp_readdir_ex(
+                handle, namebuf, sizeof(namebuf) - 1, nullptr, 0, &attrs);
+            if (rc == LIBSSH2_ERROR_EAGAIN) return true;
+            if (rc == 0) {
+                libssh2_sftp_closedir(handle); handle = nullptr;
+                auto cb   = std::move(onDone);
+                auto ents = std::move(entries);
+                cb(std::move(ents), {});
+                return false;
+            }
+            if (rc < 0) {
+                libssh2_sftp_closedir(handle); handle = nullptr;
+                onDone({}, "Directory read error: " + self->LastSshError());
+                return false;
+            }
+            namebuf[rc] = '\0';
+            std::string name(namebuf, static_cast<size_t>(rc));
+            if (name == "." || name == "..") continue;
+
+            RemoteDirEntry e;
+            e.name = std::move(name);
+            if (attrs.flags & LIBSSH2_SFTP_ATTR_SIZE)
+                e.size = attrs.filesize;
+            if (attrs.flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) {
+                e.isDir       = LIBSSH2_SFTP_S_ISDIR(attrs.permissions) != 0;
+                e.isSymlink   = LIBSSH2_SFTP_S_ISLNK(attrs.permissions) != 0;
+                e.permissions = SftpFormatPermissions(attrs.permissions);
+            }
+            if (attrs.flags & LIBSSH2_SFTP_ATTR_ACMODTIME)
+                e.modTime = SftpFormatModTime(attrs.mtime);
+            entries.push_back(std::move(e));
+        }
+    }
+};
+
+struct SshTransport::SftpDownloadTask {
+    enum class State { InitSftp, OpenHandle, ReadLoop };
+
+    SshTransport* self  = nullptr;
+    State         state = State::InitSftp;
+    std::string   remotePath;
+    std::string   localPath;
+    LIBSSH2_SFTP_HANDLE* handle = nullptr;
+    std::ofstream out;
+    std::function<void(bool, std::string)> onDone;
+
+    SftpDownloadTask() = default;
+    SftpDownloadTask(SftpDownloadTask&&) = default;
+    SftpDownloadTask& operator=(SftpDownloadTask&&) = default;
+    SftpDownloadTask(const SftpDownloadTask&) = delete;
+    SftpDownloadTask& operator=(const SftpDownloadTask&) = delete;
+
+    ~SftpDownloadTask() { if (handle) libssh2_sftp_close(handle); }
+
+    bool operator()()
+    {
+        if (!self->running_) {
+            if (handle) { libssh2_sftp_close(handle); handle = nullptr; }
+            onDone(false, "Session closed");
+            return false;
+        }
+
+        if (state == State::InitSftp) {
+            if (!self->sftp_) {
+                LIBSSH2_SFTP* s = libssh2_sftp_init(self->session_);
+                if (!s) {
+                    if (libssh2_session_last_errno(self->session_) == LIBSSH2_ERROR_EAGAIN)
+                        return true;
+                    onDone(false, "SFTP unavailable: " + self->LastSshError());
+                    return false;
+                }
+                self->sftp_ = s;
+            }
+            out.open(localPath, std::ios::binary | std::ios::trunc);
+            if (!out) {
+                onDone(false, "Cannot create local file: " + localPath);
+                return false;
+            }
+            state = State::OpenHandle;
+        }
+
+        if (state == State::OpenHandle) {
+            LIBSSH2_SFTP_HANDLE* h = libssh2_sftp_open(
+                self->sftp_, remotePath.c_str(), LIBSSH2_FXF_READ, 0);
+            if (!h) {
+                if (libssh2_session_last_errno(self->session_) == LIBSSH2_ERROR_EAGAIN)
+                    return true;
+                onDone(false, "Cannot open '" + remotePath + "': " +
+                              self->LastSshError());
+                return false;
+            }
+            handle = h;
+            state  = State::ReadLoop;
+        }
+
+        // ReadLoop: drain all available data this iteration.
+        char buf[32768];
+        while (true) {
+            const ssize_t n = libssh2_sftp_read(handle, buf, sizeof(buf));
+            if (n == LIBSSH2_ERROR_EAGAIN) return true;
+            if (n < 0) {
+                libssh2_sftp_close(handle); handle = nullptr;
+                onDone(false, "Read error: " + self->LastSshError());
+                return false;
+            }
+            if (n == 0) {
+                libssh2_sftp_close(handle); handle = nullptr;
+                out.close();
+                onDone(true, localPath);
+                return false;
+            }
+            out.write(buf, n);
+        }
+    }
+};
+
+struct SshTransport::SftpUploadTask {
+    enum class State { InitSftp, OpenHandle, WriteLoop };
+
+    SshTransport* self  = nullptr;
+    State         state = State::InitSftp;
+    std::string   localPath;
+    std::string   remotePath;
+    LIBSSH2_SFTP_HANDLE* handle  = nullptr;
+    std::ifstream in;
+    char          buf[32768]{};
+    size_t        bufLen  = 0;
+    size_t        bufSent = 0;
+    std::function<void(bool, std::string)> onDone;
+
+    SftpUploadTask() = default;
+    SftpUploadTask(SftpUploadTask&&) = default;
+    SftpUploadTask& operator=(SftpUploadTask&&) = default;
+    SftpUploadTask(const SftpUploadTask&) = delete;
+    SftpUploadTask& operator=(const SftpUploadTask&) = delete;
+
+    ~SftpUploadTask() { if (handle) libssh2_sftp_close(handle); }
+
+    bool operator()()
+    {
+        if (!self->running_) {
+            if (handle) { libssh2_sftp_close(handle); handle = nullptr; }
+            onDone(false, "Session closed");
+            return false;
+        }
+
+        if (state == State::InitSftp) {
+            if (!self->sftp_) {
+                LIBSSH2_SFTP* s = libssh2_sftp_init(self->session_);
+                if (!s) {
+                    if (libssh2_session_last_errno(self->session_) == LIBSSH2_ERROR_EAGAIN)
+                        return true;
+                    onDone(false, "SFTP unavailable: " + self->LastSshError());
+                    return false;
+                }
+                self->sftp_ = s;
+            }
+            in.open(localPath, std::ios::binary);
+            if (!in) {
+                onDone(false, "Cannot open local file: " + localPath);
+                return false;
+            }
+            state = State::OpenHandle;
+        }
+
+        if (state == State::OpenHandle) {
+            LIBSSH2_SFTP_HANDLE* h = libssh2_sftp_open(
+                self->sftp_, remotePath.c_str(),
+                LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_TRUNC,
+                LIBSSH2_SFTP_S_IRUSR | LIBSSH2_SFTP_S_IWUSR |
+                LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH);  // 0644
+            if (!h) {
+                if (libssh2_session_last_errno(self->session_) == LIBSSH2_ERROR_EAGAIN)
+                    return true;
+                onDone(false, "Cannot open remote '" + remotePath + "' for write: " +
+                              self->LastSshError());
+                return false;
+            }
+            handle = h;
+            state  = State::WriteLoop;
+        }
+
+        // WriteLoop: send buffered data; read next chunk when buffer exhausted.
+        while (true) {
+            if (bufSent >= bufLen) {
+                in.read(buf, sizeof(buf));
+                bufLen  = static_cast<size_t>(in.gcount());
+                bufSent = 0;
+                if (bufLen == 0) {
+                    libssh2_sftp_close(handle); handle = nullptr;
+                    onDone(true, {});
+                    return false;
+                }
+            }
+            const ssize_t n = libssh2_sftp_write(handle, buf + bufSent, bufLen - bufSent);
+            if (n == LIBSSH2_ERROR_EAGAIN) return true;
+            if (n < 0) {
+                libssh2_sftp_close(handle); handle = nullptr;
+                onDone(false, "Write error: " + self->LastSshError());
+                return false;
+            }
+            bufSent += static_cast<size_t>(n);
+        }
+    }
+};
+
+// ---------------------------------------------------------------------------
+// ServiceSftpQueue — advances the front SFTP task by one step.
+// Must be called only from the worker thread.
+// ---------------------------------------------------------------------------
+
+void SshTransport::ServiceSftpQueue()
+{
+    SftpTask task;
+    {
+        std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
+        if (sftp_queue_.empty()) return;
+        task = std::move(sftp_queue_.front());
+        sftp_queue_.pop_front();
+    }
+    const bool again = task();
+    if (again) {
+        std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
+        sftp_queue_.push_front(std::move(task));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SFTP public dispatch methods
+// ---------------------------------------------------------------------------
+
 void SshTransport::SendFile(const std::string& localPath,
                             const std::string& remoteDir,
                             std::function<void(bool, std::string)> onDone)
 {
-    std::thread(&SshTransport::DoSendFile, this,
-                localPath, remoteDir, std::move(onDone)).detach();
-}
-
-// ---------------------------------------------------------------------------
-// DoSendFile — runs on a detached thread, uses a fresh blocking session
-// ---------------------------------------------------------------------------
-
-void SshTransport::DoSendFile(std::string localPath,
-                                  std::string remoteDir,
-                                  std::function<void(bool, std::string)> onDone)
-{
-    const auto fail = [&onDone](std::string msg) {
-        onDone(false, std::move(msg));
-    };
-
-    // --- Open local file and get size ---
-    std::ifstream file(localPath, std::ios::binary | std::ios::ate);
-    if (!file) {
-        fail("Cannot open local file: " + localPath);
-        return;
-    }
-    const auto fileSize = static_cast<libssh2_uint64_t>(file.tellg());
-    file.seekg(0);
-
-    // Extract the base filename for the remote path.
     std::string filename = localPath;
     if (const auto pos = filename.rfind('/'); pos != std::string::npos)
         filename = filename.substr(pos + 1);
+    std::string remotePath = remoteDir;
+    if (!remotePath.empty() && remotePath.back() != '/') remotePath += '/';
+    remotePath += filename;
 
-    // Ensure remoteDir ends with '/'.
-    if (!remoteDir.empty() && remoteDir.back() != '/')
-        remoteDir += '/';
-    const std::string remotePath = remoteDir + filename;
-
-    // --- Connect (direct or via ProxyJump) ---
-    int fd = -1;
-    bool ownFd = true;  // false when fd is owned by bastion_tunnel
-    std::unique_ptr<BastionTunnel> bastion_tunnel;
-
-    if (desc_.proxyJump) {
-        const std::string effectiveUser = desc_.proxyJump->user.empty()
-            ? desc_.username : desc_.proxyJump->user;
-        try {
-            bastion_tunnel = BastionTunnel::Connect(
-                *desc_.proxyJump, desc_.host, desc_.port,
-                effectiveUser, desc_.connectTimeoutSec, target_);
-        } catch (const TransportError& e) {
-            fail("SCP: " + e.message);
-            return;
-        }
-        fd    = bastion_tunnel->LocalFd();
-        ownFd = false;
-    } else {
-        const std::string portStr = std::to_string(desc_.port);
-        addrinfo hints{};
-        hints.ai_family   = AF_UNSPEC;
-        hints.ai_socktype = SOCK_STREAM;
-        addrinfo* res = nullptr;
-        if (::getaddrinfo(desc_.host.c_str(), portStr.c_str(), &hints, &res) != 0) {
-            fail("SCP: name resolution failed for " + desc_.host);
-            return;
-        }
-        for (addrinfo* ai = res; ai; ai = ai->ai_next) {
-            fd = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-            if (fd < 0) continue;
-            if (desc_.connectTimeoutSec > 0) {
-                timeval tv{};
-                tv.tv_sec = desc_.connectTimeoutSec;
-                ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-                ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-            }
-            if (::connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
-            ::close(fd);
-            fd = -1;
-        }
-        ::freeaddrinfo(res);
-        if (fd < 0) {
-            fail("SCP: could not connect to " + desc_.host + ":" + std::to_string(desc_.port));
-            return;
-        }
-    }
-
-    // --- libssh2 session (blocking mode) ---
-    LIBSSH2_SESSION* session = libssh2_session_init();
-    if (!session) {
-        if (ownFd) ::close(fd);
-        fail("SCP: libssh2_session_init failed");
-        return;
-    }
-    libssh2_session_set_blocking(session, 1);
-
-    if (libssh2_session_handshake(session, fd) != 0) {
-        char* msg = nullptr; int len = 0;
-        libssh2_session_last_error(session, &msg, &len, 0);
-        const std::string err = msg ? std::string(msg, static_cast<size_t>(len)) : "unknown";
-        libssh2_session_free(session);
-        if (ownFd) ::close(fd);
-        fail("SCP: handshake failed — " + err);
-        return;
-    }
-
-    // --- Host key verification (reuse existing TOFU logic) ---
-    {
-        std::string khErr;
-        if (!VerifyHostKey(session, khErr)) {
-            libssh2_session_disconnect(session, "Host key check failed");
-            libssh2_session_free(session);
-            if (ownFd) ::close(fd);
-            fail(khErr);
-            return;
-        }
-    }
-
-    // --- Authentication (blocking — no EAGAIN loops needed) ---
-    using AM = term::session::SshAuthMethod;
-    bool authenticated = false;
-    std::string authError;
-
-    if (desc_.authMethod == AM::Agent) {
-        LIBSSH2_AGENT* agent = libssh2_agent_init(session);
-        if (agent && libssh2_agent_connect(agent) == 0 &&
-            libssh2_agent_list_identities(agent) == 0) {
-            const auto preferred = LoadPreferredBlobs(desc_);
-            if (!preferred.empty()) {
-                bool anyMatched = false;
-                authenticated = AgentTryPreferredBlocking(
-                    agent, desc_.username.c_str(), preferred, &anyMatched);
-                if (!authenticated && !anyMatched)
-                    authenticated = AgentTryAllBlocking(agent, desc_.username.c_str());
-            } else {
-                authenticated = AgentTryAllBlocking(agent, desc_.username.c_str());
-            }
-        }
-        if (agent) {
-            libssh2_agent_disconnect(agent);
-            libssh2_agent_free(agent);
-        }
-        if (!authenticated)
-            authError = "SCP: agent authentication failed";
-
-    } else if (desc_.authMethod == AM::Password) {
-        authenticated = libssh2_userauth_password(
-            session, desc_.username.c_str(), desc_.password.c_str()) == 0;
-        if (!authenticated)
-            authError = "SCP: password authentication failed";
-
-    } else if (desc_.authMethod == AM::KbdInteractive) {
-        KbdIntAuxCtx ctx{ &target_ };
-        *libssh2_session_abstract(session) = &ctx;
-        authenticated = libssh2_userauth_keyboard_interactive(
-            session, desc_.username.c_str(), &KbdIntAuxCallback) == 0;
-        if (!authenticated)
-            authError = "SCP: keyboard-interactive authentication failed";
-
-    } else { // PrivateKey
-        const char* pubkey = desc_.publicKeyPath.empty()
-                             ? nullptr : desc_.publicKeyPath.c_str();
-        const char* passphrase = desc_.passphrase.empty()
-                                 ? nullptr : desc_.passphrase.c_str();
-        authenticated = libssh2_userauth_publickey_fromfile(
-            session, desc_.username.c_str(),
-            pubkey, desc_.privateKeyPath.c_str(), passphrase) == 0;
-        if (!authenticated)
-            authError = "SCP: private key authentication failed";
-    }
-
-    if (!authenticated) {
-        libssh2_session_disconnect(session, "Authentication failed");
-        libssh2_session_free(session);
-        if (ownFd) ::close(fd);
-        fail(authError);
-        return;
-    }
-
-    // --- SCP send ---
-    LIBSSH2_CHANNEL* channel = libssh2_scp_send64(
-        session, remotePath.c_str(), 0644, fileSize, 0, 0);
-    if (!channel) {
-        char* msg = nullptr; int len = 0;
-        libssh2_session_last_error(session, &msg, &len, 0);
-        const std::string err = msg ? std::string(msg, static_cast<size_t>(len)) : "unknown";
-        libssh2_session_disconnect(session, "SCP open failed");
-        libssh2_session_free(session);
-        if (ownFd) ::close(fd);
-        fail("SCP: could not open remote file '" + remotePath + "' — " + err);
-        return;
-    }
-
-    constexpr size_t kChunk = 32768;
-    std::vector<char> buf(kChunk);
-    bool writeError = false;
-    while (file) {
-        file.read(buf.data(), static_cast<std::streamsize>(kChunk));
-        const std::streamsize nRead = file.gcount();
-        if (nRead == 0) break;
-        size_t sent = 0;
-        while (sent < static_cast<size_t>(nRead)) {
-            ssize_t n = libssh2_channel_write(
-                channel, buf.data() + sent,
-                static_cast<size_t>(nRead) - sent);
-            if (n < 0) { writeError = true; break; }
-            sent += static_cast<size_t>(n);
-        }
-        if (writeError) break;
-    }
-
-    libssh2_channel_send_eof(channel);
-    libssh2_channel_wait_eof(channel);
-    libssh2_channel_wait_closed(channel);
-    libssh2_channel_free(channel);
-    libssh2_session_disconnect(session, "SCP complete");
-    libssh2_session_free(session);
-    if (ownFd) ::close(fd);
-    // bastion_tunnel RAII destructor closes the tunnel fd and stops bridge thread.
-
-    if (writeError) {
-        fail("SCP: write error while sending '" + filename + "'");
-        return;
-    }
-
-    onDone(true, {});
+    SftpUploadTask t;
+    t.self       = this;
+    t.localPath  = localPath;
+    t.remotePath = std::move(remotePath);
+    t.onDone     = std::move(onDone);
+    auto ptr = std::make_shared<SftpUploadTask>(std::move(t));
+    std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
+    sftp_queue_.emplace_back([ptr]() mutable { return (*ptr)(); });
 }
 
 // ---------------------------------------------------------------------------
-// SshSession — RAII helper shared by receive and list operations
-// ---------------------------------------------------------------------------
-
-namespace {
-
-// Wraps the connection + session lifecycle for short-lived auxiliary sessions.
-// Does NOT own the worker thread state; designed for detached-thread use only.
-struct SshSession {
-    LIBSSH2_SESSION* session = nullptr;
-    int              fd      = -1;
-    // Non-null when the session is tunnelled through a ProxyJump host.
-    // Must outlive `session` — destroyed last.
-    std::unique_ptr<term::transport::BastionTunnel> bastion_tunnel;
-
-    ~SshSession()
-    {
-        if (session) {
-            libssh2_session_disconnect(session, "done");
-            libssh2_session_free(session);
-        }
-        if (fd >= 0) ::close(fd);
-        // bastion_tunnel destroyed after session/fd (unique_ptr dtor order)
-    }
-
-    // Non-copyable, movable.
-    SshSession(const SshSession&)            = delete;
-    SshSession& operator=(const SshSession&) = delete;
-    SshSession(SshSession&&)                 = default;
-    SshSession& operator=(SshSession&&)      = default;
-    SshSession()                             = default;
-};
-
-// Shell-quotes a path for safe use as a command argument.
-std::string ShellQuote(const std::string& s)
-{
-    std::string r = "'";
-    for (char c : s) {
-        if (c == '\'') r += "'\\''";
-        else           r += c;
-    }
-    r += "'";
-    return r;
-}
-
-// Parses the stdout of "ls -la" into RemoteDirEntry values.
-// Skips the "total" header line and the "." / ".." entries.
-std::vector<term::transport::RemoteDirEntry> ParseLsOutput(const std::string& output)
-{
-    std::vector<term::transport::RemoteDirEntry> entries;
-    std::istringstream ss(output);
-    std::string line;
-    while (std::getline(ss, line)) {
-        if (line.empty() || line.compare(0, 6, "total ") == 0) continue;
-
-        std::istringstream ls(line);
-        std::vector<std::string> toks;
-        std::string tok;
-        while (ls >> tok) toks.push_back(tok);
-        if (toks.size() < 9) continue;
-
-        // Build name from field 8 onwards (handles spaces in filenames).
-        std::string name;
-        for (size_t i = 8; i < toks.size(); ++i) {
-            if (!name.empty()) name += ' ';
-            name += toks[i];
-        }
-        // Strip symlink target (" -> dest").
-        if (const auto pos = name.find(" -> "); pos != std::string::npos)
-            name = name.substr(0, pos);
-
-        if (name == "." || name == "..") continue;
-
-        term::transport::RemoteDirEntry e;
-        e.name        = std::move(name);
-        e.permissions = toks[0];
-        e.isDir       = (toks[0][0] == 'd');
-        try { e.size = std::stoull(toks[4]); } catch (...) {}
-        entries.push_back(std::move(e));
-    }
-    return entries;
-}
-
-} // namespace
-
-// ---------------------------------------------------------------------------
-// OpenAuxSession — shared setup for ReceiveFile and ListRemoteDirectory
-// ---------------------------------------------------------------------------
-
-// Returns true and populates *out on success; returns false and sets *outErr
-// on any failure. Does not call onDone — that is the caller's responsibility.
-// knownHostsPath must be provided by the caller (use SshTransport::KnownHostsPath()).
-static bool OpenAuxSession(const term::session::SshDesc& desc,
-                           const std::string& knownHostsPath,
-                           SshSession* out, std::string* outErr,
-                           term::transport::ITransportTarget* target = nullptr)
-{
-    using AM = term::session::SshAuthMethod;
-
-    int fd = -1;
-
-    if (desc.proxyJump) {
-        // Route through the bastion host via a direct-tcpip tunnel.
-        const std::string effectiveUser = desc.proxyJump->user.empty()
-            ? desc.username : desc.proxyJump->user;
-        try {
-            out->bastion_tunnel = term::transport::BastionTunnel::Connect(
-                *desc.proxyJump, desc.host, desc.port,
-                effectiveUser, desc.connectTimeoutSec,
-                *target);
-        } catch (const term::transport::TransportError& e) {
-            *outErr = e.message;
-            return false;
-        }
-        fd = out->bastion_tunnel->LocalFd();
-    } else {
-        const std::string portStr = std::to_string(desc.port);
-        addrinfo hints{};
-        hints.ai_family   = AF_UNSPEC;
-        hints.ai_socktype = SOCK_STREAM;
-        addrinfo* res = nullptr;
-        if (::getaddrinfo(desc.host.c_str(), portStr.c_str(), &hints, &res) != 0) {
-            *outErr = "SSH: name resolution failed for " + desc.host;
-            return false;
-        }
-        for (addrinfo* ai = res; ai; ai = ai->ai_next) {
-            fd = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-            if (fd < 0) continue;
-            if (desc.connectTimeoutSec > 0) {
-                timeval tv{};
-                tv.tv_sec = desc.connectTimeoutSec;
-                ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-                ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-            }
-            if (::connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
-            ::close(fd);
-            fd = -1;
-        }
-        ::freeaddrinfo(res);
-        if (fd < 0) {
-            *outErr = "SSH: could not connect to " + desc.host + ":" + portStr;
-            return false;
-        }
-        out->fd = fd;
-    }
-
-    // For ProxyJump, `fd` is owned by bastion_tunnel and must not be closed here.
-    const bool ownFd = !desc.proxyJump.has_value();
-
-    LIBSSH2_SESSION* session = libssh2_session_init();
-    if (!session) {
-        if (ownFd) ::close(fd);
-        *outErr = "SSH: libssh2_session_init failed";
-        return false;
-    }
-    libssh2_session_set_blocking(session, 1);
-
-    if (libssh2_session_handshake(session, fd) != 0) {
-        char* msg = nullptr; int len = 0;
-        libssh2_session_last_error(session, &msg, &len, 0);
-        *outErr = "SSH: handshake failed — ";
-        if (msg) outErr->append(msg, static_cast<size_t>(len));
-        else     *outErr += "unknown";
-        libssh2_session_free(session);
-        if (ownFd) ::close(fd);
-        return false;
-    }
-
-    // Host key verification reuses the same TOFU store as the main session.
-    // We need to call VerifyHostKey, but it's a member function. Duplicate the
-    // TOFU check inline using the same known_hosts file.
-    {
-        LIBSSH2_KNOWNHOSTS* kh = libssh2_knownhost_init(session);
-        if (kh) {
-            const std::string& khPath = knownHostsPath;
-            libssh2_knownhost_readfile(kh, khPath.c_str(), LIBSSH2_KNOWNHOST_FILE_OPENSSH);
-
-            size_t keyLen = 0; int keyType = 0;
-            const char* key = libssh2_session_hostkey(session, &keyLen, &keyType);
-            const int khType = (keyType == LIBSSH2_HOSTKEY_TYPE_RSA)
-                               ? LIBSSH2_KNOWNHOST_KEY_SSHRSA
-                               : LIBSSH2_KNOWNHOST_KEY_SSHDSS;
-
-            libssh2_knownhost* found = nullptr;
-            const int chk = key
-                ? libssh2_knownhost_checkp(kh, desc.host.c_str(),
-                                           static_cast<int>(desc.port),
-                                           key, keyLen,
-                                           LIBSSH2_KNOWNHOST_TYPE_PLAIN |
-                                           LIBSSH2_KNOWNHOST_KEYENC_RAW | khType,
-                                           &found)
-                : LIBSSH2_KNOWNHOST_CHECK_FAILURE;
-
-            if (chk == LIBSSH2_KNOWNHOST_CHECK_NOTFOUND && key) {
-                libssh2_knownhost_addc(kh, desc.host.c_str(), nullptr,
-                                       key, keyLen, nullptr, 0,
-                                       LIBSSH2_KNOWNHOST_TYPE_PLAIN |
-                                       LIBSSH2_KNOWNHOST_KEYENC_RAW | khType,
-                                       nullptr);
-                libssh2_knownhost_writefile(kh, khPath.c_str(),
-                                            LIBSSH2_KNOWNHOST_FILE_OPENSSH);
-            } else if (chk == LIBSSH2_KNOWNHOST_CHECK_MISMATCH) {
-                libssh2_knownhost_free(kh);
-                *outErr = "SSH: host key mismatch for " + desc.host;
-                libssh2_session_free(session);
-                if (ownFd) ::close(fd);
-                return false;
-            }
-            libssh2_knownhost_free(kh);
-        }
-    }
-
-    // Authentication.
-    bool authenticated = false;
-    if (desc.authMethod == AM::Agent) {
-        LIBSSH2_AGENT* agent = libssh2_agent_init(session);
-        if (agent && libssh2_agent_connect(agent) == 0 &&
-            libssh2_agent_list_identities(agent) == 0) {
-            const auto preferred = LoadPreferredBlobs(desc);
-            if (!preferred.empty()) {
-                bool anyMatched = false;
-                authenticated = AgentTryPreferredBlocking(
-                    agent, desc.username.c_str(), preferred, &anyMatched);
-                if (!authenticated && !anyMatched)
-                    authenticated = AgentTryAllBlocking(agent, desc.username.c_str());
-            } else {
-                authenticated = AgentTryAllBlocking(agent, desc.username.c_str());
-            }
-        }
-        if (agent) { libssh2_agent_disconnect(agent); libssh2_agent_free(agent); }
-        if (!authenticated) *outErr = "SSH: agent authentication failed";
-
-    } else if (desc.authMethod == AM::Password) {
-        authenticated = libssh2_userauth_password(
-            session, desc.username.c_str(), desc.password.c_str()) == 0;
-        if (!authenticated) *outErr = "SSH: password authentication failed";
-
-    } else if (desc.authMethod == AM::KbdInteractive) {
-        if (!target) {
-            *outErr = "SSH: keyboard-interactive auth not supported for this operation";
-        } else {
-            KbdIntAuxCtx ctx{ target };
-            *libssh2_session_abstract(session) = &ctx;
-            authenticated = libssh2_userauth_keyboard_interactive(
-                session, desc.username.c_str(), &KbdIntAuxCallback) == 0;
-            if (!authenticated) *outErr = "SSH: keyboard-interactive authentication failed";
-        }
-
-    } else { // PrivateKey
-        const char* pub = desc.publicKeyPath.empty()  ? nullptr : desc.publicKeyPath.c_str();
-        const char* pp  = desc.passphrase.empty()     ? nullptr : desc.passphrase.c_str();
-        authenticated = libssh2_userauth_publickey_fromfile(
-            session, desc.username.c_str(),
-            pub, desc.privateKeyPath.c_str(), pp) == 0;
-        if (!authenticated) *outErr = "SSH: private key authentication failed";
-    }
-
-    if (!authenticated) {
-        libssh2_session_disconnect(session, "Authentication failed");
-        libssh2_session_free(session);
-        if (ownFd) ::close(fd);
-        return false;
-    }
-
-    out->session = session;
-    if (ownFd) out->fd = fd;
-    return true;
-}
-
-// ---------------------------------------------------------------------------
-// ReceiveFile — public + DoReceiveFile
+// Remaining SFTP dispatch methods
 // ---------------------------------------------------------------------------
 
 void SshTransport::ReceiveFile(const std::string& remotePath,
                                const std::string& localDir,
                                std::function<void(bool, std::string)> onDone)
 {
-    std::thread(&SshTransport::DoReceiveFile, this,
-                remotePath, localDir, std::move(onDone)).detach();
-}
-
-void SshTransport::DoReceiveFile(std::string remotePath,
-                                 std::string localDir,
-                                 std::function<void(bool, std::string)> onDone)
-{
-    const auto fail = [&onDone](std::string msg) {
-        onDone(false, std::move(msg));
-    };
-
-    SshSession aux;
-    std::string authErr;
-    if (!OpenAuxSession(desc_, KnownHostsPath(), &aux, &authErr, &target_)) {
-        fail(std::move(authErr));
-        return;
-    }
-
-    // Derive local filename from the last path component of remotePath.
     std::string filename = remotePath;
     if (const auto pos = filename.rfind('/'); pos != std::string::npos)
         filename = filename.substr(pos + 1);
-
     std::string localPath = localDir;
     if (!localPath.empty() && localPath.back() != '/') localPath += '/';
     localPath += filename;
 
-    libssh2_struct_stat sb{};
-    LIBSSH2_CHANNEL* channel = libssh2_scp_recv2(
-        aux.session, remotePath.c_str(), &sb);
-    if (!channel) {
-        char* msg = nullptr; int len = 0;
-        libssh2_session_last_error(aux.session, &msg, &len, 0);
-        std::string err = "SCP: could not open remote file '" + remotePath + "' — ";
-        if (msg) err.append(msg, static_cast<size_t>(len));
-        else     err += "unknown";
-        fail(std::move(err));
-        return;
-    }
-
-    std::ofstream out(localPath, std::ios::binary | std::ios::trunc);
-    if (!out) {
-        libssh2_channel_close(channel);
-        libssh2_channel_free(channel);
-        fail("Cannot create local file: " + localPath);
-        return;
-    }
-
-    // Read exactly sb.st_size bytes. Reading until n==0 causes a protocol
-    // deadlock: after sending the file data, scp(1) sends a trailing '\0'
-    // and then blocks in response() waiting for our '\0' acknowledgment.
-    // Our loop would read the server's '\0' and then block waiting for
-    // another byte that never arrives — neither side progresses.
-    constexpr size_t kChunk = 32768;
-    std::vector<char> buf(kChunk);
-    bool readError = false;
-    auto remaining = static_cast<libssh2_uint64_t>(sb.st_size);
-    while (remaining > 0) {
-        const size_t toRead = static_cast<size_t>(
-            remaining < static_cast<libssh2_uint64_t>(kChunk) ? remaining : kChunk);
-        ssize_t n = libssh2_channel_read(channel, buf.data(), toRead);
-        if (n < 0) { readError = true; break; }
-        if (n == 0) continue;
-        out.write(buf.data(), n);
-        remaining -= static_cast<libssh2_uint64_t>(n);
-    }
-    out.close();
-
-    // Send our '\0' ack so the remote scp's response() call unblocks and the
-    // server can close its end cleanly.
-    if (!readError) {
-        const char ack = '\0';
-        libssh2_channel_write(channel, &ack, 1);
-    }
-
-    libssh2_channel_close(channel);
-    libssh2_channel_wait_closed(channel);
-    libssh2_channel_free(channel);
-
-    if (readError) {
-        fail("SCP: read error while receiving '" + filename + "'");
-        return;
-    }
-
-    onDone(true, {});
+    SftpDownloadTask t;
+    t.self       = this;
+    t.remotePath = remotePath;
+    t.localPath  = std::move(localPath);
+    t.onDone     = std::move(onDone);
+    auto ptr = std::make_shared<SftpDownloadTask>(std::move(t));
+    std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
+    sftp_queue_.emplace_back([ptr]() mutable { return (*ptr)(); });
 }
-
-// ---------------------------------------------------------------------------
-// ListRemoteDirectory — public + DoListRemoteDirectory
-// ---------------------------------------------------------------------------
 
 void SshTransport::ListRemoteDirectory(
     const std::string& remotePath,
     std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone)
 {
-    std::thread(&SshTransport::DoListRemoteDirectory, this,
-                remotePath, std::move(onDone)).detach();
+    SftpListDirTask t;
+    t.self   = this;
+    t.path   = remotePath;
+    t.onDone = std::move(onDone);
+    auto ptr = std::make_shared<SftpListDirTask>(std::move(t));
+    std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
+    sftp_queue_.emplace_back([ptr]() mutable { return (*ptr)(); });
 }
 
-void SshTransport::DoListRemoteDirectory(
-    std::string remotePath,
-    std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone)
+void SshTransport::SftpDownloadFile(const std::string& remotePath,
+                                    const std::string& localPath,
+                                    std::function<void(bool, std::string)> onDone)
 {
-    const auto fail = [&onDone](std::string msg) {
-        onDone({}, std::move(msg));
-    };
+    SftpDownloadTask t;
+    t.self       = this;
+    t.remotePath = remotePath;
+    t.localPath  = localPath;
+    t.onDone     = std::move(onDone);
+    auto ptr = std::make_shared<SftpDownloadTask>(std::move(t));
+    std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
+    sftp_queue_.emplace_back([ptr]() mutable { return (*ptr)(); });
+}
 
-    SshSession aux;
-    std::string authErr;
-    if (!OpenAuxSession(desc_, KnownHostsPath(), &aux, &authErr, &target_)) {
-        fail(std::move(authErr));
-        return;
-    }
-
-    LIBSSH2_CHANNEL* channel = libssh2_channel_open_session(aux.session);
-    if (!channel) {
-        fail("SSH: could not open exec channel");
-        return;
-    }
-
-    const std::string cmd = "ls -la " + ShellQuote(remotePath);
-    if (libssh2_channel_exec(channel, cmd.c_str()) != 0) {
-        libssh2_channel_close(channel);
-        libssh2_channel_free(channel);
-        fail("SSH: exec failed for: " + cmd);
-        return;
-    }
-
-    std::string output;
-    constexpr size_t kChunk = 32768;
-    std::vector<char> buf(kChunk);
-    while (true) {
-        ssize_t n = libssh2_channel_read(channel, buf.data(), kChunk);
-        if (n == 0) break;
-        if (n < 0) break;
-        output.append(buf.data(), static_cast<size_t>(n));
-    }
-    libssh2_channel_close(channel);
-    libssh2_channel_wait_closed(channel);
-    libssh2_channel_free(channel);
-
-    auto entries = ParseLsOutput(output);
-    onDone(std::move(entries), {});
+void SshTransport::SftpUploadFile(const std::string& localPath,
+                                  const std::string& remotePath,
+                                  std::function<void(bool, std::string)> onDone)
+{
+    SftpUploadTask t;
+    t.self       = this;
+    t.localPath  = localPath;
+    t.remotePath = remotePath;
+    t.onDone     = std::move(onDone);
+    auto ptr = std::make_shared<SftpUploadTask>(std::move(t));
+    std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
+    sftp_queue_.emplace_back([ptr]() mutable { return (*ptr)(); });
 }
 
 } // namespace term::transport

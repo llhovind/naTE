@@ -50,21 +50,34 @@ struct ColorScheme {
     // palette is absent (all zeros).
     std::array<Rgb, 16> ansiColors = {};
 
-    bool hasPalette    = false;  // true iff a [Palette] or [ANSI] section was parsed
-    bool hasDirectAnsi = false;  // true iff an [ANSI] section specified colors directly
+    bool hasPalette        = false;  // true iff a [Palette] or [ANSI] section was parsed
+    bool hasDirectAnsi     = false;  // true iff an [ANSI] section specified colors directly
+    bool hasPaletteSection = false;  // true iff a [Palette] section populated palette[]
 
     // Compute ansiColors[] from palette[] using the fixed base16 mapping.
     // Call after loading palette[] if you want ANSI colours.
     void computeAnsiColors();
 
+    // Derive UiColors (chrome element color roles) from the active palette.
+    // Uses the base16 palette when hasPaletteSection is true, falls back to
+    // ANSI semantic slots when hasDirectAnsi is true, and returns Solarized Dark
+    // defaults only for themes with no palette at all.
+    UiColors deriveUiColors() const;
+
     // Load a single theme from a .ini file path.
     // The stem is derived from the filename. Returns nullopt on parse failure.
     static std::optional<ColorScheme> loadFromFile(const std::string& path);
 
+    // Load a base16 theme from a YAML file (.yaml / .yml).
+    // Supports both the flat v0.x format (scheme: / baseXX: at top level) and the
+    // tinted-theming v2 format (name: / palette: block with indented baseXX: keys).
+    // Returns nullopt when no palette entries are found.
+    static std::optional<ColorScheme> loadFromYaml(const std::string& path);
+
     // Write this theme to a .ini file.
     void saveToFile(const std::string& path) const;
 
-    // Scan a directory for *.ini files and return all successfully loaded themes,
-    // sorted alphabetically by display name.
+    // Scan a directory for *.ini, *.yaml, and *.yml theme files and return all
+    // successfully loaded themes, sorted alphabetically by display name.
     static std::vector<ColorScheme> scanDirectory(const std::string& dir);
 };

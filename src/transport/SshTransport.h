@@ -8,6 +8,7 @@
 #include "transport/TransportError.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -20,6 +21,7 @@
 struct _LIBSSH2_SESSION;
 struct _LIBSSH2_CHANNEL;
 struct _LIBSSH2_AGENT;
+struct _LIBSSH2_SFTP;
 
 namespace term::transport {
 
@@ -73,6 +75,12 @@ public:
     void        ListRemoteDirectory(
                     const std::string& remotePath,
                     std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone) override;
+    void        SftpDownloadFile(const std::string& remotePath,
+                                 const std::string& localPath,
+                                 std::function<void(bool, std::string)> onDone) override;
+    void        SftpUploadFile(const std::string& localPath,
+                               const std::string& remotePath,
+                               std::function<void(bool, std::string)> onDone) override;
 
     // Called by the static X11 callback when the server opens an X11 channel.
     // Worker-thread-only; accesses x11_channels_ without locking.
@@ -153,6 +161,14 @@ private:
     // Must be called only from the worker thread.
     void RemoteWriteVpCols(unsigned short cols);
 
+    // Execs cmd on a short-lived channel and returns trimmed stdout, or "" on
+    // failure.  Must be called only from the worker thread (non-blocking mode).
+    std::string RemoteExecRead(const std::string& cmd);
+
+    // Runs readlink /proc/{remotePid_}/cwd and fires OnCwdChanged if the
+    // capture interval has elapsed.  Must be called only from the worker thread.
+    void CaptureCwdPeriodic();
+
     // Connects a Unix or TCP socket to the local X11 server (parses $DISPLAY).
     // Returns the socket fd on success, -1 if no display is available.
     // Worker-thread-only.
@@ -168,21 +184,15 @@ private:
     // with the SSH socket already at index 0.
     void ServiceX11Channels(char* buf, size_t bufLen);
 
-    // Opens a fresh libssh2 session, authenticates, and transfers one file via
-    // SCP. Runs on a detached thread; delivers result via wxTheApp->CallAfter.
-    void DoSendFile(std::string localPath,
-                    std::string remoteDir,
-                    std::function<void(bool, std::string)> onDone);
+    // Advances the front task in sftp_queue_ by one step.
+    // Must be called only from the worker thread.
+    void ServiceSftpQueue();
 
-    // Receives one remote file into localDir via SCP on a fresh session.
-    void DoReceiveFile(std::string remotePath,
-                       std::string localDir,
-                       std::function<void(bool, std::string)> onDone);
-
-    // Lists remotePath via an SSH exec channel on a fresh session.
-    void DoListRemoteDirectory(
-             std::string remotePath,
-             std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone);
+    // SFTP task state machines — defined in SshTransport.cpp.
+    // Declared as nested types so they have access to private members.
+    struct SftpListDirTask;
+    struct SftpDownloadTask;
+    struct SftpUploadTask;
 
     ITransportTarget&                    target_;
     term::session::SshDesc               desc_;
@@ -197,6 +207,7 @@ private:
     _LIBSSH2_SESSION*           session_  = nullptr;
     _LIBSSH2_CHANNEL*           channel_  = nullptr;
     _LIBSSH2_AGENT*             agent_    = nullptr;
+    _LIBSSH2_SFTP*              sftp_     = nullptr;  // lazily initialised on first SFTP op
     int                         sock_fd_  = -1;
     // Non-null when the main session is tunnelled through a ProxyJump host.
     // Destroyed after the worker thread exits so the bridge outlives the session.
@@ -213,6 +224,16 @@ private:
     // SSH agent forwarding — worker-thread-only after Start().
     std::vector<AgentChannel>   agent_channels_;
 
+    // Worker-thread-only: timestamp of the last periodic CWD capture.
+    // Default-initialised to epoch so the first capture fires immediately.
+    std::chrono::steady_clock::time_point lastCwdCapture_{};
+    // PID of the remote shell process, read from the first stdout line at startup.
+    int  remotePid_       = 0;
+    // Set false on the first readlink failure so we stop trying on non-Linux servers.
+    bool procFsAvailable_ = true;
+    // Bytes read past the PID newline during startup; drained at ReadWriteLoop start.
+    std::string pidOvershoot_;
+
     // Shared between UI thread (Write/Resize/OnViewportColsChanged) and worker.
     std::mutex                  queue_mutex_;
     std::deque<std::string>     write_queue_;
@@ -221,6 +242,12 @@ private:
     unsigned short              pending_rows_      = 0;
     bool                        vpcolumns_pending_ = false;
     unsigned short              pending_vpcols_    = 0;
+
+    // SFTP task queue — shared between UI thread (enqueue) and worker (dequeue+advance).
+    // Tasks return true to be called again next iteration, false when complete.
+    using SftpTask = std::function<bool()>;
+    std::mutex                  sftp_queue_mutex_;
+    std::deque<SftpTask>        sftp_queue_;
 };
 
 } // namespace term::transport

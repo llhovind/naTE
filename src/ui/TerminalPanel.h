@@ -92,12 +92,14 @@ private:
     void OnScroll(wxScrollEvent&);
     void OnMouseWheel(wxMouseEvent&);
     void OnLeftDown(wxMouseEvent&);
+    void OnLeftDClick(wxMouseEvent&);
     void OnLeftUp(wxMouseEvent&);
     void OnMouseMove(wxMouseEvent&);
     void OnLeaveWindow(wxMouseEvent&);
     void OnMiddleDown(wxMouseEvent&);
     void OnRightDown(wxMouseEvent&);
     void OnSelScrollTimer(wxTimerEvent&);
+    void OnHScrollAnim(wxTimerEvent&);
     void OnKeyDown(wxKeyEvent&);
     void OnChar(wxKeyEvent&);
     void OnFocus(wxFocusEvent&);
@@ -149,6 +151,14 @@ private:
     bool    m_selecting_    = false;
     wxTimer m_selScrollTimer_;
     wxPoint m_lastMousePos_{-1, -1};
+
+    // Double/triple-click tracking
+    wxLongLong m_lastDClickMs_    = 0;
+    wxPoint    m_lastDClickPixel_ = {-1, -1};
+
+    // Horizontal scroll animation
+    wxTimer m_hScrollAnimTimer_;
+    int     m_hScrollAnimTarget_ = 0;
 
     bool m_hasFocus_            = false;
     bool m_inBroadcast_         = false;

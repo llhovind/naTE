@@ -9,6 +9,7 @@
 #include "input/InputRouter.h"
 #include "session/Connection.h"
 #include "session/ISessionObserver.h"
+#include "ui/ColorUtils.h"
 #include "ui/ISessionDropTarget.h"
 #include "ui/NewConnectionDialog.h"
 
@@ -39,8 +40,13 @@ public:
     // has already populated by this point).
     void SetUIManager(ui::UIManager* ui);
 
-    // Called by App::ApplyPreferences to keep the frame's config copy current.
-    void UpdateConfig(const AppConfig& cfg) { m_cfg = cfg; }
+    // Called by App::ApplyPreferences to keep the frame's config copy current
+    // and re-apply any theme-derived chrome colors.
+    void UpdateConfig(const AppConfig& cfg) {
+        m_cfg = cfg;
+        SetBackgroundColour(toWx(cfg.uiColors.frameBackground));
+        Refresh();
+    }
 
     // Called by UIManager to keep the wrap mode menu check in sync.
     void SyncwrapModeMenuItem(bool checked);
@@ -99,6 +105,7 @@ private:
     void OnSaveSessionFileTerminal(wxCommandEvent&);
     void OnSendFiles(wxCommandEvent&);
     void OnReceiveFiles(wxCommandEvent&);
+    void OnEditRemoteFile(wxCommandEvent&);
     void OnOpenInNewTile(wxCommandEvent&);
     void OnOpenInNewWindowTerminal(wxCommandEvent&);
     void OnRefitWindow(wxCommandEvent&);

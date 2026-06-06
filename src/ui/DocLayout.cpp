@@ -1,5 +1,6 @@
 #include "ui/DocLayout.h"
 #include "ui/SearchMatch.h"
+#include "ui/WordSelector.h"
 #include <algorithm>
 #include <limits>
 
@@ -164,8 +165,8 @@ RenderedLine DocLayout::BuildRenderedLineLocked(ViewportAnchor pos) const
         const size_t overlapEnd   = std::min(mEnd, sliceEnd);
         const bool isCurrent = (mi == searchCurrentIdx_);
         Style hl;
-        hl.bg = isCurrent ? SearchHighlight::kCurrentBg : SearchHighlight::kMatchBg;
-        hl.fg = SearchHighlight::kFg;
+        hl.bgRgb = isCurrent ? searchCurrentBg_ : searchMatchBg_;
+        hl.fgRgb = searchMatchFg_;
         for (size_t c = overlapStart; c < overlapEnd; ++c)
             result.attrs[c - startCol] = hl;
     }
@@ -184,8 +185,8 @@ RenderedLine DocLayout::BuildRenderedLineLocked(ViewportAnchor pos) const
             const size_t overlapEnd   = std::min(to, sliceEnd);
             if (overlapStart < overlapEnd) {
                 Style selStyle;
-                selStyle.fg = SelectionHighlight::kFg;
-                selStyle.bg = SelectionHighlight::kBg;
+                selStyle.bgRgb = selectionBg_;
+                selStyle.fgRgb = selectionFg_;
                 for (size_t c = overlapStart; c < overlapEnd; ++c)
                     result.attrs[c - startCol] = selStyle;
             }
@@ -413,12 +414,21 @@ void DocLayout::EnsureCursorVisibleHorizontally()
 {
     if (wrapMode_) return;
     if (!leftClamped_) return;  // viewport pinned by user; skip cursor tracking in both directions
-    const int docCol     = (int)doc_->GetCursor().col;
-    const int leftMargin = leftCol_ + cols_ * 3 / 10;  // 30% soft margin from left edge
-    if (docCol < leftMargin) {
-        leftCol_ = std::max(0, docCol - cols_ / 2);    // jump left: half-viewport of context
-    } else if (docCol >= leftCol_ + cols_) {
-        leftCol_ = docCol - cols_ + 1;
+    const int marginLeft  = cols_ / 4;  // context kept left of cursor — scales with viewport width
+    const int marginRight = 3;          // context kept right of cursor
+
+    const CursorPos cursor  = doc_->GetCursor();
+    const int       docCol  = (int)cursor.col;
+    const auto&     lines   = doc_->GetLines();
+    const int       lineLen = (cursor.line < lines.size())
+                            ? (int)lines[cursor.line].text.size() : 0;
+
+    if (lineLen + marginRight <= cols_) {
+        leftCol_ = 0;                                                 // whole line fits — show all
+    } else if (docCol >= leftCol_ + cols_ - marginRight) {
+        leftCol_ = std::max(0, docCol - cols_ + marginRight + 1);    // cursor near right edge
+    } else if (docCol < leftCol_ + marginLeft) {
+        leftCol_ = std::max(0, docCol - marginLeft);                  // cursor inside left margin
     }
 }
 
@@ -471,6 +481,12 @@ void DocLayout::SetLeftCol(int col)
     const int maxLeft = std::max(0, maxVisibleWidth_ - cols_);
     leftCol_     = std::clamp(col, 0, maxLeft);
     leftClamped_ = (leftCol_ == 0);
+}
+
+void DocLayout::SetLeftColRaw(int col)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    leftCol_ = std::clamp(col, 0, std::max(0, maxVisibleWidth_ - cols_));
 }
 
 int DocLayout::GetLeftCol() const
@@ -589,6 +605,17 @@ DocLayout::NormalizeSelectionLocked() const
     return {e, a};
 }
 
+void DocLayout::SetHighlightColors(const UiColors& u)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    selectionBg_     = u.selectionBg;
+    selectionFg_     = u.selectionFg;
+    searchMatchBg_   = u.searchMatchBg;
+    searchMatchFg_   = u.searchMatchFg;
+    searchCurrentBg_ = u.searchCurrentBg;
+    allViewDirty_    = true;
+}
+
 void DocLayout::SetSelection(const TextSelection& sel)
 {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -644,6 +671,37 @@ std::u32string DocLayout::GetSelectedText() const
             result += U'\n';
     }
     return result;
+}
+
+bool DocLayout::SelectWordAt(DocPosition pos, const std::string& regexPattern)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    const auto& lines = doc_->GetLines();
+    if (pos.docLine < 0 || pos.docLine >= static_cast<int>(lines.size()))
+        return false;
+
+    const std::u32string& lineText = lines[static_cast<size_t>(pos.docLine)].text;
+    auto [startCol, endCol] = WordSelector::FindWordBounds(lineText, pos.docCol, regexPattern);
+
+    if (startCol == endCol) return false;
+
+    selection_ = { DocPosition{pos.docLine, startCol},
+                   DocPosition{pos.docLine, endCol},
+                   true };
+    return true;
+}
+
+void DocLayout::SelectLineAt(DocPosition pos)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    const auto& lines = doc_->GetLines();
+    if (pos.docLine < 0 || pos.docLine >= static_cast<int>(lines.size()))
+        return;
+
+    const int endCol = static_cast<int>(lines[static_cast<size_t>(pos.docLine)].text.size());
+    selection_ = { DocPosition{pos.docLine, 0},
+                   DocPosition{pos.docLine, endCol},
+                   true };
 }
 
 // Mark the viewport rows that correspond to docLine as dirty.

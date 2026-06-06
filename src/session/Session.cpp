@@ -328,8 +328,15 @@ void Session::SetWrapMode(bool wrap)
     }
 }
 
+void Session::OnCwdChanged(const std::string& path)
+{
+    lastCwd_ = path;
+}
+
 std::string Session::GetCurrentWorkingDir() const
 {
+    if (!lastCwd_.empty())
+        return lastCwd_;
     return transport_->GetCurrentWorkingDir();
 }
 
@@ -368,6 +375,20 @@ void Session::ListRemoteDirectory(
     std::function<void(std::vector<transport::RemoteDirEntry>, std::string)> onDone)
 {
     transport_->ListRemoteDirectory(remotePath, std::move(onDone));
+}
+
+void Session::SftpDownloadFile(const std::string& remotePath,
+                               const std::string& localPath,
+                               std::function<void(bool, std::string)> onDone)
+{
+    transport_->SftpDownloadFile(remotePath, localPath, std::move(onDone));
+}
+
+void Session::SftpUploadFile(const std::string& localPath,
+                             const std::string& remotePath,
+                             std::function<void(bool, std::string)> onDone)
+{
+    transport_->SftpUploadFile(localPath, remotePath, std::move(onDone));
 }
 
 } // namespace term::session

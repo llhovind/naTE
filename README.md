@@ -16,7 +16,7 @@ naTE (*not another Terminal Emulator*) is a graphical terminal emulator built fo
 gives you a tiling, tabbed interface where multiple terminals share a single window,
 remembers your sessions across restarts so you can pick up exactly where you left
 off, and ships with a full suite of SSH features — agent forwarding, X11 forwarding,
-ProxyJump, keyboard-interactive (MFA) auth, and SCP file transfer — all without
+ProxyJump, keyboard-interactive (MFA) auth, and SFTP file transfer — all without
 touching the command line.
 
 If you manage remote servers, work with serial consoles, or just want a terminal that
@@ -29,12 +29,13 @@ for you.
 
 ### Terminal emulation
 - VT100 / ANSI escape sequences, SGR attributes, OSC sequences
-- UTF-8 text rendering (basic BMP characters; combining characters and wide/CJK characters not yet supported)
+- UTF-8 text rendering with wide/CJK character support — double-width characters occupy two terminal cells; non-ASCII glyphs are drawn individually to prevent font-fallback advance drift (combining characters are not yet supported)
 - Configurable scrollback buffer (default 100,000 lines)
 - Alternate screen support (vim, htop, tmux) — also manually toggled via the alt-screen button in the tile title bar
 - **Wrap mode and viewport width** — in a classic terminal the shell's reported width equals the window width, so any output beyond that column is silently truncated and lost. naTE decouples these: you can set a **column width** (what the shell believes the terminal is, e.g. 220 columns) independently of the visible tile width. Long lines are captured in full rather than discarded. The wrap button in the tile title bar then controls how those lines are presented — wrap on reflows them into the visible area; wrap off lets the viewport scroll horizontally so each line stays on one row. Per-connection column-width overrides are available in the connection profile.
 - Bracketed paste with optional confirmation dialog
 - URL detection and click-to-open
+- **Mouse selection** — click-drag to select; double-click selects the word under the cursor (word boundary pattern is a configurable regex); triple-click selects the full line
 - **Find in Terminal** (`Ctrl+Shift+F` / **Edit → Find in Terminal**) — case-insensitive search across the full scrollback buffer; all matches are highlighted and the current match is distinguished; navigate with `Enter` / `F3` (forward) and `Shift+F3` (back); pre-populates from the active selection
 
 ### Tiling & tabs
@@ -43,7 +44,7 @@ for you.
 - Move a session to its own tile in the same window with **Terminal → Move to New Tile**
 - Move a session or tile to a separate window with **Terminal → Move to New Window**
 - Open a blank second window from **Window → New Window**
-- **Tile split direction** (horizontal or vertical) is set per-window via **Window → Tile Layout**, with a global default in **Edit → Preferences → Appearance**
+- **Tile layout direction** (horizontal or vertical) is set per-window via **Window → Tile Layout**, with a global default in **Edit → Preferences → Appearance**
 - Drag a **tab** to reorder it within the same tile, move it to a different tile, or drop it onto another window
 - Drag the **tile header** (blank area to the right of the `+` button) to move all sessions in that tile to another window
 - Broadcast mode — send the same input to multiple sessions simultaneously
@@ -52,6 +53,7 @@ for you.
 - Auto-save and restore open sessions on launch
 - Named workspaces ("Save Workspace As...")
 - Reconnect bar when a connection drops — resume without re-entering credentials
+- Confirm-close protection — a dialog warns before closing a window with active sessions; auto-suppressed for single-session close; configurable via **Edit → Preferences → Behavior** or a "Don't ask again" option in the dialog itself
 
 ### SSH
 - Authentication: password, public key, SSH agent, keyboard-interactive (MFA — Duo, YubiKey, PAM)
@@ -61,18 +63,28 @@ for you.
 - Auto-populate from `~/.ssh/config` — hosts, identity files, ProxyJump rules
 - SSH agent identity hints for multi-key setups
 - Keepalive and optional compression
+- Working-directory tracking — shells that emit OSC 7 (`file://host/path`) update the tracked CWD continuously; a `pwd` subchannel captures the final CWD at disconnect for session-restore accuracy
+
+### Session initialization
+- Per-connection **working directory** — set the initial directory for PTY and SSH sessions
+- Per-connection **environment variables** — define key/value pairs in the connection profile, merged on top of the parent environment
+- **Environment file** — point to a `.env`-style file; variables are loaded and merged at session start
+- **Login shell** — opt in to a login-shell invocation for PTY and SSH sessions
+- **Profile title** — give a connection profile a fixed tab title that overrides the dynamic hostname/command title
+- App-wide defaults for working directory, login shell, and env file in **Edit → Preferences → Session**; per-profile overrides take precedence
 
 ### Serial
 - Configurable baud rate, data bits, stop bits, parity, and flow control
 - Optional dial script executed before I/O (for modem-style connections)
 
 ### File transfer
-- SCP send and receive
-- Remote directory browser for picking files
+- SFTP send and receive via the existing authenticated session (no re-authentication)
+- Remote directory browser with alphabetical listing
+- **Edit remote file** — open a remote file in your local editor (**Terminal → Edit Remote File**); naTE downloads it to a temp path, watches for saves via inotify, and re-uploads automatically on each write. Supports direct-save editors (vim, nano) and atomic-rename editors (VSCode, gedit). Configure the editor command in **Edit → Preferences → Behavior** or via the `$EDITOR` environment variable.
 
 ### Appearance
-- Built-in themes: Solarized Dark, Solarized Light, xterm — all based on the [base16](https://github.com/chriskempson/base16) scheme
-- Custom themes: drop a base16-compatible `.ini` file in `~/.nate/themes/`
+- Built-in themes: Solarized Dark, Solarized Light, xterm
+- Custom themes: drop a base16 `.yaml` file or a naTE `.ini` file in `~/.nate/themes/`
 - Font family and size picker (monospace fonts only)
 - Cursor styles: Block, Bar, Underline — with optional blink
 - Bell modes: None, Visual (screen flash), Audible
@@ -169,12 +181,43 @@ immediately in open sessions.
 
 ### Custom themes
 
-Themes are INI files following the [base16](https://github.com/chriskempson/base16) scheme, so any base16 theme can be adapted with minimal effort. Copy one of the built-in themes as a starting point:
+naTE supports two theme file formats, both scanned from `~/.nate/themes/` at startup.
+
+#### base16 YAML (recommended)
+
+The easiest way to get new themes is to download them directly from the
+[tinted-theming/base16-schemes](https://github.com/tinted-theming/base16-schemes)
+repository, which hosts 250+ community-maintained palettes (Gruvbox, Nord, One Dark,
+Tokyo Night, Dracula, and many more):
+
+```bash
+# download a single theme
+curl -o ~/.nate/themes/gruvbox-dark.yaml \
+  https://raw.githubusercontent.com/tinted-theming/base16-schemes/main/gruvbox-dark.yaml
+
+# or clone the whole collection
+git clone https://github.com/tinted-theming/base16-schemes ~/.nate/themes/base16-schemes
+```
+
+Both the flat v0.x format (`scheme: "Name"` / `base00: "rrggbb"` at top level) and the
+nested v2 format (`name: "Name"` / `palette:` block) are supported. Restart naTE after
+adding files; the new themes appear in **Edit → Preferences → Appearance** sorted
+alphabetically.
+
+#### naTE INI format
+
+For themes that need independent regular and bright color variants (like the built-in
+xterm theme), naTE uses its own `.ini` format with either a `[Palette]` section
+(base16-style hex values) or an `[ANSI]` section (direct 0–15 index table). Copy a
+built-in theme as a starting point:
 
 ```bash
 cp themes/solarized-dark.ini ~/.nate/themes/my-theme.ini
 # edit my-theme.ini, then select it in Edit → Preferences → Appearance
 ```
+
+The `[Palette]` section uses the same `base00`–`base0F` key names as base16 YAML, so
+converting between the two formats is a straightforward find-and-replace.
 
 ---
 
@@ -200,7 +243,7 @@ ctest --preset debug
 ```
 
 Tests are written with [Catch2](https://github.com/catchorg/Catch2). The suite
-currently covers 269 scenarios across all major subsystems.
+currently covers 312 scenarios across all major subsystems.
 
 ### Packaging (AppImage)
 
@@ -225,13 +268,9 @@ without touching business logic.
 
 ### Planned
 
-- **SFTP subsystem** — replaces SCP; enables resume, directory operations, and
-  compatibility with servers that disable SCP
 - **Local port forwarding (`-L`)** — forward a local port through an SSH connection
 - **Remote port forwarding (`-R`)** — expose a local port on the remote host
-- **Double-click word delimiters** — configurable set of delimiter characters for
-  word selection
-- **Right-click action** — choose between paste and context menu on right-click
+
 
 
 ---

@@ -15,6 +15,7 @@ enum class TerminalAction
     SaveToFile,
     SendFiles,
     ReceiveFiles,
+    EditRemoteFile,
 };
 
 // Forward-declare so wxDECLARE_EVENT can reference the type before the class body.

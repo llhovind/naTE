@@ -9,8 +9,10 @@ namespace term::transport {
 struct RemoteDirEntry {
     std::string name;
     std::string permissions;
-    uint64_t    size  = 0;
-    bool        isDir = false;
+    std::string modTime;
+    uint64_t    size      = 0;
+    bool        isDir     = false;
+    bool        isSymlink = false;
 };
 
 class Transport {
@@ -41,25 +43,40 @@ public:
     virtual bool SupportsX11Forwarding() const noexcept { return false; }
     virtual std::string GetRemoteDescription() const { return {}; }
 
-    // Sends localPath into remoteDir via SCP. onDone is invoked on the UI
-    // thread (via wxTheApp->CallAfter). Default no-op for PTY and Serial.
+    // Uploads localPath into remoteDir via SFTP. onDone is invoked on the
+    // calling thread; callers are responsible for marshalling to the UI thread
+    // if required (e.g. wxTheApp->CallAfter). Default no-op for PTY/Serial.
     virtual void SendFile(
         const std::string& /*localPath*/,
         const std::string& /*remoteDir*/,
         std::function<void(bool success, std::string error)> /*onDone*/) {}
 
-    // Downloads remotePath into localDir via SCP. onDone is invoked on the UI
-    // thread (via wxTheApp->CallAfter). Default no-op for PTY and Serial.
+    // Downloads remotePath into localDir via SFTP. onDone calling convention
+    // matches SendFile above.
     virtual void ReceiveFile(
         const std::string& /*remotePath*/,
         const std::string& /*localDir*/,
         std::function<void(bool success, std::string error)> /*onDone*/) {}
 
-    // Lists the contents of remotePath via an SSH exec channel. onDone is
-    // invoked on the UI thread (via wxTheApp->CallAfter).
+    // Lists the contents of remotePath via SFTP. onDone calling convention
+    // matches SendFile above.
     virtual void ListRemoteDirectory(
         const std::string& /*remotePath*/,
         std::function<void(std::vector<RemoteDirEntry>, std::string error)> /*onDone*/) {}
+
+    // Downloads remotePath to the exact local file path localPath via SFTP.
+    // Used by the remote-edit workflow (PR 2). Default no-op.
+    virtual void SftpDownloadFile(
+        const std::string& /*remotePath*/,
+        const std::string& /*localPath*/,
+        std::function<void(bool success, std::string localPathOrError)> /*onDone*/) {}
+
+    // Uploads localPath to the exact remote file path remotePath via SFTP.
+    // Used by the remote-edit auto-upload workflow (PR 2). Default no-op.
+    virtual void SftpUploadFile(
+        const std::string& /*localPath*/,
+        const std::string& /*remotePath*/,
+        std::function<void(bool success, std::string error)> /*onDone*/) {}
 };
 
 } // namespace term::transport

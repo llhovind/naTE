@@ -1,0 +1,1 @@
+PS1='\u@\h:\w\$ \[$(printf "\033]7;file://%s%s\007" "$(hostname)" "${PWD}")\]'

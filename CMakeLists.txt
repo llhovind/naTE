@@ -158,11 +158,14 @@ set(SOURCES
     src/ui/KbdIntDialog.cpp
     src/ui/PasteConfirmDialog.cpp
     src/ui/RemoteFileBrowserDialog.cpp
+    src/ui/RemoteEditSession.cpp
+    src/ui/RemoteEditManager.cpp
     src/ui/WorkspaceManagerDialog.cpp
     src/ui/GeometryDialog.cpp
     src/ui/PreferencesDialog.cpp
     src/ui/TerminalPanel.cpp
     src/ui/TerminalTile.cpp
+    src/ui/TileIndicatorControl.cpp
     src/ui/WrapControl.cpp
     src/ui/AltScrControl.cpp
     src/ui/X11Control.cpp
@@ -171,6 +174,7 @@ set(SOURCES
     src/ui/TerminalGrid.cpp
     src/ui/DocLayout.cpp
     src/ui/UrlScanner.cpp
+    src/ui/WordSelector.cpp
     src/ui/UIManager.cpp
     src/ui/SearchController.cpp
     src/ui/SearchBar.cpp
@@ -185,27 +189,46 @@ set(SOURCES
 )
 
 # ---------------------------------------------------------------------------
-# Embedded application icon — rasterise nate.svg → PNGs → AppIcon.h
-# Regenerated automatically whenever packaging/nate.svg changes.
+# Icon regeneration — opt-in only, never runs during a normal build or CI.
+# Run manually:  cmake --build build --target regen-icons
+# Then commit the updated AppIcon.h and nate_*.png files.
 # ---------------------------------------------------------------------------
-set(APPICON_HEADER "${CMAKE_SOURCE_DIR}/src/ui/resources/AppIcon.h")
-set(APPICON_SVG    "${CMAKE_SOURCE_DIR}/packaging/nate.svg")
-set(APPICON_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/gen-icon-header.sh")
-
-add_custom_command(
-    OUTPUT  "${APPICON_HEADER}"
-    COMMAND bash "${APPICON_SCRIPT}"
-    DEPENDS "${APPICON_SVG}" "${APPICON_SCRIPT}"
-    COMMENT "Generating embedded app icon from nate.svg"
+add_custom_target(regen-icons
+    COMMAND bash "${CMAKE_SOURCE_DIR}/scripts/gen-icon-header.sh"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Regenerating embedded app icon from packaging/nate.svg"
 )
-add_custom_target(nate_icon_header DEPENDS "${APPICON_HEADER}")
 
 if(APPLE)
     add_executable(naTE MACOSX_BUNDLE ${SOURCES})
+    set_target_properties(naTE PROPERTIES
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/packaging/Info.plist.in"
+    )
+    # Include the .icns in the bundle's Resources/ if it has been generated.
+    # To generate: cmake --build build --target regen-icns  (macOS only)
+    if(EXISTS "${CMAKE_SOURCE_DIR}/packaging/naTE.icns")
+        target_sources(naTE PRIVATE "${CMAKE_SOURCE_DIR}/packaging/naTE.icns")
+        set_source_files_properties("${CMAKE_SOURCE_DIR}/packaging/naTE.icns"
+            PROPERTIES MACOSX_PACKAGE_LOCATION "Resources"
+        )
+    endif()
 else()
     add_executable(naTE ${SOURCES})
 endif()
-add_dependencies(naTE nate_icon_header)
+
+# ---------------------------------------------------------------------------
+# .icns regeneration — opt-in only, macOS only, never runs during CI.
+# Uses committed PNGs + macOS built-in sips/iconutil; no extra dependencies.
+# Run manually:  cmake --build build --target regen-icns
+# Then commit:   git add packaging/naTE.icns
+# ---------------------------------------------------------------------------
+if(APPLE)
+    add_custom_target(regen-icns
+        COMMAND bash "${CMAKE_SOURCE_DIR}/scripts/gen-icns.sh"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        COMMENT "Regenerating packaging/naTE.icns from packaging/nate.svg"
+    )
+endif()
 
 # Apply LTO to naTE directly rather than via cmake's IPO mechanism.
 # cmake 4.x + GCC generates thin LTO (-fno-fat-lto-objects) which breaks when

@@ -113,6 +113,7 @@ respecting that the human makes the final call.
 - Leave error paths unhandled
 - Repeat logic instead of abstracting it (DRY is not optional)
 - Implement something you know to be an antipattern without saying so
+- Leave dead code in place — when a field, function, or variable becomes unused, delete it in the same PR that made it unused
 
 ---
 

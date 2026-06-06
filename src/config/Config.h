@@ -1,5 +1,5 @@
 #pragma once
-#include "config/Color.h"
+#include "config/Color.h"     // Rgb, UiColors
 #include "session/EnvVar.h"
 #include <array>
 #include <string>
@@ -53,6 +53,11 @@ struct AppConfig {
 
     std::vector<GeometryPreset> geometryPresets = {{80, 24}, {132, 24}};
 
+    // UI chrome colors derived from the active theme's base16 palette.
+    // Defaults are Solarized Dark so the app is visually coherent even when
+    // no theme file is present.
+    UiColors uiColors = {};
+
     // [Appearance]
     std::string fontFamily  = "";              // empty = system monospace
     int         padding     = 4;              // px inset around terminal canvas
@@ -60,10 +65,13 @@ struct AppConfig {
     TileLayout  tileLayout  = TileLayout::RowFirst;
 
     // [Behavior]
-    std::string encoding      = "UTF-8";
-    std::string webSearchUrl  = "https://duckduckgo.com/?q=";
-    BellMode    bellMode      = BellMode::Visual;
-    bool        copyOnSelect  = true;    // copy to X11 primary selection on mouseup
+    std::string encoding         = "UTF-8";
+    std::string webSearchUrl     = "https://duckduckgo.com/?q=";
+    std::string wordSelectRegex  = "[^\\s]+"; // regex matching a "word" for double-click selection
+    BellMode    bellMode           = BellMode::Visual;
+    bool        copyOnSelect           = true;   // copy to X11 primary selection on mouseup
+    bool        confirmCloseWindow     = true;   // false = suppress all close-confirmation dialogs
+    std::string remoteEditorCommand    = "";     // empty = $EDITOR; e.g. "code --wait"
 
     // [Session] defaults — applied to every new session, overridable per profile
     std::string                        defaultShell;        // empty = $SHELL → /bin/sh

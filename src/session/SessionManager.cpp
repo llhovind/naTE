@@ -244,14 +244,19 @@ void SessionManager::OnScroll(SessionId id, int topRow)
 
 void SessionManager::OnResize(SessionId id, unsigned short cols, unsigned short rows)
 {
-    if (SessionRecord* rec = FindRecord(id))
+    if (SessionRecord* rec = FindRecord(id)) {
         rec->session->SetViewportSize(cols, rows);
+        rec->connection.columnWidth = cols;
+        rec->connection.rows        = rows;
+    }
 }
 
 void SessionManager::SetWrapMode(SessionId id, bool wrap)
 {
-    if (SessionRecord* rec = FindRecord(id))
+    if (SessionRecord* rec = FindRecord(id)) {
         rec->session->SetWrapMode(wrap);
+        rec->connection.wrapMode = wrap;
+    }
 }
 
 term::input::InputTarget* SessionManager::GetInputTarget(SessionId id) const
@@ -340,6 +345,24 @@ void SessionManager::ListRemoteDirectory(
 {
     SessionRecord* rec = FindRecord(id);
     if (rec) rec->session->ListRemoteDirectory(remotePath, std::move(onDone));
+}
+
+void SessionManager::SftpDownloadFile(SessionId id,
+                                      const std::string& remotePath,
+                                      const std::string& localPath,
+                                      std::function<void(bool, std::string)> onDone)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (rec) rec->session->SftpDownloadFile(remotePath, localPath, std::move(onDone));
+}
+
+void SessionManager::SftpUploadFile(SessionId id,
+                                    const std::string& localPath,
+                                    const std::string& remotePath,
+                                    std::function<void(bool, std::string)> onDone)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (rec) rec->session->SftpUploadFile(localPath, remotePath, std::move(onDone));
 }
 
 // ---------------------------------------------------------------------------

@@ -74,6 +74,7 @@ public:
     void OnDeviceStatusReport(int param)             override;
     void OnBell()                                    override;
     void OnSetCursorVisibility(bool visible)         override;
+    void OnCwdChanged(const std::string& path)       override;
 
     // transport::ITransportTarget
     void OnData(const std::string& data) override;
@@ -117,6 +118,12 @@ public:
                     const std::string& remotePath,
                     std::function<void(std::vector<transport::RemoteDirEntry>,
                                        std::string)> onDone);
+    void        SftpDownloadFile(const std::string& remotePath,
+                                 const std::string& localPath,
+                                 std::function<void(bool, std::string)> onDone);
+    void        SftpUploadFile(const std::string& localPath,
+                               const std::string& remotePath,
+                               std::function<void(bool, std::string)> onDone);
 
 private:
     static std::unique_ptr<transport::Transport> MakeTransport(
@@ -148,6 +155,7 @@ private:
     std::function<void()>                                    onBell_;
     std::function<void(bool)>                                onCursorVisibilityChanged_;
 
+    std::string        lastCwd_;
     unsigned short     lastCols_{0};
     unsigned short     lastRows_{0};
     unsigned short     ptyLineWidth_{1024};

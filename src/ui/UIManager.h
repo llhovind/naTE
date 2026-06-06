@@ -100,6 +100,17 @@ public:
     // Open the file receive dialog for the active session (SSH only).
     void ReceiveFilesForActive();
 
+    // Open the remote file browser and launch a remote-edit session (SSH only).
+    void EditRemoteFileForActive();
+    void EditRemoteFileForSession(term::session::SessionId id);
+
+    // Called by App after RemoteEditManager construction.
+    void SetRemoteEditManager(class RemoteEditManager* mgr) { editMgr_ = mgr; }
+
+    // Returns true when the active session supports remote file transfer (SSH).
+    bool ActiveSessionSupportsFileTransfer() const;
+
+
     // Toggle broadcast mode on/off.
     void ToggleBroadcastMode();
 
@@ -142,10 +153,16 @@ public:
     void SetOnGridEmptyCallback(std::function<void()> cb) { onGridEmptyCb_ = std::move(cb); }
     void SetSessionListChangedCallback(std::function<void()> cb) { onSessionListChanged_ = std::move(cb); }
     void SetOnBeforeCloseCallback(std::function<void()> cb) { onBeforeClose_ = std::move(cb); }
+    // Fired with the session ID just before its UI state is torn down.
+    void SetOnSessionDestroyedCallback(std::function<void(term::session::SessionId)> cb) {
+        onSessionDestroyedCb_ = std::move(cb);
+    }
 
     // Called from MainFrame::OnClose before CloseAllSessions, allowing App to
-    // snapshot session state while sessions are still alive.
-    void FireBeforeClose() { if (onBeforeClose_) onBeforeClose_(); }
+    // snapshot session state while sessions are still alive.  Sets
+    // teardownInProgress_ so that individual session removals during window
+    // destruction do not fire onSessionListChanged_ and overwrite the snapshot.
+    void FireBeforeClose() { teardownInProgress_ = true; if (onBeforeClose_) onBeforeClose_(); }
 
     struct TileSnapshot {
         std::vector<term::session::SessionId> tabOrder;
@@ -263,6 +280,9 @@ private:
     void OnDragRelease  (wxMouseEvent& evt);
     void OnDragMotion   (wxMouseEvent& evt);
 
+    // Creates the DragGhost, shows it at screenAnchor, and arms the drag event binds.
+    void BeginDragGesture(const wxString& label, wxPoint screenAnchor);
+
     void OnTerminalAction(TerminalActionEvent& evt);
     void OnTileAction    (TileActionEvent& evt);
 
@@ -272,6 +292,7 @@ private:
     term::session::SessionManager& sm_;
     term::input::InputRouter&      router_;
     MainFrame*                     frame_;
+    class RemoteEditManager*       editMgr_ = nullptr;
     AppConfig                      cfg_;
     TerminalGrid*                  grid_ = nullptr;
 
@@ -292,9 +313,12 @@ private:
     std::optional<DragState> dragState_;
     std::unique_ptr<DragGhost> dragGhost_;
 
-    std::function<void()> onGridEmptyCb_;
-    std::function<void()> onSessionListChanged_;
-    std::function<void()> onBeforeClose_;
+    bool teardownInProgress_ = false;
+
+    std::function<void()>                                   onGridEmptyCb_;
+    std::function<void()>                                   onSessionListChanged_;
+    std::function<void()>                                   onBeforeClose_;
+    std::function<void(term::session::SessionId)>           onSessionDestroyedCb_;
 };
 
 } // namespace ui

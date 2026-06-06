@@ -1,6 +1,7 @@
 #include "config/ColorScheme.h"
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <dirent.h>
 #include <fstream>
 #include <iomanip>
@@ -143,8 +144,9 @@ std::optional<ColorScheme> ColorScheme::loadFromFile(const std::string& path)
             const int idx = base16Index(key);
             if (idx >= 0) {
                 if (auto rgb = parseHex(val)) {
-                    scheme.palette[idx] = *rgb;
-                    scheme.hasPalette = true;
+                    scheme.palette[idx]        = *rgb;
+                    scheme.hasPalette          = true;
+                    scheme.hasPaletteSection   = true;
                 }
             }
         } else if (section == "ANSI") {
@@ -228,6 +230,185 @@ void ColorScheme::saveToFile(const std::string& path) const
     }
 }
 
+// ---------------------------------------------------------------------------
+// UI chrome color derivation
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Linearly blend a toward b by t (0.0 = all a, 1.0 = all b).
+Rgb blendRgb(Rgb a, Rgb b, double t) {
+    auto ch = [t](uint8_t x, uint8_t y) {
+        return static_cast<uint8_t>(std::round(x * (1.0 - t) + y * t));
+    };
+    return { ch(a.r, b.r), ch(a.g, b.g), ch(a.b, b.b) };
+}
+
+// Choose `light` or `dark` based on the perceived luminance of `bg`.
+// Threshold 140 works well across Solarized Dark/Light and most base16 themes.
+Rgb contrastOn(Rgb bg, Rgb light, Rgb dark) {
+    const double lum = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b;
+    return lum > 140.0 ? dark : light;
+}
+
+} // namespace
+
+UiColors ColorScheme::deriveUiColors() const
+{
+    if (hasPaletteSection) {
+        // Full base16 palette: rich semantic mapping.
+        // palette[N] = baseN (base00=0 … base0F=15).
+        const auto& p = palette;
+
+        UiColors u;
+        u.frameBackground   = p[1];   // base01 — slightly lighter chrome background
+        u.tileActive        = p[13];  // base0D — theme accent (blue in most dark themes)
+        u.tileInactive      = p[3];   // base03 — muted / comments color
+        u.tileBroadcast     = p[9];   // base09 — orange / warm accent
+
+        // contrastOn picks light or dark text automatically — keeps light themes legible.
+        u.tabText           = contrastOn(p[3], p[7], p[0]);  // base07 or base00
+        u.tabCloseActive    = p[6];   // base06 — slightly dimmer than tabText
+        u.tabCloseInactive  = p[3];   // base03 — same as inactive bg (appears dim)
+
+        u.statusUnread       = p[12]; // base0C — cyan
+        u.statusDisconnected = p[8];  // base08 — red
+        u.statusReconnecting = p[10]; // base0A — yellow
+
+        u.reconnectBarBg    = p[9];   // base09 — warm orange "warning"
+        u.reconnectBarText  = contrastOn(p[9], p[7], p[0]);
+
+        // 20% accent tint over terminal background — subtle "active overlay".
+        u.searchBarBg       = blendRgb(p[0], p[13], 0.20);
+
+        u.controlActive     = contrastOn(p[3], p[7], p[0]);
+
+        u.selectionBg     = p[13];  // base0D — accent blue, high contrast against terminal bg
+        u.selectionFg     = contrastOn(p[13], p[7], p[0]);
+        u.searchMatchBg   = p[10];  // base0A — yellow/warning
+        u.searchMatchFg   = contrastOn(p[10], p[7], p[0]);
+        u.searchCurrentBg = p[9];   // base09 — orange/active
+
+        return u;
+    }
+
+    if (hasDirectAnsi) {
+        // ANSI-only theme: no base16 semantic slots, but we can map standard
+        // ANSI roles (blue=accent, bright-black=inactive, cyan/red/yellow=status).
+        // ANSI indices: 0=black 1=red 2=green 3=yellow 4=blue 5=magenta 6=cyan
+        //               7=white 8=bright-black 9=bright-red 10=bright-green
+        //              11=bright-yellow 12=bright-blue 13=bright-magenta
+        //              14=bright-cyan 15=bright-white
+        const auto& a = ansiColors;
+
+        UiColors u;
+        u.frameBackground    = blendRgb(a[0], a[8], 0.25);  // bg + slight gray
+        u.tileActive         = a[4];    // ANSI blue — standard "active" accent
+        u.tileInactive       = a[8];    // ANSI bright-black (dark gray)
+        u.tileBroadcast      = a[3];    // ANSI yellow — warm accent
+
+        u.tabText            = contrastOn(a[4], a[15], a[0]);
+        u.tabCloseActive     = a[7];    // ANSI white
+        u.tabCloseInactive   = a[8];    // ANSI bright-black
+
+        u.statusUnread       = a[6];    // ANSI cyan
+        u.statusDisconnected = a[1];    // ANSI red
+        u.statusReconnecting = a[3];    // ANSI yellow
+
+        u.reconnectBarBg     = a[1];    // ANSI red — "something is wrong"
+        u.reconnectBarText   = contrastOn(a[1], a[15], a[0]);
+
+        u.searchBarBg        = blendRgb(a[0], a[4], 0.20);  // slight blue tint on bg
+
+        u.controlActive      = a[15];   // ANSI bright-white
+
+        u.selectionBg     = a[12];   // ANSI bright-blue — visible accent
+        u.selectionFg     = contrastOn(a[12], a[15], a[0]);
+        u.searchMatchBg   = a[3];    // ANSI yellow
+        u.searchMatchFg   = contrastOn(a[3], a[15], a[0]);
+        u.searchCurrentBg = a[11];   // ANSI bright-yellow
+
+        return u;
+    }
+
+    // No palette at all ([Colors]-only theme) — use Solarized Dark defaults.
+    return UiColors{};
+}
+
+// ---------------------------------------------------------------------------
+// YAML loader — supports base16 v0.x (flat) and tinted-theming v2 (palette: block)
+// ---------------------------------------------------------------------------
+
+std::optional<ColorScheme> ColorScheme::loadFromYaml(const std::string& path)
+{
+    std::ifstream file(path);
+    if (!file.is_open()) return std::nullopt;
+
+    ColorScheme scheme;
+    scheme.stem        = stemFromPath(path);
+    scheme.displayName = scheme.stem;
+
+    std::string line;
+    while (std::getline(file, line)) {
+        // Strip leading whitespace so indented keys (palette: block) parse identically
+        // to top-level keys (flat format).
+        const std::string t = trim(line);
+        if (t.empty() || t[0] == '#') continue;
+
+        const auto colon = t.find(':');
+        if (colon == std::string::npos) continue;
+
+        std::string key = trim(t.substr(0, colon));
+        std::string val = trim(t.substr(colon + 1));
+
+        // Extract the value token, stripping quotes and inline comments (# ...).
+        // For quoted values find the closing quote; for unquoted take up to the
+        // first whitespace so " base00: f8f8f2 # comment" works correctly.
+        if (!val.empty() && (val[0] == '"' || val[0] == '\'')) {
+            const char q = val[0];
+            const auto close = val.find(q, 1);
+            val = (close != std::string::npos) ? val.substr(1, close - 1) : val.substr(1);
+        } else {
+            const auto sp = val.find_first_of(" \t");
+            if (sp != std::string::npos) val = val.substr(0, sp);
+        }
+
+        // Strip optional leading '#' from hex values (e.g. "#f8f8f2").
+        if (!val.empty() && val[0] == '#') val = val.substr(1);
+
+        if (val.empty()) continue;  // e.g. the "palette:" key in v2 format
+
+        // Display name: "scheme" (v0.x) or "name" (v2).
+        if (key == "scheme" || key == "name") {
+            scheme.displayName = val;
+            continue;
+        }
+
+        // Palette slot: base00–base0F.
+        const int idx = base16Index(key);
+        if (idx >= 0) {
+            if (auto rgb = parseHex(val)) {
+                scheme.palette[idx]      = *rgb;
+                scheme.hasPalette        = true;
+                scheme.hasPaletteSection = true;
+            }
+        }
+    }
+
+    if (!scheme.hasPalette) return std::nullopt;
+
+    scheme.computeAnsiColors();
+    scheme.background = scheme.palette[0];  // base00
+    scheme.foreground = scheme.palette[5];  // base05
+    scheme.cursor     = scheme.palette[5];  // base05 convention
+
+    return scheme;
+}
+
+// ---------------------------------------------------------------------------
+// Directory scanner — picks up .ini, .yaml, and .yml theme files
+// ---------------------------------------------------------------------------
+
 std::vector<ColorScheme> ColorScheme::scanDirectory(const std::string& dir)
 {
     std::vector<ColorScheme> result;
@@ -236,8 +417,18 @@ std::vector<ColorScheme> ColorScheme::scanDirectory(const std::string& dir)
 
     while (dirent* entry = readdir(d)) {
         const std::string name = entry->d_name;
-        if (name.size() < 5 || name.substr(name.size() - 4) != ".ini") continue;
-        if (auto scheme = loadFromFile(dir + "/" + name))
+        std::optional<ColorScheme> scheme;
+
+        const auto hasSuffix = [&](std::string_view ext) {
+            return name.size() > ext.size() &&
+                   name.substr(name.size() - ext.size()) == ext;
+        };
+
+        if      (hasSuffix(".ini"))  scheme = loadFromFile(dir + "/" + name);
+        else if (hasSuffix(".yaml")) scheme = loadFromYaml(dir + "/" + name);
+        else if (hasSuffix(".yml"))  scheme = loadFromYaml(dir + "/" + name);
+
+        if (scheme)
             result.push_back(std::move(*scheme));
     }
     closedir(d);

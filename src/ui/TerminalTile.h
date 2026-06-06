@@ -60,6 +60,10 @@ public:
     // Tile state (mirrors existing interface used by UIManager / TerminalGrid)
     // -------------------------------------------------------------------------
 
+    // Apply theme-derived colors to title bar, tabs, and indicator glyphs.
+    // Called by UIManager::UpdateConfig whenever the active theme changes.
+    void ApplyConfig(const AppConfig& cfg);
+
     // Highlights the title bar to indicate keyboard focus ownership.
     void SetFocused(bool focused);
 
@@ -72,6 +76,7 @@ public:
     // Colours an individual tab to show whether its session is in broadcast.
     // Must be called for every session in this tile on each broadcast change.
     void SetTabBroadcast(term::session::SessionId id, bool inBroadcast);
+    void SetTabSupportsFileTransfer(term::session::SessionId id, bool supports);
 
     // Marks a tab as having unread output (content arrived while the tab was hidden).
     // Cleared automatically when the tab is activated.
@@ -134,12 +139,13 @@ public:
 
 private:
     struct TabEntry {
-        term::session::SessionId    sessionId      = 0;
-        TerminalPanel*              panel          = nullptr;  // wx-child-owned by contentArea_
+        term::session::SessionId    sessionId           = 0;
+        TerminalPanel*              panel               = nullptr;  // wx-child-owned by contentArea_
         wxString                    label;
-        bool                        inBroadcast    = false;
-        bool                        hasUnreadOutput = false;
-        term::session::SessionStatus status        = term::session::SessionStatus::Connected;
+        bool                        inBroadcast         = false;
+        bool                        hasUnreadOutput     = false;
+        bool                        supportsFileTransfer = false;
+        term::session::SessionStatus status             = term::session::SessionStatus::Connected;
     };
 
     // Show the panel at index; hide the previous one. Does not emit ActivateSession — programmatic activation only.
@@ -175,7 +181,9 @@ private:
     bool                       inBroadcast_        = false;
     bool                       broadcastModeActive_ = false;
 
-    wxColour colActive_    {  45,  57, 160 };
-    wxColour colInactive_  { 131, 136, 141 };
-    wxColour colBroadcast_ { 255, 140,   0 };
+    // Set by ApplyConfig, which is called from the constructor.
+    wxColour colActive_;
+    wxColour colInactive_;
+    wxColour colBroadcast_;
+    wxColour glyphBright_ { 253, 246, 227 };  // Solarized Dark base07 default
 };

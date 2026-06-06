@@ -13,6 +13,7 @@
 #include "session/ISessionObserver.h"
 #include "session/SessionManager.h"
 #include "ui/UIManager.h"
+#include "ui/RemoteEditManager.h"
 
 class MainFrame;
 class TerminalTile;
@@ -51,6 +52,12 @@ public:
     // Closes all sessions across every open window.
     // callerFrame is used as the parent for the confirmation dialog.
     void CloseAllSessionsGlobal(MainFrame* callerFrame);
+
+    // Shows a close-confirmation dialog unless suppressed by config or already
+    // confirmed.  Returns true if the action should proceed.
+    // withDontAskAgain adds a checkbox that persists confirmCloseWindow=false.
+    bool ConfirmClose(wxWindow* parent, const wxString& title,
+                      const wxString& heading, bool withDontAskAgain);
 
     // Notifies all open windows to rebuild their Window menu.
     void RebuildWindowMenus();
@@ -117,6 +124,7 @@ private:
     std::string                                         m_themesDir;
     std::unique_ptr<term::db::ConnectionStore>          m_connectionStore;
     std::unique_ptr<term::session::SessionManager>      m_sessionManager;
+    std::unique_ptr<ui::RemoteEditManager>              m_remoteEditManager;
     std::unique_ptr<term::db::ISessionRestoreRepository> m_restoreRepo;
     std::unique_ptr<term::db::INamedWorkspaceRepository>  m_namedRepo;
     wxTimer                                             m_saveTimer;

@@ -51,6 +51,7 @@ namespace {
     constexpr int ID_REFIT_WINDOW            = wxID_HIGHEST + 34;
     constexpr int ID_TILE_LAYOUT_ROW_FIRST   = wxID_HIGHEST + 35;
     constexpr int ID_TILE_LAYOUT_COL_FIRST   = wxID_HIGHEST + 36;
+    constexpr int ID_EDIT_REMOTE_FILE        = wxID_HIGHEST + 37;
 
     static bool IsValidWorkspaceName(const std::string& s)
     {
@@ -157,9 +158,17 @@ MainFrame::MainFrame(const AppConfig& cfg,
     termMenu->AppendSeparator();
     termMenu->Append(ID_SEND_FILES,              "Send Files to Remote...");
     termMenu->Append(ID_RECEIVE_FILES,           "Receive Files from Remote...");
+    termMenu->Append(ID_EDIT_REMOTE_FILE,        "Edit Remote File...");
     Bind(wxEVT_MENU, &MainFrame::OnSaveSessionFileTerminal, this, ID_SAVE_SESSION_FILE_TERM);
     Bind(wxEVT_MENU, &MainFrame::OnSendFiles,               this, ID_SEND_FILES);
     Bind(wxEVT_MENU, &MainFrame::OnReceiveFiles,            this, ID_RECEIVE_FILES);
+    Bind(wxEVT_MENU, &MainFrame::OnEditRemoteFile,          this, ID_EDIT_REMOTE_FILE);
+    auto sftGuard = [this](wxUpdateUIEvent& e) {
+        e.Enable(m_uiManager && m_uiManager->ActiveSessionSupportsFileTransfer());
+    };
+    Bind(wxEVT_UPDATE_UI, sftGuard, ID_SEND_FILES);
+    Bind(wxEVT_UPDATE_UI, sftGuard, ID_RECEIVE_FILES);
+    Bind(wxEVT_UPDATE_UI, sftGuard, ID_EDIT_REMOTE_FILE);
 
     termMenu->AppendSeparator();
     termMenu->Append(ID_OPEN_IN_NEW_TILE,        "Move to New Tile");
@@ -206,7 +215,7 @@ MainFrame::MainFrame(const AppConfig& cfg,
     menuBar->Append(helpMenu,     "&Help");
     SetMenuBar(menuBar);
 
-    SetBackgroundColour(wxColour(40, 40, 40));
+    SetBackgroundColour(toWx(cfg.uiColors.frameBackground));
     SetSizer(new wxBoxSizer(wxVERTICAL));
     SetClientSize(wxSize(1200, 700));
 }
@@ -236,15 +245,11 @@ void MainFrame::OnPreferences(wxCommandEvent&)
 
 void MainFrame::OnClose(wxCloseEvent& event)
 {
-    if (!wxGetApp().IsSessionManagerShutdown() &&
-        event.CanVeto() && m_uiManager && m_uiManager->HasAnySessions()) {
-        const int n = static_cast<int>(m_uiManager->GetSessionList().size());
-        const wxString msg = wxString::Format(
-            "Closing this window will end %d session%s. "
-            "Any unsaved work may be lost.\n\nClose anyway?",
-            n, n == 1 ? "" : "s");
-        if (wxMessageBox(msg, "Confirm Close",
-                         wxYES_NO | wxICON_WARNING, this) != wxYES) {
+    const int n = m_uiManager ? static_cast<int>(m_uiManager->GetSessionList().size()) : 0;
+    if (!wxGetApp().IsSessionManagerShutdown() && event.CanVeto() && n > 1) {
+        const wxString heading = wxString::Format(
+            "Closing this window will end %d sessions.", n);
+        if (!wxGetApp().ConfirmClose(this, "Confirm Close", heading, true)) {
             event.Veto();
             return;
         }
@@ -540,6 +545,11 @@ void MainFrame::OnSendFiles(wxCommandEvent&)
 void MainFrame::OnReceiveFiles(wxCommandEvent&)
 {
     if (m_uiManager) m_uiManager->ReceiveFilesForActive();
+}
+
+void MainFrame::OnEditRemoteFile(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->EditRemoteFileForActive();
 }
 
 void MainFrame::OnOpenInNewTile(wxCommandEvent&)

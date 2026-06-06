@@ -73,6 +73,12 @@ void Parser::HandleNormal(unsigned char byte)
 
 void Parser::HandleEscape(unsigned char byte)
 {
+    if (byte == '\x1b') {
+        // ESC ESC: second ESC restarts the sequence — stay in Escape state.
+        // Prevents double-ESC from dropping the parser back to Normal and
+        // leaving any following CSI/OSC bytes to render as plain text.
+        return;
+    }
     if (byte == '[') {
         params_.clear();
         privateMode_ = false;
@@ -242,9 +248,16 @@ void Parser::HandleOsc(unsigned char byte)
 
 void Parser::HandleOscEsc(unsigned char byte)
 {
-    if (byte == '\\')
+    if (byte == '\\') {
         DispatchOsc();
-    state_ = State::Normal;
+        state_ = State::Normal;
+    } else {
+        // Incomplete ST (ESC not followed by '\'): dispatch the accumulated
+        // OSC anyway, then treat the pending ESC as a fresh escape sequence.
+        DispatchOsc();
+        state_ = State::Escape;
+        HandleEscape(byte);
+    }
 }
 
 void Parser::DispatchOsc()
@@ -259,8 +272,22 @@ void Parser::DispatchOsc()
         code = code * 10 + (osc_payload_[i] - '0');
     }
 
-    if (code == 0 || code == 1 || code == 2)
+    if (code == 0 || code == 1 || code == 2) {
         doc_->SetTitle(osc_payload_.substr(sep + 1));
+    } else if (code == 7) {
+        // OSC 7: shell working-directory notification — payload is file://hostname/path
+        std::string uri = osc_payload_.substr(sep + 1);
+        std::string path;
+        if (uri.rfind("file://", 0) == 0) {
+            // Skip past "file://" then skip the host component up to the next '/'.
+            const auto slash = uri.find('/', 7);
+            path = (slash != std::string::npos) ? uri.substr(slash) : "/";
+        } else {
+            path = std::move(uri);
+        }
+        if (!path.empty())
+            screen_.OnCwdChanged(path);
+    }
 }
 
 // Returns the n-th ';'-delimited parameter (0-indexed).

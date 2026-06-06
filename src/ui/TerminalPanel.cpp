@@ -23,7 +23,9 @@ static int QueryScrollbarThickness()
     return (t > 0) ? t : 16;
 }
 
-static constexpr int kResizeDebounceMs = 80;
+static constexpr int kResizeDebounceMs  = 80;
+static constexpr int kHScrollAnimMs     = 8;  // timer interval (~60 fps)
+static constexpr int kHScrollMinStep    = 3;   // minimum columns per tick (tune for speed)
 
 static wxFont BuildFont(const AppConfig& cfg, bool bold, bool italic)
 {
@@ -81,8 +83,9 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
     Bind(wxEVT_TIMER,      &TerminalPanel::OnResizeTimer,    this, resizeTimer_.GetId());
     Bind(wxEVT_TIMER,      &TerminalPanel::OnSelScrollTimer, this, m_selScrollTimer_.GetId());
     Bind(wxEVT_MOUSEWHEEL, &TerminalPanel::OnMouseWheel,     this);
-    Bind(wxEVT_LEFT_DOWN,  &TerminalPanel::OnLeftDown,       this);
-    Bind(wxEVT_LEFT_UP,    &TerminalPanel::OnLeftUp,         this);
+    Bind(wxEVT_LEFT_DOWN,   &TerminalPanel::OnLeftDown,       this);
+    Bind(wxEVT_LEFT_DCLICK, &TerminalPanel::OnLeftDClick,    this);
+    Bind(wxEVT_LEFT_UP,     &TerminalPanel::OnLeftUp,        this);
     Bind(wxEVT_MOTION,       &TerminalPanel::OnMouseMove,    this);
     Bind(wxEVT_LEAVE_WINDOW, &TerminalPanel::OnLeaveWindow,  this);
     Bind(wxEVT_MIDDLE_DOWN,  &TerminalPanel::OnMiddleDown,   this);
@@ -95,6 +98,8 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
     Bind(wxEVT_TIMER,      &TerminalPanel::OnFlashTimer,     this, m_flashTimer_.GetId());
     m_blinkTimer_.SetOwner(this);
     Bind(wxEVT_TIMER,      &TerminalPanel::OnBlinkTimer,     this, m_blinkTimer_.GetId());
+    m_hScrollAnimTimer_.SetOwner(this);
+    Bind(wxEVT_TIMER,      &TerminalPanel::OnHScrollAnim,    this, m_hScrollAnimTimer_.GetId());
 
     reconnectBar_ = new ReconnectBar(this);
 
@@ -136,6 +141,10 @@ void TerminalPanel::ApplyConfig(const AppConfig& cfg)
         // cols×rows to the session without TerminalPanel needing to own that logic.
     }
 
+    if (reconnectBar_) reconnectBar_->ApplyConfig(cfg);
+    if (searchBar_)    searchBar_->ApplyConfig(cfg);
+    if (docLayout_)    docLayout_->SetHighlightColors(cfg.uiColors);
+
     Refresh();
 }
 
@@ -143,6 +152,7 @@ void TerminalPanel::SetDocLayout(::DocLayout* docLayout)
 {
     docLayout_ = docLayout;
     if (docLayout_) {
+        docLayout_->SetHighlightColors(m_cfg.uiColors);
         const wxSize v = ViewportChars();
         docLayout_->SetViewportSize(v.x, v.y);
         docLayout_->ScrollToEnd();
@@ -320,7 +330,38 @@ void TerminalPanel::SyncScrollbars()
 void TerminalPanel::EnsureCursorVisible()
 {
     if (!docLayout_) return;
+    const int oldLeft = docLayout_->GetLeftCol();
     docLayout_->EnsureCursorVisible();
+    const int newLeft = docLayout_->GetLeftCol();
+    UpdateScrollbars();
+    if (newLeft != oldLeft) {
+        // Restore the visual position and animate toward the target so the
+        // jump is eased rather than instantaneous.  SetLeftColRaw preserves
+        // leftClamped_ so cursor tracking stays engaged during the animation.
+        docLayout_->SetLeftColRaw(oldLeft);
+        m_hScrollAnimTarget_ = newLeft;
+        if (!m_hScrollAnimTimer_.IsRunning())
+            m_hScrollAnimTimer_.Start(kHScrollAnimMs);
+    } else {
+        Refresh();
+    }
+}
+
+void TerminalPanel::OnHScrollAnim(wxTimerEvent&)
+{
+    if (!docLayout_) { m_hScrollAnimTimer_.Stop(); return; }
+    const int cur = docLayout_->GetLeftCol();
+    if (cur == m_hScrollAnimTarget_) {
+        m_hScrollAnimTimer_.Stop();
+        Refresh();
+        return;
+    }
+    const int delta = m_hScrollAnimTarget_ - cur;
+    // Geometric easing clamped to [kHScrollMinStep, |delta|] so we never overshoot.
+    const int step  = (delta > 0)
+        ? std::min(delta, std::max(kHScrollMinStep, delta / 2))
+        : std::max(delta, std::min(-kHScrollMinStep, delta / 2));
+    docLayout_->SetLeftColRaw(cur + step);
     UpdateScrollbars();
     Refresh();
 }
@@ -527,15 +568,51 @@ void TerminalPanel::OnLeftDown(wxMouseEvent& e)
         return;
     }
 
-    auto [row, col]            = PixelToViewportChar(e.GetPosition());
+    // Triple-click: LEFT_DOWN that arrives within 400 ms of a double-click at
+    // roughly the same position → select the entire logical line.
+    static constexpr int    kTripleClickMs  = 400;
+    static constexpr int    kTripleClickPx  = 4;
+    const wxPoint           pos             = e.GetPosition();
+    const wxLongLong        nowMs           = wxGetLocalTimeMillis();
+    if ((nowMs - m_lastDClickMs_).GetValue() < kTripleClickMs) {
+        const wxPoint delta = pos - m_lastDClickPixel_;
+        const bool samePos = std::abs(delta.x) <= kTripleClickPx &&
+                             std::abs(delta.y) <= kTripleClickPx;
+        if (samePos) {
+            auto [row, col] = PixelToViewportChar(pos);
+            docLayout_->SelectLineAt(docLayout_->HitTest(row, col));
+            m_lastDClickMs_ = 0; // prevent quadruple-click cascading
+            CopySelectionToPrimary();
+            Refresh();
+            return;
+        }
+    }
+
+    auto [row, col]            = PixelToViewportChar(pos);
     const auto anchor          = docLayout_->HitTest(row, col);
     const DocLayout::TextSelection sel{anchor, anchor, true};
     docLayout_->SetSelection(sel);
 
     m_selecting_    = true;
-    m_lastMousePos_ = e.GetPosition();
+    m_lastMousePos_ = pos;
     CaptureMouse();
     m_selScrollTimer_.Start(50);
+    Refresh();
+}
+
+void TerminalPanel::OnLeftDClick(wxMouseEvent& e)
+{
+    if (!docLayout_) { e.Skip(); return; }
+
+    auto [row, col]          = PixelToViewportChar(e.GetPosition());
+    const auto pos           = docLayout_->HitTest(row, col);
+    docLayout_->SelectWordAt(pos, m_cfg.wordSelectRegex);
+
+    // Record position so the next LEFT_DOWN can detect a triple-click.
+    m_lastDClickMs_    = wxGetLocalTimeMillis();
+    m_lastDClickPixel_ = e.GetPosition();
+
+    CopySelectionToPrimary();
     Refresh();
 }
 

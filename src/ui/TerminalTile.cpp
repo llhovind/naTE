@@ -1,4 +1,5 @@
 #include "ui/TerminalTile.h"
+#include "ui/ColorUtils.h"
 #include "ui/TerminalPanel.h"
 #include "ui/TabStrip.h"
 #include <wx/menu.h>
@@ -10,7 +11,7 @@
 wxDEFINE_EVENT(EVT_TERMINAL_ACTION, TerminalActionEvent);
 wxDEFINE_EVENT(EVT_TILE_ACTION,     TileActionEvent);
 
-TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
+TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& cfg)
     : wxPanel(parent, wxID_ANY)
 {
     // Title bar — plain panel so we can set background colour independently.
@@ -124,16 +125,25 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
                 ProcessWindowEvent(evt);
             }, saveItem->GetId());
             menu.AppendSeparator();
+            const bool sshTab = tabs_[tabIdx].supportsFileTransfer;
             auto* sendItem = menu.Append(wxID_ANY, "Send Files to Remote...");
+            sendItem->Enable(sshTab);
             menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
                 TerminalActionEvent evt(TerminalAction::SendFiles, sid);
                 ProcessWindowEvent(evt);
             }, sendItem->GetId());
             auto* receiveItem = menu.Append(wxID_ANY, "Receive Files from Remote...");
+            receiveItem->Enable(sshTab);
             menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
                 TerminalActionEvent evt(TerminalAction::ReceiveFiles, sid);
                 ProcessWindowEvent(evt);
             }, receiveItem->GetId());
+            auto* editRemoteItem = menu.Append(wxID_ANY, "Edit Remote File...");
+            editRemoteItem->Enable(sshTab);
+            menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
+                TerminalActionEvent evt(TerminalAction::EditRemoteFile, sid);
+                ProcessWindowEvent(evt);
+            }, editRemoteItem->GetId());
             PopupMenu(&menu);
         } else {
             // Tile context menu — background area, no specific tab.
@@ -159,7 +169,8 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
 
     // Content area — the active TerminalPanel fills this completely.
     contentArea_ = new wxPanel(this, wxID_ANY);
-    contentArea_->SetBackgroundColour(*wxBLACK);
+    // TerminalPanel will set its own bg; this is just the gap between panels.
+    contentArea_->SetBackgroundColour(toWx(cfg.uiColors.frameBackground));
 
     // Route title bar events for tile drag (moves the active session to another window).
     titleBar_->Bind(wxEVT_LEFT_DOWN, &TerminalTile::OnTitleDown,       this);
@@ -168,6 +179,9 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& /*cfg*/)
     titleBar_->Bind(wxEVT_RIGHT_DOWN, &TerminalTile::OnTitleRightClick, this);
 
     Bind(wxEVT_SIZE, &TerminalTile::OnSize, this);
+
+    // Apply initial theme colors (uses UiColors defaults if cfg has no palette).
+    ApplyConfig(cfg);
 }
 
 // ---------------------------------------------------------------------------
@@ -356,17 +370,39 @@ void TerminalTile::OnSize(wxSizeEvent& evt)
     evt.Skip();
 }
 
+void TerminalTile::ApplyConfig(const AppConfig& cfg)
+{
+    const auto& u = cfg.uiColors;
+    colActive_    = toWx(u.tileActive);
+    colInactive_  = toWx(u.tileInactive);
+    colBroadcast_ = toWx(u.tileBroadcast);
+
+    if (tabStrip_) tabStrip_->SetUiColors(u);
+
+    glyphBright_ = toWx(u.controlActive);
+    UpdateTitleBarColor();
+}
+
 void TerminalTile::UpdateTitleBarColor()
 {
     // isFocused_ only produces the blue "active" tint when broadcast mode is
     // off — otherwise the focused tile has no more input claim than any other
     // non-broadcasting tile and should appear inactive.
-    const wxColour& c = inBroadcast_                      ? colBroadcast_
+    const wxColour& c = inBroadcast_                           ? colBroadcast_
                         : (isFocused_ && !broadcastModeActive_) ? colActive_
-                                                              : colInactive_;
+                                                               : colInactive_;
     titleBar_->SetBackgroundColour(c);
+
+    // Derive glyph colors from the current tile background so they always
+    // contrast regardless of focus state or theme.  "off" glyphs are blended
+    // 45 % toward the background — visually dimmed but never invisible.
+    const wxColour glyphOn  = glyphBright_;
+    const wxColour glyphOff = blendWx(glyphBright_, c, 0.45);
+    if (wrapCtrl_)   wrapCtrl_->SetGlyphColours(glyphOn, glyphOff);
+    if (altScrCtrl_) altScrCtrl_->SetGlyphColours(glyphOn, glyphOff);
+    if (x11Ctrl_)    x11Ctrl_->SetGlyphColours(glyphOn, glyphOff);
+
     titleBar_->Refresh();
-    if (wrapCtrl_) wrapCtrl_->Refresh();
 }
 
 void TerminalTile::SetFocused(bool focused)
@@ -396,6 +432,12 @@ void TerminalTile::SetTabBroadcast(term::session::SessionId id, bool inBroadcast
             return;
         }
     }
+}
+
+void TerminalTile::SetTabSupportsFileTransfer(term::session::SessionId id, bool supports)
+{
+    for (auto& tab : tabs_)
+        if (tab.sessionId == id) { tab.supportsFileTransfer = supports; return; }
 }
 
 void TerminalTile::SetTabUnread(term::session::SessionId id, bool hasUnread)

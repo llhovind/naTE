@@ -624,29 +624,30 @@ TEST_CASE("given line longer than viewport when wrap mode off then horizontal sc
     REQUIRE(row1.text == U"KLMNOPQRSTUVWXYZABCD");
 }
 
-TEST_CASE("given cursor enters 30pct left margin via backspace when leftClamped then viewport jumps by half cols")
+TEST_CASE("given cursor moves left past left margin when leftClamped then viewport adjusts")
 {
     // 20-column viewport; feed 40 chars so cursor-driven right-scroll fires.
-    // leftCol_ ends at 21 (= 40 - 20 + 1); leftClamped_ stays true (cursor-driven, not user-driven).
+    // marginRight=3 puts the right trigger at leftCol+17; leftCol_ ends at 24 (= 40-16).
     Connection conn{"test", LoopbackDesc{}};
     Session session(conn, 1000, 20, 5, {}, {});
     session.OnData("ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMN");
 
     DocLayout& layout = session.GetDocLayout();
-    const int leftBefore = layout.GetLeftCol();  // 21
+    const int cols       = layout.GetViewportCols();  // 20
+    const int marginLeft = cols / 4;                  // 5  (mirrors the runtime formula)
+    const int leftBefore = layout.GetLeftCol();       // 24
     REQUIRE(leftBefore > 0);
 
-    // 30% margin = 20 * 3/10 = 6.  leftMargin = 21 + 6 = 27.
-    // 14 backspaces move cursor from 40 to 26, which is < 27 — triggers the early jump
-    // while the cursor is still to the RIGHT of the original leftCol (21).
+    // marginLeft=5: trigger fires when cursor < leftCol_+5.
+    // 14 backspaces move cursor from 40 to 26; first fires at cursor=28,
+    // then tracks one column per backspace down to leftCol_=21.
     session.OnData(std::string(14, '\x08'));
 
     const int cursorCol = (int)layout.GetCursorDocPos().col;  // 26
-    const int leftAfter  = layout.GetLeftCol();               // 16
+    const int leftAfter  = layout.GetLeftCol();               // 21
 
-    REQUIRE(cursorCol >= leftBefore);                          // cursor still right of original left edge (early trigger)
-    REQUIRE(leftAfter < leftBefore);                           // viewport scrolled left
-    REQUIRE(leftAfter == std::max(0, cursorCol - 10));         // half-viewport jump (cols_/2 = 10)
+    REQUIRE(leftAfter < leftBefore);
+    REQUIRE(leftAfter == std::max(0, cursorCol - marginLeft));
 }
 
 TEST_CASE("given user manually scrolled right then viewport ignores cursor movement in both directions")
@@ -805,4 +806,59 @@ TEST_CASE("given cursor visible when ResetTerminal called then onCursorVisibilit
     session.ResetTerminal(false);
 
     CHECK(callCount == 0);
+}
+
+// ---------------------------------------------------------------------------
+// Geometry sync: OnResize / SetWrapMode must keep the stored Connection
+// up-to-date so that BuildCurrentState() saves the live geometry.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given session exists when OnResize called then GetConnection reflects new cols and rows")
+{
+    SessionManager sm;
+    const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
+
+    sm.OnResize(id, 132, 50);
+
+    const Connection conn = sm.GetConnection(id);
+    CHECK(conn.columnWidth == 132);
+    CHECK(conn.rows == 50);
+
+    sm.CloseSession(id);
+}
+
+TEST_CASE("given session exists when SetWrapMode called then GetConnection reflects new wrap mode")
+{
+    SessionManager sm;
+    Connection c = loopbackConn();
+    c.wrapMode = false;
+    const SessionId id = sm.CreateSession(c, 1000, 80, 24);
+
+    sm.SetWrapMode(id, true);
+    CHECK(sm.GetConnection(id).wrapMode == true);
+
+    sm.SetWrapMode(id, false);
+    CHECK(sm.GetConnection(id).wrapMode == false);
+
+    sm.CloseSession(id);
+}
+
+TEST_CASE("given session resized and wrap toggled when GetConnection called then all three geometry fields are current")
+{
+    SessionManager sm;
+    Connection c = loopbackConn();
+    c.columnWidth = 80;
+    c.rows        = 24;
+    c.wrapMode    = false;
+    const SessionId id = sm.CreateSession(c, 1000, 80, 24);
+
+    sm.OnResize(id, 200, 60);
+    sm.SetWrapMode(id, true);
+
+    const Connection result = sm.GetConnection(id);
+    CHECK(result.columnWidth == 200);
+    CHECK(result.rows        == 60);
+    CHECK(result.wrapMode    == true);
+
+    sm.CloseSession(id);
 }

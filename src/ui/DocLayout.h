@@ -1,5 +1,6 @@
 #pragma once
 
+#include "config/Color.h"
 #include "document/Document.h"
 #include "document/IDocumentListener.h"
 #include "ui/SearchMatch.h"
@@ -62,6 +63,7 @@ public:
     void SetWrapMode(bool wrap);
     bool GetWrapMode() const;
     void SetLeftCol(int col);
+    void SetLeftColRaw(int col);  // sets leftCol_ without modifying leftClamped_; for animation only
     int  GetLeftCol() const;
     int  GetMaxVisibleWidth() const;
     int  GetViewportRows() const;
@@ -100,6 +102,17 @@ public:
     TextSelection  GetSelection() const;
     std::u32string GetSelectedText() const;
     bool           HasSelection() const;
+
+    // Double-click: find the regex match in pos.docLine that contains pos.docCol
+    // and set it as the active selection. Returns true if a non-empty word was found.
+    bool SelectWordAt(DocPosition pos, const std::string& regexPattern);
+
+    // Triple-click: select the entire logical line at pos (col 0 → text.size()).
+    void SelectLineAt(DocPosition pos);
+
+    // Update selection and search highlight colors from the active theme.
+    // Called by TerminalPanel::ApplyConfig.
+    void SetHighlightColors(const UiColors& u);
 
     void OnDocumentChanged(DocChangeType type, size_t lineIndex) override;
 
@@ -153,6 +166,13 @@ private:
 
     std::vector<SearchMatch> searchMatches_;
     size_t                   searchCurrentIdx_ = 0;
+
+    // Theme-derived highlight colors — updated via SetHighlightColors().
+    Rgb selectionBg_     = UiColors{}.selectionBg;
+    Rgb selectionFg_     = UiColors{}.selectionFg;
+    Rgb searchMatchBg_   = UiColors{}.searchMatchBg;
+    Rgb searchMatchFg_   = UiColors{}.searchMatchFg;
+    Rgb searchCurrentBg_ = UiColors{}.searchCurrentBg;
 
     TextSelection              selection_;
     std::optional<DocPosition> hoveredUrlPos_;
