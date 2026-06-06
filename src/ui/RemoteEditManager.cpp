@@ -50,14 +50,7 @@ void RemoteEditManager::OpenRemoteFile(term::session::SessionId  id,
                     session->Start();
                     sessions_.push_back(std::move(session));
 
-                    // Resolve command: use editorCommand if non-empty, else $EDITOR.
-                    std::string cmd = editorCommand;
-                    if (cmd.empty()) {
-                        const char* envEditor = std::getenv("EDITOR");
-                        cmd = envEditor ? envEditor : "xterm -e vi";
-                    }
-
-                    wxExecute(wxString::FromUTF8(cmd + " " + localPath), wxEXEC_ASYNC);
+                    wxExecute(wxString::FromUTF8(editorCommand + " " + localPath), wxEXEC_ASYNC);
 
                     if (onReady) onReady(true, "");
                 });

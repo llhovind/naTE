@@ -25,6 +25,7 @@
 #include <wx/sizer.h>
 #include <wx/string.h>
 
+#include <cstdlib>
 #include <future>
 #include <string>
 #include <unordered_set>
@@ -523,7 +524,21 @@ void UIManager::EditRemoteFileForSession(term::session::SessionId id)
     if (paths.empty()) return;
     const std::string remotePath = paths.front();
 
-    editMgr_->OpenRemoteFile(id, remotePath, cfg_.remoteEditorCommand,
+    std::string editorCommand = cfg_.remoteEditorCommand;
+    if (editorCommand.empty()) {
+        const char* envEditor = std::getenv("EDITOR");
+        if (envEditor) editorCommand = envEditor;
+    }
+    if (editorCommand.empty()) {
+        wxMessageBox(
+            wxString::FromUTF8(
+                "No remote editor configured.\n\n"
+                "Set one in Edit \xe2\x86\x92 Preferences \xe2\x86\x92 Behavior \xe2\x86\x92 Remote editor."),
+            "Edit Remote File", wxOK | wxICON_INFORMATION, frame_);
+        return;
+    }
+
+    editMgr_->OpenRemoteFile(id, remotePath, editorCommand,
         [this](bool ok, std::string err) {
             if (!ok) {
                 wxMessageBox(wxString::FromUTF8("Remote edit failed: " + err),
