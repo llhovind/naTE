@@ -102,6 +102,7 @@ public:
 
     // Open the remote file browser and launch a remote-edit session (SSH only).
     void EditRemoteFileForActive();
+    void EditRemoteFileForSession(term::session::SessionId id);
 
     // Called by App after RemoteEditManager construction.
     void SetRemoteEditManager(class RemoteEditManager* mgr) { editMgr_ = mgr; }

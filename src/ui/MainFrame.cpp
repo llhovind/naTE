@@ -163,9 +163,12 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_MENU, &MainFrame::OnSendFiles,               this, ID_SEND_FILES);
     Bind(wxEVT_MENU, &MainFrame::OnReceiveFiles,            this, ID_RECEIVE_FILES);
     Bind(wxEVT_MENU, &MainFrame::OnEditRemoteFile,          this, ID_EDIT_REMOTE_FILE);
-    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
+    auto sftGuard = [this](wxUpdateUIEvent& e) {
         e.Enable(m_uiManager && m_uiManager->ActiveSessionSupportsFileTransfer());
-    }, ID_EDIT_REMOTE_FILE);
+    };
+    Bind(wxEVT_UPDATE_UI, sftGuard, ID_SEND_FILES);
+    Bind(wxEVT_UPDATE_UI, sftGuard, ID_RECEIVE_FILES);
+    Bind(wxEVT_UPDATE_UI, sftGuard, ID_EDIT_REMOTE_FILE);
 
     termMenu->AppendSeparator();
     termMenu->Append(ID_OPEN_IN_NEW_TILE,        "Move to New Tile");

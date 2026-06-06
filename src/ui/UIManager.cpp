@@ -406,6 +406,7 @@ void UIManager::TakeSession(term::session::SessionId     id,
     sessions_.emplace(id, std::move(sui));
 
     targetTile->ShowX11Control(sm_.SupportsX11Forwarding(id), x11Active);
+    targetTile->SetTabSupportsFileTransfer(id, sm_.SupportsFileTransfer(id));
 
     if (onSessionListChanged_) onSessionListChanged_();
     RequestActivate(id);
@@ -510,28 +511,30 @@ bool UIManager::ActiveSessionSupportsFileTransfer() const
     return activeId_ && sm_.SupportsFileTransfer(activeId_);
 }
 
-void UIManager::EditRemoteFileForActive()
+void UIManager::EditRemoteFileForSession(term::session::SessionId id)
 {
-    if (!editMgr_ || !ActiveSessionSupportsFileTransfer()) return;
+    if (!editMgr_ || !id || !sm_.SupportsFileTransfer(id)) return;
 
-    const std::string remote = sm_.GetRemoteDescription(activeId_);
-    RemoteFileBrowserDialog dlg(frame_, activeId_, sm_, remote, "Edit");
+    const std::string remote = sm_.GetRemoteDescription(id);
+    RemoteFileBrowserDialog dlg(frame_, id, sm_, remote, "Edit");
     if (dlg.ShowModal() != wxID_OK) return;
 
     const auto& paths = dlg.GetSelectedPaths();
     if (paths.empty()) return;
     const std::string remotePath = paths.front();
 
-    const std::string editorCommand = cfg_.remoteEditorCommand;
-    const term::session::SessionId id = activeId_;
-
-    editMgr_->OpenRemoteFile(id, remotePath, editorCommand,
+    editMgr_->OpenRemoteFile(id, remotePath, cfg_.remoteEditorCommand,
         [this](bool ok, std::string err) {
             if (!ok) {
                 wxMessageBox(wxString::FromUTF8("Remote edit failed: " + err),
                              "Edit Remote File", wxOK | wxICON_ERROR, frame_);
             }
         });
+}
+
+void UIManager::EditRemoteFileForActive()
+{
+    EditRemoteFileForSession(activeId_);
 }
 
 void UIManager::SaveSessionToFile(term::session::SessionId id)
@@ -819,6 +822,9 @@ void UIManager::OnTerminalAction(TerminalActionEvent& evt)
             break;
         case TerminalAction::ReceiveFiles:
             ReceiveFilesForSession(evt.GetSessionId());
+            break;
+        case TerminalAction::EditRemoteFile:
+            EditRemoteFileForSession(evt.GetSessionId());
             break;
     }
 }

@@ -125,16 +125,25 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& cfg)
                 ProcessWindowEvent(evt);
             }, saveItem->GetId());
             menu.AppendSeparator();
+            const bool sshTab = tabs_[tabIdx].supportsFileTransfer;
             auto* sendItem = menu.Append(wxID_ANY, "Send Files to Remote...");
+            sendItem->Enable(sshTab);
             menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
                 TerminalActionEvent evt(TerminalAction::SendFiles, sid);
                 ProcessWindowEvent(evt);
             }, sendItem->GetId());
             auto* receiveItem = menu.Append(wxID_ANY, "Receive Files from Remote...");
+            receiveItem->Enable(sshTab);
             menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
                 TerminalActionEvent evt(TerminalAction::ReceiveFiles, sid);
                 ProcessWindowEvent(evt);
             }, receiveItem->GetId());
+            auto* editRemoteItem = menu.Append(wxID_ANY, "Edit Remote File...");
+            editRemoteItem->Enable(sshTab);
+            menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
+                TerminalActionEvent evt(TerminalAction::EditRemoteFile, sid);
+                ProcessWindowEvent(evt);
+            }, editRemoteItem->GetId());
             PopupMenu(&menu);
         } else {
             // Tile context menu — background area, no specific tab.
@@ -423,6 +432,12 @@ void TerminalTile::SetTabBroadcast(term::session::SessionId id, bool inBroadcast
             return;
         }
     }
+}
+
+void TerminalTile::SetTabSupportsFileTransfer(term::session::SessionId id, bool supports)
+{
+    for (auto& tab : tabs_)
+        if (tab.sessionId == id) { tab.supportsFileTransfer = supports; return; }
 }
 
 void TerminalTile::SetTabUnread(term::session::SessionId id, bool hasUnread)

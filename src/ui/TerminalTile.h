@@ -76,6 +76,7 @@ public:
     // Colours an individual tab to show whether its session is in broadcast.
     // Must be called for every session in this tile on each broadcast change.
     void SetTabBroadcast(term::session::SessionId id, bool inBroadcast);
+    void SetTabSupportsFileTransfer(term::session::SessionId id, bool supports);
 
     // Marks a tab as having unread output (content arrived while the tab was hidden).
     // Cleared automatically when the tab is activated.
@@ -138,12 +139,13 @@ public:
 
 private:
     struct TabEntry {
-        term::session::SessionId    sessionId      = 0;
-        TerminalPanel*              panel          = nullptr;  // wx-child-owned by contentArea_
+        term::session::SessionId    sessionId           = 0;
+        TerminalPanel*              panel               = nullptr;  // wx-child-owned by contentArea_
         wxString                    label;
-        bool                        inBroadcast    = false;
-        bool                        hasUnreadOutput = false;
-        term::session::SessionStatus status        = term::session::SessionStatus::Connected;
+        bool                        inBroadcast         = false;
+        bool                        hasUnreadOutput     = false;
+        bool                        supportsFileTransfer = false;
+        term::session::SessionStatus status             = term::session::SessionStatus::Connected;
     };
 
     // Show the panel at index; hide the previous one. Does not emit ActivateSession — programmatic activation only.
