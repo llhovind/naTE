@@ -539,7 +539,8 @@ void UIManager::EditRemoteFileForSession(term::session::SessionId id)
     if (!editMgr_ || !id || !sm_.SupportsFileTransfer(id)) return;
 
     const std::string remote = sm_.GetRemoteDescription(id);
-    RemoteFileBrowserDialog dlg(frame_, id, sm_, remote, "Edit");
+    const std::string cwd    = sm_.GetCurrentWorkingDir(id);
+    RemoteFileBrowserDialog dlg(frame_, id, sm_, remote, "Edit", cwd);
     if (dlg.ShowModal() != wxID_OK) return;
 
     const auto& paths = dlg.GetSelectedPaths();
