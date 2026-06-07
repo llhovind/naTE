@@ -1,13 +1,12 @@
 #include "ui/AddPortForwardDialog.h"
 
+#include <wx/app.h>
 #include <wx/button.h>
-#include <wx/checkbox.h>
 #include <wx/choice.h>
 #include <wx/sizer.h>
-#include <wx/spinctrl.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
-#include <wx/app.h>
+#include <wx/valtext.h>
 
 namespace ui {
 
@@ -64,8 +63,9 @@ void AddPortForwardDialog::BuildUI()
     // Local Port
     grid->Add(new wxStaticText(this, wxID_ANY, "Local Port:"),
               0, wxALIGN_CENTER_VERTICAL);
-    localPortCtrl_ = new wxSpinCtrl(this, wxID_ANY, "", wxDefaultPosition,
-                                    wxSize(90, -1), wxSP_ARROW_KEYS, 1, 65535, 8080);
+    localPortCtrl_ = new wxTextCtrl(this, wxID_ANY, "8080", wxDefaultPosition,
+                                    wxSize(90, -1), 0,
+                                    wxTextValidator(wxFILTER_DIGITS));
     grid->Add(localPortCtrl_, 0);
 
     // Remote Host (label changes with direction)
@@ -77,8 +77,9 @@ void AddPortForwardDialog::BuildUI()
     // Remote Port
     grid->Add(new wxStaticText(this, wxID_ANY, "Remote Port:"),
               0, wxALIGN_CENTER_VERTICAL);
-    remotePortCtrl_ = new wxSpinCtrl(this, wxID_ANY, "", wxDefaultPosition,
-                                     wxSize(90, -1), wxSP_ARROW_KEYS, 1, 65535, 8080);
+    remotePortCtrl_ = new wxTextCtrl(this, wxID_ANY, "8080", wxDefaultPosition,
+                                     wxSize(90, -1), 0,
+                                     wxTextValidator(wxFILTER_DIGITS));
     grid->Add(remotePortCtrl_, 0);
 
     // Bind Address
@@ -102,7 +103,7 @@ void AddPortForwardDialog::BuildUI()
 
     // Buttons
     auto* btns = new wxStdDialogButtonSizer();
-    addBtn_    = new wxButton(this, wxID_OK,     liveMode_ ? "Add" : "Add");
+    addBtn_    = new wxButton(this, wxID_OK, "Add");
     cancelBtn_ = new wxButton(this, wxID_CANCEL, "Cancel");
     btns->AddButton(addBtn_);
     btns->AddButton(cancelBtn_);
@@ -127,11 +128,17 @@ void AddPortForwardDialog::OnDirectionChanged(wxCommandEvent&)
     Layout();
 }
 
+static bool ValidPort(wxTextCtrl* ctrl)
+{
+    long v = 0;
+    return ctrl->GetValue().ToLong(&v) && v >= 1 && v <= 65535;
+}
+
 bool AddPortForwardDialog::Validate() const
 {
-    if (localPortCtrl_->GetValue() == 0) return false;
-    if (remoteHostCtrl_->GetValue().Trim().empty()) return false;
-    if (remotePortCtrl_->GetValue() == 0) return false;
+    if (!ValidPort(localPortCtrl_))                   return false;
+    if (remoteHostCtrl_->GetValue().Trim().empty())   return false;
+    if (!ValidPort(remotePortCtrl_))                  return false;
     return true;
 }
 
@@ -143,10 +150,14 @@ void AddPortForwardDialog::OnAdd(wxCommandEvent&)
     }
 
     using Dir = term::transport::PortForwardDirection;
+    long localPort = 0, remotePort = 0;
+    localPortCtrl_->GetValue().ToLong(&localPort);
+    remotePortCtrl_->GetValue().ToLong(&remotePort);
+
     desc_.direction  = (dirChoice_->GetSelection() == 1) ? Dir::Remote : Dir::Local;
-    desc_.localPort  = static_cast<uint16_t>(localPortCtrl_->GetValue());
+    desc_.localPort  = static_cast<uint16_t>(localPort);
     desc_.remoteHost = remoteHostCtrl_->GetValue().utf8_string();
-    desc_.remotePort = static_cast<uint16_t>(remotePortCtrl_->GetValue());
+    desc_.remotePort = static_cast<uint16_t>(remotePort);
     desc_.bindAddr   = bindAddrCtrl_->GetValue().Trim().utf8_string();
     desc_.label      = labelCtrl_->GetValue().utf8_string();
 
@@ -179,17 +190,6 @@ void AddPortForwardDialog::OnFallbackTimer(wxTimerEvent&)
 {
     SetBusy(false);
     SetStatus(wxString::FromUTF8("Timed out \xe2\x80\x94 the session may have disconnected."), true);
-}
-
-void AddPortForwardDialog::DeliverResult(bool ok, const std::string& error)
-{
-    fallbackTimer_.Stop();
-    if (ok) {
-        EndModal(wxID_OK);
-    } else {
-        SetBusy(false);
-        SetStatus(wxString::FromUTF8(error.empty() ? "Setup failed." : error), true);
-    }
 }
 
 void AddPortForwardDialog::SetStatus(const wxString& msg, bool isError)

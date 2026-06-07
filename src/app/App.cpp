@@ -585,8 +585,11 @@ term::session::RestoreState App::BuildCurrentState() const
                     conn.sessionInit.workingDir = liveDir;
                 // Never persist passwords or passphrases.
                 if (auto* ssh = std::get_if<term::session::SshDesc>(&conn.transport)) {
-                    ssh->password   = {};
-                    ssh->passphrase = {};
+                    ssh->password    = {};
+                    ssh->passphrase  = {};
+                    // Capture live port forwards — profile-stored ones may be stale if
+                    // the user added/removed forwards during this session.
+                    ssh->portForwards = m_sessionManager->GetPortForwardDescs(sid);
                 }
                 rt.sessions.push_back({std::move(conn)});
             }

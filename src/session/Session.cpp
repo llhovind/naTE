@@ -103,6 +103,19 @@ void Session::ReplaceConnection(const Connection& conn,
                                lastRows_, lastCols_, appDefaults);
     status_ = SessionStatus::Reconnecting;
     transport_->Start();
+
+    // Re-submit all configured port forwards to the new transport.
+    // IDs are preserved so UIManager's panel can reconcile status updates.
+    // Clear the stale status snapshot so callers see an empty list until the
+    // transport confirms each forward's state on the new connection.
+    if (transport_->SupportsPortForwarding() && !portForwardDescs_.empty()) {
+        {
+            std::lock_guard<std::mutex> lk(pfwStatusMtx_);
+            portForwardStatus_.clear();
+        }
+        for (const auto& pf : portForwardDescs_)
+            transport_->AddPortForward(pf);
+    }
 }
 
 void Session::ForceAltScreen(bool on)
@@ -177,16 +190,28 @@ void Session::RequestX11Forwarding()
 
 void Session::OnPortForwardStatusChanged(std::vector<transport::PortForwardStatus> status)
 {
-    portForwardStatus_ = status;
-    // onPortForwardChanged_ is set by UIManager; it is responsible for
-    // marshalling to the UI thread via frame_->CallAfter (same pattern as
-    // OnX11FwdChanged / OnAltScreenChanged in UIManager).
+    {
+        std::lock_guard<std::mutex> lk(pfwStatusMtx_);
+        portForwardStatus_ = status;
+    }
     if (onPortForwardChanged_) onPortForwardChanged_(std::move(status));
 }
 
 bool Session::SupportsPortForwarding() const
 {
     return transport_->SupportsPortForwarding();
+}
+
+void Session::SetPortForwardChangedCallback(
+    std::function<void(std::vector<transport::PortForwardStatus>)> cb)
+{
+    onPortForwardChanged_ = std::move(cb);
+}
+
+std::vector<transport::PortForwardStatus> Session::GetPortForwardStatus() const
+{
+    std::lock_guard<std::mutex> lk(pfwStatusMtx_);
+    return portForwardStatus_;
 }
 
 transport::PortForwardId Session::AddPortForward(transport::PortForwardDesc desc)

@@ -14,11 +14,15 @@ PortForwardControl::PortForwardControl(wxWindow* parent)
 void PortForwardControl::SetStatus(const std::vector<term::transport::PortForwardStatus>& status)
 {
     bool active = false;
-    for (const auto& s : status)
-        if (s.active) { active = true; break; }
+    bool error  = false;
+    for (const auto& s : status) {
+        if (s.active)         active = true;
+        if (!s.error.empty()) error  = true;
+    }
 
-    if (hasActive_ == active) return;
+    if (hasActive_ == active && hasError_ == error) return;
     hasActive_ = active;
+    hasError_  = error;
     Refresh();
 }
 
@@ -43,7 +47,10 @@ void PortForwardControl::OnPaint(wxPaintEvent&)
                cx,        midY);  // centre
 
     // --- Pass 2: bidirectional arrows (2px, full glyph colour) ---
-    const wxColour arrowCol = hasActive_ ? glyphActive_ : glyphInactive_;
+    // Priority: active (tunnels open) → error (setup failed) → inactive.
+    const wxColour arrowCol = hasActive_ ? glyphActive_
+                            : hasError_  ? wxColour(210, 70, 70)
+                                         : glyphInactive_;
     dc.SetPen(wxPen(arrowCol, 2));
 
     // Left-pointing arrow at ~60% of height.

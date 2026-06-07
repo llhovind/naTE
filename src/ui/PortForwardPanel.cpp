@@ -17,13 +17,13 @@ static constexpr int kColGap  = 8;   // gap between row columns
 
 // ---------------------------------------------------------------------------
 
-PortForwardPanel::PortForwardPanel(wxWindow* parent)
+PortForwardPanel::PortForwardPanel(wxWindow* parent, const AppConfig& cfg)
     : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE)
-    , labelFg_(toWx(AppConfig{}.uiColors.controlActive))
+    , labelFg_(toWx(UiColors{}.controlActive))
 {
-    // Panel background uses the same slot as the search bar.
-    SetBackgroundColour(toWx(AppConfig{}.uiColors.searchBarBg));
+    SetBackgroundColour(toWx(UiColors{}.searchBarBg));
     SetForegroundColour(labelFg_);
+    SetMinSize(wxSize(360, -1));
 
     // Header: title label + stretch spacer + [+ Add] button.
     auto* headerSizer = new wxBoxSizer(wxHORIZONTAL);
@@ -33,7 +33,7 @@ PortForwardPanel::PortForwardPanel(wxWindow* parent)
     headerSizer->Add(titleLbl, 0, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, kRowPadV + 2);
     headerSizer->AddStretchSpacer(1);
     auto* addBtn = new wxButton(this, wxID_ANY, "+ Add",
-                                wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+                                wxDefaultPosition, wxDefaultSize, wxBORDER_NONE | wxBU_EXACTFIT);
     addBtn->SetForegroundColour(labelFg_);
     headerSizer->Add(addBtn, 0, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM | wxRIGHT,
                      kRowPadV);
@@ -179,7 +179,7 @@ void PortForwardPanel::RebuildRows()
         // Remove button.
         const term::transport::PortForwardId fwdId = desc.id;
         auto* removeBtn = new wxButton(rowPanel, wxID_ANY, wxString::FromUTF8("\xe2\x9c\x95"),
-                                        wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+                                        wxDefaultPosition, wxDefaultSize, wxBORDER_NONE | wxBU_EXACTFIT);
         removeBtn->SetForegroundColour(labelFg_);
         removeBtn->SetToolTip("Remove forward");
         removeBtn->Bind(wxEVT_BUTTON, [this, fwdId](wxCommandEvent&) {

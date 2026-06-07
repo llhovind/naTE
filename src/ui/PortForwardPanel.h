@@ -21,7 +21,7 @@ class PortForwardPanel : public wxPanel
 public:
     using ResultCb = ui::AddPortForwardDialog::ResultCb;
 
-    explicit PortForwardPanel(wxWindow* parent);
+    PortForwardPanel(wxWindow* parent, const AppConfig& cfg);
 
     void SetCallbacks(
         std::function<term::transport::PortForwardId(term::transport::PortForwardDesc)> onAdd,

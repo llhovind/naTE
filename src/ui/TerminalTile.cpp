@@ -187,7 +187,7 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& cfg)
     contentArea_->SetBackgroundColour(toWx(cfg.uiColors.frameBackground));
 
     // Created after contentArea_ so it is higher in Z-order and can overlay it.
-    portFwdPanel_ = new PortForwardPanel(this);
+    portFwdPanel_ = new PortForwardPanel(this, cfg);
 
     // Route title bar events for tile drag (moves the active session to another window).
     titleBar_->Bind(wxEVT_LEFT_DOWN, &TerminalTile::OnTitleDown,       this);

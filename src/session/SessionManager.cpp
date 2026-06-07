@@ -339,7 +339,7 @@ void SessionManager::SetPortForwardChangedCallback(
     std::function<void(std::vector<transport::PortForwardStatus>)> cb)
 {
     if (SessionRecord* rec = FindRecord(id))
-        rec->session->onPortForwardChanged_ = std::move(cb);
+        rec->session->SetPortForwardChangedCallback(std::move(cb));
 }
 
 std::vector<transport::PortForwardStatus> SessionManager::GetPortForwardStatus(SessionId id) const

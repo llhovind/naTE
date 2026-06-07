@@ -16,6 +16,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 #include <poll.h>
@@ -137,6 +138,16 @@ private:
     struct PfwAdd    { PortForwardDesc desc; };
     struct PfwRemove { PortForwardId   id;   };
 
+    // Tag paired with each pollfd appended by BuildPortForwardPollFds so that
+    // ServicePortForwardConns can dispatch to the right fwd/conn without an
+    // implicit shared-order cursor.
+    struct PfwPollEntry {
+        enum class Kind : uint8_t { LocalListen, LocalConn, RemoteConn };
+        Kind   kind;
+        size_t fwdIdx;
+        size_t connIdx;  // unused for LocalListen
+    };
+
     // Worker thread — owns all libssh2 calls.
     void WorkerThread();
 
@@ -224,15 +235,23 @@ private:
     // Must be called only from the worker thread.
     void ServicePortForwardQueue();
 
-    // Proxies data for all active local and remote forward connections.
-    // Appends listen_fds and proxy conn fds to pfds before the poll call.
+    // Appends one pollfd+PfwPollEntry pair per listen socket and proxy conn.
+    // ServicePortForwardConns takes the same pfwBase and tags to dispatch results
+    // without relying on a shared iteration-order contract between the two functions.
     // Must be called only from the worker thread.
-    void BuildPortForwardPollFds(std::vector<pollfd>& pfds);
-    void ServicePortForwardConns(const std::vector<pollfd>& pfds, size_t pfdBase,
+    void BuildPortForwardPollFds(std::vector<pollfd>& pfds,
+                                 std::vector<PfwPollEntry>& tags);
+    void ServicePortForwardConns(const std::vector<pollfd>& pfds, size_t pfwBase,
+                                 const std::vector<PfwPollEntry>& tags,
                                  char* buf, size_t bufLen);
 
-    // Collects current status and fires OnPortForwardStatusChanged if it changed.
+    // Collects current status (including any persisted failures) and fires
+    // OnPortForwardStatusChanged if the snapshot changed.
     void NotifyPortForwardStatus();
+
+    // Records a permanent failure for id in pfw_failed_ and fires a status update.
+    // The failure persists until the forward is explicitly removed via PfwRemove.
+    void FireFailedStatus(PortForwardId id, const std::string& error);
 
     // Returns a human-readable error string for the current errno.
     static std::string ErrnoString(int err);
@@ -309,6 +328,11 @@ private:
 
     // Last-sent status snapshot; used to suppress redundant callbacks.
     std::vector<PortForwardStatus> pfw_last_status_;
+
+    // Forwards that failed setup: id → error string.  Persisted here so they
+    // remain visible in the panel until the user explicitly removes them.
+    // Worker-thread-only after Start().
+    std::unordered_map<PortForwardId, std::string> pfw_failed_;
 };
 
 } // namespace term::transport

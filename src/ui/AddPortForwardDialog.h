@@ -7,7 +7,6 @@
 
 class wxButton;
 class wxChoice;
-class wxSpinCtrl;
 class wxStaticText;
 class wxTextCtrl;
 
@@ -37,9 +36,6 @@ public:
 
     term::transport::PortForwardDesc GetDesc() const { return desc_; }
 
-    // Called by PortForwardPanel when the transport reports the result.
-    void DeliverResult(bool ok, const std::string& error);
-
 private:
     void BuildUI();
     void OnDirectionChanged(wxCommandEvent&);
@@ -49,11 +45,11 @@ private:
     void SetBusy(bool busy);
     bool Validate() const;
 
-    wxChoice*     dirChoice_    = nullptr;
-    wxSpinCtrl*   localPortCtrl_= nullptr;
-    wxStaticText* remoteHostLbl_= nullptr;
-    wxTextCtrl*   remoteHostCtrl_= nullptr;
-    wxSpinCtrl*   remotePortCtrl_= nullptr;
+    wxChoice*     dirChoice_      = nullptr;
+    wxTextCtrl*   localPortCtrl_  = nullptr;
+    wxStaticText* remoteHostLbl_  = nullptr;
+    wxTextCtrl*   remoteHostCtrl_ = nullptr;
+    wxTextCtrl*   remotePortCtrl_ = nullptr;
     wxTextCtrl*   bindAddrCtrl_ = nullptr;
     wxTextCtrl*   labelCtrl_    = nullptr;
     wxStaticText* statusLabel_  = nullptr;
