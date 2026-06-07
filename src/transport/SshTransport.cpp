@@ -22,6 +22,7 @@
 #include <vector>
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/tcp.h>
 #include <poll.h>
@@ -1051,6 +1052,10 @@ DisconnectReason SshTransport::ReadWriteLoop()
             for (const auto& a : agent_channels_)
                 pfds.push_back({a.local_fd, POLLIN, 0});
 
+            // Append port forward listen fds and proxy conn local fds.
+            const size_t pfwBase = pfds.size();
+            BuildPortForwardPollFds(pfds);
+
             ::poll(pfds.data(), static_cast<nfds_t>(pfds.size()), kPollTimeoutMs);
 
             if (!running_) break;
@@ -1084,6 +1089,9 @@ DisconnectReason SshTransport::ReadWriteLoop()
 
                 libssh2_channel_write(a.channel, buf, static_cast<size_t>(n));
             }
+
+            // Service port forward listen fds and proxy connections (both directions).
+            ServicePortForwardConns(pfds, pfwBase, buf, kReadBuf);
         }
 
         // --- Read from main shell channel ---------------------------------
@@ -1155,10 +1163,11 @@ DisconnectReason SshTransport::ReadWriteLoop()
                 }),
             agent_channels_.end());
 
-        // --- Drain writes + resize + vpcolumns ---------------------------
+        // --- Drain writes + resize + vpcolumns + port forwards -----------
         DrainWriteQueue();
         CaptureCwdPeriodic();
         ServiceSftpQueue();
+        ServicePortForwardQueue();
 
     }
 
@@ -1173,6 +1182,19 @@ cleanup_x11:
         libssh2_channel_free(a.channel);
     }
     agent_channels_.clear();
+
+    // Close all port forward listeners and proxy connections.
+    for (auto& fwd : local_fwds_) {
+        ::close(fwd.listen_fd);
+        for (auto& c : fwd.conns) { if (!c.closed) { ::close(c.local_fd); libssh2_channel_free(c.channel); } }
+    }
+    local_fwds_.clear();
+    for (auto& fwd : remote_fwds_) {
+        libssh2_channel_forward_cancel(fwd.listener);
+        for (auto& c : fwd.conns) { if (!c.closed) { ::close(c.local_fd); libssh2_channel_free(c.channel); } }
+    }
+    remote_fwds_.clear();
+
     return reason;
 }
 
@@ -1845,6 +1867,328 @@ void SshTransport::SftpUploadFile(const std::string& localPath,
     auto ptr = std::make_shared<SftpUploadTask>(std::move(t));
     std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
     sftp_queue_.emplace_back([ptr]() mutable { return (*ptr)(); });
+}
+
+// ---------------------------------------------------------------------------
+// Port Forwarding — public API (UI thread)
+// ---------------------------------------------------------------------------
+
+void SshTransport::AddPortForward(const PortForwardDesc& desc)
+{
+    std::lock_guard<std::mutex> lk(pfw_mutex_);
+    pfw_pending_.push_back(PfwAdd{desc});
+}
+
+void SshTransport::RemovePortForward(PortForwardId id)
+{
+    std::lock_guard<std::mutex> lk(pfw_mutex_);
+    pfw_pending_.push_back(PfwRemove{id});
+}
+
+// ---------------------------------------------------------------------------
+// Port Forwarding — worker-thread helpers
+// ---------------------------------------------------------------------------
+
+std::string SshTransport::ErrnoString(int err)
+{
+    char buf[256];
+    return ::strerror_r(err, buf, sizeof(buf));
+}
+
+void SshTransport::NotifyPortForwardStatus()
+{
+    std::vector<PortForwardStatus> status;
+    for (const auto& fwd : local_fwds_) {
+        PortForwardStatus s;
+        s.id          = fwd.desc.id;
+        s.active      = fwd.listen_fd >= 0;
+        s.connections = fwd.conns.size();
+        status.push_back(std::move(s));
+    }
+    for (const auto& fwd : remote_fwds_) {
+        PortForwardStatus s;
+        s.id          = fwd.desc.id;
+        s.active      = fwd.listener != nullptr;
+        s.connections = fwd.conns.size();
+        status.push_back(std::move(s));
+    }
+
+    if (status == pfw_last_status_) return;
+    pfw_last_status_ = status;
+    target_.OnPortForwardStatusChanged(std::move(status));
+}
+
+// Stores the error string inside the fwd entry so NotifyPortForwardStatus can pick it up.
+// We repurpose PortForwardDesc::label temporarily — actually we need a separate field.
+// Instead, we push a failed PortForwardStatus directly here.
+static void FireFailedStatus(ITransportTarget& target,
+                             std::vector<PortForwardStatus>& lastStatus,
+                             PortForwardId id,
+                             const std::string& error)
+{
+    PortForwardStatus s;
+    s.id     = id;
+    s.active = false;
+    s.error  = error;
+
+    std::vector<PortForwardStatus> newStatus = lastStatus;
+    // Remove any existing entry for this id, then add the failed one.
+    newStatus.erase(std::remove_if(newStatus.begin(), newStatus.end(),
+                                   [id](const PortForwardStatus& x) { return x.id == id; }),
+                    newStatus.end());
+    newStatus.push_back(s);
+    lastStatus = newStatus;
+    target.OnPortForwardStatusChanged(newStatus);
+}
+
+void SshTransport::ServicePortForwardQueue()
+{
+    std::vector<PfwPending> pending;
+    {
+        std::lock_guard<std::mutex> lk(pfw_mutex_);
+        pending.swap(pfw_pending_);
+    }
+    if (pending.empty()) return;
+
+    bool changed = false;
+    for (auto& item : pending) {
+        std::visit([&](auto& v) {
+            using T = std::decay_t<decltype(v)>;
+
+            if constexpr (std::is_same_v<T, PfwAdd>) {
+                const PortForwardDesc& desc = v.desc;
+
+                if (desc.direction == PortForwardDirection::Local) {
+                    // Create a listening TCP socket on the local machine.
+                    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+                    if (fd < 0) {
+                        FireFailedStatus(target_, pfw_last_status_, desc.id,
+                                         "socket: " + ErrnoString(errno));
+                        return;
+                    }
+                    int on = 1;
+                    ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+
+                    sockaddr_in addr{};
+                    addr.sin_family = AF_INET;
+                    addr.sin_port   = htons(desc.localPort);
+                    if (::inet_pton(AF_INET, desc.bindAddr.c_str(), &addr.sin_addr) <= 0)
+                        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+                    if (::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+                        const std::string msg = "bind: " + ErrnoString(errno);
+                        ::close(fd);
+                        FireFailedStatus(target_, pfw_last_status_, desc.id, msg);
+                        return;
+                    }
+                    ::listen(fd, 16);
+                    ::fcntl(fd, F_SETFL, O_NONBLOCK);
+                    local_fwds_.push_back({desc, fd, {}});
+                    changed = true;
+
+                } else {
+                    // Remote forward: ask the SSH server to listen on a port.
+                    int bound = 0;
+                    _LIBSSH2_LISTENER* lst = nullptr;
+                    while (running_) {
+                        lst = libssh2_channel_forward_listen_ex(
+                                session_,
+                                desc.bindAddr.c_str(),
+                                static_cast<int>(desc.remotePort),
+                                &bound, 16);
+                        if (lst) break;
+                        const int err = libssh2_session_last_error(
+                                session_, nullptr, nullptr, 0);
+                        if (err != LIBSSH2_ERROR_EAGAIN) {
+                            FireFailedStatus(target_, pfw_last_status_, desc.id,
+                                             "forward-listen: " + LastSshError());
+                            return;
+                        }
+                        if (!PollUntilReady(kPollTimeoutMs)) return;
+                    }
+                    if (!lst) return;
+                    ActiveRemoteFwd rfwd;
+                    rfwd.desc       = desc;
+                    rfwd.listener   = lst;
+                    rfwd.bound_port = bound;
+                    remote_fwds_.push_back(std::move(rfwd));
+                    changed = true;
+                }
+
+            } else if constexpr (std::is_same_v<T, PfwRemove>) {
+                const PortForwardId id = v.id;
+
+                // Remove from local forwards.
+                auto lit = std::find_if(local_fwds_.begin(), local_fwds_.end(),
+                                        [id](const ActiveLocalFwd& f) { return f.desc.id == id; });
+                if (lit != local_fwds_.end()) {
+                    ::close(lit->listen_fd);
+                    for (auto& c : lit->conns) {
+                        if (!c.closed) {
+                            ::close(c.local_fd);
+                            libssh2_channel_free(c.channel);
+                        }
+                    }
+                    local_fwds_.erase(lit);
+                    changed = true;
+                    return;
+                }
+
+                // Remove from remote forwards.
+                auto rit = std::find_if(remote_fwds_.begin(), remote_fwds_.end(),
+                                        [id](const ActiveRemoteFwd& f) { return f.desc.id == id; });
+                if (rit != remote_fwds_.end()) {
+                    libssh2_channel_forward_cancel(rit->listener);
+                    for (auto& c : rit->conns) {
+                        if (!c.closed) {
+                            ::close(c.local_fd);
+                            libssh2_channel_free(c.channel);
+                        }
+                    }
+                    remote_fwds_.erase(rit);
+                    changed = true;
+                }
+            }
+        }, item);
+    }
+
+    if (changed) NotifyPortForwardStatus();
+}
+
+void SshTransport::BuildPortForwardPollFds(std::vector<pollfd>& pfds)
+{
+    // Listen sockets for local forwards.
+    for (const auto& fwd : local_fwds_)
+        pfds.push_back({fwd.listen_fd, POLLIN, 0});
+
+    // Proxy connection local sockets (both local and remote forwards).
+    for (const auto& fwd : local_fwds_)
+        for (const auto& c : fwd.conns)
+            pfds.push_back({c.closed ? -1 : c.local_fd, POLLIN, 0});
+    for (const auto& fwd : remote_fwds_)
+        for (const auto& c : fwd.conns)
+            pfds.push_back({c.closed ? -1 : c.local_fd, POLLIN, 0});
+}
+
+void SshTransport::ServicePortForwardConns(const std::vector<pollfd>& pfds,
+                                           size_t pfdBase,
+                                           char* buf, size_t bufLen)
+{
+    size_t idx = pfdBase;
+
+    // --- Accept new local connections and handle local→SSH data ---
+    for (auto& fwd : local_fwds_) {
+        // Accept incoming connection on listen_fd.
+        if (pfds[idx].revents & POLLIN) {
+            int conn = ::accept(fwd.listen_fd, nullptr, nullptr);
+            if (conn >= 0) {
+                ::fcntl(conn, F_SETFL, O_NONBLOCK);
+
+                // Open a direct-tcpip channel to the remote target.
+                _LIBSSH2_CHANNEL* ch = nullptr;
+                while (running_) {
+                    ch = libssh2_channel_direct_tcpip_ex(
+                            session_,
+                            fwd.desc.remoteHost.c_str(),
+                            static_cast<int>(fwd.desc.remotePort),
+                            "127.0.0.1",
+                            static_cast<int>(fwd.desc.localPort));
+                    if (ch) break;
+                    const int err = libssh2_session_last_error(
+                            session_, nullptr, nullptr, 0);
+                    if (err != LIBSSH2_ERROR_EAGAIN) { ch = nullptr; break; }
+                    if (!PollUntilReady(kPollTimeoutMs)) { ch = nullptr; break; }
+                }
+                if (ch)
+                    fwd.conns.push_back({conn, ch, false});
+                else
+                    ::close(conn);  // connection-time failure; forward stays live
+            }
+        }
+        ++idx;  // advance past listen_fd entry
+    }
+
+    // Service local→SSH for all proxy connections.
+    auto serviceConnsLocalToSsh = [&](std::vector<ProxyConn>& conns) {
+        for (auto& c : conns) {
+            if (c.closed) { ++idx; continue; }
+            const short rev = pfds[idx].revents;
+            ++idx;
+            if (rev & (POLLHUP | POLLERR)) { c.closed = true; continue; }
+            if (!(rev & POLLIN))             continue;
+            ssize_t n = ::read(c.local_fd, buf, bufLen);
+            if (n <= 0) { c.closed = true; continue; }
+            libssh2_channel_write(c.channel, buf, static_cast<size_t>(n));
+        }
+    };
+
+    for (auto& fwd : local_fwds_)  serviceConnsLocalToSsh(fwd.conns);
+    for (auto& fwd : remote_fwds_) serviceConnsLocalToSsh(fwd.conns);
+
+    // --- Accept new remote forward connections ---
+    for (auto& fwd : remote_fwds_) {
+        _LIBSSH2_CHANNEL* ch = libssh2_channel_forward_accept(fwd.listener);
+        if (!ch) continue;
+
+        // Connect to the local target service.
+        int conn = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (conn < 0) { libssh2_channel_free(ch); continue; }
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port   = htons(fwd.desc.localPort);
+        if (::inet_pton(AF_INET, fwd.desc.remoteHost.c_str(), &addr.sin_addr) <= 0)
+            addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+        if (::connect(conn, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0 &&
+            errno != EINPROGRESS) {
+            ::close(conn);
+            libssh2_channel_free(ch);
+            continue;  // connection-time failure; forward stays live
+        }
+        ::fcntl(conn, F_SETFL, O_NONBLOCK);
+        fwd.conns.push_back({conn, ch, false});
+    }
+
+    // --- SSH→local for all proxy connections ---
+    auto serviceConnsSshToLocal = [&](std::vector<ProxyConn>& conns) {
+        for (auto& c : conns) {
+            if (c.closed) continue;
+            ssize_t n;
+            while ((n = libssh2_channel_read(c.channel, buf, bufLen)) > 0) {
+                if (::write(c.local_fd, buf, static_cast<size_t>(n)) < 0) {
+                    c.closed = true;
+                    break;
+                }
+            }
+            if (!c.closed &&
+                (n == 0 || (n < 0 && n != LIBSSH2_ERROR_EAGAIN) ||
+                 libssh2_channel_eof(c.channel)))
+                c.closed = true;
+        }
+    };
+
+    for (auto& fwd : local_fwds_)  serviceConnsSshToLocal(fwd.conns);
+    for (auto& fwd : remote_fwds_) serviceConnsSshToLocal(fwd.conns);
+
+    // --- Sweep closed proxy connections ---
+    bool connChanged = false;
+    auto sweepConns = [&](std::vector<ProxyConn>& conns) {
+        const size_t before = conns.size();
+        conns.erase(
+            std::remove_if(conns.begin(), conns.end(), [](const ProxyConn& c) {
+                if (!c.closed) return false;
+                if (c.local_fd >= 0) ::close(c.local_fd);
+                if (c.channel)       libssh2_channel_free(c.channel);
+                return true;
+            }),
+            conns.end());
+        if (conns.size() != before) connChanged = true;
+    };
+    for (auto& fwd : local_fwds_)  sweepConns(fwd.conns);
+    for (auto& fwd : remote_fwds_) sweepConns(fwd.conns);
+
+    if (connChanged) NotifyPortForwardStatus();
 }
 
 } // namespace term::transport

@@ -67,6 +67,17 @@ Session::Session(const Connection& conn,
     docLayout_->SetWrapMode(wrapMode);
     main_doc_->SetPtyCols(wrapMode ? cols : ptyLineWidth);
     transport_->Start();
+
+    // Submit any profile-configured port forwards after the transport is running.
+    if (transport_->SupportsPortForwarding()) {
+        if (const auto* ssh = std::get_if<SshDesc>(&conn.transport)) {
+            for (auto pf : ssh->portForwards) {
+                pf.id = nextPfwId_++;
+                portForwardDescs_.push_back(pf);
+                transport_->AddPortForward(pf);
+            }
+        }
+    }
 }
 
 Session::~Session()
@@ -162,6 +173,37 @@ std::vector<std::string> Session::OnKbdIntChallenge(
 void Session::RequestX11Forwarding()
 {
     transport_->RequestX11Forwarding();
+}
+
+void Session::OnPortForwardStatusChanged(std::vector<transport::PortForwardStatus> status)
+{
+    portForwardStatus_ = status;
+    // onPortForwardChanged_ is set by UIManager; it is responsible for
+    // marshalling to the UI thread via frame_->CallAfter (same pattern as
+    // OnX11FwdChanged / OnAltScreenChanged in UIManager).
+    if (onPortForwardChanged_) onPortForwardChanged_(std::move(status));
+}
+
+bool Session::SupportsPortForwarding() const
+{
+    return transport_->SupportsPortForwarding();
+}
+
+transport::PortForwardId Session::AddPortForward(transport::PortForwardDesc desc)
+{
+    desc.id = nextPfwId_++;
+    portForwardDescs_.push_back(desc);
+    transport_->AddPortForward(desc);
+    return desc.id;
+}
+
+void Session::RemovePortForward(transport::PortForwardId id)
+{
+    portForwardDescs_.erase(
+        std::remove_if(portForwardDescs_.begin(), portForwardDescs_.end(),
+                       [id](const transport::PortForwardDesc& d) { return d.id == id; }),
+        portForwardDescs_.end());
+    transport_->RemovePortForward(id);
 }
 
 void Session::ResetTerminal(bool clearScrollback)

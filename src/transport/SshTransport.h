@@ -3,6 +3,7 @@
 #include "session/AppSessionDefaults.h"
 #include "session/Connection.h"
 #include "transport/BastionTunnel.h"
+#include "transport/PortForward.h"
 #include "transport/Transport.hpp"
 #include "transport/ITransportTarget.h"
 #include "transport/TransportError.h"
@@ -15,13 +16,16 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <variant>
 #include <vector>
+#include <poll.h>
 
 // Forward-declare libssh2 types to keep this header libssh2-free.
 struct _LIBSSH2_SESSION;
 struct _LIBSSH2_CHANNEL;
 struct _LIBSSH2_AGENT;
 struct _LIBSSH2_SFTP;
+struct _LIBSSH2_LISTENER;
 
 namespace term::transport {
 
@@ -63,8 +67,13 @@ public:
     // Enqueues a remote vpcolumns file update; worker writes it via exec channel.
     void OnViewportColsChanged(unsigned short cols) override;
 
-    bool        SupportsFileTransfer()   const noexcept override { return true; }
+    bool        SupportsFileTransfer()    const noexcept override { return true; }
     bool        SupportsX11Forwarding()  const noexcept override { return true; }
+    bool        SupportsPortForwarding() const noexcept override { return true; }
+
+    // Thread-safe: may be called from the UI thread at any time after Start().
+    void AddPortForward(const PortForwardDesc& desc) override;
+    void RemovePortForward(PortForwardId id) override;
     std::string GetRemoteDescription() const override;
     void        SendFile(const std::string& localPath,
                         const std::string& remoteDir,
@@ -105,6 +114,28 @@ private:
         int               local_fd = -1;   // Unix socket connected to $SSH_AUTH_SOCK
         bool              closed   = false;
     };
+
+    struct ProxyConn {
+        int               local_fd = -1;
+        _LIBSSH2_CHANNEL* channel  = nullptr;
+        bool              closed   = false;
+    };
+
+    struct ActiveLocalFwd {
+        PortForwardDesc        desc;
+        int                    listen_fd = -1;
+        std::vector<ProxyConn> conns;
+    };
+
+    struct ActiveRemoteFwd {
+        PortForwardDesc        desc;
+        _LIBSSH2_LISTENER*     listener   = nullptr;
+        int                    bound_port = 0;
+        std::vector<ProxyConn> conns;
+    };
+
+    struct PfwAdd    { PortForwardDesc desc; };
+    struct PfwRemove { PortForwardId   id;   };
 
     // Worker thread — owns all libssh2 calls.
     void WorkerThread();
@@ -188,6 +219,24 @@ private:
     // Must be called only from the worker thread.
     void ServiceSftpQueue();
 
+    // Drains pfwPending_, sets up/tears down local listeners and remote listeners.
+    // Fires OnPortForwardStatusChanged when the set changes.
+    // Must be called only from the worker thread.
+    void ServicePortForwardQueue();
+
+    // Proxies data for all active local and remote forward connections.
+    // Appends listen_fds and proxy conn fds to pfds before the poll call.
+    // Must be called only from the worker thread.
+    void BuildPortForwardPollFds(std::vector<pollfd>& pfds);
+    void ServicePortForwardConns(const std::vector<pollfd>& pfds, size_t pfdBase,
+                                 char* buf, size_t bufLen);
+
+    // Collects current status and fires OnPortForwardStatusChanged if it changed.
+    void NotifyPortForwardStatus();
+
+    // Returns a human-readable error string for the current errno.
+    static std::string ErrnoString(int err);
+
     // SFTP task state machines — defined in SshTransport.cpp.
     // Declared as nested types so they have access to private members.
     struct SftpListDirTask;
@@ -248,6 +297,18 @@ private:
     using SftpTask = std::function<bool()>;
     std::mutex                  sftp_queue_mutex_;
     std::deque<SftpTask>        sftp_queue_;
+
+    // Port forward state — worker-thread-owned after Start().
+    std::vector<ActiveLocalFwd>  local_fwds_;
+    std::vector<ActiveRemoteFwd> remote_fwds_;
+
+    // Pending port forward additions/removals from the UI thread.
+    using PfwPending = std::variant<PfwAdd, PfwRemove>;
+    std::mutex                   pfw_mutex_;
+    std::vector<PfwPending>      pfw_pending_;
+
+    // Last-sent status snapshot; used to suppress redundant callbacks.
+    std::vector<PortForwardStatus> pfw_last_status_;
 };
 
 } // namespace term::transport

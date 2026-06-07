@@ -169,6 +169,9 @@ set(SOURCES
     src/ui/WrapControl.cpp
     src/ui/AltScrControl.cpp
     src/ui/X11Control.cpp
+    src/ui/PortForwardControl.cpp
+    src/ui/AddPortForwardDialog.cpp
+    src/ui/PortForwardPanel.cpp
     src/ui/DragGhost.cpp
     src/ui/TabStrip.cpp
     src/ui/TerminalGrid.cpp

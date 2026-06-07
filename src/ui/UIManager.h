@@ -153,6 +153,13 @@ public:
     void SetOnGridEmptyCallback(std::function<void()> cb) { onGridEmptyCb_ = std::move(cb); }
     void SetSessionListChangedCallback(std::function<void()> cb) { onSessionListChanged_ = std::move(cb); }
     void SetOnBeforeCloseCallback(std::function<void()> cb) { onBeforeClose_ = std::move(cb); }
+
+    // Wired by App to persist a dynamically-added port forward back to the profile.
+    // Called when the user right-clicks a row in PortForwardPanel → "Save to Profile".
+    void SetSavePortForwardToProfileCallback(
+        std::function<void(term::session::SessionId, term::transport::PortForwardId)> cb) {
+        savePortForwardToProfileCb_ = std::move(cb);
+    }
     // Fired with the session ID just before its UI state is torn down.
     void SetOnSessionDestroyedCallback(std::function<void(term::session::SessionId)> cb) {
         onSessionDestroyedCb_ = std::move(cb);
@@ -227,6 +234,9 @@ private:
         std::unique_ptr<SessionNotifier>  notifier;
         bool                              x11Active   = false;
         bool                              altScrActive = false;
+        bool                              supportsPortForwarding = false;
+        std::vector<term::transport::PortForwardStatus> portForwardStatus;
+        std::vector<term::transport::PortForwardDesc>   portForwardDescs;
     };
 
     static constexpr int kEditMenuCopy            = wxID_HIGHEST + 10;
@@ -319,6 +329,8 @@ private:
     std::function<void()>                                   onSessionListChanged_;
     std::function<void()>                                   onBeforeClose_;
     std::function<void(term::session::SessionId)>           onSessionDestroyedCb_;
+    std::function<void(term::session::SessionId,
+                       term::transport::PortForwardId)>     savePortForwardToProfileCb_;
 };
 
 } // namespace ui

@@ -106,9 +106,19 @@ public:
     void ForceAltScreen(SessionId id, bool on);
     void RequestX11Forwarding(SessionId id);
 
-    bool        SupportsFileTransfer(SessionId id)   const;
-    bool        SupportsX11Forwarding(SessionId id)  const;
-    bool        IsX11ForwardingActive(SessionId id)  const;
+    bool        SupportsFileTransfer(SessionId id)    const;
+    bool        SupportsX11Forwarding(SessionId id)   const;
+    bool        IsX11ForwardingActive(SessionId id)   const;
+    bool        SupportsPortForwarding(SessionId id)  const;
+
+    transport::PortForwardId AddPortForward(SessionId id, transport::PortForwardDesc desc);
+    void        RemovePortForward(SessionId id, transport::PortForwardId fwdId);
+    // Register the callback that UIManager hooks to update the port-forward panel.
+    void        SetPortForwardChangedCallback(
+                    SessionId id,
+                    std::function<void(std::vector<transport::PortForwardStatus>)> cb);
+    std::vector<transport::PortForwardStatus> GetPortForwardStatus(SessionId id) const;
+    std::vector<transport::PortForwardDesc>   GetPortForwardDescs(SessionId id)  const;
     std::string GetRemoteDescription(SessionId id) const;
     void        SendFile(SessionId id,
                         const std::string& localPath,
