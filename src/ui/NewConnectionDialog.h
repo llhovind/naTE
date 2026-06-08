@@ -3,6 +3,7 @@
 #include "config/Config.h"
 #include "db/ConnectionProfile.h"
 #include "session/EnvVar.h"
+#include "transport/PortForward.h"
 
 #include <wx/dialog.h>
 #include <optional>
@@ -109,6 +110,8 @@ struct SshParams {
     // Profile title override
     std::string    profileTitle;
     bool           useProfileTitle = false;
+    // Port forwarding (SSH only)
+    std::vector<term::transport::PortForwardDesc> portForwards;
 };
 
 struct SerialParams {
@@ -244,6 +247,17 @@ private:
     wxCheckBox*      m_cbSshLoginShell = nullptr;
     wxTextCtrl*      m_sshWorkDirCtrl  = nullptr;
     wxButton*        m_sshWorkDirBtn   = nullptr;
+
+    // SSH Port Forwards
+    wxListBox*       m_pfwList         = nullptr;
+    wxButton*        m_btnAddPfw       = nullptr;
+    wxButton*        m_btnRemovePfw    = nullptr;
+    std::vector<term::transport::PortForwardDesc> m_portForwards;
+
+    void OnAddPortForward(wxCommandEvent&);
+    void OnRemovePortForward(wxCommandEvent&);
+    void OnPfwSelected(wxCommandEvent&);
+    void RebuildPfwList();
 
     // Serial tab connection fields
     wxTextCtrl*  m_deviceCtrl     = nullptr;

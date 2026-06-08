@@ -67,6 +67,17 @@ Session::Session(const Connection& conn,
     docLayout_->SetWrapMode(wrapMode);
     main_doc_->SetPtyCols(wrapMode ? cols : ptyLineWidth);
     transport_->Start();
+
+    // Submit any profile-configured port forwards after the transport is running.
+    if (transport_->SupportsPortForwarding()) {
+        if (const auto* ssh = std::get_if<SshDesc>(&conn.transport)) {
+            for (auto pf : ssh->portForwards) {
+                pf.id = nextPfwId_++;
+                portForwardDescs_.push_back(pf);
+                transport_->AddPortForward(pf);
+            }
+        }
+    }
 }
 
 Session::~Session()
@@ -92,6 +103,19 @@ void Session::ReplaceConnection(const Connection& conn,
                                lastRows_, lastCols_, appDefaults);
     status_ = SessionStatus::Reconnecting;
     transport_->Start();
+
+    // Re-submit all configured port forwards to the new transport.
+    // IDs are preserved so UIManager's panel can reconcile status updates.
+    // Clear the stale status snapshot so callers see an empty list until the
+    // transport confirms each forward's state on the new connection.
+    if (transport_->SupportsPortForwarding() && !portForwardDescs_.empty()) {
+        {
+            std::lock_guard<std::mutex> lk(pfwStatusMtx_);
+            portForwardStatus_.clear();
+        }
+        for (const auto& pf : portForwardDescs_)
+            transport_->AddPortForward(pf);
+    }
 }
 
 void Session::ForceAltScreen(bool on)
@@ -162,6 +186,49 @@ std::vector<std::string> Session::OnKbdIntChallenge(
 void Session::RequestX11Forwarding()
 {
     transport_->RequestX11Forwarding();
+}
+
+void Session::OnPortForwardStatusChanged(std::vector<transport::PortForwardStatus> status)
+{
+    {
+        std::lock_guard<std::mutex> lk(pfwStatusMtx_);
+        portForwardStatus_ = status;
+    }
+    if (onPortForwardChanged_) onPortForwardChanged_(std::move(status));
+}
+
+bool Session::SupportsPortForwarding() const
+{
+    return transport_->SupportsPortForwarding();
+}
+
+void Session::SetPortForwardChangedCallback(
+    std::function<void(std::vector<transport::PortForwardStatus>)> cb)
+{
+    onPortForwardChanged_ = std::move(cb);
+}
+
+std::vector<transport::PortForwardStatus> Session::GetPortForwardStatus() const
+{
+    std::lock_guard<std::mutex> lk(pfwStatusMtx_);
+    return portForwardStatus_;
+}
+
+transport::PortForwardId Session::AddPortForward(transport::PortForwardDesc desc)
+{
+    desc.id = nextPfwId_++;
+    portForwardDescs_.push_back(desc);
+    transport_->AddPortForward(desc);
+    return desc.id;
+}
+
+void Session::RemovePortForward(transport::PortForwardId id)
+{
+    portForwardDescs_.erase(
+        std::remove_if(portForwardDescs_.begin(), portForwardDescs_.end(),
+                       [id](const transport::PortForwardDesc& d) { return d.id == id; }),
+        portForwardDescs_.end());
+    transport_->RemovePortForward(id);
 }
 
 void Session::ResetTerminal(bool clearScrollback)

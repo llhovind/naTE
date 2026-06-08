@@ -23,7 +23,8 @@ public:
                             term::session::SessionId sessionId,
                             term::session::SessionManager& sm,
                             const std::string& remoteDescription,
-                            const wxString& confirmLabel = "Add Selected");
+                            const wxString& confirmLabel = "Add Selected",
+                            const std::string& initialPath = ".");
 
     const std::vector<std::string>& GetSelectedPaths() const { return selectedPaths_; }
 

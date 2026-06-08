@@ -15,7 +15,8 @@ RemoteFileBrowserDialog::RemoteFileBrowserDialog(
     term::session::SessionId sessionId,
     term::session::SessionManager& sm,
     const std::string& remoteDescription,
-    const wxString& confirmLabel)
+    const wxString& confirmLabel,
+    const std::string& initialPath)
     : wxDialog(parent, wxID_ANY,
                remoteDescription.empty()
                    ? wxString("Browse Remote Files")
@@ -25,7 +26,7 @@ RemoteFileBrowserDialog::RemoteFileBrowserDialog(
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
     , sessionId_(sessionId)
     , sm_(sm)
-    , currentPath_(".")
+    , currentPath_(initialPath.empty() ? "." : initialPath)
 {
     auto* outer = new wxBoxSizer(wxVERTICAL);
 

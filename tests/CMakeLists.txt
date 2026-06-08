@@ -74,6 +74,7 @@ add_executable(naTE_restore_tests
     test_session_restore.cpp
     test_named_workspace.cpp
     test_ssh_auth.cpp
+    test_port_forward.cpp
     ${CMAKE_SOURCE_DIR}/src/db/JsonSessionRestoreRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/db/JsonNamedWorkspaceRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/session/Connection.cpp

@@ -288,6 +288,44 @@ MainFrame* App::CreateNewWindow()
         if (m_remoteEditManager) m_remoteEditManager->OnSessionDestroyed(id);
     });
 
+    wc->uiManager->SetSavePortForwardToProfileCallback(
+        [this](term::session::SessionId sid, term::transport::PortForwardId fwdId) {
+            // Find the desc on the session and add it to the profile's forward list.
+            auto descs = m_sessionManager->GetPortForwardDescs(sid);
+            auto it = std::find_if(descs.begin(), descs.end(),
+                                   [fwdId](const auto& d) { return d.id == fwdId; });
+            if (it == descs.end()) return;
+
+            term::transport::PortForwardDesc toSave = *it;
+            toSave.id = 0;  // IDs are not persisted
+
+            auto conn = m_sessionManager->GetConnection(sid);
+            if (conn.label.empty()) return;  // anonymous/unnamed session — nothing to save to
+
+            // Find the matching profile by name and update its portForwards list.
+            const auto& all = m_connectionStore->GetAll();
+            for (const auto& profile : all) {
+                if (profile.name != conn.label) continue;
+
+                auto updated = profile;
+                if (std::holds_alternative<term::session::SshDesc>(updated.transport)) {
+                    auto& ssh = std::get<term::session::SshDesc>(updated.transport);
+                    // Avoid duplicates based on port tuple.
+                    auto dup = std::find_if(ssh.portForwards.begin(), ssh.portForwards.end(),
+                        [&toSave](const auto& d) {
+                            return d.direction  == toSave.direction
+                                && d.localPort  == toSave.localPort
+                                && d.remoteHost == toSave.remoteHost
+                                && d.remotePort == toSave.remotePort;
+                        });
+                    if (dup == ssh.portForwards.end())
+                        ssh.portForwards.push_back(toSave);
+                }
+                m_connectionStore->Update(updated);
+                break;
+            }
+        });
+
     frame->Bind(wxEVT_DESTROY, [this, frame](wxWindowDestroyEvent& evt) {
         if (evt.GetEventObject() == frame) {
             auto it = std::find_if(m_windows.begin(), m_windows.end(),
@@ -547,8 +585,11 @@ term::session::RestoreState App::BuildCurrentState() const
                     conn.sessionInit.workingDir = liveDir;
                 // Never persist passwords or passphrases.
                 if (auto* ssh = std::get_if<term::session::SshDesc>(&conn.transport)) {
-                    ssh->password   = {};
-                    ssh->passphrase = {};
+                    ssh->password    = {};
+                    ssh->passphrase  = {};
+                    // Capture live port forwards — profile-stored ones may be stale if
+                    // the user added/removed forwards during this session.
+                    ssh->portForwards = m_sessionManager->GetPortForwardDescs(sid);
                 }
                 rt.sessions.push_back({std::move(conn)});
             }

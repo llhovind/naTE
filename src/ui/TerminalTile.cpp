@@ -160,17 +160,34 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& cfg)
     x11Ctrl_ = new X11Control(titleBar_);
     // X11Control is a status indicator only — no click action.
 
+    portFwdCtrl_ = new PortForwardControl(titleBar_);
+    portFwdCtrl_->SetClickCallback([this] {
+        if (!portFwdPanel_) return;
+        const bool show = !portFwdPanel_->IsShown();
+        portFwdPanel_->Show(show);
+        if (show) {
+            const wxSize sz   = GetClientSize();
+            const wxSize best = portFwdPanel_->GetBestSize();
+            portFwdPanel_->SetSize(sz.x - best.x, kTitleBarHeight, best.x, best.y);
+            portFwdPanel_->Raise();
+        }
+    });
+
     auto* hSizer = new wxBoxSizer(wxHORIZONTAL);
-    hSizer->Add(tabStrip_, 1, wxEXPAND);
-    hSizer->Add(x11Ctrl_,    0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
-    hSizer->Add(altScrCtrl_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
-    hSizer->Add(wrapCtrl_,   0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+    hSizer->Add(tabStrip_,    1, wxEXPAND);
+    hSizer->Add(portFwdCtrl_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+    hSizer->Add(x11Ctrl_,     0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+    hSizer->Add(altScrCtrl_,  0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+    hSizer->Add(wrapCtrl_,    0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
     titleBar_->SetSizer(hSizer);
 
     // Content area — the active TerminalPanel fills this completely.
     contentArea_ = new wxPanel(this, wxID_ANY);
     // TerminalPanel will set its own bg; this is just the gap between panels.
     contentArea_->SetBackgroundColour(toWx(cfg.uiColors.frameBackground));
+
+    // Created after contentArea_ so it is higher in Z-order and can overlay it.
+    portFwdPanel_ = new PortForwardPanel(this, cfg);
 
     // Route title bar events for tile drag (moves the active session to another window).
     titleBar_->Bind(wxEVT_LEFT_DOWN, &TerminalTile::OnTitleDown,       this);
@@ -360,12 +377,21 @@ void TerminalTile::OnSize(wxSizeEvent& evt)
 {
     const wxSize sz = GetClientSize();
     titleBar_->SetSize(0, 0, sz.x, kTitleBarHeight);
-    contentArea_->SetSize(0, kTitleBarHeight, sz.x, sz.y - kTitleBarHeight);
+
+    const int contentH = std::max(sz.y - kTitleBarHeight, 0);
+    contentArea_->SetSize(0, kTitleBarHeight, sz.x, contentH);
+
+    // Port forward panel overlays the top-right of the content area (like SearchBar).
+    if (portFwdPanel_ && portFwdPanel_->IsShown()) {
+        const wxSize best = portFwdPanel_->GetBestSize();
+        portFwdPanel_->SetSize(sz.x - best.x, kTitleBarHeight, best.x, best.y);
+        portFwdPanel_->Raise();
+    }
 
     // Keep the active panel sized to fill the content area.
     if (activeTabIdx_ >= 0 && activeTabIdx_ < (int)tabs_.size()) {
         if (auto* p = tabs_[activeTabIdx_].panel)
-            p->SetSize(0, 0, sz.x, sz.y - kTitleBarHeight);
+            p->SetSize(0, 0, sz.x, contentH);
     }
     evt.Skip();
 }
@@ -398,9 +424,10 @@ void TerminalTile::UpdateTitleBarColor()
     // 45 % toward the background — visually dimmed but never invisible.
     const wxColour glyphOn  = glyphBright_;
     const wxColour glyphOff = blendWx(glyphBright_, c, 0.45);
-    if (wrapCtrl_)   wrapCtrl_->SetGlyphColours(glyphOn, glyphOff);
-    if (altScrCtrl_) altScrCtrl_->SetGlyphColours(glyphOn, glyphOff);
-    if (x11Ctrl_)    x11Ctrl_->SetGlyphColours(glyphOn, glyphOff);
+    if (wrapCtrl_)    wrapCtrl_->SetGlyphColours(glyphOn, glyphOff);
+    if (altScrCtrl_)  altScrCtrl_->SetGlyphColours(glyphOn, glyphOff);
+    if (x11Ctrl_)     x11Ctrl_->SetGlyphColours(glyphOn, glyphOff);
+    if (portFwdCtrl_) portFwdCtrl_->SetGlyphColours(glyphOn, glyphOff);
 
     titleBar_->Refresh();
 }
@@ -487,6 +514,36 @@ void TerminalTile::ShowX11Control(bool visible, bool active)
     if (x11Ctrl_->IsShown() == visible) return;
     x11Ctrl_->Show(visible);
     titleBar_->Layout();
+}
+
+void TerminalTile::ShowPortForwardControl(bool visible)
+{
+    if (!portFwdCtrl_) return;
+    if (portFwdCtrl_->IsShown() == visible) return;
+    portFwdCtrl_->Show(visible);
+    if (!visible && portFwdPanel_ && portFwdPanel_->IsShown()) {
+        portFwdPanel_->Hide();
+        SendSizeEvent();
+    }
+    titleBar_->Layout();
+}
+
+void TerminalTile::SetPortForwardCallbacks(
+    std::function<term::transport::PortForwardId(term::transport::PortForwardDesc)> onAdd,
+    std::function<void(term::transport::PortForwardId)> onRemove,
+    std::function<void(term::transport::PortForwardId)> onSaveToProfile)
+{
+    if (portFwdPanel_)
+        portFwdPanel_->SetCallbacks(std::move(onAdd), std::move(onRemove),
+                                    std::move(onSaveToProfile));
+}
+
+void TerminalTile::SetPortForwardStatus(
+    std::vector<term::transport::PortForwardStatus> status,
+    std::vector<term::transport::PortForwardDesc>   descs)
+{
+    if (portFwdCtrl_) portFwdCtrl_->SetStatus(status);
+    if (portFwdPanel_) portFwdPanel_->UpdateStatus(std::move(status), std::move(descs));
 }
 
 void TerminalTile::EmitTerminalAction(TerminalAction action)

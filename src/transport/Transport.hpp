@@ -1,4 +1,5 @@
 #pragma once
+#include "transport/PortForward.h"
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -39,8 +40,12 @@ public:
     // accessible. PTY transports read this from /proc/<pid>/cwd; all others return "".
     virtual std::string GetCurrentWorkingDir() const { return {}; }
 
-    virtual bool SupportsFileTransfer()   const noexcept { return false; }
-    virtual bool SupportsX11Forwarding() const noexcept { return false; }
+    virtual bool SupportsFileTransfer()    const noexcept { return false; }
+    virtual bool SupportsX11Forwarding()   const noexcept { return false; }
+    virtual bool SupportsPortForwarding()  const noexcept { return false; }
+
+    virtual void AddPortForward(const PortForwardDesc& /*desc*/) {}
+    virtual void RemovePortForward(PortForwardId /*id*/) {}
     virtual std::string GetRemoteDescription() const { return {}; }
 
     // Uploads localPath into remoteDir via SFTP. onDone is invoked on the

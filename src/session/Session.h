@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -81,6 +82,7 @@ public:
     void OnError(const transport::TransportError& error) override;
     void OnDisconnect(transport::DisconnectReason reason) override;
     void OnX11StateChanged(bool active) override;
+    void OnPortForwardStatusChanged(std::vector<transport::PortForwardStatus> status) override;
     std::vector<std::string> OnKbdIntChallenge(
         const transport::KbdIntChallenge& challenge) override;
 
@@ -99,6 +101,20 @@ public:
     // Enqueues an X11 forwarding request on the underlying SSH transport.
     // No-op for non-SSH sessions.
     void RequestX11Forwarding();
+
+    // Port forwarding — SSH only; no-op for PTY/Serial.
+    bool SupportsPortForwarding() const;
+    transport::PortForwardId AddPortForward(transport::PortForwardDesc desc);  // assigns next id, calls transport; returns id
+    void RemovePortForward(transport::PortForwardId id);
+    const std::vector<transport::PortForwardDesc>& GetPortForwardDescs() const { return portForwardDescs_; }
+    // Returns a by-value snapshot (mutex-protected; safe to call from the UI thread
+    // while the transport worker may concurrently update the status).
+    std::vector<transport::PortForwardStatus> GetPortForwardStatus() const;
+
+    // Registered by UIManager once via TakeSession.  Fired on the transport worker
+    // thread; implementations must marshal to the UI thread before touching wx.
+    void SetPortForwardChangedCallback(
+        std::function<void(std::vector<transport::PortForwardStatus>)> cb);
 
     void SetTopRow(int row);
     void SetViewportSize(unsigned short cols, unsigned short rows);
@@ -164,6 +180,17 @@ private:
     bool               cursorVisible_{true};
     SessionStatus      status_{SessionStatus::Connected};
     std::vector<IDocumentListener*> externalListeners_;
+
+    // Port forward state.
+    // portForwardDescs_ is UI-thread-only (written only from AddPortForward /
+    // RemovePortForward which are called on the UI thread).
+    // portForwardStatus_ is written on the transport worker thread and read on the
+    // UI thread; all accesses must hold pfwStatusMtx_.
+    std::vector<transport::PortForwardDesc>   portForwardDescs_;
+    mutable std::mutex                        pfwStatusMtx_;
+    std::vector<transport::PortForwardStatus> portForwardStatus_;
+    transport::PortForwardId                  nextPfwId_{1};
+    std::function<void(std::vector<transport::PortForwardStatus>)> onPortForwardChanged_;
 };
 
 } // namespace term::session

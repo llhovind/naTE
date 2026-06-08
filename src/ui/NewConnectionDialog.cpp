@@ -1,4 +1,5 @@
 #include "ui/NewConnectionDialog.h"
+#include "ui/AddPortForwardDialog.h"
 #include "db/ConnectionProfile.h"
 #include "session/Connection.h"
 #include "transport/SshConfig.h"
@@ -44,6 +45,9 @@ namespace
     constexpr int ID_BTN_REMOVE_ENV       = wxID_HIGHEST + 217;
     constexpr int ID_CB_USE_PROFILE_TITLE = wxID_HIGHEST + 224;
     constexpr int ID_BTN_CONNECT          = wxID_HIGHEST + 225;
+    constexpr int ID_LIST_PFW             = wxID_HIGHEST + 226;
+    constexpr int ID_BTN_ADD_PFW          = wxID_HIGHEST + 227;
+    constexpr int ID_BTN_REMOVE_PFW       = wxID_HIGHEST + 228;
 }
 
 // ---------------------------------------------------------------------------
@@ -579,6 +583,27 @@ NewConnectionDialog::NewConnectionDialog(
             sizer->Add(box, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, 8);
         }
 
+        // Port Forwards
+        {
+            auto* box = new wxStaticBoxSizer(wxVERTICAL, page, "Port Forwards");
+
+            m_pfwList = new wxListBox(page, ID_LIST_PFW,
+                                      wxDefaultPosition, wxSize(-1, 72));
+            box->Add(m_pfwList, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 4);
+
+            auto* btnRow = new wxBoxSizer(wxHORIZONTAL);
+            m_btnAddPfw    = new wxButton(page, ID_BTN_ADD_PFW,    "Add...",
+                                           wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            m_btnRemovePfw = new wxButton(page, ID_BTN_REMOVE_PFW, "Remove",
+                                           wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            m_btnRemovePfw->Enable(false);
+            btnRow->Add(m_btnAddPfw,    0, wxRIGHT, 4);
+            btnRow->Add(m_btnRemovePfw, 0);
+            box->Add(btnRow, 0, wxALL, 4);
+
+            sizer->Add(box, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+        }
+
         page->SetSizer(sizer);
         m_notebook->AddPage(page, "SSH");
     }
@@ -758,6 +783,10 @@ NewConnectionDialog::NewConnectionDialog(
     Bind(wxEVT_BUTTON,  &NewConnectionDialog::OnRemoveEnvVar,   this, ID_BTN_REMOVE_ENV);
     Bind(wxEVT_LISTBOX, &NewConnectionDialog::OnEnvVarSelected, this, ID_LIST_ENV);
 
+    Bind(wxEVT_BUTTON,  &NewConnectionDialog::OnAddPortForward,    this, ID_BTN_ADD_PFW);
+    Bind(wxEVT_BUTTON,  &NewConnectionDialog::OnRemovePortForward,  this, ID_BTN_REMOVE_PFW);
+    Bind(wxEVT_LISTBOX, &NewConnectionDialog::OnPfwSelected,        this, ID_LIST_PFW);
+
     Bind(wxEVT_CHECKBOX, &NewConnectionDialog::OnUseProfileTitleToggled, this, ID_CB_USE_PROFILE_TITLE);
 
     if (m_profileCombo) {
@@ -855,6 +884,13 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
                 m_jumpAuthChoice->SetSelection(jsel);
                 m_jumpAuthBook->SetSelection(static_cast<size_t>(jsel));
                 m_jumpPane->Expand();
+            }
+            // Port forwards
+            if (m_pfwList) {
+                m_portForwards = desc.portForwards;
+                for (auto& pf : m_portForwards)
+                    pf.id = 0;  // IDs are not meaningful in profile context
+                RebuildPfwList();
             }
         } else if constexpr (std::is_same_v<T, term::session::SerialDesc>) {
             m_notebook->SetSelection(kTabSerial);
@@ -1139,6 +1175,63 @@ void NewConnectionDialog::OnUseProfileTitleToggled(wxCommandEvent&)
         m_profileTitleCtrl->Enable(m_cbUseProfileTitle->GetValue());
 }
 
+// ---------------------------------------------------------------------------
+// Port forward list handlers
+// ---------------------------------------------------------------------------
+
+static wxString PfwSummary(const term::transport::PortForwardDesc& d)
+{
+    using Dir = term::transport::PortForwardDirection;
+    const wxString label = d.label.empty() ? wxString{} : wxString::FromUTF8("  [" + d.label + "]");
+    if (d.direction == Dir::Local)
+        return wxString::Format("L %d ", d.localPort)
+             + wxString::FromUTF8("\xe2\x86\x92 ")
+             + wxString::FromUTF8(d.remoteHost)
+             + wxString::Format(":%d", d.remotePort)
+             + label;
+    return wxString::Format("R %d ", d.remotePort)
+         + wxString::FromUTF8("\xe2\x86\x90 ")
+         + wxString::FromUTF8(d.remoteHost)
+         + wxString::Format(":%d", d.localPort)
+         + label;
+}
+
+void NewConnectionDialog::RebuildPfwList()
+{
+    if (!m_pfwList) return;
+    m_pfwList->Clear();
+    for (const auto& d : m_portForwards)
+        m_pfwList->Append(PfwSummary(d));
+    if (m_btnRemovePfw)
+        m_btnRemovePfw->Enable(false);
+}
+
+void NewConnectionDialog::OnAddPortForward(wxCommandEvent&)
+{
+    // Profile mode — dialog closes immediately on Add after local validation.
+    auto* dlg = new AddPortForwardDialog(this);
+    if (dlg->ShowModal() == wxID_OK) {
+        m_portForwards.push_back(dlg->GetDesc());
+        RebuildPfwList();
+    }
+    dlg->Destroy();
+}
+
+void NewConnectionDialog::OnRemovePortForward(wxCommandEvent&)
+{
+    if (!m_pfwList) return;
+    const int sel = m_pfwList->GetSelection();
+    if (sel == wxNOT_FOUND || sel >= (int)m_portForwards.size()) return;
+    m_portForwards.erase(m_portForwards.begin() + sel);
+    RebuildPfwList();
+}
+
+void NewConnectionDialog::OnPfwSelected(wxCommandEvent&)
+{
+    const bool has = m_pfwList && m_pfwList->GetSelection() != wxNOT_FOUND;
+    if (m_btnRemovePfw) m_btnRemovePfw->Enable(has);
+}
+
 void NewConnectionDialog::OnGeometryChanged(wxCommandEvent&)
 {
     const bool isCustom =
@@ -1268,6 +1361,7 @@ ConnectionParams NewConnectionDialog::GetParams() const
         p.envVars     = envVars;
         if (m_profileTitleCtrl)  p.profileTitle    = m_profileTitleCtrl->GetValue().ToStdString();
         if (m_cbUseProfileTitle) p.useProfileTitle = m_cbUseProfileTitle->GetValue();
+        p.portForwards = m_portForwards;
 
         // Parse port — validated in OnConnectClicked; clamp here as a safety net
         unsigned long port = 22;

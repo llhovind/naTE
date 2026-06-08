@@ -13,6 +13,9 @@
 #include "ui/WrapControl.h"
 #include "ui/AltScrControl.h"
 #include "ui/X11Control.h"
+#include "ui/PortForwardControl.h"
+#include "ui/PortForwardPanel.h"
+#include "transport/PortForward.h"
 
 class TerminalPanel;
 class TabStrip;
@@ -100,6 +103,21 @@ public:
     // visible=true and reflects whether forwarding is currently established.
     void ShowX11Control(bool visible, bool active = false);
 
+    // Show or hide the port forward indicator in the title bar.
+    // Call with visible=true for SSH sessions, false otherwise.
+    void ShowPortForwardControl(bool visible);
+
+    // Wire the onAdd / onRemove / onSaveToProfile callbacks on the inline panel.
+    // Must be called before the panel is shown.
+    void SetPortForwardCallbacks(
+        std::function<term::transport::PortForwardId(term::transport::PortForwardDesc)> onAdd,
+        std::function<void(term::transport::PortForwardId)> onRemove,
+        std::function<void(term::transport::PortForwardId)> onSaveToProfile);
+
+    // Deliver updated port forward status + desc vectors to the indicator and panel.
+    void SetPortForwardStatus(std::vector<term::transport::PortForwardStatus> status,
+                               std::vector<term::transport::PortForwardDesc>   descs);
+
     // -------------------------------------------------------------------------
     // Callbacks (wired once per tile by UIManager when the tile is created)
     // -------------------------------------------------------------------------
@@ -161,12 +179,14 @@ private:
     void EmitTileAction(TileAction action, term::session::SessionId id);
     void OnShowTileMenu();
 
-    wxPanel*          titleBar_    = nullptr;  // wx-child-owned
-    TabStrip*         tabStrip_    = nullptr;  // wx-child-owned by titleBar_
-    WrapControl*      wrapCtrl_    = nullptr;  // wx-child-owned by titleBar_
-    AltScrControl*    altScrCtrl_  = nullptr;  // wx-child-owned by titleBar_
-    X11Control*       x11Ctrl_     = nullptr;  // wx-child-owned by titleBar_
-    wxPanel*          contentArea_ = nullptr;  // wx-child-owned; panels live here
+    wxPanel*            titleBar_      = nullptr;  // wx-child-owned
+    TabStrip*           tabStrip_      = nullptr;  // wx-child-owned by titleBar_
+    WrapControl*        wrapCtrl_      = nullptr;  // wx-child-owned by titleBar_
+    AltScrControl*      altScrCtrl_    = nullptr;  // wx-child-owned by titleBar_
+    X11Control*         x11Ctrl_       = nullptr;  // wx-child-owned by titleBar_
+    PortForwardControl* portFwdCtrl_   = nullptr;  // wx-child-owned by titleBar_
+    PortForwardPanel*   portFwdPanel_  = nullptr;  // wx-child-owned by this tile
+    wxPanel*            contentArea_   = nullptr;  // wx-child-owned; panels live here
 
     std::vector<TabEntry>      tabs_;
     int                        activeTabIdx_ = -1;

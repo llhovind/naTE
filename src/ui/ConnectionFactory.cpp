@@ -76,6 +76,7 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
                 }
                 d.proxyJump = std::move(pj);
             }
+            d.portForwards               = p.portForwards;
             conn.transport               = d;
             conn.wrapMode                = p.wrapMode;
             conn.columnWidth             = p.columnWidth;

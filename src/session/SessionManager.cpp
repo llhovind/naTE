@@ -314,6 +314,46 @@ bool SessionManager::IsX11ForwardingActive(SessionId id) const
     return rec && rec->x11ForwardingActive.load(std::memory_order_acquire);
 }
 
+bool SessionManager::SupportsPortForwarding(SessionId id) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    return rec && rec->session->SupportsPortForwarding();
+}
+
+transport::PortForwardId SessionManager::AddPortForward(SessionId id,
+                                                           transport::PortForwardDesc desc)
+{
+    if (SessionRecord* rec = FindRecord(id))
+        return rec->session->AddPortForward(std::move(desc));
+    return 0;
+}
+
+void SessionManager::RemovePortForward(SessionId id, transport::PortForwardId fwdId)
+{
+    if (SessionRecord* rec = FindRecord(id))
+        rec->session->RemovePortForward(fwdId);
+}
+
+void SessionManager::SetPortForwardChangedCallback(
+    SessionId id,
+    std::function<void(std::vector<transport::PortForwardStatus>)> cb)
+{
+    if (SessionRecord* rec = FindRecord(id))
+        rec->session->SetPortForwardChangedCallback(std::move(cb));
+}
+
+std::vector<transport::PortForwardStatus> SessionManager::GetPortForwardStatus(SessionId id) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    return rec ? rec->session->GetPortForwardStatus() : std::vector<transport::PortForwardStatus>{};
+}
+
+std::vector<transport::PortForwardDesc> SessionManager::GetPortForwardDescs(SessionId id) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    return rec ? rec->session->GetPortForwardDescs() : std::vector<transport::PortForwardDesc>{};
+}
+
 std::string SessionManager::GetRemoteDescription(SessionId id) const
 {
     const SessionRecord* rec = FindRecord(id);

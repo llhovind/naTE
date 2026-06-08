@@ -16,8 +16,8 @@ naTE (*not another Terminal Emulator*) is a graphical terminal emulator built fo
 gives you a tiling, tabbed interface where multiple terminals share a single window,
 remembers your sessions across restarts so you can pick up exactly where you left
 off, and ships with a full suite of SSH features — agent forwarding, X11 forwarding,
-ProxyJump, keyboard-interactive (MFA) auth, and SFTP file transfer — all without
-touching the command line.
+ProxyJump, keyboard-interactive (MFA) auth, port forwarding, and SFTP file transfer
+— all without touching the command line.
 
 If you manage remote servers, work with serial consoles, or just want a terminal that
 treats sessions as first-class objects rather than throwaway windows, naTE is built
@@ -64,6 +64,7 @@ for you.
 - SSH agent identity hints for multi-key setups
 - Keepalive and optional compression
 - Working-directory tracking — shells that emit OSC 7 (`file://host/path`) update the tracked CWD continuously; a `pwd` subchannel captures the final CWD at disconnect for session-restore accuracy
+- **Port forwarding** — local (`-L`) and remote (`-R`) TCP tunnels managed per session via the port-forward button in the tile title bar
 
 ### Session initialization
 - Per-connection **working directory** — set the initial directory for PTY and SSH sessions
@@ -76,6 +77,13 @@ for you.
 ### Serial
 - Configurable baud rate, data bits, stop bits, parity, and flow control
 - Optional dial script executed before I/O (for modem-style connections)
+
+### Port forwarding
+
+- **Local port forwarding (`-L`)** — bind a local port and tunnel traffic through the SSH connection to any host reachable from the remote side
+- **Remote port forwarding (`-R`)** — expose a local port on the remote host so remote-side processes can reach it
+- Click the port-forward button in the tile title bar to open an inline panel showing all active tunnels with their local/remote endpoints and live status; add new forwards or stop existing ones without reconnecting
+- Verification dialog confirms connectivity before closing the panel, so you know the tunnel is up before you depend on it
 
 ### File transfer
 - SFTP send and receive via the existing authenticated session (no re-authentication)
@@ -243,7 +251,7 @@ ctest --preset debug
 ```
 
 Tests are written with [Catch2](https://github.com/catchorg/Catch2). The suite
-currently covers 312 scenarios across all major subsystems.
+currently covers 316 scenarios across all major subsystems.
 
 ### Packaging (AppImage)
 
@@ -266,12 +274,7 @@ without touching business logic.
 
 ## Roadmap
 
-### Planned
-
-- **Local port forwarding (`-L`)** — forward a local port through an SSH connection
-- **Remote port forwarding (`-R`)** — expose a local port on the remote host
-
-
+Have a feature idea? [Open an issue](https://github.com/lhovind/naTE/issues) — suggestions are welcome.
 
 ---
 

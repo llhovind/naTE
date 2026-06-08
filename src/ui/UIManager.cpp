@@ -409,6 +409,28 @@ void UIManager::TakeSession(term::session::SessionId     id,
     targetTile->ShowX11Control(sm_.SupportsX11Forwarding(id), x11Active);
     targetTile->SetTabSupportsFileTransfer(id, sm_.SupportsFileTransfer(id));
 
+    const bool supportsPfw = sm_.SupportsPortForwarding(id);
+    sessions_.at(id).supportsPortForwarding = supportsPfw;
+    if (supportsPfw) {
+        sm_.SetPortForwardChangedCallback(id,
+            [this, id, tile = targetTile](std::vector<term::transport::PortForwardStatus> status) {
+                frame_->CallAfter([this, id, tile, status = std::move(status)]() mutable {
+                    SessionUI* sui = FindSessionUI(id);
+                    if (!sui) return;
+                    auto descs = sm_.GetPortForwardDescs(id);
+                    sui->portForwardStatus = status;
+                    sui->portForwardDescs  = descs;
+                    // Only push to the tile when this session is the active tab.
+                    if (tile->GetActiveSessionId() == id)
+                        tile->SetPortForwardStatus(std::move(status), std::move(descs));
+                });
+            });
+
+        // Deliver the initial profile-loaded status into the cache.
+        sessions_.at(id).portForwardStatus = sm_.GetPortForwardStatus(id);
+        sessions_.at(id).portForwardDescs  = sm_.GetPortForwardDescs(id);
+    }
+
     if (onSessionListChanged_) onSessionListChanged_();
     RequestActivate(id);
     RefreshBroadcastVisuals();
@@ -517,7 +539,8 @@ void UIManager::EditRemoteFileForSession(term::session::SessionId id)
     if (!editMgr_ || !id || !sm_.SupportsFileTransfer(id)) return;
 
     const std::string remote = sm_.GetRemoteDescription(id);
-    RemoteFileBrowserDialog dlg(frame_, id, sm_, remote, "Edit");
+    const std::string cwd    = sm_.GetCurrentWorkingDir(id);
+    RemoteFileBrowserDialog dlg(frame_, id, sm_, remote, "Edit", cwd);
     if (dlg.ShowModal() != wxID_OK) return;
 
     const auto& paths = dlg.GetSelectedPaths();
@@ -704,6 +727,24 @@ void UIManager::SyncTileHeaderControls(term::session::SessionId id)
     ui->tile->ShowX11Control(sm_.SupportsX11Forwarding(id), ui->x11Active);
 
     frame_->SyncwrapModeMenuItem(wrap);
+
+    // Rewire port forward panel and icon for the now-active session.
+    ui->tile->ShowPortForwardControl(ui->supportsPortForwarding);
+    if (ui->supportsPortForwarding) {
+        ui->tile->SetPortForwardCallbacks(
+            [this, id](term::transport::PortForwardDesc desc) -> term::transport::PortForwardId {
+                return sm_.AddPortForward(id, std::move(desc));
+            },
+            [this, id](term::transport::PortForwardId fwdId) {
+                sm_.RemovePortForward(id, fwdId);
+            },
+            [this, id](term::transport::PortForwardId fwdId) {
+                if (savePortForwardToProfileCb_) savePortForwardToProfileCb_(id, fwdId);
+            });
+        ui->tile->SetPortForwardStatus(ui->portForwardStatus, ui->portForwardDescs);
+    } else {
+        ui->tile->SetPortForwardStatus({}, {});
+    }
 }
 
 TerminalTile* UIManager::GetActiveTile() const

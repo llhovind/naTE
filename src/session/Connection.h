@@ -1,5 +1,6 @@
 #pragma once
 #include "session/EnvVar.h"
+#include "transport/PortForward.h"
 #include <optional>
 #include <string>
 #include <variant>
@@ -50,7 +51,8 @@ struct SshDesc {
     bool           x11Forwarding     = false; // request X11 forwarding at channel open
     bool           agentForwarding   = false; // request SSH agent forwarding at channel open
     std::string    agentIdentityHint; // optional path to private key (or .pub) preferred when using agent auth; empty = consult ~/.ssh/config
-    std::optional<ProxyJumpDesc> proxyJump;   // nullopt = direct TCP connection
+    std::optional<ProxyJumpDesc>              proxyJump;    // nullopt = direct TCP connection
+    std::vector<transport::PortForwardDesc>   portForwards; // persisted; IDs stripped on save
 };
 
 enum class SerialParity      { None, Even, Odd };

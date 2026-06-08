@@ -100,12 +100,28 @@ inline json SerialiseTransport(const term::session::TransportDesc& transport)
                 j["proxyJump"] = {
                     {"host",              desc.proxyJump->host},
                     {"port",              desc.proxyJump->port},
-                    {"user",              desc.proxyJump->user},
+                    {"user",             desc.proxyJump->user},
                     {"authMethod",        AuthMethodToString(desc.proxyJump->authMethod)},
                     {"privateKeyPath",    desc.proxyJump->privateKeyPath},
                     {"publicKeyPath",     desc.proxyJump->publicKeyPath},
                     {"agentIdentityHint", desc.proxyJump->agentIdentityHint},
                 };
+            }
+            if (!desc.portForwards.empty()) {
+                json pfArr = json::array();
+                for (const auto& pf : desc.portForwards) {
+                    // id is runtime-only; not persisted
+                    pfArr.push_back({
+                        {"direction", pf.direction == term::transport::PortForwardDirection::Remote
+                                       ? "remote" : "local"},
+                        {"bindAddr",   pf.bindAddr},
+                        {"localPort",  pf.localPort},
+                        {"remoteHost", pf.remoteHost},
+                        {"remotePort", pf.remotePort},
+                        {"label",      pf.label},
+                    });
+                }
+                j["portForwards"] = std::move(pfArr);
             }
             return j;
         } else if constexpr (std::is_same_v<T, term::session::SerialDesc>) {
@@ -151,6 +167,22 @@ inline term::session::TransportDesc DeserialiseTransport(const json& j)
         d.agentForwarding   = j.value("agentForwarding",   false);
         d.agentIdentityHint = j.value("agentIdentityHint", std::string{});
         // password and passphrase are never stored — left at default ""
+        if (j.contains("portForwards")) {
+            term::transport::PortForwardId nextId = 1;
+            for (const auto& pf : j["portForwards"]) {
+                term::transport::PortForwardDesc pfDesc;
+                pfDesc.id         = nextId++;  // assign sequential runtime IDs
+                pfDesc.direction  = pf.value("direction", std::string{"local"}) == "remote"
+                                    ? term::transport::PortForwardDirection::Remote
+                                    : term::transport::PortForwardDirection::Local;
+                pfDesc.bindAddr   = pf.value("bindAddr",   std::string{"127.0.0.1"});
+                pfDesc.localPort  = pf.value("localPort",  static_cast<uint16_t>(0));
+                pfDesc.remoteHost = pf.value("remoteHost", std::string{"localhost"});
+                pfDesc.remotePort = pf.value("remotePort", static_cast<uint16_t>(0));
+                pfDesc.label      = pf.value("label",      std::string{});
+                d.portForwards.push_back(std::move(pfDesc));
+            }
+        }
         if (j.contains("proxyJump")) {
             const auto& pj = j["proxyJump"];
             const std::string pjHost = pj.value("host", std::string{});

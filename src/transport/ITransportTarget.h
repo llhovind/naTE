@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "transport/DisconnectReason.h"
+#include "transport/PortForward.h"
 #include "transport/TransportError.h"
 
 namespace term::transport {
@@ -32,6 +33,10 @@ public:
     // Fired by the transport just before OnDisconnect when the remote CWD was
     // successfully captured (e.g. via a pwd exec channel at teardown).
     virtual void OnCwdChanged(const std::string& /*path*/) {}
+
+    // Fired on the worker thread whenever the set of port forwards or their
+    // connection counts change.  Implementations must CallAfter before touching wx.
+    virtual void OnPortForwardStatusChanged(std::vector<PortForwardStatus> /*status*/) {}
 
     // Fired on the worker thread during keyboard-interactive SSH auth.
     // Implementations must dispatch to the UI thread and block until the user
