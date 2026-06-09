@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Appearance &amp; Themes — naTE</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="logo" href="index.html">naTE <span>docs</span></a>
+  <nav class="header-links">
+    <a href="getting-started.html">Get Started</a>
+    <a href="connections.html">Connections</a>
+    <a href="features.html">Features</a>
+    <a href="reference.html">Reference</a>
+    <a class="gh-btn" href="https://github.com/lhovind/naTE" target="_blank">GitHub</a>
+  </nav>
+</header>
+
+<div class="page-wrap">
+  <nav class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Overview</div>
+      <a href="index.html">Home</a>
+      <a href="getting-started.html">Getting Started</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Guides</div>
+      <a href="connections.html">Connections</a>
+      <a href="sessions.html">Sessions &amp; Workspaces</a>
+      <a href="features.html">Features</a>
+      <a href="appearance.html" class="active">Appearance &amp; Themes</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Reference</div>
+      <a href="reference.html">Keyboard Shortcuts</a>
+      <a href="configuration.html">Configuration</a>
+      <a href="configuration.html#cli">CLI Options</a>
+    </div>
+  </nav>
+
+  <main class="main-content">
+
+    <h1>Appearance &amp; Themes</h1>
+    <p class="page-subtitle">Customize fonts, colors, cursor behavior, and load any base16 theme.</p>
+
+    <!-- ──────────── PREFERENCES ──────────── -->
+    <h2 class="section-anchor" id="preferences">Appearance Preferences</h2>
+    <p>Open <strong>Edit → Preferences → Appearance</strong> to access all appearance settings.</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Setting</th><th>Description</th><th>Default</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Theme</strong></td><td>Active color scheme name</td><td><code>solarized-dark</code></td></tr>
+          <tr><td><strong>Font family</strong></td><td>Monospace font for the terminal canvas</td><td>System default</td></tr>
+          <tr><td><strong>Font size</strong></td><td>Point size</td><td>12</td></tr>
+          <tr><td><strong>Cell padding</strong></td><td>Extra inset around the terminal canvas, in pixels</td><td>4</td></tr>
+          <tr><td><strong>Cursor style</strong></td><td>Block, Bar, or Underline</td><td>Block</td></tr>
+          <tr><td><strong>Cursor blink</strong></td><td>Animate the cursor</td><td>Off</td></tr>
+          <tr><td><strong>Tile layout</strong></td><td>Row First or Column First — global default for new windows</td><td>Row First</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ──────────── BUILT-IN THEMES ──────────── -->
+    <h2 class="section-anchor" id="built-in-themes">Built-in Themes</h2>
+    <p>naTE ships with three themes:</p>
+
+    <div class="screenshot-grid">
+      <figure>
+        <img src="img/theme-solarized-dark.png" alt="naTE terminal with Solarized Dark theme — dark teal background with muted warm-tone text">
+        <figcaption><strong>solarized-dark</strong> — the default; low-contrast, easy on the eyes</figcaption>
+      </figure>
+      <figure>
+        <img src="img/theme-solarized-light.png" alt="naTE terminal with Solarized Light theme — warm cream background with dark text">
+        <figcaption><strong>solarized-light</strong> — same palette, light background</figcaption>
+      </figure>
+      <figure>
+        <img src="img/theme-xterm.png" alt="naTE terminal with xterm theme — black background with classic high-contrast ANSI colors">
+        <figcaption><strong>xterm</strong> — classic high-contrast ANSI colors on black</figcaption>
+      </figure>
+    </div>
+
+    <!-- ──────────── CUSTOM THEMES ──────────── -->
+    <h2 class="section-anchor" id="custom-themes">Custom Themes</h2>
+    <p>Drop a theme file into <code>~/.nate/themes/</code> and it will appear in the theme selector next time naTE starts (or immediately after reloading the preferences dialog).</p>
+
+    <h3>base16 YAML format (recommended)</h3>
+    <p>naTE supports the <a href="https://github.com/tinted-theming/base16-schemes" target="_blank">base16 scheme format</a>. Over 250 community themes are available in that repository — just download the <code>.yaml</code> file and drop it in <code>~/.nate/themes/</code>.</p>
+
+    <p>A minimal base16 YAML looks like this:</p>
+    <pre><code>scheme: "My Theme"
+author: "Your Name"
+base00: "002b36"
+base01: "073642"
+base02: "586e75"
+base03: "657b83"
+base04: "839496"
+base05: "93a1a1"
+base06: "eee8d5"
+base07: "fdf6e3"
+base08: "dc322f"
+base09: "cb4b16"
+base0A: "b58900"
+base0B: "859900"
+base0C: "2aa198"
+base0D: "268bd2"
+base0E: "d33682"
+base0F: "6c71c4"</code></pre>
+
+    <p>All hex values are 6-digit RGB without the <code>#</code> prefix. Both the flat <strong>v0.x</strong> format (shown above) and the newer <strong>v2</strong> format with a <code>palette:</code> block are supported.</p>
+
+    <h3>naTE INI format</h3>
+    <p>For compatibility, naTE also reads its own INI-based theme format:</p>
+    <pre><code>[Theme]
+name = My Custom Theme
+
+[Palette]
+; base16 slots 00–0F
+base00 = 002b36
+base01 = 073642
+; … etc
+
+[ANSI]
+; Or define the 16 ANSI colors directly
+color0  = 073642
+color1  = dc322f
+; … etc</code></pre>
+
+    <div class="callout callout-tip">
+      <p><strong>Where to find themes:</strong> The <a href="https://github.com/tinted-theming/base16-schemes" target="_blank">tinted-theming/base16-schemes</a> repository on GitHub has 250+ ready-to-use YAML theme files. Popular ones include Gruvbox, Nord, One Dark, Tokyo Night, Monokai, and Dracula.</p>
+    </div>
+
+    <figure>
+      <img src="img/theme-blue-forest.png" alt="naTE terminal with the Blue Forest community theme — deep blue-green background with cool teal and green accent colors">
+      <figcaption>Blue Forest — a community base16 theme loaded from <code>~/.nate/themes/</code></figcaption>
+    </figure>
+
+    <!-- ──────────── HOW THEMES WORK ──────────── -->
+    <h2 class="section-anchor" id="how-themes-work">How Themes Work</h2>
+    <p>naTE themes use the base16 convention of 16 named "base" slots — not a direct ANSI palette. This allows themes to drive both the terminal colors and the UI chrome (title bars, tabs, buttons) from a single coherent palette.</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Slot</th><th>Typical use</th></tr></thead>
+        <tbody>
+          <tr><td><code>base00</code></td><td>Default background</td></tr>
+          <tr><td><code>base01</code></td><td>Lighter background (status bars, line numbers)</td></tr>
+          <tr><td><code>base02</code></td><td>Selection background</td></tr>
+          <tr><td><code>base03</code></td><td>Comments, invisible characters</td></tr>
+          <tr><td><code>base04</code></td><td>Dark foreground (status bars)</td></tr>
+          <tr><td><code>base05</code></td><td>Default foreground, cursor color</td></tr>
+          <tr><td><code>base06</code></td><td>Light foreground</td></tr>
+          <tr><td><code>base07</code></td><td>Lightest foreground (used in light themes)</td></tr>
+          <tr><td><code>base08</code></td><td>ANSI red (variables, tags, errors)</td></tr>
+          <tr><td><code>base09</code></td><td>ANSI orange (integers, booleans)</td></tr>
+          <tr><td><code>base0A</code></td><td>ANSI yellow (classes, constants)</td></tr>
+          <tr><td><code>base0B</code></td><td>ANSI green (strings)</td></tr>
+          <tr><td><code>base0C</code></td><td>ANSI cyan (regex, escape sequences)</td></tr>
+          <tr><td><code>base0D</code></td><td>ANSI blue (functions, methods)</td></tr>
+          <tr><td><code>base0E</code></td><td>ANSI magenta (keywords)</td></tr>
+          <tr><td><code>base0F</code></td><td>ANSI bright variants</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>The 16 ANSI terminal colors (color 0–15) are derived from these base slots, and the UI chrome colors (title bar, tab strip, buttons, selection highlights) are also derived from the same palette. Switching a theme changes everything in one step.</p>
+
+    <!-- ──────────── CURSOR ──────────── -->
+    <h2 class="section-anchor" id="cursor">Cursor Style</h2>
+    <p>Three cursor shapes are available:</p>
+    <ul>
+      <li><strong>Block</strong> — a solid filled rectangle covering the character cell (classic terminal cursor)</li>
+      <li><strong>Bar</strong> — a vertical bar on the left edge of the cell (common in text editors)</li>
+      <li><strong>Underline</strong> — a horizontal bar below the character</li>
+    </ul>
+    <p>Applications can also request a cursor style change via VT sequences — naTE respects those requests during a session. The configured default applies when a new session starts and when the terminal is reset.</p>
+
+    <h3>Cursor blink</h3>
+    <p>Enable or disable the cursor blink animation in <strong>Edit → Preferences → Appearance</strong>. Blink uses a 500ms on/off timer. The application can request blinking via escape sequences as well.</p>
+
+    <!-- ──────────── BELL ──────────── -->
+    <h2 class="section-anchor" id="bell">Bell Mode</h2>
+    <p>Configure what happens when a program rings the terminal bell (<code>^G</code>):</p>
+    <ul>
+      <li><strong>None</strong> — bell is silently ignored</li>
+      <li><strong>Visual</strong> (default) — the terminal canvas briefly flashes</li>
+      <li><strong>Audible</strong> — plays the system bell sound</li>
+    </ul>
+    <p>Set in <strong>Edit → Preferences → Behavior → Bell mode</strong>.</p>
+
+    <!-- ──────────── FONT PICKER ──────────── -->
+    <h2 class="section-anchor" id="fonts">Fonts</h2>
+    <p>Use any monospace font installed on your system. A good monospace font makes the terminal far more comfortable for long sessions.</p>
+
+    <h3>Recommended fonts</h3>
+    <ul>
+      <li><strong>JetBrains Mono</strong> — excellent readability, good ligature support</li>
+      <li><strong>Fira Code</strong> — popular in developer circles, nice ligatures</li>
+      <li><strong>Cascadia Code</strong> — Microsoft's open-source terminal font</li>
+      <li><strong>Hack</strong> — designed specifically for source code and terminals</li>
+      <li><strong>Inconsolata</strong> — clean and lightweight</li>
+    </ul>
+
+    <div class="callout callout-note">
+      <p><strong>Wide characters:</strong> naTE handles East Asian Wide and CJK characters correctly — they occupy two terminal cells and are drawn individually rather than batched, preventing font-advance drift. If you use a font without CJK glyphs, the system will substitute an appropriate fallback font for those characters.</p>
+    </div>
+
+    <h3>Changing font mid-session</h3>
+    <p>You can change the font for the active tile at any time via <strong>Terminal → Set Font</strong>. This is a session-level override — the global default in Preferences is not changed.</p>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <span>© 2024 naTE contributors — <a href="https://github.com/lhovind/naTE/blob/main/LICENSE.md" target="_blank">GPL v3</a></span>
+  <span><a href="https://github.com/lhovind/naTE" target="_blank">GitHub</a> · <a href="https://github.com/lhovind/naTE/issues" target="_blank">Issues</a></span>
+</footer>
+
+</body>
+</html>

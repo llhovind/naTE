@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shell Helpers — naTE</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="logo" href="index.html">naTE <span>docs</span></a>
+  <nav class="header-links">
+    <a href="getting-started.html">Get Started</a>
+    <a href="connections.html">Connections</a>
+    <a href="features.html">Features</a>
+    <a href="reference.html">Reference</a>
+    <a class="gh-btn" href="https://github.com/lhovind/naTE" target="_blank">GitHub</a>
+  </nav>
+</header>
+
+<div class="page-wrap">
+  <nav class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Overview</div>
+      <a href="index.html">Home</a>
+      <a href="getting-started.html">Getting Started</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Guides</div>
+      <a href="connections.html">Connections</a>
+      <a href="sessions.html">Sessions &amp; Workspaces</a>
+      <a href="features.html">Features</a>
+      <a href="appearance.html">Appearance &amp; Themes</a>
+      <a href="helpers.html" class="active">Shell Helpers</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Reference</div>
+      <a href="reference.html">Keyboard Shortcuts</a>
+      <a href="configuration.html">Configuration</a>
+      <a href="configuration.html#cli">CLI Options</a>
+    </div>
+  </nav>
+
+  <main class="main-content">
+
+    <h1>Shell Helpers</h1>
+    <p class="page-subtitle">Optional shell scripts that integrate your shell environment with naTE's wide-column and CWD-tracking features.</p>
+
+    <p>naTE ships a small collection of shell scripts in the <code>helpers/</code> directory of the source tree (or AppImage). None of them are required — naTE works without them — but each one unlocks a specific feature that needs cooperation from the shell.</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Script</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><a href="#osc7-bash"><code>OSC7-bash.sh</code></a></td><td>Enable CWD tracking in Bash (and Bash-like shells)</td></tr>
+          <tr><td><a href="#osc7"><code>OSC7.sh</code></a></td><td>Enable CWD tracking in any POSIX shell with a simple <code>PS1</code> hack</td></tr>
+          <tr><td><a href="#ls"><code>ls.sh</code></a></td><td>Make <code>ls</code> wrap at the tile's visible width, not the full column width</td></tr>
+          <tr><td><a href="#top"><code>top.sh</code></a></td><td>Make <code>top</code> use the alternate screen buffer so it exits cleanly</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ──────────── OSC7-bash ──────────── -->
+    <h2 class="section-anchor" id="osc7-bash">OSC7-bash.sh — CWD Tracking (Bash)</h2>
+
+    <p>naTE can track the current working directory of any running SSH or PTY session in real time. This allows it to restore sessions to the correct directory and (in future) display the CWD in the tab title. The mechanism relies on the shell emitting an <strong>OSC 7</strong> escape sequence every time the directory changes.</p>
+
+    <p>OSC 7 has the form:</p>
+    <pre><code>ESC ] 7 ; file://hostname/current/path ST</code></pre>
+    <p>Modern shells like <strong>fish</strong> and <strong>zsh</strong> (with the right prompts) emit this automatically. For <strong>Bash</strong>, source this script in your <code>~/.bashrc</code>:</p>
+
+    <pre><code>source /path/to/naTE/helpers/OSC7-bash.sh</code></pre>
+
+    <p>The script detects whether it is running under Bash and sets up <code>PROMPT_COMMAND</code> to emit the sequence after every prompt:</p>
+
+    <pre><code>if [ -n "$BASH_VERSION" ]; then
+    PROMPT_COMMAND='printf "\033]7;file://%s%s\033\\" "$(hostname)" "${PWD}"'
+    PS1='\u@\h:\w\$ '
+else
+    PS1='\u@\h:\w\$ $(printf "\033]7;file://%s%s\033\\" "$(hostname)" "${PWD}")'
+fi</code></pre>
+
+    <div class="callout callout-tip">
+      <p><strong>Remote sessions:</strong> Source this in your <em>remote</em> <code>~/.bashrc</code> (on the SSH server) so that naTE on your local machine can track the CWD as you navigate on the remote host.</p>
+    </div>
+
+    <h3>What CWD tracking enables</h3>
+    <ul>
+      <li><strong>Session restore accuracy:</strong> When naTE restores a session after a restart, it <code>cd</code>s to the last directory you were in rather than the home directory.</li>
+      <li><strong>Reconnect to correct directory:</strong> If an SSH session drops and you reconnect, naTE lands you in the same directory you were working in.</li>
+    </ul>
+
+    <!-- ──────────── OSC7.sh ──────────── -->
+    <h2 class="section-anchor" id="osc7">OSC7.sh — CWD Tracking (POSIX / simple)</h2>
+
+    <p>A simpler alternative to <code>OSC7-bash.sh</code> for shells where you just want to patch <code>PS1</code> directly. It embeds the OSC 7 sequence in the prompt string using Bash's <code>\[...\]</code> non-printing markers:</p>
+
+    <pre><code>PS1='\u@\h:\w\$ \[$(printf "\033]7;file://%s%s\007" "$(hostname)" "${PWD}")\]'</code></pre>
+
+    <p>Source it the same way:</p>
+    <pre><code>source /path/to/naTE/helpers/OSC7.sh</code></pre>
+
+    <div class="callout callout-note">
+      <p><strong>Which one to use?</strong> Prefer <code>OSC7-bash.sh</code> on Bash — it uses <code>PROMPT_COMMAND</code>, which is more reliable and doesn't interfere with an existing <code>PS1</code> customization. Use <code>OSC7.sh</code> if you want to paste a single line into an existing prompt setup.</p>
+    </div>
+
+    <!-- ──────────── ls.sh ──────────── -->
+    <h2 class="section-anchor" id="ls">ls.sh — Width-aware <code>ls</code></h2>
+
+    <h3>The problem</h3>
+    <p>naTE lets you set a <strong>column width</strong> (what the shell thinks the terminal is) independently of the tile's <strong>visible width</strong>. For example, you might run with 1024 columns so that long log lines are captured in full, while the tile on screen is only 80 columns wide.</p>
+    <p>The trouble is that <code>ls</code> reads the PTY column width (1024) and formats multi-column output to that width — so each <code>ls</code> listing is one very wide row of filenames that extends off-screen.</p>
+
+    <h3>The fix</h3>
+    <p>naTE writes the tile's actual <em>visible</em> column count to a temp file and exposes the path in the environment variable <code>$NATE_VPCOLUMNS_FILE</code>. The <code>ls.sh</code> wrapper reads that file and passes <code>-w &lt;cols&gt;</code> to <code>ls</code>, so output wraps at the visible width instead of the PTY width.</p>
+
+    <pre><code>unalias ls 2>/dev/null
+
+ls() {
+    cols=""
+
+    if [ -n "$NATE_VPCOLUMNS_FILE" ] && [ -r "$NATE_VPCOLUMNS_FILE" ]; then
+        cols=$(cat "$NATE_VPCOLUMNS_FILE")
+    fi
+
+    if [ -n "$cols" ]; then
+        command ls --color=auto -w "$cols" "$@"
+    else
+        command ls --color=auto "$@"
+    fi
+}</code></pre>
+
+    <p>Source it in your <code>~/.bashrc</code> (or <code>~/.zshrc</code>):</p>
+    <pre><code>source /path/to/naTE/helpers/ls.sh</code></pre>
+
+    <h3>Behaviour</h3>
+    <ul>
+      <li>When run inside naTE with a wide column width, <code>ls</code> wraps at the tile's visible width.</li>
+      <li>When run outside naTE (no <code>$NATE_VPCOLUMNS_FILE</code>), the wrapper falls back to plain <code>ls --color=auto</code> with no <code>-w</code> override — no change in behavior.</li>
+      <li>Any arguments you pass to <code>ls</code> are forwarded unchanged (<code>-la</code>, <code>-lh</code>, paths, etc.).</li>
+    </ul>
+
+    <div class="callout callout-tip">
+      <p><strong>Tip:</strong> If you use a wide column width globally (e.g. <code>PtyLineWidth = 1024</code> in <code>config.ini</code>), sourcing <code>ls.sh</code> on both your local and remote machines makes directory listings readable at a glance in any tile size.</p>
+    </div>
+
+    <!-- ──────────── top.sh ──────────── -->
+    <h2 class="section-anchor" id="top">top.sh — Alternate-screen <code>top</code></h2>
+
+    <h3>The problem</h3>
+    <p>The standard <code>top</code> on some systems exits cleanly — it restores the terminal when you press <kbd>q</kbd>. However, <strong>busybox <code>top</code></strong> (common on Alpine Linux and embedded systems) does not use the alternate screen buffer. When it exits, its output is left mixed into your regular scrollback, making the terminal look garbled.</p>
+
+    <h3>The fix</h3>
+    <p>The <code>top.sh</code> wrapper manually switches to the alternate screen buffer before invoking <code>top</code> and restores the main buffer on exit — including when interrupted with <kbd>Ctrl+C</kbd>.</p>
+
+    <pre><code>top() {
+    cleanup() {
+        printf '\033[?1049l'   # switch back to main screen
+    }
+
+    trap cleanup INT TERM
+
+    printf '\033[?1049h'       # switch to alternate screen
+
+    command top "$@"
+    rc=$?
+
+    cleanup
+    trap - INT TERM
+
+    return "$rc"
+}</code></pre>
+
+    <p>Source it in your <code>~/.bashrc</code> on any remote host that runs busybox <code>top</code>:</p>
+    <pre><code>source /path/to/naTE/helpers/top.sh</code></pre>
+
+    <h3>Behaviour</h3>
+    <ul>
+      <li><code>top</code> runs on the alternate screen buffer.</li>
+      <li>When <code>top</code> exits normally (<kbd>q</kbd>) or is killed with <kbd>Ctrl+C</kbd> / <code>SIGTERM</code>, the main screen is restored.</li>
+      <li>The exit code of <code>top</code> is preserved.</li>
+      <li>All arguments are forwarded to the real <code>top</code> unchanged.</li>
+    </ul>
+
+    <div class="callout callout-note">
+      <p><strong>Standard top:</strong> The GNU/procps <code>top</code> already handles the alternate screen correctly. This wrapper is a no-op overhead on those systems but does no harm — it still works correctly.</p>
+    </div>
+
+    <!-- ──────────── INSTALLATION ──────────── -->
+    <h2 class="section-anchor" id="installation">Installing the Helpers</h2>
+
+    <h3>From the AppImage</h3>
+    <p>The helpers are bundled inside the AppImage. Extract them with:</p>
+    <pre><code>./naTE-x86_64.AppImage --appimage-extract
+# helpers are in squashfs-root/usr/share/nate/helpers/  (path may vary)</code></pre>
+    <p>Alternatively, copy them directly from the <a href="https://github.com/lhovind/naTE/tree/main/helpers" target="_blank">helpers/ directory on GitHub</a>.</p>
+
+    <h3>From source</h3>
+    <p>They are in <code>helpers/</code> at the root of the repository.</p>
+
+    <h3>Recommended <code>~/.bashrc</code> snippet</h3>
+    <p>Source whichever helpers apply to your workflow. A complete setup for a developer using naTE with wide columns and busybox remotes:</p>
+    <pre><code># ~/.bashrc (local machine)
+source ~/helpers/OSC7-bash.sh   # CWD tracking
+source ~/helpers/ls.sh          # width-aware ls</code></pre>
+
+    <pre><code># ~/.bashrc (remote servers running busybox)
+source ~/helpers/OSC7-bash.sh   # CWD tracking for session restore
+source ~/helpers/ls.sh          # width-aware ls
+source ~/helpers/top.sh         # alternate-screen top</code></pre>
+
+    <div class="callout callout-tip">
+      <p><strong>Copying helpers to a remote host:</strong> A quick way to get them there is SFTP — use <strong>Terminal → Send Files</strong> from an active SSH session to upload the scripts to <code>~/helpers/</code> on the remote machine.</p>
+    </div>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <span>© 2024 naTE contributors — <a href="https://github.com/lhovind/naTE/blob/main/LICENSE.md" target="_blank">GPL v3</a></span>
+  <span><a href="https://github.com/lhovind/naTE" target="_blank">GitHub</a> · <a href="https://github.com/lhovind/naTE/issues" target="_blank">Issues</a></span>
+</footer>
+
+</body>
+</html>

@@ -81,7 +81,7 @@ vgcore.*
 *.d
 
 tmp/
-docs/
+docs/archive
 
 # Binaries and Releases
 *.tar.gz
