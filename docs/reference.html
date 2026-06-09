@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Keyboard Shortcuts — naTE</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="logo" href="index.html">naTE <span>docs</span></a>
+  <nav class="header-links">
+    <a href="getting-started.html">Get Started</a>
+    <a href="connections.html">Connections</a>
+    <a href="features.html">Features</a>
+    <a href="reference.html">Reference</a>
+    <a class="gh-btn" href="https://github.com/lhovind/naTE" target="_blank">GitHub</a>
+  </nav>
+</header>
+
+<div class="page-wrap">
+  <nav class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Overview</div>
+      <a href="index.html">Home</a>
+      <a href="getting-started.html">Getting Started</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Guides</div>
+      <a href="connections.html">Connections</a>
+      <a href="sessions.html">Sessions &amp; Workspaces</a>
+      <a href="features.html">Features</a>
+      <a href="appearance.html">Appearance &amp; Themes</a>
+      <a href="helpers.html">Shell Helpers</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Reference</div>
+      <a href="reference.html" class="active">Keyboard Shortcuts</a>
+      <a href="configuration.html">Configuration</a>
+      <a href="configuration.html#cli">CLI Options</a>
+    </div>
+  </nav>
+
+  <main class="main-content">
+
+    <h1>Keyboard Shortcuts</h1>
+    <p class="page-subtitle">Complete shortcut reference. All shortcuts shown are for Linux; macOS users substitute <kbd>Cmd</kbd> for <kbd>Ctrl</kbd> where noted.</p>
+
+    <h2 class="section-anchor" id="connections">Connections</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>Shift+Ctrl+N</kbd></td><td>New Connection — open the New Connection dialog</td></tr>
+          <tr><td><kbd>Shift+Ctrl+T</kbd></td><td>New Connection — open the New Connection dialog as a new Tab</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="section-anchor" id="editing">Editing</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>Shift+Ctrl+C</kbd> (on selection)</td><td>Copy selected text to clipboard</td></tr>
+          <tr><td><kbd>Shift+Ctrl+V</kbd></td><td>Paste from clipboard</td></tr>
+          <tr><td><kbd>Middle-click</kbd></td><td>Paste from X11 primary selection</td></tr>
+          <tr><td><kbd>Shift+Ctrl+A</kbd></td><td>Select all text in the scrollback</td></tr>
+          <tr><td><kbd>Shift+Ctrl+F</kbd></td><td>Find in Terminal — open the search bar</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="section-anchor" id="search-nav">Search Navigation</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>Enter</kbd> / <kbd>F3</kbd></td><td>Jump to next search match</td></tr>
+          <tr><td><kbd>Shift+F3</kbd></td><td>Jump to previous search match</td></tr>
+          <tr><td><kbd>Escape</kbd></td><td>Close the search bar</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="section-anchor" id="selection-keys">Text Selection</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Action</th><th>Behavior</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Click + drag</strong></td><td>Select a character range</td></tr>
+          <tr><td><strong>Double-click</strong></td><td>Select the word under the cursor (configurable boundary regex)</td></tr>
+          <tr><td><strong>Triple-click</strong></td><td>Select the entire line</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="section-anchor" id="broadcast">Broadcast Mode</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>Shift+Ctrl+B</kbd></td><td>Turn Broadcast mode On/Off</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<strong>Right-click</strong></td><td>Toggle broadcast mode for this session</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="section-anchor" id="menus">Menu Quick Reference</h2>
+    <p>All naTE actions are accessible from the menu bar. Here is a summary of what each menu contains.</p>
+
+    <h3>Connection menu</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Item</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>New Connection</td><td>Open the New Connection dialog (<kbd>Shift+Ctrl+N</kbd>)</td></tr>
+          <tr><td>New Connection in Tab</td><td>Open a new connection in the currently focused tile</td></tr>
+          <tr><td>Connection Manager</td><td>View, edit, and delete saved connection profiles</td></tr>
+          <tr><td>Restore Previous Workspace</td><td>Restore the last auto-saved state</td></tr>
+          <tr><td>Save Workspace As…</td><td>Save the current session layout as a named workspace</td></tr>
+          <tr><td>Open Saved Workspaces</td><td>Open or Manage (load/delete) saved workspaces</td></tr>
+          <tr><td>Close All Sessions</td><td>Close all sessions in this window but keep the window open</td></tr>
+          <tr><td>Close This Window</td><td>Close the current window (with confirm-close if sessions are active)</td></tr>
+          <tr><td>Quit All</td><td>Exit naTE, closing all windows</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Edit menu</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Item</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>Copy</td><td>Copy selected text to clipboard</td></tr>
+          <tr><td>Paste</td><td>Paste clipboard contents</td></tr>
+          <tr><td>Paste Selection</td><td>Paste X11 primary selection</td></tr>
+          <tr><td>Find in Terminal</td><td>Open the scrollback search bar (<kbd>Shift+Ctrl+F</kbd>)</td></tr>
+          <tr><td>Select All</td><td>Select all text in the terminal</td></tr>
+          <tr><td>Save Selection to File</td><td>Export selection to a text file</td></tr>
+          <tr><td>Save Session to File</td><td>Export scrollback to a text file</td></tr>
+          <tr><td>Web Search</td><td>Search selected text in the configured web browser</td></tr>
+          <tr><td>Preferences</td><td>Open the Preferences dialog</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Terminal menu</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Item</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>Wrap Mode</td><td>Toggle wrap mode for the active session</td></tr>
+          <tr><td>Broadcast Mode</td><td>Toggle broadcast mode for the active session</td></tr>
+          <tr><td>Set Geometry</td><td>Change the terminal columns and rows for this session</td></tr>
+          <tr><td>Set Font</td><td>Change the font for the active tile (session-level override)</td></tr>
+          <tr><td>Reset Terminal</td><td>Reset ANSI modes and attributes; preserve content</td></tr>
+          <tr><td>Reset and Clear</td><td>Reset modes and erase all scrollback content</td></tr>
+          <tr><td>Save Session to File</td><td>Export scrollback to a text file</td></tr>
+          <tr><td>Send Files</td><td>Upload files to the remote host via SFTP (SSH only)</td></tr>
+          <tr><td>Receive Files</td><td>Download files from the remote host via SFTP (SSH only)</td></tr>
+          <tr><td>Edit Remote File</td><td>Download a remote file, edit locally, and auto-reupload (SSH only)</td></tr>
+          <tr><td>Move to New Tile</td><td>Pull the active session into a new tile in the same window</td></tr>
+          <tr><td>Move to New Window</td><td>Pull the active session into a new separate window</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Window menu</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Item</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>New Window</td><td>Open a new naTE window</td></tr>
+          <tr><td>Tile Layout → Row First</td><td>Set tile layout to row-first for this window</td></tr>
+          <tr><td>Tile Layout → Column First</td><td>Set tile layout to column-first for this window</td></tr>
+          <tr><td><em>(session list)</em></td><td>Dynamic list of all open sessions — click to focus</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="section-anchor" id="tips">Tips &amp; Tricks</h2>
+    <ul>
+      <li><strong>Quick tab open:</strong> Click the <strong>+</strong> button in any tile's title bar to open a new connection in that tile.</li>
+      <li><strong>Search from selection:</strong> Select text, then press <kbd>Shift+Ctrl+F</kbd> — the search bar opens pre-populated with the selected text.</li>
+      <li><strong>Scroll past output:</strong> Middle-click the scrollbar track to jump instantly to any position in the scrollback. Behavior is Window Manager dependent.</li>
+      <li><strong>Stuck TUI?</strong> Press the AltScr button to force-switch back to the main screen buffer if a TUI crashes without cleaning up after itself.</li>
+      <li><strong>Stuck colors?</strong> Use <strong>Terminal → Reset Terminal</strong> to clear all ANSI modes without losing your scrollback content.</li>
+    </ul>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <span>© 2024 naTE contributors — <a href="https://github.com/lhovind/naTE/blob/main/LICENSE.md" target="_blank">GPL v3</a></span>
+  <span><a href="https://github.com/lhovind/naTE" target="_blank">GitHub</a> · <a href="https://github.com/lhovind/naTE/issues" target="_blank">Issues</a></span>
+</footer>
+
+</body>
+</html>

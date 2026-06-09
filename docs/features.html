@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Features — naTE</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="logo" href="index.html">naTE <span>docs</span></a>
+  <nav class="header-links">
+    <a href="getting-started.html">Get Started</a>
+    <a href="connections.html">Connections</a>
+    <a href="features.html">Features</a>
+    <a href="reference.html">Reference</a>
+    <a class="gh-btn" href="https://github.com/lhovind/naTE" target="_blank">GitHub</a>
+  </nav>
+</header>
+
+<div class="page-wrap">
+  <nav class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Overview</div>
+      <a href="index.html">Home</a>
+      <a href="getting-started.html">Getting Started</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Guides</div>
+      <a href="connections.html">Connections</a>
+      <a href="sessions.html">Sessions &amp; Workspaces</a>
+      <a href="features.html" class="active">Features</a>
+      <a href="appearance.html">Appearance &amp; Themes</a>
+      <a href="helpers.html">Shell Helpers</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Reference</div>
+      <a href="reference.html">Keyboard Shortcuts</a>
+      <a href="configuration.html">Configuration</a>
+      <a href="configuration.html#cli">CLI Options</a>
+    </div>
+  </nav>
+
+  <main class="main-content">
+
+    <h1>Features</h1>
+    <p class="page-subtitle">Port forwarding, file transfer, remote edit, X11, search, selection, and more.</p>
+
+    <!-- ──────────── PORT FORWARDING ──────────── -->
+    <h2 class="section-anchor" id="port-forwarding">Port Forwarding</h2>
+    <p>naTE manages SSH port forwards visually, per session. No need to pass <code>-L</code> / <code>-R</code> flags on the command line.</p>
+
+    <h3>Opening the port-forward panel</h3>
+    <p>Click the <strong>PFW</strong> button in the tile title bar (visible on SSH sessions). A panel slides open below the title bar showing all active forwards for this session.</p>
+
+    <figure>
+      <img src="img/port-forward-panel.png" alt="The port-forward panel showing one active local forward: 8080 → localhost:80 labelled www-dev, with an Add button">
+      <figcaption>The port-forward panel — lists active forwards inline below the tile header</figcaption>
+    </figure>
+
+    <h3>Adding a forward</h3>
+    <ol class="steps">
+      <li>Click <strong>Add</strong> in the port-forward panel.</li>
+      <li>Choose <strong>Local</strong> or <strong>Remote</strong> mode.</li>
+      <li>Fill in the fields and click <strong>Verify &amp; Add</strong>.</li>
+    </ol>
+
+    <h4>Local forwarding (−L)</h4>
+    <p>Binds a port on your local machine and tunnels connections through the SSH host to a remote endpoint.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Local port</strong></td><td>Port to listen on locally (e.g. <code>8080</code>)</td></tr>
+          <tr><td><strong>Remote host</strong></td><td>Host to forward to, as seen from the SSH server (e.g. <code>db.internal</code>)</td></tr>
+          <tr><td><strong>Remote port</strong></td><td>Port on the remote host (e.g. <code>5432</code>)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><strong>Example:</strong> Local 5432 → remote <code>db.internal:5432</code> lets you connect your local PostgreSQL client directly to a remote database via the SSH tunnel.</p>
+
+    <h4>Remote forwarding (−R)</h4>
+    <p>Exposes a port on the remote SSH server and tunnels connections back to a local host/port.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Remote port</strong></td><td>Port to bind on the SSH server</td></tr>
+          <tr><td><strong>Local host</strong></td><td>Local address to forward to (usually <code>localhost</code>)</td></tr>
+          <tr><td><strong>Local port</strong></td><td>Local port (e.g. your dev server at <code>3000</code>)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><strong>Example:</strong> Remote 8080 → local <code>localhost:3000</code> exposes your local dev server to the remote machine — useful for showing work to a colleague who has SSH access to the server.</p>
+
+    <h3>Verify &amp; Add</h3>
+    <p>naTE verifies the forward configuration before adding it and shows a confirmation before closing the add dialog. If the binding fails (port already in use, firewall block), the error is shown inline.</p>
+
+    <figure>
+      <img src="img/port-foward-dialog.png" alt="Add Port Forward dialog showing Direction (Local), Local Port 8080, Remote Host localhost, Remote Port 80, Bind Address 127.0.0.1, and Label www-dev">
+      <figcaption>The Add Port Forward dialog — fill in direction, ports, and an optional label</figcaption>
+    </figure>
+
+    <h3>Saving forwards to a profile</h3>
+    <p>Port forwards can be saved to a connection profile so they are set up automatically every time you connect. Add the forwards in the New Connection dialog (SSH tab) before saving the profile.</p>
+
+    <!-- ──────────── FILE TRANSFER ──────────── -->
+    <h2 class="section-anchor" id="file-transfer">File Transfer (SFTP)</h2>
+    <p>naTE can upload and download files via SFTP on any active SSH session. Access these via the <strong>Terminal</strong> menu.</p>
+
+    <h3>Sending files (upload)</h3>
+    <ol class="steps">
+      <li>Focus the SSH session you want to upload to.</li>
+      <li>Open <strong>Terminal → Send Files</strong>.</li>
+      <li>The file transfer dialog opens. Click <strong>Add Files</strong> to choose files from your local machine.</li>
+      <li>Set the remote destination folder, or leave blank to use the session's current directory.</li>
+      <li>Click <strong>Transfer</strong>. Progress is shown per-file.</li>
+    </ol>
+
+    <figure>
+      <img src="img/send-files.png" alt="Transfer Files dialog showing a local files list, Add Files and Remove buttons, a Remote Destination Folder field, and Transfer / Close buttons">
+      <figcaption>The Send Files dialog — add local files, optionally set a remote destination, then click Transfer</figcaption>
+    </figure>
+
+    <h3>Receiving files (download)</h3>
+    <ol class="steps">
+      <li>Focus the SSH session.</li>
+      <li>Open <strong>Terminal → Receive Files</strong>.</li>
+      <li>The remote file browser opens. Navigate to the directory you want using <strong>Up</strong> and the path field.</li>
+      <li>Select one or more files and click <strong>Add Selected</strong>.</li>
+      <li>Click <strong>Close</strong> to begin the download. Files are saved to your local current directory.</li>
+    </ol>
+
+    <figure>
+      <img src="img/receive-files-browser.png" alt="Browse remote filesystem dialog showing a directory listing of /etc with filename, size, and permissions columns, plus Up navigation and Add Selected / Close buttons">
+      <figcaption>The remote file browser — navigate the remote filesystem and select files to download</figcaption>
+    </figure>
+
+    <div class="callout callout-note">
+      <p><strong>How it works:</strong> File transfer uses a separate SFTP session opened over a new SSH channel — it doesn't interrupt your running terminal session. You can keep typing in the terminal while the transfer runs.</p>
+    </div>
+
+    <!-- ──────────── REMOTE EDIT ──────────── -->
+    <h2 class="section-anchor" id="remote-edit">Remote File Editing</h2>
+    <p>Edit a remote file in your local editor. naTE downloads it, watches for saves, and uploads changes back automatically.</p>
+
+    <h3>Starting a remote edit</h3>
+    <ol class="steps">
+      <li>Focus an SSH session.</li>
+      <li>Open <strong>Terminal → Edit Remote File</strong>.</li>
+      <li>The remote file browser opens. Navigate to the file and click <strong>Edit</strong>.</li>
+      <li>naTE downloads the file to a temporary location and opens it in your editor.</li>
+      <li>Edit and save normally. naTE detects the save and uploads the new version.</li>
+    </ol>
+
+    <h3>Configuring your editor</h3>
+    <p>naTE uses the <strong>Remote editor command</strong> setting (<strong>Edit → Preferences → Behavior</strong>). If unset, it falls back to your <code>$EDITOR</code> environment variable.</p>
+    <ul>
+      <li>Many GUI editors are <strong>single-instance</strong> — launching them a second time hands the file to an already-running window and exits immediately, which causes naTE to think the edit is done before you have saved anything. You need a flag that either blocks until the file is closed, or forces a new window. For example: <code>code --wait</code> (VS Code), <code>mousepad -o window</code> (Mousepad), <code>gedit --new-window --wait</code> (gedit). Check your editor's <code>--help</code> output for the equivalent option.</li>
+    </ul>
+
+    <div class="callout callout-tip">
+      <p><strong>Auto-upload on save:</strong> naTE uses inotify to watch the temp file. Save the file in your editor and the upload happens within a second, without any extra step. This works with editors that do atomic-rename saves (VS Code, gedit).</p>
+    </div>
+
+    <!-- ──────────── X11 ──────────── -->
+    <h2 class="section-anchor" id="x11">X11 Forwarding</h2>
+    <p>Run graphical Linux applications on a remote server with their windows appearing on your local desktop.</p>
+
+    <h3>Enabling X11 forwarding</h3>
+    <ol class="steps">
+      <li>In the New Connection dialog (SSH tab), check <strong>Enable X11 forwarding</strong>.</li>
+      <li>Connect. naTE generates an Xauthority cookie and forwards the X11 channel automatically.</li>
+      <li>The <strong>X11</strong> indicator in the tile title bar lights up when X11 is active.</li>
+    </ol>
+
+    <p>You do not need to configure <code>DISPLAY</code> manually — naTE sets it for the session.</p>
+
+    <div class="callout callout-note">
+      <p><strong>Requirement:</strong> Your local machine must have an X11 display server running (standard on most Linux desktops). The remote server must have <code>X11Forwarding yes</code> in its <code>/etc/ssh/sshd_config</code>.</p>
+    </div>
+
+    
+    <!-- ──────────── AGENT FORWARDING ──────────── -->
+    <h2 class="section-anchor" id="agent-forwarding">SSH Agent Forwarding</h2>
+    <p>Agent forwarding lets you SSH from the remote server to a third host using your local SSH key — without copying your private key to the remote.</p>
+
+    <h3>Enabling</h3>
+    <p>Check <strong>Forward SSH agent</strong> in the SSH connection options. This is equivalent to <code>ssh -A</code>.</p>
+
+    <div class="callout callout-warn">
+      <p><strong>Security note:</strong> Agent forwarding should only be used with servers you trust. A malicious or compromised server with root access could use your forwarded agent socket to authenticate as you to other servers while your session is open.</p>
+    </div>
+
+    <!-- ──────────── SEARCH ──────────── -->
+    <h2 class="section-anchor" id="search">Find in Terminal</h2>
+    <p>Search the full scrollback buffer without leaving the terminal.</p>
+
+    <h3>Opening search</h3>
+    <ul>
+      <li>Press <kbd>Shift+Ctrl+F</kbd></li>
+      <li>Or use <strong>Edit → Find in Terminal</strong></li>
+    </ul>
+    <p>A search bar appears at the top of the terminal. If you have text selected, it pre-populates the search field.</p>
+
+    <h3>Navigating results</h3>
+    <ul>
+      <li><kbd>Enter</kbd> or <kbd>F3</kbd> — jump to the next match</li>
+      <li><kbd>Shift+F3</kbd> — jump to the previous match</li>
+      <li><kbd>Escape</kbd> — close the search bar</li>
+    </ul>
+    <p>All matches are highlighted simultaneously. The current match is distinguished with a different color.</p>
+
+    <!-- ──────────── SELECTION ──────────── -->
+    <h2 class="section-anchor" id="selection">Text Selection &amp; Copy</h2>
+
+    <h3>Mouse selection</h3>
+    <ul>
+      <li><strong>Click and drag</strong> — select a character range</li>
+      <li><strong>Double-click</strong> — select the word under the cursor. The word boundary is defined by a configurable regex (<strong>Edit → Preferences → Behavior → Word select regex</strong>). The default pattern selects any run of non-whitespace characters.</li>
+      <li><strong>Triple-click</strong> — select the entire line</li>
+    </ul>
+
+    <h3>Copy-on-select</h3>
+    <p>When enabled (default), selected text is automatically copied to the X11 primary selection so you can middle-click to paste it anywhere. Toggle in <strong>Edit → Preferences → Behavior</strong>.</p>
+
+    <h3>Copy and paste</h3>
+    <ul>
+      <li><kbd>Shift+Ctrl+C</kbd> on a selection — copies to clipboard (does <em>not</em> send the interrupt signal if text is selected)</li>
+      <li><kbd>Shift+Ctrl+V</kbd> — paste from clipboard</li>
+      <li><strong>Edit → Paste from Selection</strong> — paste from X11 primary selection</li>
+      <li><kbd>Middle-click</kbd> — paste from X11 primary selection (if copy-on-select is enabled)</li>
+    </ul>
+
+    <h3>Selection context menu</h3>
+    <p>Right-click on a selection to get a context menu with actions on the selected text:</p>
+
+    <figure>
+      <img src="img/selection-context-menu.png" alt="Right-click context menu on a text selection showing: Copy, Save to File, Search the Web, Find in Terminal, Paste Selection">
+      <figcaption>Right-click a selection to copy, search, save, or find — without reaching for the menu bar</figcaption>
+    </figure>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Item</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Copy</strong></td><td>Copy the selection to the clipboard</td></tr>
+          <tr><td><strong>Save to File…</strong></td><td>Write the selected text to a file on disk</td></tr>
+          <tr><td><strong>Search the Web</strong></td><td>Open the configured web search URL with the selection as the query (same as <strong>Edit → Web Search</strong>)</td></tr>
+          <tr><td><strong>Find in Terminal</strong></td><td>Open the search bar pre-populated with the selected text</td></tr>
+          <tr><td><strong>Paste Selection</strong></td><td>Paste the X11 primary selection at the cursor (equivalent to middle-click)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ──────────── BRACKETED PASTE ──────────── -->
+    <h2 class="section-anchor" id="bracketed-paste">Bracketed Paste</h2>
+    <p>Some terminal applications (vim, shell readline) request <em>bracketed paste mode</em>, where pasted text is wrapped in escape sequences so the app can distinguish paste from typed input. naTE supports this automatically.</p>
+    <p>When you paste multi-line content into a plain shell prompt (one that does not support bracketed paste), naTE shows a <strong>Multi-line Paste</strong> confirmation dialog so you can review the full text before it is sent — a safeguard against accidentally running unexpected commands.</p>
+
+    <figure>
+      <img src="img/paste-confirmation.png" alt="Multi-line Paste dialog warning that the shell may execute each line as a command, showing a preview of the pasted text with Cancel and Paste buttons">
+      <figcaption>The Multi-line Paste dialog — review the content before it is sent to the shell</figcaption>
+    </figure>
+
+    <!-- ──────────── TERMINAL RESET ──────────── -->
+    <h2 class="section-anchor" id="terminal-reset">Terminal Reset</h2>
+    <p>If a TUI application crashes and leaves the terminal in a garbled state:</p>
+    <ul>
+      <li><strong>Terminal → Reset Terminal</strong> — resets all ANSI modes and attributes without clearing content. Use this when colors are stuck or the cursor is in the wrong mode.</li>
+      <li><strong>Terminal → Reset and Clear</strong> — resets modes <em>and</em> clears the entire scrollback. naTE will offer to save the scrollback to a file first.</li>
+    </ul>
+
+    <!-- ──────────── ALT SCREEN ──────────── -->
+    <h2 class="section-anchor" id="alt-screen">Alternate Screen</h2>
+    <p>Full-screen TUI applications (vim, htop, tmux, man) use the <em>alternate screen buffer</em> — a separate buffer that is restored when the app exits, leaving your scrollback intact. naTE handles this automatically via VT100 escape sequences.</p>
+    <p>The <strong>AltScr</strong> button in the tile title bar lets you manually toggle between the main and alternate screen. This is useful when an application crashes mid-session and leaves you stuck on the alternate buffer — press AltScr to get back to your shell.</p>
+
+    <!-- ──────────── WEB SEARCH ──────────── -->
+    <h2 class="section-anchor" id="web-search">Web Search</h2>
+    <p>Select any text in the terminal and use <strong>Edit → Web Search</strong> to open a browser search for that text. The search URL template is configurable in <strong>Edit → Preferences → Behavior</strong> (default: DuckDuckGo). Replace <code>{query}</code> with a URL-encoded version of the selected text in the template.</p>
+
+    <!-- ──────────── URL DETECTION ──────────── -->
+    <h2 class="section-anchor" id="urls">URL Detection</h2>
+    <p>naTE automatically detects URLs in terminal output and underlines them. Right-click a URL to take an action:</p>
+
+    <figure>
+      <img src="img/url-context-menu.png" alt="A URL in the terminal output underlined, with a right-click context menu showing Open in Browser and Copy Link Address">
+      <figcaption>Right-click any detected URL to open it or copy it to the clipboard</figcaption>
+    </figure>
+
+    <ul>
+      <li><strong>Open in Browser</strong> — opens the URL in your system default browser</li>
+      <li><strong>Copy Link Address</strong> — copies the URL to the clipboard without opening it</li>
+    </ul>
+
+    <!-- ──────────── SCROLLBACK ──────────── -->
+    <h2 class="section-anchor" id="scrollback">Scrollback &amp; Saving</h2>
+    <p>naTE keeps a configurable scrollback buffer (default: 100,000 lines). Scroll up with the mouse wheel or the scrollbar to review earlier output.</p>
+    <p>To save the current scrollback to a file: <strong>Terminal → Save Session to File</strong>. You can choose the destination file in the save dialog.</p>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <span>© 2024 naTE contributors — <a href="https://github.com/lhovind/naTE/blob/main/LICENSE.md" target="_blank">GPL v3</a></span>
+  <span><a href="https://github.com/lhovind/naTE" target="_blank">GitHub</a> · <a href="https://github.com/lhovind/naTE/issues" target="_blank">Issues</a></span>
+</footer>
+
+</body>
+</html>

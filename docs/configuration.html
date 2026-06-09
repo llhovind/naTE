@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Configuration Reference — naTE</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="logo" href="index.html">naTE <span>docs</span></a>
+  <nav class="header-links">
+    <a href="getting-started.html">Get Started</a>
+    <a href="connections.html">Connections</a>
+    <a href="features.html">Features</a>
+    <a href="reference.html">Reference</a>
+    <a class="gh-btn" href="https://github.com/lhovind/naTE" target="_blank">GitHub</a>
+  </nav>
+</header>
+
+<div class="page-wrap">
+  <nav class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Overview</div>
+      <a href="index.html">Home</a>
+      <a href="getting-started.html">Getting Started</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Guides</div>
+      <a href="connections.html">Connections</a>
+      <a href="sessions.html">Sessions &amp; Workspaces</a>
+      <a href="features.html">Features</a>
+      <a href="appearance.html">Appearance &amp; Themes</a>
+      <a href="helpers.html">Shell Helpers</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Reference</div>
+      <a href="reference.html">Keyboard Shortcuts</a>
+      <a href="configuration.html" class="active">Configuration</a>
+      <a href="configuration.html#cli">CLI Options</a>
+    </div>
+  </nav>
+
+  <main class="main-content">
+
+    <h1>Configuration Reference</h1>
+    <p class="page-subtitle">All configuration keys in <code>~/.nate/config.ini</code>, their types, defaults, and what they control.</p>
+
+    <div class="callout callout-tip">
+      <p><strong>Prefer the UI:</strong> Almost all settings are exposed in <strong>Edit → Preferences</strong>. Edit <code>config.ini</code> directly only for options not yet in the Preferences UI, or to script bulk changes.</p>
+    </div>
+
+    <h2 class="section-anchor" id="file-format">File Format</h2>
+    <p>The config file uses a simple INI format with <code>[Section]</code> headers and <code>key = value</code> pairs. Comments start with <code>;</code> or <code>#</code>.</p>
+    <pre><code>; ~/.nate/config.ini
+[Appearance]
+themeName = solarized-dark
+fontSize = 14
+
+[Behavior]
+copyOnSelect = true</code></pre>
+
+    <p>naTE writes a default <code>config.ini</code> to <code>~/.nate/</code> on first launch. You only need to set keys you want to override — unset keys use their built-in defaults.</p>
+
+    <!-- ──────────── APPEARANCE ──────────── -->
+    <h2 class="section-anchor" id="appearance">[Appearance]</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>themeName</code></td>
+            <td>string</td>
+            <td><code>solarized-dark</code></td>
+            <td>Name of the active color theme. Must match the filename (without extension) of a theme in the built-in set or in <code>~/.nate/themes/</code>.</td>
+          </tr>
+          <tr>
+            <td><code>fontFamily</code></td>
+            <td>string</td>
+            <td>(system default)</td>
+            <td>Monospace font family name. Empty string uses the system default monospace font.</td>
+          </tr>
+          <tr>
+            <td><code>fontSize</code></td>
+            <td>integer</td>
+            <td><code>12</code></td>
+            <td>Terminal font size in points.</td>
+          </tr>
+          <tr>
+            <td><code>padding</code></td>
+            <td>integer</td>
+            <td><code>4</code></td>
+            <td>Inset around the terminal canvas in pixels.</td>
+          </tr>
+          <tr>
+            <td><code>cursorStyle</code></td>
+            <td>enum</td>
+            <td><code>Block</code></td>
+            <td>Cursor shape: <code>Block</code>, <code>Bar</code>, or <code>Underline</code>.</td>
+          </tr>
+          <tr>
+            <td><code>cursorBlink</code></td>
+            <td>bool</td>
+            <td><code>false</code></td>
+            <td>Whether the cursor blinks.</td>
+          </tr>
+          <tr>
+            <td><code>tileLayout</code></td>
+            <td>enum</td>
+            <td><code>RowFirst</code></td>
+            <td>Default tile layout direction for new windows: <code>RowFirst</code> or <code>ColumnFirst</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ──────────── BEHAVIOR ──────────── -->
+    <h2 class="section-anchor" id="behavior">[Behavior]</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>copyOnSelect</code></td>
+            <td>bool</td>
+            <td><code>true</code></td>
+            <td>Automatically copy selected text to X11 primary selection on mouse release.</td>
+          </tr>
+          <tr>
+            <td><code>confirmCloseWindow</code></td>
+            <td>bool</td>
+            <td><code>true</code></td>
+            <td>Show a confirmation dialog before closing a window with active sessions.</td>
+          </tr>
+          <tr>
+            <td><code>bellMode</code></td>
+            <td>enum</td>
+            <td><code>Visual</code></td>
+            <td>Response to terminal bell (<code>^G</code>): <code>None</code>, <code>Visual</code> (flash), or <code>Audible</code>.</td>
+          </tr>
+          <tr>
+            <td><code>webSearchUrl</code></td>
+            <td>string</td>
+            <td>DuckDuckGo</td>
+            <td>URL template for <strong>Edit → Web Search</strong>. The selected text is URL-encoded and substituted for <code>{query}</code>.</td>
+          </tr>
+          <tr>
+            <td><code>wordSelectRegex</code></td>
+            <td>regex string</td>
+            <td><code>[^\s]+</code></td>
+            <td>ECMAScript regex defining a "word" for double-click selection. The default selects any run of non-whitespace characters.</td>
+          </tr>
+          <tr>
+            <td><code>encoding</code></td>
+            <td>string</td>
+            <td><code>UTF-8</code></td>
+            <td>Character encoding for terminal I/O.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ──────────── SESSION ──────────── -->
+    <h2 class="section-anchor" id="session">[Session]</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>autoRestoreSession</code></td>
+            <td>bool</td>
+            <td><code>false</code></td>
+            <td>Restore the last saved session layout on launch.</td>
+          </tr>
+          <tr>
+            <td><code>sessionSaveInterval</code></td>
+            <td>integer</td>
+            <td><code>300</code></td>
+            <td>Seconds between auto-saves. Set to <code>0</code> to disable auto-save.</td>
+          </tr>
+          <tr>
+            <td><code>defaultShell</code></td>
+            <td>string</td>
+            <td>(empty)</td>
+            <td>Shell command for new PTY sessions. Empty uses <code>$SHELL</code>, falling back to <code>/bin/sh</code>.</td>
+          </tr>
+          <tr>
+            <td><code>defaultWorkingDir</code></td>
+            <td>string</td>
+            <td>(empty)</td>
+            <td>Default starting directory. Empty inherits the directory naTE was launched from.</td>
+          </tr>
+          <tr>
+            <td><code>defaultLoginShell</code></td>
+            <td>bool</td>
+            <td><code>true</code></td>
+            <td>Invoke shells as login shells by default (<code>-l</code> flag).</td>
+          </tr>
+          <tr>
+            <td><code>defaultEnvFilePath</code></td>
+            <td>string</td>
+            <td>(empty)</td>
+            <td>Path to a <code>.env</code>-style file loaded for every new session.</td>
+          </tr>
+          <tr>
+            <td><code>defaultWrapMode</code></td>
+            <td>bool</td>
+            <td><code>true</code></td>
+            <td>
+              Whether new sessions start with wrap mode on.
+              <strong>On (default):</strong> naTE behaves like a classic terminal — the
+              shell's reported width matches the visible tile width, and long lines wrap
+              at the tile edge. This is the most compatible mode and the right starting
+              point for most users.
+              <strong>Off:</strong> naTE reports <code>ptyLineWidth</code> columns to the
+              shell, capturing long lines in full without truncation. The tile scrolls
+              horizontally to reveal them. Switch to this mode when you work with wide
+              output (e.g. broad <code>git log</code> graphs, wide DataFrames, long log
+              lines) and want to see the full content without reflowing it.
+              Toggle per-session at any time with the <strong>Wrap</strong> button in the
+              tile title bar.
+            </td>
+          </tr>
+          <tr>
+            <td><code>remoteEditorCommand</code></td>
+            <td>string</td>
+            <td>(empty)</td>
+            <td>Editor command for <strong>Terminal → Edit Remote File</strong>. Empty uses <code>$EDITOR</code>. Use <code>code --wait</code> for VS Code.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ──────────── TERMINAL ──────────── -->
+    <h2 class="section-anchor" id="terminal">[Terminal]</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>columns</code></td>
+            <td>integer</td>
+            <td><code>80</code></td>
+            <td>Default terminal width in columns. This is what the shell reports as the terminal width.</td>
+          </tr>
+          <tr>
+            <td><code>rows</code></td>
+            <td>integer</td>
+            <td><code>24</code></td>
+            <td>Default terminal height in rows.</td>
+          </tr>
+          <tr>
+            <td><code>scrollbackLines</code></td>
+            <td>integer</td>
+            <td><code>100000</code></td>
+            <td>Maximum number of lines kept in the scrollback buffer per session.</td>
+          </tr>
+          <tr>
+            <td><code>ptyLineWidth</code></td>
+            <td>integer</td>
+            <td><code>4096</code></td>
+            <td>
+              The column width naTE reports to the shell when <strong>wrap mode is off</strong>.
+              This is what programs like <code>ls</code>, <code>git log</code>, and colored
+              output formatters use to decide where to truncate or wrap their output.
+              A large value (the default 4096) tells the shell the terminal is very wide,
+              so lines are captured in full rather than truncated at the visible tile edge.
+              When wrap mode is <strong>on</strong>, naTE reports the actual tile pixel width
+              in columns instead, and this setting has no effect.
+              See also <code>defaultWrapMode</code> in <a href="#session">[Session]</a>.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ──────────── CLI FLAGS ──────────── -->
+    <h2 class="section-anchor" id="cli">Command-Line Options</h2>
+    <p>naTE accepts a small number of flags when launched from a terminal. These are useful for scripting, desktop launchers, or overriding the restore behavior for a single launch.</p>
+
+    <pre><code>nate [--no-restore] [--restore-last-workspace]</code></pre>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>--no-restore</code></td>
+            <td>
+              Start fresh — suppress session restore for this launch even when
+              <code>autoRestoreSession = true</code> is set in <code>config.ini</code>.
+              Opens a single empty window. Takes precedence over
+              <code>--restore-last-workspace</code> if both are given.
+            </td>
+          </tr>
+          <tr>
+            <td><code>--restore-last-workspace</code></td>
+            <td>
+              Force session restore for this launch even when
+              <code>autoRestoreSession = false</code> in <code>config.ini</code>.
+              Useful in a desktop launcher when you want restore on demand
+              rather than always.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout callout-tip">
+      <p><strong>Common patterns</strong></p>
+      <p>Always restore on launch — set <code>autoRestoreSession = true</code> in <code>config.ini</code>.</p>
+      <p>Restore only when you ask — leave <code>autoRestoreSession = false</code> and create two desktop launchers: one plain (<code>nate</code>) and one with <code>--restore-last-workspace</code>.</p>
+      <p>Emergency clean start — run <code>nate --no-restore</code> when a corrupted restore file is causing a crash on startup.</p>
+    </div>
+
+    <div class="callout callout-note">
+      <p><strong>Internal flag:</strong> <code>--restore-instance N</code> is used internally when naTE spawns a sibling process to take ownership of a prior instance's saved state. It is not intended for end-user use.</p>
+    </div>
+
+    <!-- ──────────── DATA FILES ──────────── -->
+    <h2 class="section-anchor" id="data-files">Data Files</h2>
+    <p>The following files are written automatically by naTE and should not normally be edited by hand. They are listed here for reference and troubleshooting.</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>File</th><th>Format</th><th>Contents</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>~/.nate/connections.json</code></td>
+            <td>JSON</td>
+            <td>All saved connection profiles. Edited via <strong>Connection → Connection Manager</strong>.</td>
+          </tr>
+          <tr>
+            <td><code>~/.nate/workspaces/*.json</code></td>
+            <td>JSON</td>
+            <td>Named workspace snapshots. One file per workspace. Managed via <strong>Connection → Workspace Manager</strong>.</td>
+          </tr>
+          <tr>
+            <td><code>~/.nate/workspaces/instance-restore-*.json</code></td>
+            <td>JSON</td>
+            <td>Auto-save snapshots. One file per instance. Overwritten on each save interval.</td>
+          </tr>
+          <tr>
+            <td><code>~/.nate/themes/*.yaml</code></td>
+            <td>base16 YAML</td>
+            <td>Custom color themes. Placed here manually. See <a href="appearance.html#custom-themes">Custom Themes</a>.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ──────────── EXAMPLE CONFIG ──────────── -->
+    <h2 class="section-anchor" id="example">Example config.ini</h2>
+    <pre><code>; ~/.nate/config.ini
+
+[Appearance]
+themeName    = gruvbox-dark
+fontFamily   = JetBrains Mono
+fontSize     = 13
+padding      = 6
+cursorStyle  = Bar
+cursorBlink  = true
+
+[Behavior]
+copyOnSelect       = true
+confirmCloseWindow = true
+bellMode           = None
+wordSelectRegex    = [^\s,;:'"()\[\]{}]+
+
+[Session]
+autoRestoreSession  = true
+sessionSaveInterval = 120
+defaultWorkingDir   = ~/Projects
+defaultLoginShell   = true
+remoteEditorCommand = code --wait
+
+[Terminal]
+columns       = 220
+rows          = 50
+scrollbackLines = 200000</code></pre>
+
+    <div class="callout callout-note">
+      <p><strong>Note:</strong> Setting <code>columns = 220</code> globally means every new session will tell its shell that the terminal is 220 columns wide. For most users the default of 80 is fine; use a wider value if you regularly work with wide output (DataFrames, long log lines, etc.) and want naTE to capture it without truncation. You can always override per-connection profile.</p>
+    </div>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <span>© 2024 naTE contributors — <a href="https://github.com/lhovind/naTE/blob/main/LICENSE.md" target="_blank">GPL v3</a></span>
+  <span><a href="https://github.com/lhovind/naTE" target="_blank">GitHub</a> · <a href="https://github.com/lhovind/naTE/issues" target="_blank">Issues</a></span>
+</footer>
+
+</body>
+</html>

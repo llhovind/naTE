@@ -1,0 +1,8 @@
+title: naTE Documentation
+description: "User guide for naTE — not another Terminal Emulator"
+url: "https://lhovind.github.io"
+baseurl: "/naTE"
+
+# Disable Jekyll processing — we ship plain HTML/CSS
+# Jekyll will still serve the files as-is
+plugins: []

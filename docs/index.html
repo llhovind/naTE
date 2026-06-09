@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>naTE — not another Terminal Emulator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="logo" href="index.html">naTE <span>docs</span></a>
+  <nav class="header-links">
+    <a href="getting-started.html">Get Started</a>
+    <a href="connections.html">Connections</a>
+    <a href="features.html">Features</a>
+    <a href="reference.html">Reference</a>
+    <a class="gh-btn" href="https://github.com/lhovind/naTE" target="_blank">GitHub</a>
+  </nav>
+</header>
+
+<div class="page-wrap">
+  <nav class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Overview</div>
+      <a href="index.html" class="active">Home</a>
+      <a href="getting-started.html">Getting Started</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Guides</div>
+      <a href="connections.html">Connections</a>
+      <a href="sessions.html">Sessions &amp; Workspaces</a>
+      <a href="features.html">Features</a>
+      <a href="appearance.html">Appearance &amp; Themes</a>
+      <a href="helpers.html">Shell Helpers</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Reference</div>
+      <a href="reference.html">Keyboard Shortcuts</a>
+      <a href="configuration.html">Configuration</a>
+      <a href="configuration.html#cli">CLI Options</a>
+    </div>
+  </nav>
+
+  <main class="main-content">
+
+    <div class="hero">
+      <h1>naTE</h1>
+      <p class="tagline"><em>not another Terminal Emulator</em> — tiling layouts, SSH, and serial support built for engineers who live in remote sessions.</p>
+      <div class="hero-btns">
+        <a class="btn btn-primary" href="getting-started.html">Get Started →</a>
+        <a class="btn btn-secondary" href="https://github.com/lhovind/naTE/releases" target="_blank">Download</a>
+      </div>
+    </div>
+
+    <h2 class="section-anchor" id="what-is-nate">What is naTE?</h2>
+    <p>naTE is a graphical terminal emulator built for people who live in SSH sessions. It gives you a tiling, tabbed interface where multiple terminals share a single window, remembers your sessions across restarts so you can pick up exactly where you left off, and ships with a full suite of SSH features — agent forwarding, X11 forwarding, ProxyJump, keyboard-interactive (MFA) auth, port forwarding, and SFTP file transfer — all without touching the command line.</p>
+    <p>If you manage remote servers, work with serial consoles, or just want a terminal that treats sessions as first-class objects rather than throwaway windows, naTE is built for you.</p>
+
+    <figure>
+      <img src="img/main-window.png" alt="naTE main window showing a single tile with two tabs — an SSH session and a local shell">
+      <figcaption>naTE with two sessions in one tile — an SSH connection and a local shell tab</figcaption>
+    </figure>
+
+    <h2 class="section-anchor" id="feature-highlights">Feature Highlights</h2>
+
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="icon">⬛</div>
+        <h3>Tiling &amp; Tabs</h3>
+        <p>Multiple terminals in a single window arranged in a grid. Drag tabs between tiles or windows. Broadcast to all sessions at once.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🔒</div>
+        <h3>Full SSH Suite</h3>
+        <p>Password, key, agent, and keyboard-interactive auth. ProxyJump, X11 forwarding, agent forwarding, port forwarding, and SFTP.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">💾</div>
+        <h3>Session Restore</h3>
+        <p>Auto-saves your layout so you can reopen exactly where you left off. Named workspaces for switching between projects.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🔌</div>
+        <h3>Serial Consoles</h3>
+        <p>Connect to serial devices with configurable baud rate, parity, flow control, and optional dial scripts.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">📁</div>
+        <h3>File Transfer &amp; Remote Edit</h3>
+        <p>SFTP uploads and downloads. Edit remote files in your local editor and save them back automatically.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🎨</div>
+        <h3>Themeable</h3>
+        <p>Built-in Solarized Dark/Light and xterm themes. Drop any base16 YAML theme into <code>~/.nate/themes/</code>.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🔍</div>
+        <h3>Scrollback Search</h3>
+        <p>Search the full scrollback buffer instantly. All matches highlighted; navigate with <kbd>F3</kbd> / <kbd>Shift+F3</kbd>.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">↔</div>
+        <h3>Wide Column Mode</h3>
+        <p>Decouple the shell's reported column width from the visible tile. Capture 1024-column output without truncation.</p>
+      </div>
+    </div>
+
+    <h2 class="section-anchor" id="transport-types">Supported Connection Types</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Transport</th><th>Description</th><th>Key Options</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>SSH</strong> <span class="badge badge-ssh">SSH</span></td>
+            <td>Remote shell over SSH with the full authentication and tunnelling suite</td>
+            <td>Key/agent/password/MFA auth, ProxyJump, X11, agent forwarding, port forwarding</td>
+          </tr>
+          <tr>
+            <td><strong>Local PTY</strong> <span class="badge badge-pty">PTY</span></td>
+            <td>Local shell using a pseudo-terminal (bash, zsh, fish, …)</td>
+            <td>Custom shell, working directory, env vars, env file, login shell</td>
+          </tr>
+          <tr>
+            <td><strong>Serial</strong> <span class="badge badge-serial">Serial</span></td>
+            <td>Serial device connection for embedded systems, network gear, and modems</td>
+            <td>Baud rate, data/stop bits, parity, flow control, dial script</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="section-anchor" id="quick-look">A Quick Look</h2>
+    <p>Here is the typical workflow in naTE:</p>
+    <ol>
+      <li>Press <kbd>Ctrl+N</kbd> to open a new connection — choose SSH, PTY, or Serial.</li>
+      <li>Fill in host/credentials (or pick a saved profile) and click <strong>Connect</strong>.</li>
+      <li>Open additional tabs in the same tile with <strong>Connection → New Connection in Tab</strong>.</li>
+      <li>Split into a second tile with <strong>Terminal → Move to New Tile</strong>.</li>
+      <li>Save your layout as a named workspace: <strong>Connection → Save Workspace As…</strong></li>
+      <li>Next launch, restore it from <strong>Connection → Open Workspace</strong>.</li>
+    </ol>
+
+    <div class="callout callout-tip">
+      <p><strong>Tip:</strong> naTE auto-saves your session layout at a configurable interval so you are protected even if you forget to save a named workspace. Enable <strong>Auto-restore on launch</strong> in <strong>Edit → Preferences → Session</strong>.</p>
+    </div>
+
+    <h2 class="section-anchor" id="requirements">System Requirements</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Platform</th><th>Status</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Linux (x86_64)</td><td>✅ Supported</td><td>AppImage or build from source</td></tr>
+          <tr><td>macOS</td><td>⚠️ Experimental</td><td>Build from source; some features may differ</td></tr>
+          <tr><td>Windows</td><td>❌ Not supported</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <span>© 2024 naTE contributors — <a href="https://github.com/lhovind/naTE/blob/main/LICENSE.md" target="_blank">GPL v3</a></span>
+  <span><a href="https://github.com/lhovind/naTE" target="_blank">GitHub</a> · <a href="https://github.com/lhovind/naTE/issues" target="_blank">Issues</a></span>
+</footer>
+
+</body>
+</html>
