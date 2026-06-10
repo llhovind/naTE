@@ -86,8 +86,9 @@ for you.
 - Verification dialog confirms connectivity before closing the panel, so you know the tunnel is up before you depend on it
 
 ### File transfer
-- SFTP send and receive via the existing authenticated session (no re-authentication)
-- Remote directory browser with alphabetical listing
+- Unified **Transfer Files** dialog (**Terminal → Transfer Files...**) — choose source and destination independently: local machine or any active SSH session
+- Upload, download, or transfer between two remote sessions from a single dialog; remote-to-remote transfers stage through a temporary local file automatically
+- Browse the remote filesystem to pick source files or set the destination directory
 - **Edit remote file** — open a remote file in your local editor (**Terminal → Edit Remote File**); naTE downloads it to a temp path, watches for saves via inotify, and re-uploads automatically on each write. Supports direct-save editors (vim, nano) and atomic-rename editors (VSCode, gedit). Configure the editor command in **Edit → Preferences → Behavior** or via the `$EDITOR` environment variable.
 
 ### Appearance
