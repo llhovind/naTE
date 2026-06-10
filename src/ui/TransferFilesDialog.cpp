@@ -18,7 +18,7 @@ TransferFilesDialog::TransferFilesDialog(
     std::vector<std::pair<term::session::SessionId, std::string>> sessions,
     term::session::SessionId    preSelectedSrcId)
     : wxDialog(parent, wxID_ANY, "Transfer Files",
-               wxDefaultPosition, wxSize(560, 480),
+               wxDefaultPosition, wxDefaultSize,
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
     , sm_(sm)
 {
@@ -51,8 +51,9 @@ TransferFilesDialog::TransferFilesDialog(
                               0, nullptr, wxLB_EXTENDED);
     fileRow->Add(fileList_, 1, wxEXPAND | wxRIGHT, 6);
     auto* fileCol = new wxBoxSizer(wxVERTICAL);
-    addBtn_    = new wxButton(srcBox->GetStaticBox(), wxID_ANY, "Add Files...");
-    removeBtn_ = new wxButton(srcBox->GetStaticBox(), wxID_ANY, "Remove");
+    addBtn_    = new wxButton(srcBox->GetStaticBox(), wxID_ANY, "Add Files...", wxDefaultPosition, wxDefaultSize);
+    addBtn_->SetMinSize(wxSize(140, -1));
+    removeBtn_ = new wxButton(srcBox->GetStaticBox(), wxID_ANY, "Remove", wxDefaultPosition, wxDefaultSize);
     removeBtn_->Disable();
     fileCol->Add(addBtn_,    0, wxBOTTOM, 4);
     fileCol->Add(removeBtn_, 0);
@@ -78,7 +79,7 @@ TransferFilesDialog::TransferFilesDialog(
                    0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 6);
     dstDirCtrl_ = new wxTextCtrl(dstBox->GetStaticBox(), wxID_ANY, wxGetCwd());
     browseDstBtn_ = new wxButton(dstBox->GetStaticBox(), wxID_ANY, "Browse...",
-                                 wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+                                 wxDefaultPosition, wxDefaultSize);
     dstDirRow->Add(dstDirCtrl_, 1, wxRIGHT, 4);
     dstDirRow->Add(browseDstBtn_, 0);
     dstBox->Add(dstDirRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
