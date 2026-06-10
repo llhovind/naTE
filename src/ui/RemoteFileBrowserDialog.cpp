@@ -129,6 +129,8 @@ void RemoteFileBrowserDialog::Navigate(const std::string& path)
                     });
                 PopulateList(currentEntries_);
                 upBtn_->Enable(currentPath_ != "/");
+                if (mode_ == BrowseMode::Directory)
+                    addBtn_->Enable();
             });
         });
 }
