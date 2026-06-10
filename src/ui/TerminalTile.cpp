@@ -126,18 +126,12 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& cfg)
             }, saveItem->GetId());
             menu.AppendSeparator();
             const bool sshTab = tabs_[tabIdx].supportsFileTransfer;
-            auto* sendItem = menu.Append(wxID_ANY, "Send Files to Remote...");
-            sendItem->Enable(sshTab);
+            auto* xferItem = menu.Append(wxID_ANY, "Transfer Files...");
+            xferItem->Enable(fileTransferAvailableCb_ && fileTransferAvailableCb_());
             menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
-                TerminalActionEvent evt(TerminalAction::SendFiles, sid);
+                TerminalActionEvent evt(TerminalAction::TransferFiles, sid);
                 ProcessWindowEvent(evt);
-            }, sendItem->GetId());
-            auto* receiveItem = menu.Append(wxID_ANY, "Receive Files from Remote...");
-            receiveItem->Enable(sshTab);
-            menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
-                TerminalActionEvent evt(TerminalAction::ReceiveFiles, sid);
-                ProcessWindowEvent(evt);
-            }, receiveItem->GetId());
+            }, xferItem->GetId());
             auto* editRemoteItem = menu.Append(wxID_ANY, "Edit Remote File...");
             editRemoteItem->Enable(sshTab);
             menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {

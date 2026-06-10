@@ -40,8 +40,7 @@ namespace {
     constexpr int ID_OPEN_IN_NEW_WINDOW_TERM = wxID_HIGHEST + 23;
     constexpr int ID_RESET_TERMINAL          = wxID_HIGHEST + 24;
     constexpr int ID_RESET_AND_CLEAR         = wxID_HIGHEST + 25;
-    constexpr int ID_SEND_FILES              = wxID_HIGHEST + 26;
-    constexpr int ID_RECEIVE_FILES           = wxID_HIGHEST + 27;
+    constexpr int ID_TRANSFER_FILES          = wxID_HIGHEST + 26;
     constexpr int ID_RESTORE_WORKSPACE       = wxID_HIGHEST + 28;
     constexpr int ID_SAVE_AS_WORKSPACE       = wxID_HIGHEST + 29;
     constexpr int ID_OPEN_WORKSPACE          = wxID_HIGHEST + 30;
@@ -156,19 +155,17 @@ MainFrame::MainFrame(const AppConfig& cfg,
     termMenu->AppendSeparator();
     termMenu->Append(ID_SAVE_SESSION_FILE_TERM, "Save Session to File...");
     termMenu->AppendSeparator();
-    termMenu->Append(ID_SEND_FILES,              "Send Files to Remote...");
-    termMenu->Append(ID_RECEIVE_FILES,           "Receive Files from Remote...");
+    termMenu->Append(ID_TRANSFER_FILES,          "Transfer Files...");
     termMenu->Append(ID_EDIT_REMOTE_FILE,        "Edit Remote File...");
     Bind(wxEVT_MENU, &MainFrame::OnSaveSessionFileTerminal, this, ID_SAVE_SESSION_FILE_TERM);
-    Bind(wxEVT_MENU, &MainFrame::OnSendFiles,               this, ID_SEND_FILES);
-    Bind(wxEVT_MENU, &MainFrame::OnReceiveFiles,            this, ID_RECEIVE_FILES);
+    Bind(wxEVT_MENU, &MainFrame::OnTransferFiles,           this, ID_TRANSFER_FILES);
     Bind(wxEVT_MENU, &MainFrame::OnEditRemoteFile,          this, ID_EDIT_REMOTE_FILE);
-    auto sftGuard = [this](wxUpdateUIEvent& e) {
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
+        e.Enable(m_uiManager && m_uiManager->AnySessionSupportsFileTransfer());
+    }, ID_TRANSFER_FILES);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
         e.Enable(m_uiManager && m_uiManager->ActiveSessionSupportsFileTransfer());
-    };
-    Bind(wxEVT_UPDATE_UI, sftGuard, ID_SEND_FILES);
-    Bind(wxEVT_UPDATE_UI, sftGuard, ID_RECEIVE_FILES);
-    Bind(wxEVT_UPDATE_UI, sftGuard, ID_EDIT_REMOTE_FILE);
+    }, ID_EDIT_REMOTE_FILE);
 
     termMenu->AppendSeparator();
     termMenu->Append(ID_OPEN_IN_NEW_TILE,        "Move to New Tile");
@@ -537,14 +534,9 @@ void MainFrame::OnSaveSessionFileTerminal(wxCommandEvent&)
     if (m_uiManager) m_uiManager->SaveActiveSessionToFile();
 }
 
-void MainFrame::OnSendFiles(wxCommandEvent&)
+void MainFrame::OnTransferFiles(wxCommandEvent&)
 {
-    if (m_uiManager) m_uiManager->SendFilesForActive();
-}
-
-void MainFrame::OnReceiveFiles(wxCommandEvent&)
-{
-    if (m_uiManager) m_uiManager->ReceiveFilesForActive();
+    if (m_uiManager) m_uiManager->TransferFilesForActive();
 }
 
 void MainFrame::OnEditRemoteFile(wxCommandEvent&)

@@ -1,7 +1,7 @@
 #include "ui/UIManager.h"
 #include "ui/ColorUtils.h"
 #include "app/App.h"
-#include "ui/FileTransferDialog.h"
+#include "ui/TransferFilesDialog.h"
 #include "ui/RemoteEditManager.h"
 #include "ui/RemoteFileBrowserDialog.h"
 #include "ui/KbdIntDialog.h"
@@ -298,6 +298,9 @@ void UIManager::WireTileCallbacks(TerminalTile* tile)
         [this](std::span<const term::session::SessionId> ids, TerminalTile* dstTile) -> bool {
             return static_cast<App&>(wxGetApp()).DropSession(ids, frame_, dstTile);
         });
+    tile->SetFileTransferAvailableCallback([this] {
+        return AnySessionSupportsFileTransfer();
+    });
 }
 
 void UIManager::TakeSession(term::session::SessionId     id,
@@ -508,31 +511,35 @@ void UIManager::ResetAndClearSession(term::session::SessionId id)
     sm_.ResetTerminal(id, true);
 }
 
-void UIManager::SendFilesForSession(term::session::SessionId id)
+void UIManager::TransferFilesForSession(term::session::SessionId preSelectedSrc)
 {
-    if (!id || !sm_.SupportsFileTransfer(id)) return;
-    const std::string remote = sm_.GetRemoteDescription(id);
-    ui::FileTransferDialog dlg(frame_, id, sm_, remote, ui::TransferDirection::Send);
-    dlg.ShowModal();
-}
-
-void UIManager::ReceiveFilesForSession(term::session::SessionId id)
-{
-    if (!id || !sm_.SupportsFileTransfer(id)) return;
-    const std::string remote = sm_.GetRemoteDescription(id);
-    ui::FileTransferDialog dlg(frame_, id, sm_, remote, ui::TransferDirection::Receive);
+    auto all = GetSessionList();
+    std::vector<std::pair<term::session::SessionId, std::string>> eligible;
+    for (auto& [id, label] : all) {
+        if (sm_.SupportsFileTransfer(id))
+            eligible.emplace_back(id, label);
+    }
+    ui::TransferFilesDialog dlg(frame_, sm_, std::move(eligible), preSelectedSrc);
     dlg.ShowModal();
 }
 
 void UIManager::ResetActiveTerminal()         { ResetTerminalForSession(activeId_); }
 void UIManager::ResetAndClearActiveTerminal() { ResetAndClearSession(activeId_); }
-void UIManager::SendFilesForActive()          { SendFilesForSession(activeId_); }
-void UIManager::ReceiveFilesForActive()       { ReceiveFilesForSession(activeId_); }
+void UIManager::TransferFilesForActive()      { TransferFilesForSession(activeId_); }
 
 bool UIManager::ActiveSessionSupportsFileTransfer() const
 {
     return activeId_ && sm_.SupportsFileTransfer(activeId_);
 }
+
+bool UIManager::AnySessionSupportsFileTransfer() const
+{
+    for (const auto& [id, _] : sessions_) {
+        if (sm_.SupportsFileTransfer(id)) return true;
+    }
+    return false;
+}
+
 
 void UIManager::EditRemoteFileForSession(term::session::SessionId id)
 {
@@ -873,11 +880,8 @@ void UIManager::OnTerminalAction(TerminalActionEvent& evt)
         case TerminalAction::SaveToFile:
             SaveSessionToFile(evt.GetSessionId());
             break;
-        case TerminalAction::SendFiles:
-            SendFilesForSession(evt.GetSessionId());
-            break;
-        case TerminalAction::ReceiveFiles:
-            ReceiveFilesForSession(evt.GetSessionId());
+        case TerminalAction::TransferFiles:
+            TransferFilesForSession(evt.GetSessionId());
             break;
         case TerminalAction::EditRemoteFile:
             EditRemoteFileForSession(evt.GetSessionId());

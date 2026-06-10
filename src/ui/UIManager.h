@@ -95,10 +95,9 @@ public:
     void SaveSessionToFile(term::session::SessionId id);
     void SaveActiveSessionToFile();
 
-    // Open the send-file dialog for the active session (SSH only).
-    void SendFilesForActive();
-    // Open the file receive dialog for the active session (SSH only).
-    void ReceiveFilesForActive();
+    // Open the unified transfer dialog, pre-selecting the given session as source.
+    void TransferFilesForSession(term::session::SessionId preSelectedSrc);
+    void TransferFilesForActive();
 
     // Open the remote file browser and launch a remote-edit session (SSH only).
     void EditRemoteFileForActive();
@@ -109,6 +108,8 @@ public:
 
     // Returns true when the active session supports remote file transfer (SSH).
     bool ActiveSessionSupportsFileTransfer() const;
+    // Returns true when at least one open session supports file transfer.
+    bool AnySessionSupportsFileTransfer() const;
 
 
     // Toggle broadcast mode on/off.
@@ -265,8 +266,6 @@ private:
 
     void ResetTerminalForSession(term::session::SessionId id);
     void ResetAndClearSession(term::session::SessionId id);
-    void SendFilesForSession(term::session::SessionId id);
-    void ReceiveFilesForSession(term::session::SessionId id);
 
     // Wire tile-level callbacks.  Called once when a tile is first created.
     void WireTileCallbacks(TerminalTile* tile);

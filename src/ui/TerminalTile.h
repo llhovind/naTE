@@ -80,6 +80,10 @@ public:
     // Must be called for every session in this tile on each broadcast change.
     void SetTabBroadcast(term::session::SessionId id, bool inBroadcast);
     void SetTabSupportsFileTransfer(term::session::SessionId id, bool supports);
+    // Callback queried at context-menu time to decide whether "Transfer Files..."
+    // should be enabled. Returns true when any open session (in any tile) supports
+    // file transfer. Wired once per tile by UIManager::WireTileCallbacks.
+    void SetFileTransferAvailableCallback(std::function<bool()> cb) { fileTransferAvailableCb_ = std::move(cb); }
 
     // Marks a tab as having unread output (content arrived while the tab was hidden).
     // Cleared automatically when the tab is activated.
@@ -197,9 +201,10 @@ private:
 
     wxPoint                    dragAnchor_  { -1, -1 };
     bool                       dragPending_ = false;
-    bool                       isFocused_          = false;
-    bool                       inBroadcast_        = false;
+    bool                       isFocused_           = false;
+    bool                       inBroadcast_         = false;
     bool                       broadcastModeActive_ = false;
+    std::function<bool()>      fileTransferAvailableCb_;
 
     // Set by ApplyConfig, which is called from the constructor.
     wxColour colActive_;

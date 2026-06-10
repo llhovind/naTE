@@ -154,7 +154,7 @@ set(SOURCES
     src/ui/MainFrame.cpp
     src/ui/NewConnectionDialog.cpp
     src/ui/ConnectionManagerDialog.cpp
-    src/ui/FileTransferDialog.cpp
+    src/ui/TransferFilesDialog.cpp
     src/ui/KbdIntDialog.cpp
     src/ui/PasteConfirmDialog.cpp
     src/ui/RemoteFileBrowserDialog.cpp

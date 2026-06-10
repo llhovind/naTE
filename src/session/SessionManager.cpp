@@ -1,6 +1,8 @@
 #include "session/SessionManager.h"
 #include "transport/TransportError.h"
 #include <algorithm>
+#include <chrono>
+#include <filesystem>
 #include <stdexcept>
 
 namespace term::session {
@@ -376,6 +378,62 @@ void SessionManager::ReceiveFile(SessionId id,
 {
     SessionRecord* rec = FindRecord(id);
     if (rec) rec->session->ReceiveFile(remotePath, localDir, std::move(onDone));
+}
+
+void SessionManager::TransferFileBetweenSessions(
+    SessionId          srcId,
+    const std::string& srcPath,
+    SessionId          dstId,
+    const std::string& dstDir,
+    std::function<void(bool, std::string)> onDone)
+{
+    // Local → Remote
+    if (srcId == 0) {
+        SendFile(dstId, srcPath, dstDir, std::move(onDone));
+        return;
+    }
+    // Remote → Local
+    if (dstId == 0) {
+        ReceiveFile(srcId, srcPath, dstDir, std::move(onDone));
+        return;
+    }
+    // Remote → Remote: download to temp, upload, then clean up.
+    std::filesystem::path tempDir;
+    try {
+        tempDir = std::filesystem::temp_directory_path() / "nate_xfer_XXXXXXXX";
+        // Replace the X's with a unique suffix.
+        tempDir = std::filesystem::path(
+            std::string(tempDir) + std::to_string(
+                std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(tempDir);
+    } catch (const std::exception& ex) {
+        onDone(false, std::string("Failed to create temp directory: ") + ex.what());
+        return;
+    }
+
+    const std::string tempDirStr = tempDir.string();
+
+    ReceiveFile(srcId, srcPath, tempDirStr,
+        [this, dstId, dstDir, tempDirStr, srcPath,
+         onDone = std::move(onDone)](bool ok, std::string err) mutable {
+
+            if (!ok) {
+                std::filesystem::remove_all(tempDirStr);
+                onDone(false, std::move(err));
+                return;
+            }
+
+            const std::string filename =
+                std::filesystem::path(srcPath).filename().string();
+            const std::string tempFile =
+                (std::filesystem::path(tempDirStr) / filename).string();
+
+            SendFile(dstId, tempFile, dstDir,
+                [tempDirStr, onDone = std::move(onDone)](bool ok2, std::string err2) {
+                    std::filesystem::remove_all(tempDirStr);
+                    onDone(ok2, std::move(err2));
+                });
+        });
 }
 
 void SessionManager::ListRemoteDirectory(

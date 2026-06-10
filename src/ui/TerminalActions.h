@@ -13,8 +13,7 @@ enum class TerminalAction
     ResetTerminal,
     ResetAndClear,
     SaveToFile,
-    SendFiles,
-    ReceiveFiles,
+    TransferFiles,
     EditRemoteFile,
 };
 
