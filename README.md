@@ -1,6 +1,6 @@
 # naTE
 
-**not another Terminal Emulator — tiling layouts, SSH, and serial support.**
+**A workspace-oriented terminal emulator for SSH-heavy engineers.**
 
 [![CI](https://github.com/lhovind/naTE/actions/workflows/ci.yml/badge.svg)](https://github.com/lhovind/naTE/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.md)
@@ -12,7 +12,7 @@
 
 ## What is naTE?
 
-naTE (*not another Terminal Emulator*) is a graphical terminal emulator built for people who live in SSH sessions. It
+naTE (*not another Terminal Emulator*) is a workspace-oriented terminal emulator for SSH-heavy engineers. It
 gives you a tiling, tabbed interface where multiple terminals share a single window,
 remembers your sessions across restarts so you can pick up exactly where you left
 off, and ships with a full suite of SSH features — agent forwarding, X11 forwarding,

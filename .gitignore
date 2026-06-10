@@ -82,6 +82,7 @@ vgcore.*
 
 tmp/
 docs/archive
+plans/
 
 # Binaries and Releases
 *.tar.gz
