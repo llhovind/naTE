@@ -1,10 +1,14 @@
 #include "db/JsonScrollbackRepository.h"
 #include "db/DocumentSerialisation.h"
 #include <nlohmann/json.hpp>
+#include <chrono>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <set>
+#include <sstream>
 #include <string_view>
 #include <vector>
 
@@ -46,6 +50,19 @@ void ReadNdjson(const std::string& path, std::vector<DocLine>& out)
     }
 }
 
+// Returns the mtime of path as a formatted string, or empty on error.
+std::string MtimeString(const std::string& path)
+{
+    std::error_code ec;
+    const auto ftime = fs::last_write_time(path, ec);
+    if (ec) return {};
+    const auto stime = std::chrono::file_clock::to_sys(ftime);
+    const auto ttime = std::chrono::system_clock::to_time_t(stime);
+    std::ostringstream ss;
+    ss << std::put_time(std::localtime(&ttime), "%Y-%m-%d %H:%M:%S");
+    return ss.str();
+}
+
 // Extract UUID from a scrollback filename.
 // Strips "-0.ndjson", "-1.ndjson", or ".ndjson" suffix.
 // Returns empty string if the filename doesn't match any pattern.
@@ -63,12 +80,13 @@ std::string ExtractUuid(std::string_view filename)
 } // namespace
 
 ScrollbackSnapshot JsonScrollbackRepository::Load(const std::string& uuid,
-                                                             size_t maxLines) const
+                                                   size_t maxLines) const
 {
     ScrollbackSnapshot snap;
 
-    const std::string seg0 = SegPath(m_dir, uuid, 0);
-    const std::string seg1 = SegPath(m_dir, uuid, 1);
+    const std::string seg0    = SegPath(m_dir, uuid, 0);
+    const std::string seg1    = SegPath(m_dir, uuid, 1);
+    const std::string compact = CompactPath(m_dir, uuid);
     const bool hasSeg0 = fs::exists(seg0);
     const bool hasSeg1 = fs::exists(seg1);
 
@@ -77,9 +95,18 @@ ScrollbackSnapshot JsonScrollbackRepository::Load(const std::string& uuid,
         // Crash-recovery / live-session path: segments are more recent than compact.
         ReadNdjson(seg0, all);
         ReadNdjson(seg1, all);
+        // Use the mtime of whichever segment was written most recently.
+        std::error_code ec;
+        if (hasSeg0 && hasSeg1)
+            snap.savedAt = MtimeString(
+                fs::last_write_time(seg0, ec) >= fs::last_write_time(seg1, ec)
+                    ? seg0 : seg1);
+        else
+            snap.savedAt = MtimeString(hasSeg1 ? seg1 : seg0);
     } else {
         // Clean-exit path: read compact file.
-        ReadNdjson(CompactPath(m_dir, uuid), all);
+        ReadNdjson(compact, all);
+        snap.savedAt = MtimeString(compact);
     }
 
     // Take only the last maxLines entries.

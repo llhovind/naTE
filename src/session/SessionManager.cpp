@@ -588,11 +588,15 @@ void SessionManager::RestoreScrollback(SessionId id, const std::string& uuid)
     auto snap = scrollbackRepo_->Load(uuid, scrollbackSaveLines_);
     if (snap.lines.empty()) return;
 
-    const auto now   = std::chrono::system_clock::now();
-    const auto ttime = std::chrono::system_clock::to_time_t(now);
-    std::ostringstream ss;
-    ss << std::put_time(std::localtime(&ttime), "%Y-%m-%d %H:%M:%S");
-    snap.savedAt = ss.str();
+    // savedAt is set from the file's mtime by the repository; fall back to
+    // current time if it couldn't be determined (e.g. file vanished mid-load).
+    if (snap.savedAt.empty()) {
+        const auto now   = std::chrono::system_clock::now();
+        const auto ttime = std::chrono::system_clock::to_time_t(now);
+        std::ostringstream ss;
+        ss << std::put_time(std::localtime(&ttime), "%Y-%m-%d %H:%M:%S");
+        snap.savedAt = ss.str();
+    }
 
     SessionRecord* rec = FindRecord(id);
     if (!rec) return;
