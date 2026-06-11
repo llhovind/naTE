@@ -4,6 +4,9 @@
 #include "transport/SerialTransport.h"
 #include "transport/SshTransport.h"
 #include <algorithm>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
 
 namespace term::session {
 
@@ -231,12 +234,29 @@ void Session::RemovePortForward(transport::PortForwardId id)
     transport_->RemovePortForward(id);
 }
 
+ScrollbackSnapshot Session::CaptureScrollback() const
+{
+    auto snap = main_doc_->CaptureLines();
+    const auto now   = std::chrono::system_clock::now();
+    const auto ttime = std::chrono::system_clock::to_time_t(now);
+    std::ostringstream ss;
+    ss << std::put_time(std::localtime(&ttime), "%Y-%m-%d %H:%M:%S");
+    snap.savedAt = ss.str();
+    return snap;
+}
+
+void Session::LoadScrollback(const ScrollbackSnapshot& snap)
+{
+    main_doc_->LoadScrollback(snap);
+}
+
 void Session::ResetTerminal(bool clearScrollback)
 {
     if (altScreenActive_) OnExitAltScreen();
     bracketedPaste_ = false;
     if (clearScrollback) {
         main_doc_->FullReset(true);   // wipe all content; fires CanvasReset(0)
+        if (onClearScrollback_) onClearScrollback_();
     } else {
         main_doc_->SoftReset();       // reset modes only; canvas and content stay
     }

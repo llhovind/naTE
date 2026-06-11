@@ -750,6 +750,42 @@ void MainScreenDocument::FullReset(bool clearContent)
     }
 }
 
+ScrollbackSnapshot MainScreenDocument::CaptureLines() const
+{
+    ScrollbackSnapshot snap;
+    std::shared_lock<std::shared_mutex> rlk(linesMutex_);
+    snap.lines = std::vector<DocLine>(lines_.begin(), lines_.end());
+    snap.virtualDocStart = virtualDocStartLine_;
+    return snap;
+}
+
+void MainScreenDocument::LoadScrollback(const ScrollbackSnapshot& snap)
+{
+    if (snap.lines.empty()) return;
+
+    const size_t n = snap.lines.size();
+
+    // Build separator: "--- Scrollback restored from <savedAt> " padded to cols_ with dashes
+    DocLine sep;
+    {
+        const std::string prefix = "--- Scrollback restored from " + snap.savedAt + " ";
+        std::string sepText = prefix;
+        if (static_cast<int>(sepText.size()) < cols_)
+            sepText += std::string(static_cast<size_t>(cols_) - sepText.size(), '-');
+        sep.text = std::u32string(sepText.begin(), sepText.end());
+        sep.styles.push_back({0, sep.text.size(), Style{.fg = 8, .dim = true}});
+    }
+
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        lines_.insert(lines_.begin(), snap.lines.begin(), snap.lines.end());
+        lines_.insert(lines_.begin() + static_cast<ptrdiff_t>(n), std::move(sep));
+        virtualDocStartLine_ += n + 1;
+        cursor_.line         += n + 1;
+    }
+    NotifyListeners(DocChangeType::CanvasReset, virtualDocStartLine_);
+}
+
 // ---------------------------------------------------------------------------
 // AltScreenDocument — fixed-size, fully-addressable grid
 // ---------------------------------------------------------------------------

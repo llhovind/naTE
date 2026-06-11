@@ -188,6 +188,9 @@ set(SOURCES
     src/db/JsonSessionRestoreRepository.cpp
     src/db/JsonNamedWorkspaceRepository.cpp
     src/db/ConnectionStore.cpp
+    src/db/JsonScrollbackRepository.cpp
+    src/db/ScrollbackWriter.cpp
+    src/db/ScrollbackPurge.cpp
     src/ui/AboutDialog.cpp
 )
 

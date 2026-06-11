@@ -173,6 +173,12 @@ private:
     std::mutex                      listenerMutex_;
 };
 
+struct ScrollbackSnapshot {
+    std::vector<DocLine> lines;
+    size_t virtualDocStart = 0;
+    std::string savedAt;   // ISO 8601, set at capture time by caller
+};
+
 class MainScreenDocument : public Document {
 public:
     explicit MainScreenDocument(int maxLines = 100'000);
@@ -211,6 +217,14 @@ public:
     // Resets soft terminal modes (insert mode, pending-wrap) without touching
     // content, cursor, or canvas origin.  Used by Session::ResetTerminal(false).
     void   SoftReset();
+
+    // Thread-safe snapshot of current lines (shared_lock on linesMutex_).
+    // savedAt is not populated — caller sets it before persisting.
+    ScrollbackSnapshot CaptureLines() const;
+
+    // Prepends restored lines + a styled separator before the current canvas.
+    // Advances virtualDocStartLine_ and cursor_.line past the injected content.
+    void LoadScrollback(const ScrollbackSnapshot& snap);
 
 private:
     // Converts 1-indexed canvas-relative PTY row/col to a CursorPos in the

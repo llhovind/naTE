@@ -2,7 +2,9 @@
 #include "config/ColorScheme.h"
 #include "db/JsonConnectionRepository.h"
 #include "db/JsonNamedWorkspaceRepository.h"
+#include "db/JsonScrollbackRepository.h"
 #include "db/JsonSessionRestoreRepository.h"
+#include "db/ScrollbackPurge.h"
 #include "session/AppSessionDefaults.h"
 #include "session/RestoreState.h"
 #include "ui/MainFrame.h"
@@ -151,13 +153,22 @@ bool App::OnInit() {
     m_connectionStore = std::make_unique<term::db::ConnectionStore>(
         std::make_unique<term::db::JsonConnectionRepository>(connectionsPath));
 
-    m_sessionManager = std::make_unique<term::session::SessionManager>();
+    const std::string scrollbackDir = NateDir() + "/scrollback";
+    m_sessionManager = std::make_unique<term::session::SessionManager>(
+        m_cfg.saveScrollbackWithWorkspace
+            ? std::make_unique<term::db::JsonScrollbackRepository>(scrollbackDir)
+            : nullptr,
+        scrollbackDir,
+        static_cast<size_t>(m_cfg.scrollbackSaveLines),
+        m_cfg.scrollbackSaveStyles);
 
     m_remoteEditManager = std::make_unique<ui::RemoteEditManager>(*m_sessionManager);
 
     const std::string restorePath = InstanceRestorePath(m_instanceId);
     m_restoreRepo = std::make_unique<term::db::JsonSessionRestoreRepository>(restorePath);
     m_namedRepo   = std::make_unique<term::db::JsonNamedWorkspaceRepository>(NateDir() + "/workspaces");
+
+    PurgeOrphanedScrollback();
 
     // Parse CLI flags.
     // --no-restore:              suppress restore even when config enables it.
@@ -356,7 +367,8 @@ term::session::SessionId App::CreateSessionInWindow(
 term::session::SessionId App::CreateSessionInTile(
     const term::session::Connection& conn,
     MainFrame*    target,
-    TerminalTile* targetTile)
+    TerminalTile* targetTile,
+    std::string   uuid)
 {
     WindowContext* ctx = FindContext(target);
     if (!ctx) return 0;
@@ -383,7 +395,8 @@ term::session::SessionId App::CreateSessionInTile(
             cols,
             rows,
             std::move(appDefaults),
-            static_cast<unsigned short>(m_cfg.ptyLineWidth));
+            static_cast<unsigned short>(m_cfg.ptyLineWidth),
+            std::move(uuid));
     } catch (const std::exception& e) {
         wxMessageBox(wxString::FromUTF8(e.what()), "Connection Failed",
                      wxOK | wxICON_ERROR, target);
@@ -541,6 +554,8 @@ void App::RebuildWindowMenus()
 int App::OnExit()
 {
     m_saveTimer.Stop();
+    if (m_cfg.saveScrollbackWithWorkspace && m_sessionManager)
+        m_sessionManager->CompactAllSessions();
     ReleaseInstanceId(m_instanceId);
     libssh2_exit();
     return wxApp::OnExit();
@@ -591,7 +606,10 @@ term::session::RestoreState App::BuildCurrentState() const
                     // the user added/removed forwards during this session.
                     ssh->portForwards = m_sessionManager->GetPortForwardDescs(sid);
                 }
-                rt.sessions.push_back({std::move(conn)});
+                term::session::RestoreSession rs;
+                rs.conn           = std::move(conn);
+                rs.scrollbackUuid = m_sessionManager->GetScrollbackUuid(sid);
+                rt.sessions.push_back(std::move(rs));
             }
             if (!rt.sessions.empty())
                 rw.tiles.push_back(std::move(rt));
@@ -620,7 +638,10 @@ void App::RestoreStateImpl(const term::session::RestoreState& state, MainFrame* 
             TerminalTile* currentTile = nullptr;
             for (std::size_t si = 0; si < rt.sessions.size(); ++si) {
                 const auto& rs = rt.sessions[si];
-                CreateSessionInTile(rs.conn, frame, currentTile);
+                const auto sid = CreateSessionInTile(rs.conn, frame, currentTile,
+                                                     rs.scrollbackUuid);
+                if (sid)
+                    m_sessionManager->RestoreScrollback(sid, rs.scrollbackUuid);
                 if (si == 0) {
                     // Record the newly created tile so subsequent sessions land in it.
                     WindowContext* ctx = FindContext(frame);
@@ -680,14 +701,20 @@ bool App::HasNamedWorkspace(const std::string& name) const
 
 void App::SaveNamedWorkspace(const std::string& name)
 {
-    if (m_namedRepo)
-        m_namedRepo->Save(name, BuildCurrentState());
+    if (!m_namedRepo) return;
+    if (m_cfg.saveScrollbackWithWorkspace && m_sessionManager)
+        m_sessionManager->CompactAllSessions();
+    m_namedRepo->Save(name, BuildCurrentState());
 }
 
 void App::DeleteNamedWorkspace(const std::string& name)
 {
-    if (m_namedRepo)
-        m_namedRepo->Delete(name);
+    if (!m_namedRepo) return;
+    if (m_cfg.saveScrollbackWithWorkspace && m_sessionManager && m_namedRepo->Exists(name)) {
+        auto state = m_namedRepo->Load(name);
+        m_sessionManager->PurgeScrollbackForState(state);
+    }
+    m_namedRepo->Delete(name);
 }
 
 void App::RestoreNamedWorkspace(const std::string& name, MainFrame* callerFrame)
@@ -707,6 +734,24 @@ void App::RestoreNamedWorkspace(const std::string& name, MainFrame* callerFrame)
 
     // Named workspaces are persistent — NOT deleted after loading.
     RestoreStateImpl(state, firstFrame);
+}
+
+void App::PurgeOrphanedScrollback()
+{
+    if (!m_cfg.saveScrollbackWithWorkspace || !m_sessionManager) return;
+
+    const std::string scrollbackDir = NateDir() + "/scrollback";
+    term::db::JsonScrollbackRepository repo(scrollbackDir);
+
+    std::vector<term::session::RestoreState> allStates;
+    if (m_restoreRepo && m_restoreRepo->HasSnapshot())
+        allStates.push_back(m_restoreRepo->Load());
+    if (m_namedRepo) {
+        for (const auto& name : m_namedRepo->List())
+            allStates.push_back(m_namedRepo->Load(name));
+    }
+
+    term::db::PurgeOrphanedScrollback(repo, allStates);
 }
 
 App::WindowContext* App::FindContext(MainFrame* frame)

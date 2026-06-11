@@ -50,6 +50,9 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/DocLayout.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/UrlScanner.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/WordSelector.cpp
+    ${CMAKE_SOURCE_DIR}/src/db/JsonScrollbackRepository.cpp
+    ${CMAKE_SOURCE_DIR}/src/db/ScrollbackWriter.cpp
+    ${CMAKE_SOURCE_DIR}/src/db/ScrollbackPurge.cpp
 )
 
 add_executable(naTE_core_tests
@@ -57,6 +60,7 @@ add_executable(naTE_core_tests
     test_session_manager.cpp
     test_x11_utils.cpp
     test_cwd.cpp
+    test_scrollback_repo.cpp
     ${CORE_SOURCES}
 )
 target_link_libraries(naTE_core_tests PRIVATE Catch2::Catch2WithMain ${NATE_LIBSSH2_LINK})

@@ -5,7 +5,8 @@
 namespace term::session {
 
 struct RestoreSession {
-    Connection conn;
+    Connection  conn;
+    std::string scrollbackUuid;  // empty = no scrollback file available
 };
 
 struct RestoreTile {

@@ -46,8 +46,11 @@ term::session::Connection DeserialiseConnection(const json& j)
 json SerialiseTile(const term::session::RestoreTile& tile)
 {
     json sessions = json::array();
-    for (const auto& rs : tile.sessions)
-        sessions.push_back(SerialiseConnection(rs.conn));
+    for (const auto& rs : tile.sessions) {
+        json sj = SerialiseConnection(rs.conn);
+        sj["scrollbackUuid"] = rs.scrollbackUuid;
+        sessions.push_back(std::move(sj));
+    }
     return json{{"activeTabIndex", tile.activeTabIndex}, {"sessions", std::move(sessions)}};
 }
 
@@ -57,7 +60,10 @@ term::session::RestoreTile DeserialiseTile(const json& j)
     tile.activeTabIndex = j.value("activeTabIndex", 0);
     for (const auto& sj : j.value("sessions", json::array())) {
         try {
-            tile.sessions.push_back({DeserialiseConnection(sj)});
+            term::session::RestoreSession rs;
+            rs.conn           = DeserialiseConnection(sj);
+            rs.scrollbackUuid = sj.value("scrollbackUuid", std::string{});
+            tile.sessions.push_back(std::move(rs));
         } catch (const json::exception& e) {
             std::cerr << "[SessionRestore] Skipping malformed session: " << e.what() << '\n';
         }

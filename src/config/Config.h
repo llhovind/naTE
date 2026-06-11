@@ -84,6 +84,9 @@ struct AppConfig {
     // [Restore] session-restore behaviour
     bool autoRestoreSession  = false;
     int  sessionSaveInterval = 300;    // seconds; 0 = disabled
+    bool saveScrollbackWithWorkspace = false;
+    int  scrollbackSaveLines         = 10'000;
+    bool scrollbackSaveStyles        = true;
 
     // themesDir is the user themes directory (~/.nate/themes).
     // When empty or the named theme file is missing, textColour/bgColour

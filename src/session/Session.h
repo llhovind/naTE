@@ -120,6 +120,22 @@ public:
     void SetViewportSize(unsigned short cols, unsigned short rows);
     void SetWrapMode(bool wrap);
 
+    // Returns a reference to the main-screen document (scrollback history).
+    // Used by ScrollbackWriter to read lines on InsertLine notifications.
+    const Document& GetMainDoc() const { return *main_doc_; }
+
+    // Captures a thread-safe snapshot of the current main-screen scrollback.
+    // savedAt is set to the current wall-clock time; caller may persist it.
+    ScrollbackSnapshot CaptureScrollback() const;
+
+    // Injects a previously captured snapshot into the main document, prepending
+    // the restored lines and a separator before the current canvas.
+    void LoadScrollback(const ScrollbackSnapshot& snap);
+
+    // Wired by SessionManager to ScrollbackWriter::Truncate().
+    // Called inside ResetTerminal(clearScrollback=true).
+    std::function<void()> onClearScrollback_;
+
     std::string GetCurrentWorkingDir() const;
     bool        SupportsFileTransfer()   const;
     bool        SupportsX11Forwarding() const;
