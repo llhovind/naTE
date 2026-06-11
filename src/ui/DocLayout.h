@@ -6,6 +6,7 @@
 #include "ui/SearchMatch.h"
 #include "ui/UrlScanner.h"
 #include <mutex>
+#include <shared_mutex>
 #include <optional>
 #include <vector>
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mutex>
+#include <shared_mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -151,12 +152,21 @@ public:
     void AddListener(IDocumentListener* listener);
     void RemoveListener(IDocumentListener* listener);
 
+    // Shared mutex protecting GetLines() content in derived classes.  Callers
+    // that read the deque from a different thread than the one that mutates it
+    // must hold a shared_lock for the duration of their access.  Derived-class
+    // mutation sites must hold a unique_lock that is RELEASED before any
+    // NotifyListeners call (to avoid deadlock with readers that hold mtx_ first).
+    std::shared_mutex& GetLinesMutex() const noexcept { return linesMutex_; }
+
 protected:
     void NotifyListeners(DocChangeType type, size_t lineIndex);
 
-    CursorPos  cursor_{};
+    CursorPos   cursor_{};
     std::string title_;
-    bool insertMode_ = false;
+    bool        insertMode_ = false;
+
+    mutable std::shared_mutex linesMutex_;
 
 private:
     std::vector<IDocumentListener*> listeners_;
