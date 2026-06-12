@@ -52,6 +52,7 @@ for you.
 ### Session management
 - Auto-save and restore open sessions on launch
 - Named workspaces ("Save Workspace As...")
+- **Scrollback persistence** — opt-in (`saveScrollbackWithWorkspace` in config) streaming save of the scrollback buffer per session; on restore, the saved history is prepended to the new session and a separator line marks where the old output ends and new output begins. Configurable line limit (`scrollbackSaveLines`, default 10,000) and optional style (colour/bold) preservation (`scrollbackSaveStyles`).
 - Reconnect bar when a connection drops — resume without re-entering credentials
 - Confirm-close protection — a dialog warns before closing a window with active sessions; auto-suppressed for single-session close; configurable via **Edit → Preferences → Behavior** or a "Don't ask again" option in the dialog itself
 
@@ -187,6 +188,7 @@ immediately in open sessions.
 | `~/.nate/connections.json` | Saved connection profiles |
 | `~/.nate/workspaces/` | Named workspaces |
 | `~/.nate/themes/` | Custom color themes |
+| `~/.nate/scrollback/` | Per-session scrollback snapshots (when `saveScrollbackWithWorkspace` is enabled) |
 
 ### Custom themes
 
@@ -252,7 +254,7 @@ ctest --preset debug
 ```
 
 Tests are written with [Catch2](https://github.com/catchorg/Catch2). The suite
-currently covers 316 scenarios across all major subsystems.
+currently covers 336 scenarios across all major subsystems.
 
 ### Packaging (AppImage)
 
