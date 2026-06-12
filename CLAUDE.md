@@ -72,6 +72,7 @@ TerminalPanel ← Document ← Parser ← Transport (read thread)
 | Concern | Pattern |
 |---|---|
 | Async complexity | Worker-thread reads + `wxTheApp->CallAfter()` for UI delivery; never block the UI thread; callbacks are `std::function<>` passed at construction |
+| UI state (badges, indicators) | **Query (pull) over push**: read live state at paint time via a `std::function` provider rather than caching a pushed copy — eliminates stale-state bugs by construction; requires the underlying field to be `std::atomic` if written from a non-UI thread |
 | Conditional sprawl | Strategy pattern or lookup map over long if/else chains |
 | Object construction | Builder or factory pattern when > 3 constructor params |
 | Cross-cutting concerns | Middleware / decorator — never inline |
