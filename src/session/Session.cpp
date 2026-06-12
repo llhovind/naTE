@@ -17,17 +17,17 @@ std::unique_ptr<transport::Transport> Session::MakeTransport(
     unsigned short ptyCols,
     unsigned short rows,
     unsigned short viewportCols,
-    const AppSessionDefaults& appDefaults)
+    const transport::AppSessionDefaults& appDefaults)
 {
     return std::visit([&](auto&& desc) -> std::unique_ptr<transport::Transport> {
         using T = std::decay_t<decltype(desc)>;
-        if constexpr (std::is_same_v<T, PtyDesc>)
+        if constexpr (std::is_same_v<T, transport::PtyDesc>)
             return std::make_unique<transport::PtyTransport>(
                 target, desc.shell, desc.command, ptyCols, rows, viewportCols, conn.sessionInit, appDefaults);
-        else if constexpr (std::is_same_v<T, SshDesc>)
+        else if constexpr (std::is_same_v<T, transport::SshDesc>)
             return std::make_unique<transport::SshTransport>(
                 target, desc, ptyCols, rows, viewportCols, conn.sessionInit, appDefaults);
-        else if constexpr (std::is_same_v<T, SerialDesc>)
+        else if constexpr (std::is_same_v<T, transport::SerialDesc>)
             return std::make_unique<transport::SerialTransport>(
                 target, desc, conn.sessionInit, appDefaults);
         else
@@ -41,7 +41,7 @@ Session::Session(const Connection& conn,
                  unsigned short rows,
                  std::function<void(transport::DisconnectReason)> onDisconnect,
                  std::function<void(const transport::TransportError&)> onError,
-                 AppSessionDefaults appDefaults,
+                 transport::AppSessionDefaults appDefaults,
                  unsigned short ptyLineWidth,
                  bool wrapMode,
                  std::function<void(bool)> onAltScreenChanged,
@@ -73,7 +73,7 @@ Session::Session(const Connection& conn,
 
     // Submit any profile-configured port forwards after the transport is running.
     if (transport_->SupportsPortForwarding()) {
-        if (const auto* ssh = std::get_if<SshDesc>(&conn.transport)) {
+        if (const auto* ssh = std::get_if<transport::SshDesc>(&conn.transport)) {
             for (auto pf : ssh->portForwards) {
                 pf.id = nextPfwId_++;
                 portForwardDescs_.push_back(pf);
@@ -94,7 +94,7 @@ void Session::Stop()
 }
 
 void Session::ReplaceConnection(const Connection& conn,
-                                const AppSessionDefaults& appDefaults)
+                                const transport::AppSessionDefaults& appDefaults)
 {
     std::lock_guard<std::mutex> lk(docMutex_);
     // Old transport is already stopped — its worker thread joined before

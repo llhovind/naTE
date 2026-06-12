@@ -212,14 +212,14 @@ void BastionKbdIntCallback(
 // ---------------------------------------------------------------------------
 
 std::unique_ptr<BastionTunnel> BastionTunnel::Connect(
-    const term::session::ProxyJumpDesc& jump,
+    const term::transport::ProxyJumpDesc& jump,
     const std::string&                  targetHost,
     unsigned short                      targetPort,
     const std::string&                  effectiveUser,
     int                                 connectTimeoutSec,
     ITransportTarget&                   target)
 {
-    using AM = term::session::SshAuthMethod;
+    using AM = term::transport::SshAuthMethod;
 
     std::string err;
 

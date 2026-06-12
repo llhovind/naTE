@@ -1,4 +1,4 @@
-#include "ui/WordSelector.h"
+#include "layout/WordSelector.h"
 
 #include "document/Document.h"  // kWideFiller
 

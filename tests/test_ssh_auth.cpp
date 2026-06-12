@@ -10,7 +10,7 @@
 #include <filesystem>
 #include <fstream>
 
-using term::session::SshAuthMethod;
+using term::transport::SshAuthMethod;
 using term::db::serialisation::AuthMethodToString;
 using term::db::serialisation::AuthMethodFromString;
 
@@ -35,7 +35,7 @@ TEST_CASE("given all auth methods when AuthMethodToString then each round-trips"
 }
 
 TEST_CASE("given SshDesc with KbdInteractive when serialised and deserialised then authMethod preserved") {
-    term::session::SshDesc original;
+    term::transport::SshDesc original;
     original.host              = "myhost.example.com";
     original.port              = 2222;
     original.username          = "alice";
@@ -47,7 +47,7 @@ TEST_CASE("given SshDesc with KbdInteractive when serialised and deserialised th
     REQUIRE(j.at("type").get<std::string>() == "ssh");
     REQUIRE(j.at("authMethod").get<std::string>() == "keyboard-interactive");
 
-    const auto desc = std::get<term::session::SshDesc>(
+    const auto desc = std::get<term::transport::SshDesc>(
         term::db::serialisation::DeserialiseTransport(j));
 
     CHECK(desc.host              == original.host);
@@ -169,7 +169,7 @@ TEST_CASE("given QuerySshConfigIdentities called when ssh unavailable then retur
 // ---------------------------------------------------------------------------
 
 TEST_CASE("given SshDesc with agentIdentityHint when serialised then hint is persisted") {
-    term::session::SshDesc desc;
+    term::transport::SshDesc desc;
     desc.host              = "example.com";
     desc.port              = 22;
     desc.username          = "bob";
@@ -189,13 +189,13 @@ TEST_CASE("given SshDesc without agentIdentityHint when deserialised then hint i
         {"username",  "bob"},
         {"authMethod","agent"},
     };
-    const auto desc = std::get<term::session::SshDesc>(
+    const auto desc = std::get<term::transport::SshDesc>(
         term::db::serialisation::DeserialiseTransport(j));
     CHECK(desc.agentIdentityHint.empty());
 }
 
 TEST_CASE("given SshDesc with agentIdentityHint when round-tripped then hint is preserved") {
-    term::session::SshDesc original;
+    term::transport::SshDesc original;
     original.host              = "example.com";
     original.port              = 22;
     original.username          = "alice";
@@ -203,7 +203,7 @@ TEST_CASE("given SshDesc with agentIdentityHint when round-tripped then hint is 
     original.agentIdentityHint = "/home/alice/.ssh/work_key";
 
     const auto j = term::db::serialisation::SerialiseTransport(original);
-    const auto desc = std::get<term::session::SshDesc>(
+    const auto desc = std::get<term::transport::SshDesc>(
         term::db::serialisation::DeserialiseTransport(j));
 
     CHECK(desc.agentIdentityHint == original.agentIdentityHint);
@@ -214,15 +214,15 @@ TEST_CASE("given SshDesc with agentIdentityHint when round-tripped then hint is 
 // ---------------------------------------------------------------------------
 
 TEST_CASE("given SshDesc with proxyJump when serialised then proxyJump key present") {
-    term::session::SshDesc desc;
+    term::transport::SshDesc desc;
     desc.host     = "target.example.com";
     desc.port     = 22;
     desc.username = "alice";
-    term::session::ProxyJumpDesc pj;
+    term::transport::ProxyJumpDesc pj;
     pj.host       = "bastion.example.com";
     pj.port       = 2222;
     pj.user       = "jump_user";
-    pj.authMethod = term::session::SshAuthMethod::Agent;
+    pj.authMethod = term::transport::SshAuthMethod::Agent;
     pj.agentIdentityHint = "/home/alice/.ssh/bastion_key";
     desc.proxyJump = pj;
 
@@ -237,21 +237,21 @@ TEST_CASE("given SshDesc with proxyJump when serialised then proxyJump key prese
 }
 
 TEST_CASE("given SshDesc with proxyJump when round-tripped then all fields preserved") {
-    term::session::SshDesc original;
+    term::transport::SshDesc original;
     original.host     = "target.example.com";
     original.port     = 22;
     original.username = "alice";
-    term::session::ProxyJumpDesc pj;
+    term::transport::ProxyJumpDesc pj;
     pj.host            = "bastion.example.com";
     pj.port            = 2222;
     pj.user            = "jump_user";
-    pj.authMethod      = term::session::SshAuthMethod::PrivateKey;
+    pj.authMethod      = term::transport::SshAuthMethod::PrivateKey;
     pj.privateKeyPath  = "/home/alice/.ssh/bastion_ed25519";
     pj.agentIdentityHint = "";
     original.proxyJump = pj;
 
     const auto j    = term::db::serialisation::SerialiseTransport(original);
-    const auto desc = std::get<term::session::SshDesc>(
+    const auto desc = std::get<term::transport::SshDesc>(
         term::db::serialisation::DeserialiseTransport(j));
 
     REQUIRE(desc.proxyJump.has_value());
@@ -270,16 +270,16 @@ TEST_CASE("given SshDesc without proxyJump when deserialised then proxyJump is n
         {"username",  "alice"},
         {"authMethod","agent"},
     };
-    const auto desc = std::get<term::session::SshDesc>(
+    const auto desc = std::get<term::transport::SshDesc>(
         term::db::serialisation::DeserialiseTransport(j));
     CHECK(!desc.proxyJump.has_value());
 }
 
 TEST_CASE("given SshDesc with proxyJump host empty when serialised then no proxyJump key") {
-    term::session::SshDesc desc;
+    term::transport::SshDesc desc;
     desc.host     = "target.example.com";
     desc.username = "alice";
-    term::session::ProxyJumpDesc pj;
+    term::transport::ProxyJumpDesc pj;
     pj.host = "";  // empty host — should not be serialised
     desc.proxyJump = pj;
 
@@ -359,7 +359,7 @@ TEST_CASE("given ssh config with comma-separated ProxyJump when QuerySshConfigPr
 }
 
 TEST_CASE("given ProxyJumpDesc with empty user when jump user resolved then target username used") {
-    term::session::ProxyJumpDesc pj;
+    term::transport::ProxyJumpDesc pj;
     pj.host = "bastion.example.com";
     pj.user = "";  // empty → should use target's username
 

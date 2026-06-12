@@ -39,9 +39,9 @@ speed_t BaudToSpeed(unsigned int baud)
 } // namespace
 
 SerialTransport::SerialTransport(ITransportTarget& target,
-                                 const term::session::SerialDesc& desc,
-                                 const term::session::SessionInit& sessionInit,
-                                 const term::session::AppSessionDefaults& appDefaults)
+                                 const term::transport::SerialDesc& desc,
+                                 const term::transport::SessionInit& sessionInit,
+                                 const term::transport::AppSessionDefaults& appDefaults)
     : target_(target), desc_(desc), sessionInit_(sessionInit), appDefaults_(appDefaults)
 {
     fd_ = ::open(desc_.device.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
@@ -78,18 +78,18 @@ void SerialTransport::ConfigureTty()
     }
 
     // Stop bits
-    if (desc_.stopBits == term::session::SerialStopBits::Two)
+    if (desc_.stopBits == term::transport::SerialStopBits::Two)
         tty.c_cflag |= CSTOPB;
     else
         tty.c_cflag &= ~static_cast<tcflag_t>(CSTOPB);
 
     // Parity
     switch (desc_.parity) {
-        case term::session::SerialParity::Even:
+        case term::transport::SerialParity::Even:
             tty.c_cflag |=  PARENB;
             tty.c_cflag &= ~static_cast<tcflag_t>(PARODD);
             break;
-        case term::session::SerialParity::Odd:
+        case term::transport::SerialParity::Odd:
             tty.c_cflag |= PARENB | PARODD;
             break;
         default:
@@ -99,11 +99,11 @@ void SerialTransport::ConfigureTty()
 
     // Flow control
     switch (desc_.flowControl) {
-        case term::session::SerialFlowControl::Hardware:
+        case term::transport::SerialFlowControl::Hardware:
             tty.c_cflag |=  CRTSCTS;
             tty.c_iflag &= ~static_cast<tcflag_t>(IXON | IXOFF);
             break;
-        case term::session::SerialFlowControl::Software:
+        case term::transport::SerialFlowControl::Software:
             tty.c_cflag &= ~static_cast<tcflag_t>(CRTSCTS);
             tty.c_iflag |=  IXON | IXOFF;
             break;
@@ -142,7 +142,7 @@ void SerialTransport::RunDialScript()
         const std::string& rawEnvFile = sessionInit_.envFilePath.empty()
             ? appDefaults_.envFilePath
             : sessionInit_.envFilePath;
-        const std::vector<term::session::EnvVar> fileVars =
+        const std::vector<term::transport::EnvVar> fileVars =
             ParseEnvFile(ExpandTilde(rawEnvFile, homeDir));
         const std::vector<std::string> parentEnv = CaptureParentEnv();
         EnvBlock envBlock = BuildEnvBlock(

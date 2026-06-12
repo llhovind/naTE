@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "input/InputRouter.h"
-#include "session/AppSessionDefaults.h"
+#include "transport/AppSessionDefaults.h"
 #include "session/Connection.h"
 #include "session/InputEncoder.h"
 #include "session/SessionStatus.h"
@@ -19,7 +19,7 @@
 #include "parser/Parser.h"
 #include "parser/IScreenTarget.h"
 #include "document/Document.h"
-#include "ui/DocLayout.h"
+#include "layout/DocLayout.h"
 
 namespace term::session {
 
@@ -33,7 +33,7 @@ public:
             unsigned short rows,
             std::function<void(transport::DisconnectReason)> onDisconnect,
             std::function<void(const transport::TransportError&)> onError,
-            AppSessionDefaults appDefaults = {},
+            transport::AppSessionDefaults appDefaults = {},
             unsigned short ptyLineWidth = 1024,
             bool wrapMode = false,
             std::function<void(bool)> onAltScreenChanged = {},
@@ -53,7 +53,7 @@ public:
     // The old transport must already be stopped (i.e. OnDisconnect() was received).
     // Document, DocLayout, and all UI state are preserved.
     void ReplaceConnection(const Connection& conn,
-                           const AppSessionDefaults& appDefaults);
+                           const transport::AppSessionDefaults& appDefaults);
 
     SessionStatus GetStatus() const { return status_.load(std::memory_order_acquire); }
 
@@ -168,7 +168,7 @@ private:
         unsigned short ptyCols,
         unsigned short rows,
         unsigned short viewportCols,
-        const AppSessionDefaults& appDefaults);
+        const transport::AppSessionDefaults& appDefaults);
 
 private:
     std::unique_ptr<transport::Transport> transport_;

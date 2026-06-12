@@ -1,6 +1,6 @@
-#include "ui/DocLayout.h"
-#include "ui/SearchMatch.h"
-#include "ui/WordSelector.h"
+#include "layout/DocLayout.h"
+#include "layout/SearchMatch.h"
+#include "layout/WordSelector.h"
 #include <algorithm>
 #include <limits>
 

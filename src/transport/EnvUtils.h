@@ -1,5 +1,5 @@
 #pragma once
-#include "session/EnvVar.h"
+#include "transport/EnvVar.h"
 #include <string>
 #include <vector>
 
@@ -9,7 +9,7 @@ namespace term::transport {
 // lines (no '=', empty key) are silently skipped. The value is everything
 // after the first '=', so values containing '=' are preserved verbatim.
 // Returns an empty vector if the file cannot be opened — never throws.
-std::vector<term::session::EnvVar> ParseEnvFile(const std::string& path);
+std::vector<term::transport::EnvVar> ParseEnvFile(const std::string& path);
 
 // Replace a leading '~' in path with homeDir. Returns path unchanged if it
 // does not start with '~'. homeDir is provided by the caller so this function
@@ -38,9 +38,9 @@ struct EnvBlock {
 // EnvBlock is destroyed.
 EnvBlock BuildEnvBlock(
     const std::vector<std::string>&           parentEnv,
-    const std::vector<term::session::EnvVar>& appDefaults,
-    const std::vector<term::session::EnvVar>& envFileVars,
-    const std::vector<term::session::EnvVar>& profileVars);
+    const std::vector<term::transport::EnvVar>& appDefaults,
+    const std::vector<term::transport::EnvVar>& envFileVars,
+    const std::vector<term::transport::EnvVar>& profileVars);
 
 // Resolve the effective working directory.
 // Returns profileDir (tilde-expanded) if non-empty; otherwise appDefault

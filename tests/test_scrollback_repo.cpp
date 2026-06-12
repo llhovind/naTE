@@ -12,6 +12,7 @@
 namespace fs = std::filesystem;
 using namespace term::db;
 using namespace term::session;
+using namespace term::transport;
 
 namespace {
 

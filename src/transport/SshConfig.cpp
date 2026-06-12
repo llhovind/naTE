@@ -82,7 +82,7 @@ std::vector<std::filesystem::path> QuerySshConfigIdentities(
     return result;
 }
 
-std::optional<term::session::ProxyJumpDesc> QuerySshConfigProxyJump(
+std::optional<term::transport::ProxyJumpDesc> QuerySshConfigProxyJump(
     const std::string& host,
     uint16_t           port,
     const std::string& user,
@@ -103,7 +103,7 @@ std::optional<term::session::ProxyJumpDesc> QuerySshConfigProxyJump(
     std::FILE* pipe = ::popen(cmd.c_str(), "r");
     if (!pipe) return std::nullopt;
 
-    std::optional<term::session::ProxyJumpDesc> result;
+    std::optional<term::transport::ProxyJumpDesc> result;
     char line[4096];
     while (std::fgets(line, sizeof(line), pipe)) {
         std::string_view sv(line);
@@ -122,7 +122,7 @@ std::optional<term::session::ProxyJumpDesc> QuerySshConfigProxyJump(
         if (commaPos != std::string_view::npos)
             sv = sv.substr(0, commaPos);
 
-        term::session::ProxyJumpDesc jump;
+        term::transport::ProxyJumpDesc jump;
 
         // Parse optional user@ prefix
         const auto atPos = sv.rfind('@');

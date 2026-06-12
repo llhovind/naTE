@@ -81,7 +81,7 @@ SessionId SessionManager::CreateSession(const Connection& conn,
                                         int scrollbackLines,
                                         unsigned short cols,
                                         unsigned short rows,
-                                        AppSessionDefaults appDefaults,
+                                        transport::AppSessionDefaults appDefaults,
                                         unsigned short ptyLineWidth,
                                         std::string uuid)
 {

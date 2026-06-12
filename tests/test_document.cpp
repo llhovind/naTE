@@ -2,7 +2,7 @@
 #include "document/Document.h"
 #include "parser/Parser.h"
 #include "parser/IScreenTarget.h"
-#include "ui/DocLayout.h"
+#include "layout/DocLayout.h"
 #include <atomic>
 #include <chrono>
 #include <shared_mutex>

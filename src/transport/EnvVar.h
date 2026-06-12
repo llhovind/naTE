@@ -1,11 +1,11 @@
 #pragma once
 #include <string>
 
-namespace term::session {
+namespace term::transport {
 
 struct EnvVar {
     std::string key;
     std::string value;
 };
 
-} // namespace term::session
+} // namespace term::transport

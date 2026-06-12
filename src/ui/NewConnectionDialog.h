@@ -2,7 +2,7 @@
 
 #include "config/Config.h"
 #include "db/ConnectionProfile.h"
-#include "session/EnvVar.h"
+#include "transport/EnvVar.h"
 #include "transport/PortForward.h"
 
 #include <wx/dialog.h>
@@ -61,7 +61,7 @@ struct PtyParams {
     unsigned short rows           = 24;
     // Session Init
     std::string                        workingDir;
-    std::vector<term::session::EnvVar> envVars;
+    std::vector<term::transport::EnvVar> envVars;
     std::string                        envFilePath;
     bool                               loginShell     = false;
     // Profile title override
@@ -104,7 +104,7 @@ struct SshParams {
     unsigned short rows              = 24;
     // Session Init
     std::string                        workingDir;
-    std::vector<term::session::EnvVar> envVars;
+    std::vector<term::transport::EnvVar> envVars;
     std::string                        envFilePath;
     bool                               loginShell     = false;
     // Profile title override
@@ -126,7 +126,7 @@ struct SerialParams {
     unsigned short columnWidth  = 80;
     unsigned short rows         = 24;
     // Session Init (env vars only for Serial)
-    std::vector<term::session::EnvVar> envVars;
+    std::vector<term::transport::EnvVar> envVars;
     std::string                        envFilePath;
     // Profile title override
     std::string    profileTitle;

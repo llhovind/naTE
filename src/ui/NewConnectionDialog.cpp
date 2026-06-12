@@ -837,11 +837,11 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
     // Transport settings
     std::visit([this](const auto& desc) {
         using T = std::decay_t<decltype(desc)>;
-        if constexpr (std::is_same_v<T, term::session::PtyDesc>) {
+        if constexpr (std::is_same_v<T, term::transport::PtyDesc>) {
             m_notebook->SetSelection(kTabPty);
             m_shellCtrl->SetValue(desc.shell);
             if (m_ptyCmdCtrl) m_ptyCmdCtrl->SetValue(desc.command);
-        } else if constexpr (std::is_same_v<T, term::session::SshDesc>) {
+        } else if constexpr (std::is_same_v<T, term::transport::SshDesc>) {
             m_notebook->SetSelection(kTabSsh);
             m_hostCtrl->SetValue(desc.host);
             m_portCtrl->SetValue(wxString::Format("%d", desc.port));
@@ -854,17 +854,17 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
             m_cbAgentFwd->SetValue(desc.agentForwarding);
             const int sel = [&]() -> int {
                 switch (desc.authMethod) {
-                    case term::session::SshAuthMethod::Password:       return 1;
-                    case term::session::SshAuthMethod::PrivateKey:     return 2;
-                    case term::session::SshAuthMethod::KbdInteractive: return 3;
+                    case term::transport::SshAuthMethod::Password:       return 1;
+                    case term::transport::SshAuthMethod::PrivateKey:     return 2;
+                    case term::transport::SshAuthMethod::KbdInteractive: return 3;
                     default:                                            return 0;
                 }
             }();
             m_authChoice->SetSelection(sel);
             m_authBook->SetSelection(static_cast<size_t>(sel));
-            if (desc.authMethod == term::session::SshAuthMethod::PrivateKey)
+            if (desc.authMethod == term::transport::SshAuthMethod::PrivateKey)
                 m_keyPicker->SetPath(desc.privateKeyPath);
-            if (desc.authMethod == term::session::SshAuthMethod::Agent)
+            if (desc.authMethod == term::transport::SshAuthMethod::Agent)
                 m_agentHintPicker->SetPath(desc.agentIdentityHint);
             // Jump host
             if (desc.proxyJump && !desc.proxyJump->host.empty()) {
@@ -875,9 +875,9 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
                 m_jumpKeyPicker->SetPath(desc.proxyJump->privateKeyPath);
                 const int jsel = [&]() -> int {
                     switch (desc.proxyJump->authMethod) {
-                        case term::session::SshAuthMethod::Password:       return 1;
-                        case term::session::SshAuthMethod::PrivateKey:     return 2;
-                        case term::session::SshAuthMethod::KbdInteractive: return 3;
+                        case term::transport::SshAuthMethod::Password:       return 1;
+                        case term::transport::SshAuthMethod::PrivateKey:     return 2;
+                        case term::transport::SshAuthMethod::KbdInteractive: return 3;
                         default:                                            return 0;
                     }
                 }();
@@ -892,22 +892,22 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
                     pf.id = 0;  // IDs are not meaningful in profile context
                 RebuildPfwList();
             }
-        } else if constexpr (std::is_same_v<T, term::session::SerialDesc>) {
+        } else if constexpr (std::is_same_v<T, term::transport::SerialDesc>) {
             m_notebook->SetSelection(kTabSerial);
             m_deviceCtrl->SetValue(desc.device);
             m_baudCtrl->SetStringSelection(wxString::Format("%u", desc.baudRate));
             m_dataBitsCtrl->SetStringSelection(wxString::Format("%u", desc.dataBits));
             m_stopBitsCtrl->SetStringSelection(
-                desc.stopBits == term::session::SerialStopBits::Two ? "2" : "1");
+                desc.stopBits == term::transport::SerialStopBits::Two ? "2" : "1");
             switch (desc.parity) {
-                case term::session::SerialParity::Even: m_parityCtrl->SetStringSelection("Even"); break;
-                case term::session::SerialParity::Odd:  m_parityCtrl->SetStringSelection("Odd");  break;
+                case term::transport::SerialParity::Even: m_parityCtrl->SetStringSelection("Even"); break;
+                case term::transport::SerialParity::Odd:  m_parityCtrl->SetStringSelection("Odd");  break;
                 default:                                m_parityCtrl->SetStringSelection("None"); break;
             }
             switch (desc.flowControl) {
-                case term::session::SerialFlowControl::Hardware:
+                case term::transport::SerialFlowControl::Hardware:
                     m_flowCtrlCombo->SetStringSelection("Hardware"); break;
-                case term::session::SerialFlowControl::Software:
+                case term::transport::SerialFlowControl::Software:
                     m_flowCtrlCombo->SetStringSelection("Software"); break;
                 default:
                     m_flowCtrlCombo->SetStringSelection("None"); break;
@@ -1299,7 +1299,7 @@ static std::pair<unsigned short, unsigned short> resolveGeometry(
 }
 
 static void collectEnvVars(wxListBox* list,
-                            std::vector<term::session::EnvVar>& out)
+                            std::vector<term::transport::EnvVar>& out)
 {
     if (!list) return;
     for (unsigned int i = 0; i < list->GetCount(); ++i) {
@@ -1316,7 +1316,7 @@ ConnectionParams NewConnectionDialog::GetParams() const
     auto [cols, rows] = resolveGeometry(m_geometryCombo, m_colsCtrl, m_rowsCtrl, m_geometryPresets);
 
     const std::string envFilePath = m_envFileCtrl ? m_envFileCtrl->GetPath().ToStdString() : std::string{};
-    std::vector<term::session::EnvVar> envVars;
+    std::vector<term::transport::EnvVar> envVars;
     collectEnvVars(m_envVarList, envVars);
 
     const int tab = m_notebook->GetSelection();

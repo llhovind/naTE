@@ -3,8 +3,8 @@
 #include "config/Color.h"
 #include "document/Document.h"
 #include "document/IDocumentListener.h"
-#include "ui/SearchMatch.h"
-#include "ui/UrlScanner.h"
+#include "layout/SearchMatch.h"
+#include "layout/UrlScanner.h"
 #include <mutex>
 #include <shared_mutex>
 #include <optional>

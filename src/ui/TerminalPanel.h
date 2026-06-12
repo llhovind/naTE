@@ -4,7 +4,7 @@
 #include <wx/panel.h>
 #include <wx/scrolbar.h>
 #include <wx/timer.h>
-#include "ui/DocLayout.h"
+#include "layout/DocLayout.h"
 #include "ui/SelectionActionRegistry.h"
 #include "config/Config.h"
 #include "input/KeyEvent.hpp"

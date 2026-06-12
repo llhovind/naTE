@@ -18,8 +18,8 @@ add_executable(naTE_tests
     ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
     ${CMAKE_SOURCE_DIR}/src/config/ColorScheme.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/UrlScanner.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/WordSelector.cpp
+    ${CMAKE_SOURCE_DIR}/src/layout/UrlScanner.cpp
+    ${CMAKE_SOURCE_DIR}/src/layout/WordSelector.cpp
 )
 target_link_libraries(naTE_tests PRIVATE Catch2::Catch2)
 target_include_directories(naTE_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -47,9 +47,9 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/transport/PtyTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SerialTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshTransport.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/DocLayout.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/UrlScanner.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/WordSelector.cpp
+    ${CMAKE_SOURCE_DIR}/src/layout/DocLayout.cpp
+    ${CMAKE_SOURCE_DIR}/src/layout/UrlScanner.cpp
+    ${CMAKE_SOURCE_DIR}/src/layout/WordSelector.cpp
     ${CMAKE_SOURCE_DIR}/src/db/JsonScrollbackRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/db/ScrollbackWriter.cpp
     ${CMAKE_SOURCE_DIR}/src/db/ScrollbackPurge.cpp

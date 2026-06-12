@@ -1,6 +1,6 @@
 #include "ui/SearchController.h"
-#include "ui/DocLayout.h"
-#include "ui/SearchMatch.h"
+#include "layout/DocLayout.h"
+#include "layout/SearchMatch.h"
 #include "ui/TerminalPanel.h"
 #include "ui/SearchBar.h"
 #include <algorithm>

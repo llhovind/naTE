@@ -19,11 +19,11 @@ const std::vector<ConnectionProfile>& ConnectionStore::GetAll() const
 }
 
 const ConnectionProfile& ConnectionStore::Add(const std::string& name,
-                                               const term::session::TransportDesc& transport,
+                                               const term::transport::TransportDesc& transport,
                                                bool wrapMode,
                                                unsigned short columnWidth,
                                                unsigned short rows,
-                                               term::session::SessionInit sessionInit,
+                                               term::transport::SessionInit sessionInit,
                                                std::string profileTitle,
                                                bool useProfileTitle)
 {

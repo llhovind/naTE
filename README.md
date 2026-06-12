@@ -266,8 +266,9 @@ currently covers 356 scenarios across all major subsystems.
 ### Architecture
 
 naTE follows a ports-and-adapters layout. The core — terminal parsing (`src/parser/`),
-document model (`src/document/`), session management (`src/session/`), and transport
-backends (`src/transport/`) — is entirely headless and has no dependency on wxWidgets.
+document model (`src/document/`), viewport layout (`src/layout/`), session management
+(`src/session/`), and transport backends (`src/transport/`) — is entirely headless and
+has no dependency on wxWidgets.
 The wxWidgets UI (`src/ui/`) is one implementation of the presentation layer and is,
 in principle, swappable for another frontend without touching the core. Persistence
 uses a thin JSON repository layer (`src/db/`) so the storage format can change

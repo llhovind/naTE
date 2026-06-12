@@ -53,7 +53,7 @@ constexpr int  kTcpKeepCnt      = 3;
 // agentIdentityHint (first priority) or ~/.ssh/config lookup (second priority).
 // Used by both the main-session and aux-session agent auth paths.
 std::vector<std::vector<uint8_t>> LoadPreferredBlobs(
-    const term::session::SshDesc& desc)
+    const term::transport::SshDesc& desc)
 {
     std::vector<std::filesystem::path> paths;
 
@@ -164,12 +164,12 @@ std::string GenerateVpColumnsFilePath() {
 // ---------------------------------------------------------------------------
 
 SshTransport::SshTransport(ITransportTarget& target,
-                           const term::session::SshDesc& desc,
+                           const term::transport::SshDesc& desc,
                            unsigned short cols,
                            unsigned short rows,
                            unsigned short viewportCols,
-                           const term::session::SessionInit& sessionInit,
-                           const term::session::AppSessionDefaults& appDefaults)
+                           const term::transport::SessionInit& sessionInit,
+                           const term::transport::AppSessionDefaults& appDefaults)
     : target_(target), desc_(desc), sessionInit_(sessionInit),
       appDefaults_(appDefaults), cols_(cols), rows_(rows),
       viewportCols_(viewportCols),
@@ -574,7 +574,7 @@ bool SshTransport::VerifyHostKey(_LIBSSH2_SESSION* session, std::string& outErro
 
 bool SshTransport::Authenticate()
 {
-    using AM = term::session::SshAuthMethod;
+    using AM = term::transport::SshAuthMethod;
     switch (desc_.authMethod) {
         case AM::Agent:          return AuthViaAgent();
         case AM::Password:       return AuthViaPassword();
@@ -876,11 +876,11 @@ bool SshTransport::StartShell()
     const std::string& rawEnvFile = sessionInit_.envFilePath.empty()
         ? appDefaults_.envFilePath
         : sessionInit_.envFilePath;
-    const std::vector<term::session::EnvVar> fileVars =
+    const std::vector<term::transport::EnvVar> fileVars =
         ParseEnvFile(ExpandTilde(rawEnvFile, localHome));
 
     // Merge: app defaults → file vars → profile vars (profile wins)
-    std::vector<term::session::EnvVar> merged = appDefaults_.envVars;
+    std::vector<term::transport::EnvVar> merged = appDefaults_.envVars;
     for (const auto& ev : fileVars)              merged.push_back(ev);
     for (const auto& ev : sessionInit_.envVars)  merged.push_back(ev);
 

@@ -1,5 +1,5 @@
 #pragma once
-#include "session/Connection.h"
+#include "transport/TransportDesc.h"
 #include "transport/ITransportTarget.h"
 
 #include <atomic>
@@ -30,7 +30,7 @@ public:
     // Connect to the jump host, authenticate, and open a direct-tcpip channel
     // to targetHost:targetPort. Throws TransportError on any failure.
     static std::unique_ptr<BastionTunnel> Connect(
-        const term::session::ProxyJumpDesc& jump,
+        const term::transport::ProxyJumpDesc& jump,
         const std::string&                  targetHost,
         unsigned short                      targetPort,
         const std::string&                  effectiveUser,  // resolved jump user

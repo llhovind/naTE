@@ -1,5 +1,5 @@
 #pragma once
-#include "session/Connection.h"
+#include "transport/TransportDesc.h"
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -30,7 +30,7 @@ std::vector<std::filesystem::path> QuerySshConfigIdentities(
 // treated as the first hop only.
 //
 // configPath: if non-empty, passed as -F to ssh — used in tests.
-std::optional<term::session::ProxyJumpDesc> QuerySshConfigProxyJump(
+std::optional<term::transport::ProxyJumpDesc> QuerySshConfigProxyJump(
     const std::string& host,
     uint16_t           port,
     const std::string& user,

@@ -151,7 +151,7 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
 
     cfg.defaultEnvVars.erase(
         std::remove_if(cfg.defaultEnvVars.begin(), cfg.defaultEnvVars.end(),
-                       [](const term::session::EnvVar& ev) { return ev.key.empty(); }),
+                       [](const term::transport::EnvVar& ev) { return ev.key.empty(); }),
         cfg.defaultEnvVars.end());
 
     // Resolve theme colours from file; keep struct defaults if unavailable.

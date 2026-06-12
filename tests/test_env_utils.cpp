@@ -10,7 +10,7 @@
 #include <vector>
 
 using namespace term::transport;
-using term::session::EnvVar;
+using term::transport::EnvVar;
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -14,7 +14,7 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
         if constexpr (std::is_same_v<T, PtyParams>) {
             conn.label       = labelIdx ? wxString::Format("Local Shell %d", labelIdx).ToStdString()
                                         : "Local Shell";
-            conn.transport   = term::session::PtyDesc{ p.shell, p.command };
+            conn.transport   = term::transport::PtyDesc{ p.shell, p.command };
             conn.wrapMode    = p.wrapMode;
             conn.columnWidth = p.columnWidth;
             conn.rows        = p.rows;
@@ -31,7 +31,7 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
                                    p.username, p.host,
                                    static_cast<int>(p.port), labelIdx).ToStdString()
                 : (p.username.empty() ? p.host : p.username + "@" + p.host);
-            term::session::SshDesc d;
+            term::transport::SshDesc d;
             d.host              = p.host;
             d.port              = p.port;
             d.username          = p.username;
@@ -47,16 +47,16 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
             d.passphrase        = p.passphrase;
             switch (p.authMethod) {
                 case SshAuthChoice::Password:
-                    d.authMethod = term::session::SshAuthMethod::Password; break;
+                    d.authMethod = term::transport::SshAuthMethod::Password; break;
                 case SshAuthChoice::PrivateKey:
-                    d.authMethod = term::session::SshAuthMethod::PrivateKey; break;
+                    d.authMethod = term::transport::SshAuthMethod::PrivateKey; break;
                 case SshAuthChoice::KeyboardInteractive:
-                    d.authMethod = term::session::SshAuthMethod::KbdInteractive; break;
+                    d.authMethod = term::transport::SshAuthMethod::KbdInteractive; break;
                 default:
-                    d.authMethod = term::session::SshAuthMethod::Agent; break;
+                    d.authMethod = term::transport::SshAuthMethod::Agent; break;
             }
             if (p.proxyJump) {
-                term::session::ProxyJumpDesc pj;
+                term::transport::ProxyJumpDesc pj;
                 pj.host              = p.proxyJump->host;
                 pj.port              = p.proxyJump->port;
                 pj.user              = p.proxyJump->user;
@@ -66,13 +66,13 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
                 pj.agentIdentityHint = p.proxyJump->agentIdentityHint;
                 switch (p.proxyJump->authMethod) {
                     case SshAuthChoice::Password:
-                        pj.authMethod = term::session::SshAuthMethod::Password; break;
+                        pj.authMethod = term::transport::SshAuthMethod::Password; break;
                     case SshAuthChoice::PrivateKey:
-                        pj.authMethod = term::session::SshAuthMethod::PrivateKey; break;
+                        pj.authMethod = term::transport::SshAuthMethod::PrivateKey; break;
                     case SshAuthChoice::KeyboardInteractive:
-                        pj.authMethod = term::session::SshAuthMethod::KbdInteractive; break;
+                        pj.authMethod = term::transport::SshAuthMethod::KbdInteractive; break;
                     default:
-                        pj.authMethod = term::session::SshAuthMethod::Agent; break;
+                        pj.authMethod = term::transport::SshAuthMethod::Agent; break;
                 }
                 d.proxyJump = std::move(pj);
             }
@@ -92,18 +92,18 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
             conn.label       = labelIdx
                 ? wxString::Format("Serial %s #%d", p.device, labelIdx).ToStdString()
                 : p.device;
-            term::session::SerialDesc d;
+            term::transport::SerialDesc d;
             d.device      = p.device;
             d.baudRate    = p.baudRate;
             d.dataBits    = p.dataBits;
-            d.stopBits    = p.stopBits == "2" ? term::session::SerialStopBits::Two
-                                               : term::session::SerialStopBits::One;
-            if      (p.parity == "Even") d.parity = term::session::SerialParity::Even;
-            else if (p.parity == "Odd")  d.parity = term::session::SerialParity::Odd;
-            else                         d.parity = term::session::SerialParity::None;
-            if      (p.flowControl == "Hardware") d.flowControl = term::session::SerialFlowControl::Hardware;
-            else if (p.flowControl == "Software") d.flowControl = term::session::SerialFlowControl::Software;
-            else                                  d.flowControl = term::session::SerialFlowControl::None;
+            d.stopBits    = p.stopBits == "2" ? term::transport::SerialStopBits::Two
+                                               : term::transport::SerialStopBits::One;
+            if      (p.parity == "Even") d.parity = term::transport::SerialParity::Even;
+            else if (p.parity == "Odd")  d.parity = term::transport::SerialParity::Odd;
+            else                         d.parity = term::transport::SerialParity::None;
+            if      (p.flowControl == "Hardware") d.flowControl = term::transport::SerialFlowControl::Hardware;
+            else if (p.flowControl == "Software") d.flowControl = term::transport::SerialFlowControl::Software;
+            else                                  d.flowControl = term::transport::SerialFlowControl::None;
             d.dialScript                 = p.dialScript;
             conn.transport               = d;
             conn.wrapMode                = p.wrapMode;

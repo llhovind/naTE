@@ -1,7 +1,7 @@
 #pragma once
 
-#include "session/AppSessionDefaults.h"
-#include "session/Connection.h"
+#include "transport/AppSessionDefaults.h"
+#include "transport/TransportDesc.h"
 #include "transport/BastionTunnel.h"
 #include "transport/PortForward.h"
 #include "transport/Transport.hpp"
@@ -33,12 +33,12 @@ namespace term::transport {
 class SshTransport : public Transport {
 public:
     SshTransport(ITransportTarget& target,
-                 const term::session::SshDesc& desc,
+                 const term::transport::SshDesc& desc,
                  unsigned short cols,
                  unsigned short rows,
                  unsigned short viewportCols,
-                 const term::session::SessionInit& sessionInit = {},
-                 const term::session::AppSessionDefaults& appDefaults = {});
+                 const term::transport::SessionInit& sessionInit = {},
+                 const term::transport::AppSessionDefaults& appDefaults = {});
     ~SshTransport() override;
 
     SshTransport(const SshTransport&)            = delete;
@@ -263,9 +263,9 @@ private:
     struct SftpUploadTask;
 
     ITransportTarget&                    target_;
-    term::session::SshDesc               desc_;
-    term::session::SessionInit           sessionInit_;
-    term::session::AppSessionDefaults    appDefaults_;
+    term::transport::SshDesc               desc_;
+    term::transport::SessionInit           sessionInit_;
+    term::transport::AppSessionDefaults    appDefaults_;
     unsigned short                       cols_;
     unsigned short                       rows_;
     unsigned short                       viewportCols_;

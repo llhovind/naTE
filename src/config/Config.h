@@ -1,6 +1,6 @@
 #pragma once
 #include "config/Color.h"     // Rgb, UiColors
-#include "session/EnvVar.h"
+#include "transport/EnvVar.h"
 #include <array>
 #include <string>
 #include <vector>
@@ -76,7 +76,7 @@ struct AppConfig {
     // [Session] defaults — applied to every new session, overridable per profile
     std::string                        defaultShell;        // empty = $SHELL → /bin/sh
     std::string                        defaultWorkingDir;   // empty = inherit launcher cwd
-    std::vector<term::session::EnvVar> defaultEnvVars;
+    std::vector<term::transport::EnvVar> defaultEnvVars;
     std::string                        defaultEnvFilePath;
     bool                               defaultLoginShell  = false;
     bool                               defaultWrapMode    = false;

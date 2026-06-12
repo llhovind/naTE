@@ -13,6 +13,7 @@
 #include "session/SessionManager.h"
 
 using namespace term::session;
+using namespace term::transport;
 
 namespace {
 

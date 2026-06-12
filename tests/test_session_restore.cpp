@@ -39,7 +39,7 @@ static term::session::RestoreState MakeSampleState()
             tile.activeTabIndex = 0;
             term::session::Connection c;
             c.label       = "local-shell";
-            c.transport   = term::session::PtyDesc{"/bin/bash"};
+            c.transport   = term::transport::PtyDesc{"/bin/bash"};
             c.wrapMode    = true;
             c.columnWidth = 132;
             c.rows        = 50;
@@ -57,11 +57,11 @@ static term::session::RestoreState MakeSampleState()
             term::session::Connection ssh;
             ssh.label = "prod-server";
             {
-                term::session::SshDesc d;
+                term::transport::SshDesc d;
                 d.host              = "prod.example.com";
                 d.port              = 22;
                 d.username          = "deploy";
-                d.authMethod        = term::session::SshAuthMethod::PrivateKey;
+                d.authMethod        = term::transport::SshAuthMethod::PrivateKey;
                 d.privateKeyPath    = "/home/user/.ssh/id_rsa";
                 d.publicKeyPath     = "/home/user/.ssh/id_rsa.pub";
                 d.keepaliveSeconds  = 30;
@@ -78,13 +78,13 @@ static term::session::RestoreState MakeSampleState()
             term::session::Connection ser;
             ser.label = "serial-device";
             {
-                term::session::SerialDesc d;
+                term::transport::SerialDesc d;
                 d.device      = "/dev/ttyUSB0";
                 d.baudRate    = 115200;
                 d.dataBits    = 8;
-                d.stopBits    = term::session::SerialStopBits::One;
-                d.parity      = term::session::SerialParity::None;
-                d.flowControl = term::session::SerialFlowControl::Hardware;
+                d.stopBits    = term::transport::SerialStopBits::One;
+                d.parity      = term::transport::SerialParity::None;
+                d.flowControl = term::transport::SerialFlowControl::Hardware;
                 d.dialScript  = "ATZ\r";
                 ser.transport = d;
             }
@@ -103,7 +103,7 @@ static term::session::RestoreState MakeSampleState()
         tile.activeTabIndex = 0;
         term::session::Connection lb;
         lb.label     = "loopback";
-        lb.transport = term::session::LoopbackDesc{};
+        lb.transport = term::transport::LoopbackDesc{};
         tile.sessions.push_back({lb});
         w.tiles.push_back(std::move(tile));
         state.windows.push_back(std::move(w));
@@ -148,7 +148,7 @@ TEST_CASE("given a valid state when saved and loaded then all fields round-trip"
         CHECK(c.rows == 50);
         CHECK(c.sessionInit.workingDir == "/tmp");
         CHECK(c.sessionInit.loginShell == true);
-        const auto* pty = std::get_if<term::session::PtyDesc>(&c.transport);
+        const auto* pty = std::get_if<term::transport::PtyDesc>(&c.transport);
         REQUIRE(pty != nullptr);
         CHECK(pty->shell == "/bin/bash");
     }
@@ -159,12 +159,12 @@ TEST_CASE("given a valid state when saved and loaded then all fields round-trip"
     {
         const auto& c = loaded.windows[0].tiles[1].sessions[0].conn;
         CHECK(c.label == "prod-server");
-        const auto* ssh = std::get_if<term::session::SshDesc>(&c.transport);
+        const auto* ssh = std::get_if<term::transport::SshDesc>(&c.transport);
         REQUIRE(ssh != nullptr);
         CHECK(ssh->host == "prod.example.com");
         CHECK(ssh->port == 22);
         CHECK(ssh->username == "deploy");
-        CHECK(ssh->authMethod == term::session::SshAuthMethod::PrivateKey);
+        CHECK(ssh->authMethod == term::transport::SshAuthMethod::PrivateKey);
         CHECK(ssh->privateKeyPath == "/home/user/.ssh/id_rsa");
         CHECK(ssh->publicKeyPath == "/home/user/.ssh/id_rsa.pub");
         CHECK(ssh->keepaliveSeconds == 30);
@@ -175,14 +175,14 @@ TEST_CASE("given a valid state when saved and loaded then all fields round-trip"
     {
         const auto& c = loaded.windows[0].tiles[1].sessions[1].conn;
         CHECK(c.label == "serial-device");
-        const auto* ser = std::get_if<term::session::SerialDesc>(&c.transport);
+        const auto* ser = std::get_if<term::transport::SerialDesc>(&c.transport);
         REQUIRE(ser != nullptr);
         CHECK(ser->device == "/dev/ttyUSB0");
         CHECK(ser->baudRate == 115200u);
         CHECK(ser->dataBits == 8);
-        CHECK(ser->stopBits == term::session::SerialStopBits::One);
-        CHECK(ser->parity == term::session::SerialParity::None);
-        CHECK(ser->flowControl == term::session::SerialFlowControl::Hardware);
+        CHECK(ser->stopBits == term::transport::SerialStopBits::One);
+        CHECK(ser->parity == term::transport::SerialParity::None);
+        CHECK(ser->flowControl == term::transport::SerialFlowControl::Hardware);
         CHECK(ser->dialScript == "ATZ\r");
     }
 
@@ -193,7 +193,7 @@ TEST_CASE("given a valid state when saved and loaded then all fields round-trip"
     {
         const auto& c = loaded.windows[1].tiles[0].sessions[0].conn;
         CHECK(c.label == "loopback");
-        CHECK(std::holds_alternative<term::session::LoopbackDesc>(c.transport));
+        CHECK(std::holds_alternative<term::transport::LoopbackDesc>(c.transport));
     }
 
     Cleanup(path);
@@ -209,7 +209,7 @@ TEST_CASE("given SSH session with password when saved then password and passphra
     repo.Save(state);
 
     const auto loaded = repo.Load();
-    const auto* ssh = std::get_if<term::session::SshDesc>(
+    const auto* ssh = std::get_if<term::transport::SshDesc>(
         &loaded.windows[0].tiles[1].sessions[0].conn.transport);
     REQUIRE(ssh != nullptr);
     CHECK(ssh->password.empty());

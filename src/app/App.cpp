@@ -5,7 +5,7 @@
 #include "db/JsonScrollbackRepository.h"
 #include "db/JsonSessionRestoreRepository.h"
 #include "db/ScrollbackPurge.h"
-#include "session/AppSessionDefaults.h"
+#include "transport/AppSessionDefaults.h"
 #include "session/RestoreState.h"
 #include "ui/MainFrame.h"
 #include "ui/TerminalTile.h"
@@ -319,8 +319,8 @@ MainFrame* App::CreateNewWindow()
                 if (profile.name != conn.label) continue;
 
                 auto updated = profile;
-                if (std::holds_alternative<term::session::SshDesc>(updated.transport)) {
-                    auto& ssh = std::get<term::session::SshDesc>(updated.transport);
+                if (std::holds_alternative<term::transport::SshDesc>(updated.transport)) {
+                    auto& ssh = std::get<term::transport::SshDesc>(updated.transport);
                     // Avoid duplicates based on port tuple.
                     auto dup = std::find_if(ssh.portForwards.begin(), ssh.portForwards.end(),
                         [&toSave](const auto& d) {
@@ -381,7 +381,7 @@ term::session::SessionId App::CreateSessionInTile(
         ? conn.rows
         : static_cast<unsigned short>(m_cfg.rows);
 
-    term::session::AppSessionDefaults appDefaults;
+    term::transport::AppSessionDefaults appDefaults;
     appDefaults.workingDir   = m_cfg.defaultWorkingDir;
     appDefaults.envVars      = m_cfg.defaultEnvVars;
     appDefaults.envFilePath  = m_cfg.defaultEnvFilePath;
@@ -599,7 +599,7 @@ term::session::RestoreState App::BuildCurrentState() const
                 if (!liveDir.empty())
                     conn.sessionInit.workingDir = liveDir;
                 // Never persist passwords or passphrases.
-                if (auto* ssh = std::get_if<term::session::SshDesc>(&conn.transport)) {
+                if (auto* ssh = std::get_if<term::transport::SshDesc>(&conn.transport)) {
                     ssh->password    = {};
                     ssh->passphrase  = {};
                     // Capture live port forwards — profile-stored ones may be stale if

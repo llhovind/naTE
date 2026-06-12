@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 #include <wx/timer.h>
-#include "ui/SearchMatch.h"
+#include "layout/SearchMatch.h"
 
 class DocLayout;
 class TerminalPanel;

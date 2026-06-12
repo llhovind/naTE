@@ -10,7 +10,7 @@
 
 #include "document/IDocumentListener.h"
 #include "input/InputRouter.h"
-#include "session/AppSessionDefaults.h"
+#include "transport/AppSessionDefaults.h"
 #include "session/Connection.h"
 #include "session/ISessionObserver.h"
 #include "session/RestoreState.h"
@@ -50,7 +50,7 @@ public:
                             int scrollbackLines,
                             unsigned short cols,
                             unsigned short rows,
-                            AppSessionDefaults appDefaults = {},
+                            transport::AppSessionDefaults appDefaults = {},
                             unsigned short ptyLineWidth = 1024,
                             std::string uuid = {});
 
@@ -229,7 +229,7 @@ private:
         // Snapshot of the Connection and app defaults used to create this session;
         // retained so CloseSession / ReconnectSession can recreate the transport.
         Connection                                       connection;
-        AppSessionDefaults                               appDefaults;
+        transport::AppSessionDefaults                               appDefaults;
         // Written by the worker thread (via onX11FwdChanged lambda); read by the
         // UI thread (IsX11ForwardingActive). Must be atomic — SessionRecord is
         // heap-allocated so its address is stable across map rehash.

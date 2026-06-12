@@ -12,7 +12,7 @@
 #include "ui/TerminalPanel.h"
 #include "ui/TerminalTile.h"
 #include "ui/TerminalGrid.h"
-#include "ui/DocLayout.h"
+#include "layout/DocLayout.h"
 #include "ui/SearchBar.h"
 #include "ui/SearchController.h"
 #include "ui/SelectionActions.h"
@@ -1081,8 +1081,8 @@ const UIManager::SessionUI* UIManager::FindSessionUI(term::session::SessionId id
 bool UIManager::IsReconnectable(term::session::SessionId id) const
 {
     const term::session::Connection conn = sm_.GetConnection(id);
-    return std::holds_alternative<term::session::SshDesc>(conn.transport)
-        || std::holds_alternative<term::session::SerialDesc>(conn.transport);
+    return std::holds_alternative<term::transport::SshDesc>(conn.transport)
+        || std::holds_alternative<term::transport::SerialDesc>(conn.transport);
 }
 
 std::vector<std::pair<term::session::SessionId, std::string>>
