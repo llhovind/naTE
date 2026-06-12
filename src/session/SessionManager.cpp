@@ -367,6 +367,12 @@ void SessionManager::RequestX11Forwarding(SessionId id)
         rec->session->RequestX11Forwarding();
 }
 
+SessionStatus SessionManager::GetSessionStatus(SessionId id) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    return rec ? rec->session->GetStatus() : SessionStatus::Connected;
+}
+
 bool SessionManager::SupportsFileTransfer(SessionId id) const
 {
     const SessionRecord* rec = FindRecord(id);

@@ -126,6 +126,8 @@ public:
     void ForceAltScreen(SessionId id, bool on);
     void RequestX11Forwarding(SessionId id);
 
+    SessionStatus GetSessionStatus(SessionId id) const;
+
     bool        SupportsFileTransfer(SessionId id)    const;
     bool        SupportsX11Forwarding(SessionId id)   const;
     bool        IsX11ForwardingActive(SessionId id)   const;

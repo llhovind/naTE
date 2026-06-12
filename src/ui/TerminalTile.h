@@ -89,9 +89,10 @@ public:
     // Cleared automatically when the tab is activated.
     void SetTabUnread(term::session::SessionId id, bool hasUnread);
 
-    // Updates the connection status indicator on the tab badge.
-    // Disconnected/Reconnecting show an orange/yellow dot; Connected clears it.
-    void SetTabStatus(term::session::SessionId id, term::session::SessionStatus status);
+    // Wires a live status provider for the tab badge. The callback is invoked
+    // on every paint; it must be thread-safe and cheap to call.
+    void SetStatusProvider(
+        std::function<term::session::SessionStatus(term::session::SessionId)> provider);
 
     // Called by UIManager to reflect wrap mode changes originating outside this tile.
     void SetWrapMode(bool wrap);
@@ -167,7 +168,6 @@ private:
         bool                        inBroadcast         = false;
         bool                        hasUnreadOutput     = false;
         bool                        supportsFileTransfer = false;
-        term::session::SessionStatus status             = term::session::SessionStatus::Connected;
     };
 
     // Show the panel at index; hide the previous one. Does not emit ActivateSession — programmatic activation only.
@@ -205,6 +205,7 @@ private:
     bool                       inBroadcast_         = false;
     bool                       broadcastModeActive_ = false;
     std::function<bool()>      fileTransferAvailableCb_;
+    std::function<term::session::SessionStatus(term::session::SessionId)> statusProvider_;
 
     // Set by ApplyConfig, which is called from the constructor.
     wxColour colActive_;

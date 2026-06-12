@@ -163,7 +163,6 @@ void UIManager::OnSessionDisconnected(term::session::SessionId id,
 {
     frame_->CallAfter([this, id, reason]() {
         using R = term::transport::DisconnectReason;
-        using S = term::session::SessionStatus;
 
         // Deliberate: Stop() was called — CloseSession already owns the teardown.
         if (reason == R::Deliberate)
@@ -177,13 +176,10 @@ void UIManager::OnSessionDisconnected(term::session::SessionId id,
         }
 
         // Interrupted + reconnectable: preserve session, show indicator.
+        // Session::status_ is already Disconnected; the badge updates on next paint.
         SessionUI* ui = FindSessionUI(id);
         if (!ui) return;
 
-        ui->tile->SetTabStatus(id, S::Disconnected);
-
-        // Build a message string from the last TransportError if available,
-        // otherwise use a generic text.
         const wxString msg = wxString::FromUTF8("Connection lost.");
         ui->panel->ShowReconnectBar(msg);
     });
@@ -301,6 +297,9 @@ void UIManager::WireTileCallbacks(TerminalTile* tile)
     tile->SetFileTransferAvailableCallback([this] {
         return AnySessionSupportsFileTransfer();
     });
+    tile->SetStatusProvider([this](term::session::SessionId id) {
+        return sm_.GetSessionStatus(id);
+    });
 }
 
 void UIManager::TakeSession(term::session::SessionId     id,
@@ -363,7 +362,6 @@ void UIManager::TakeSession(term::session::SessionId     id,
         SessionUI* ui = FindSessionUI(id);
         if (!ui) return;
         ui->panel->HideReconnectBar();
-        ui->tile->SetTabStatus(id, term::session::SessionStatus::Reconnecting);
         sm_.ReconnectSession(id);
     });
     panel->SetReconnectSaveCallback([this, id]() {

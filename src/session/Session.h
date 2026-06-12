@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -54,7 +55,7 @@ public:
     void ReplaceConnection(const Connection& conn,
                            const AppSessionDefaults& appDefaults);
 
-    SessionStatus GetStatus() const { return status_; }
+    SessionStatus GetStatus() const { return status_.load(std::memory_order_acquire); }
 
     // input::InputTarget
     void OnInput(const input::KeyEvent& event) override;
@@ -194,7 +195,7 @@ private:
     bool               altScreenActive_{false};
     bool               bracketedPaste_{false};
     bool               cursorVisible_{true};
-    SessionStatus      status_{SessionStatus::Connected};
+    std::atomic<SessionStatus> status_{SessionStatus::Connected};
     std::vector<IDocumentListener*> externalListeners_;
 
     // Port forward state.

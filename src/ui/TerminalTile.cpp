@@ -79,7 +79,8 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& cfg)
 
     tabStrip_->SetStatusQueryCallback([this](int i) {
         using S = term::session::SessionStatus;
-        return (i >= 0 && i < (int)tabs_.size()) ? tabs_[i].status : S::Connected;
+        if (i < 0 || i >= (int)tabs_.size()) return S::Connected;
+        return statusProvider_ ? statusProvider_(tabs_[i].sessionId) : S::Connected;
     });
 
     tabStrip_->SetHeaderCtrlClickCallback([this]() {
@@ -473,17 +474,10 @@ void TerminalTile::SetTabUnread(term::session::SessionId id, bool hasUnread)
     }
 }
 
-void TerminalTile::SetTabStatus(term::session::SessionId id,
-                                term::session::SessionStatus status)
+void TerminalTile::SetStatusProvider(
+    std::function<term::session::SessionStatus(term::session::SessionId)> provider)
 {
-    for (auto& tab : tabs_) {
-        if (tab.sessionId == id) {
-            if (tab.status == status) return;
-            tab.status = status;
-            tabStrip_->Refresh();
-            return;
-        }
-    }
+    statusProvider_ = std::move(provider);
 }
 
 void TerminalTile::SetWrapMode(bool wrap)

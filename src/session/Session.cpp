@@ -104,7 +104,7 @@ void Session::ReplaceConnection(const Connection& conn,
     transport_ = MakeTransport(*this, conn,
                                wrapMode ? lastCols_ : ptyLineWidth_,
                                lastRows_, lastCols_, appDefaults);
-    status_ = SessionStatus::Reconnecting;
+    status_.store(SessionStatus::Reconnecting, std::memory_order_release);
     transport_->Start();
 
     // Re-submit all configured port forwards to the new transport.
@@ -156,6 +156,8 @@ void Session::OnSetBracketedPaste(bool enabled)
 
 void Session::OnData(const std::string& data)
 {
+    if (status_.load(std::memory_order_acquire) == SessionStatus::Reconnecting)
+        status_.store(SessionStatus::Connected, std::memory_order_release);
     parser_.Process(data);
 }
 
@@ -167,7 +169,7 @@ void Session::OnError(const transport::TransportError& error)
 
 void Session::OnDisconnect(transport::DisconnectReason reason)
 {
-    status_ = SessionStatus::Disconnected;
+    status_.store(SessionStatus::Disconnected, std::memory_order_release);
     if (onDisconnect_)
         onDisconnect_(reason);
 }
