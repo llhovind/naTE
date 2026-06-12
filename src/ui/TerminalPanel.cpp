@@ -1,6 +1,7 @@
 #include "ui/TerminalPanel.h"
 #include "ui/ReconnectBar.h"
 #include "ui/SearchBar.h"
+#include "ui/SearchController.h"
 #include "ui/StringUtils.h"
 #include "ui/wxKeyAdapter.h"
 #include <wx/clipbrd.h>
@@ -291,10 +292,13 @@ void TerminalPanel::UpdateScrollbars()
     m_hScroll->Enable(hEnabled);
 }
 
+void TerminalPanel::SetSearchController(SearchController* sc) { searchCtrl_ = sc; }
+
 void TerminalPanel::OnDocumentUpdate()
 {
     // DocLayout has already adjusted topRow_ internally (autoScroll_ policy).
     UpdateScrollbars();
+    if (searchCtrl_) searchCtrl_->NotifyDocumentChanged();
     // GTK defers widget redraws to idle processing, which only runs when a
     // native input event is in flight. On the data path (CallAfter from a PTY
     // read) there is no input event, so Update() forces gdk_window_process_updates()

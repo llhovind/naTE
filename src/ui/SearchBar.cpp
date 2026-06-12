@@ -23,7 +23,7 @@ SearchBar::SearchBar(wxWindow *parent, SearchController &ctrl)
 
     input_ = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxSize(200, -1),
                             wxTE_PROCESS_ENTER);
-    status_ = new wxStaticText(this, wxID_ANY, "", wxDefaultPosition, wxSize(80, -1));
+    status_ = new wxStaticText(this, wxID_ANY, "", wxDefaultPosition, wxSize(100, -1));
     status_->SetForegroundColour(btnFg);
     prevBtn_ = new wxButton(this, wxID_ANY, L"\u2BC7", wxDefaultPosition, wxSize(28, -1), wxBORDER_NONE | wxBU_EXACTFIT);
     prevBtn_->SetFont(btnfont);

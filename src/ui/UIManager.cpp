@@ -355,6 +355,7 @@ void UIManager::TakeSession(term::session::SessionId     id,
     auto* bar = new SearchBar(panel, *ctrl);
     ctrl->SetBar(bar);
     panel->SetSearchBar(bar);
+    panel->SetSearchController(ctrl.get());
 
     // Wire ReconnectBar buttons. Captured by value so they stay valid after
     // TakeSession returns. The panel is wx-owned and outlives these lambdas.
@@ -668,6 +669,7 @@ void UIManager::TearDownSessionUI(term::session::SessionId id)
     if (onSessionListChanged_ && !teardownInProgress_) onSessionListChanged_();
 
     if (ui->searchCtrl) ui->searchCtrl->SetBar(nullptr);
+    if (ui->panel) ui->panel->SetSearchController(nullptr);
 
     if (ui->tile) {
         const bool tileEmpty = ui->tile->RemoveTab(id);

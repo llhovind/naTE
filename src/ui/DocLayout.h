@@ -73,6 +73,9 @@ public:
     // Search — caller passes a case-folded needle; DocLayout folds each haystack
     // character internally so both sides are folded before comparison.
     std::vector<SearchMatch> Search(const std::u32string& foldedNeedle) const;
+    // Scan only lines [fromLine, toLine). Same folding contract as Search().
+    std::vector<SearchMatch> SearchRange(const std::u32string& foldedNeedle,
+                                         size_t fromLine, size_t toLine) const;
     void SetSearchState(const std::vector<SearchMatch>& matches, size_t currentIdx);
     void ClearSearchState();
 

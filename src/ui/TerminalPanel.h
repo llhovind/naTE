@@ -11,6 +11,7 @@
 
 class ReconnectBar;
 class SearchBar;
+class SearchController;
 
 class TerminalPanel : public wxWindow
 {
@@ -54,6 +55,10 @@ public:
     void SetSearchBar(SearchBar* bar);
     void ShowSearchBar(bool show);
     bool HasSearchBarFocus() const;
+
+    // Non-owning pointer to the active SearchController. Called by UIManager after
+    // construction and nulled before teardown so live-search notifications stop safely.
+    void SetSearchController(SearchController* sc);
 
     // Selection actions — non-owning; UIManager owns the registry.
     void SetActionRegistry(SelectionActionRegistry* reg) { actionRegistry_ = reg; }
@@ -141,8 +146,9 @@ private:
     wxTimer resizeTimer_;
     wxSize  pendingResize_{0, 0};
 
-    SearchBar*    searchBar_       = nullptr;  // wx-parent-owned; non-owning here
-    int           searchBarHeight_ = 0;
+    SearchBar*        searchBar_       = nullptr;  // wx-parent-owned; non-owning here
+    int               searchBarHeight_ = 0;
+    SearchController* searchCtrl_      = nullptr;  // non-owning
 
     ReconnectBar* reconnectBar_    = nullptr;  // wx-child-owned; hidden by default
     wxString      lastDisconnectMsg_;          // message to restore when tab is activated

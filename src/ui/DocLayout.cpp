@@ -547,6 +547,31 @@ std::vector<SearchMatch> DocLayout::Search(const std::u32string& foldedNeedle) c
     return results;
 }
 
+std::vector<SearchMatch> DocLayout::SearchRange(const std::u32string& foldedNeedle,
+                                                 size_t fromLine, size_t toLine) const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
+    std::vector<SearchMatch> results;
+    if (foldedNeedle.empty()) return results;
+
+    const auto& lines = doc_->GetLines();
+    const size_t end = std::min(toLine, lines.size());
+    for (size_t i = fromLine; i < end; ++i) {
+        std::u32string haystack;
+        haystack.reserve(lines[i].text.size());
+        for (char32_t c : lines[i].text)
+            haystack.push_back(CaseFold(c));
+
+        size_t pos = 0;
+        while ((pos = haystack.find(foldedNeedle, pos)) != std::u32string::npos) {
+            results.push_back({i, pos, foldedNeedle.size()});
+            pos += foldedNeedle.size();
+        }
+    }
+    return results;
+}
+
 void DocLayout::SetSearchState(const std::vector<SearchMatch>& matches, size_t currentIdx)
 {
     std::lock_guard<std::mutex> lk(mtx_);
