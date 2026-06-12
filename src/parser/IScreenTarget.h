@@ -13,9 +13,6 @@ public:
     virtual void OnCwdChanged(const std::string& /*path*/) {}
     virtual void OnSetCursorVisibility(bool /*visible*/)        {}
     virtual void OnSetApplicationCursorKeys(bool /*enabled*/)   {}
-    virtual void OnFunctionKey(int /*n*/)        {}
-    virtual void OnScrollUp(int /*count*/)       {}
-    virtual void OnScrollDown(int /*count*/)     {}
     virtual void OnResetTerminal()               {}
     virtual void OnBell()                        {}
     virtual void OnSetBracketedPaste(bool /*enabled*/) {}

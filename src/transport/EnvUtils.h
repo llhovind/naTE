@@ -54,4 +54,9 @@ std::string ResolveWorkingDir(const std::string& profileDir,
 // "/bin/bash" → "-bash",  "/usr/bin/zsh" → "-zsh".
 std::string MakeLoginShellArg0(const std::string& shellPath);
 
+// Wrap s in single-quotes, escaping embedded single-quotes as '\''.
+// Produces a POSIX shell token that is safe regardless of spaces or
+// special characters.
+std::string ShellQuote(const std::string& s);
+
 } // namespace term::transport

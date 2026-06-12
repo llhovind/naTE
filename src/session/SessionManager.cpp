@@ -611,14 +611,7 @@ void SessionManager::RestoreScrollback(SessionId id, const std::string& uuid)
 
     // Append the separator DocLine to the snapshot so it is saved to disk and
     // appears in subsequent restores, marking each restore boundary.
-    {
-        const std::u32string t(snap.savedAt.begin(), snap.savedAt.end());
-        const std::u32string text = U"--- Scrollback restored from " + t + U" ---";
-        DocLine sep;
-        sep.text = text;
-        sep.styles.push_back({0, text.size(), Style{.fg = 8, .dim = true}});
-        snap.lines.push_back(std::move(sep));
-    }
+    snap.lines.push_back(MakeScrollbackSeparator(snap.savedAt));
 
     // Re-start the writer pre-populated with the restored snapshot so segments
     // are the single source of truth for crash recovery (Fix 1).

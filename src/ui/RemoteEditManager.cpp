@@ -1,25 +1,11 @@
 #include "ui/RemoteEditManager.h"
+#include "transport/EnvUtils.h"
 #include <filesystem>
 #include <wx/app.h>
 #include <wx/utils.h>
 #include <algorithm>
 
 namespace ui {
-
-namespace {
-    // Wrap s in single-quotes, escaping embedded single-quotes as '\''.
-    // Produces a shell token that is safe regardless of spaces or special chars.
-    std::string ShellQuote(const std::string& s)
-    {
-        std::string out = "'";
-        for (char c : s) {
-            if (c == '\'') out += "'\\''";
-            else           out += c;
-        }
-        out += "'";
-        return out;
-    }
-} // namespace
 
 RemoteEditManager::RemoteEditManager(term::session::SessionManager& sm)
     : sm_(sm)
@@ -72,7 +58,8 @@ void RemoteEditManager::OpenRemoteFile(term::session::SessionId  id,
                     session->Start();
                     sessions_.push_back(std::move(session));
 
-                    wxExecute(wxString::FromUTF8(editorCommand + " " + ShellQuote(localPath)),
+                    wxExecute(wxString::FromUTF8(editorCommand + " "
+                                  + term::transport::ShellQuote(localPath)),
                               wxEXEC_ASYNC);
 
                     if (onReady) onReady(true, "");

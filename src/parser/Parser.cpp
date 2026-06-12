@@ -113,14 +113,12 @@ void Parser::HandleSkipOne(unsigned char /*byte*/)
 }
 
 // SS3 sequences: ESC O <byte>
-// Used for F1–F4 and application-mode cursor/home/end keys.
+// Application-mode cursor/home/end movements; F1–F4 (P/Q/R/S) are keyboard
+// input sequences that never appear in legitimate display output and are
+// silently consumed.
 void Parser::HandleSs3(unsigned char byte)
 {
     switch (byte) {
-    case 'P': screen_.OnFunctionKey(1);            break;
-    case 'Q': screen_.OnFunctionKey(2);            break;
-    case 'R': screen_.OnFunctionKey(3);            break;
-    case 'S': screen_.OnFunctionKey(4);            break;
     case 'A': doc_->MoveCursorUp(1);               break;
     case 'B': doc_->MoveCursorDown(1);             break;
     case 'C': doc_->MoveCursorRight(1);            break;
@@ -181,26 +179,14 @@ void Parser::HandleCsiFinal(unsigned char byte)
     case 'h': if (ParseFirstParam(0) == 4) doc_->SetInsertMode(true);              break;
     case 'l': if (ParseFirstParam(0) == 4) doc_->SetInsertMode(false);             break;
     case '~': {
+        // PageUp/PageDown (5/6) and F-keys (11–24) are keyboard input
+        // sequences, never legitimate display output — silently consumed.
         const int code = ParseParam(0, 0);
         switch (code) {
         case 1: case 7:  doc_->MoveCursorToLineStart();  break;
         case 2:          /* insert mode toggle — no-op */ break;
         case 3:          doc_->DeleteChar(1);             break;
         case 4: case 8:  doc_->MoveCursorToLineEnd();     break;
-        case 5:          screen_.OnScrollUp(1);           break;
-        case 6:          screen_.OnScrollDown(1);         break;
-        case 11:         screen_.OnFunctionKey(1);        break;
-        case 12:         screen_.OnFunctionKey(2);        break;
-        case 13:         screen_.OnFunctionKey(3);        break;
-        case 14:         screen_.OnFunctionKey(4);        break;
-        case 15:         screen_.OnFunctionKey(5);        break;
-        case 17:         screen_.OnFunctionKey(6);        break;
-        case 18:         screen_.OnFunctionKey(7);        break;
-        case 19:         screen_.OnFunctionKey(8);        break;
-        case 20:         screen_.OnFunctionKey(9);        break;
-        case 21:         screen_.OnFunctionKey(10);       break;
-        case 23:         screen_.OnFunctionKey(11);       break;
-        case 24:         screen_.OnFunctionKey(12);       break;
         default: break;
         }
         break;

@@ -77,44 +77,6 @@ std::vector<std::vector<uint8_t>> LoadPreferredBlobs(
     return blobs;
 }
 
-// Try agent identities (blocking) whose blob matches one in `preferred`.
-// Returns true on first accepted identity.
-// Sets *anyMatched=true if at least one matching identity was found in the agent.
-bool AgentTryPreferredBlocking(LIBSSH2_AGENT* agent,
-                               const char* username,
-                               const std::vector<std::vector<uint8_t>>& preferred,
-                               bool* anyMatched)
-{
-    *anyMatched = false;
-    libssh2_agent_publickey* id   = nullptr;
-    libssh2_agent_publickey* prev = nullptr;
-    while (libssh2_agent_get_identity(agent, &id, prev) == 0) {
-        const bool matches = std::any_of(
-            preferred.begin(), preferred.end(),
-            [&](const std::vector<uint8_t>& b) {
-                return b.size() == id->blob_len &&
-                       std::memcmp(b.data(), id->blob, b.size()) == 0;
-            });
-        if (!matches) { prev = id; continue; }
-        *anyMatched = true;
-        if (libssh2_agent_userauth(agent, username, id) == 0) return true;
-        prev = id;
-    }
-    return false;
-}
-
-// Try all agent identities (blocking). Returns true on first accepted identity.
-bool AgentTryAllBlocking(LIBSSH2_AGENT* agent, const char* username)
-{
-    libssh2_agent_publickey* id   = nullptr;
-    libssh2_agent_publickey* prev = nullptr;
-    while (libssh2_agent_get_identity(agent, &id, prev) == 0) {
-        if (libssh2_agent_userauth(agent, username, id) == 0) return true;
-        prev = id;
-    }
-    return false;
-}
-
 // libssh2 X11 channel-open callback — invoked on the worker thread from within
 // libssh2_channel_read() when the server opens a reverse X11 channel.
 // abstract is the session's user pointer, which WorkerThread sets to `this`.
@@ -185,26 +147,6 @@ void KbdIntCallback(
     auto* self = static_cast<term::transport::SshTransport*>(*abstract);
     ApplyKbdIntResponses(name, name_len, instruction, instruction_len,
                          num_prompts, prompts, responses, self->Target());
-}
-
-// Context struct used by the auxiliary-session keyboard-interactive callback.
-struct KbdIntAuxCtx {
-    term::transport::ITransportTarget* target;
-};
-
-// Keyboard-interactive callback for blocking auxiliary sessions.
-// abstract points to a KbdIntAuxCtx on the caller's stack.
-void KbdIntAuxCallback(
-    const char* name,        int name_len,
-    const char* instruction, int instruction_len,
-    int num_prompts,
-    const LIBSSH2_USERAUTH_KBDINT_PROMPT* prompts,
-    LIBSSH2_USERAUTH_KBDINT_RESPONSE*     responses,
-    void**                                abstract)
-{
-    auto* ctx = static_cast<KbdIntAuxCtx*>(*abstract);
-    ApplyKbdIntResponses(name, name_len, instruction, instruction_len,
-                         num_prompts, prompts, responses, *ctx->target);
 }
 
 std::string GenerateVpColumnsFilePath() {
@@ -405,7 +347,7 @@ void SshTransport::WorkerThread()
         if (!vpcolumns_remote_path_.empty()) {
             LIBSSH2_CHANNEL* ch = libssh2_channel_open_session(session_);
             if (ch) {
-                const std::string rm = "rm -f '" + vpcolumns_remote_path_ + "'";
+                const std::string rm = "rm -f " + ShellQuote(vpcolumns_remote_path_);
                 if (libssh2_channel_exec(ch, rm.c_str()) == 0) {
                     char discard[64];
                     while (libssh2_channel_read(ch, discard, sizeof(discard)) > 0) {}
@@ -942,27 +884,21 @@ bool SshTransport::StartShell()
     for (const auto& ev : fileVars)              merged.push_back(ev);
     for (const auto& ev : sessionInit_.envVars)  merged.push_back(ev);
 
-    // Build a POSIX-safe export prefix: single-quote each value,
-    // escaping any embedded single quotes as '\''.
+    // Build a POSIX-safe export prefix; ShellQuote handles embedded quotes.
     std::string envPrefix;
     for (const auto& ev : merged) {
         if (ev.key.empty()) continue;
-        std::string escaped = ev.value;
-        for (size_t pos = 0; (pos = escaped.find('\'', pos)) != std::string::npos; pos += 4)
-            escaped.replace(pos, 1, "'\\''");
-        envPrefix += "export " + ev.key + "='" + escaped + "'; ";
+        envPrefix += "export " + ev.key + "=" + ShellQuote(ev.value) + "; ";
     }
 
     // Inject NATE_VPCOLUMNS_FILE and write the initial viewport width so
     // the shell can read the actual display columns even when COLUMNS is
     // inflated by wrap-OFF mode.
     {
-        std::string escaped = vpcolumns_remote_path_;
-        for (size_t p = 0; (p = escaped.find('\'', p)) != std::string::npos; p += 4)
-            escaped.replace(p, 1, "'\\''");
-        envPrefix += "export NATE_VPCOLUMNS_FILE='" + escaped + "'; ";
+        const std::string quotedPath = ShellQuote(vpcolumns_remote_path_);
+        envPrefix += "export NATE_VPCOLUMNS_FILE=" + quotedPath + "; ";
         envPrefix += "printf '%d\\n' " + std::to_string(viewportCols_)
-                   + " > '" + escaped + "'; ";
+                   + " > " + quotedPath + "; ";
     }
 
     // Resolve remote working directory. Do NOT expand ~ locally — the path
@@ -1172,7 +1108,6 @@ DisconnectReason SshTransport::ReadWriteLoop()
 
     }
 
-cleanup_x11:
     for (auto& x : x11_channels_) {
         ::close(x.local_fd);
         libssh2_channel_free(x.channel);
@@ -1266,7 +1201,7 @@ void SshTransport::DrainWriteQueue()
 void SshTransport::RemoteWriteVpCols(unsigned short cols)
 {
     const std::string cmd = "printf '%d\\n' " + std::to_string(cols)
-                          + " > '" + vpcolumns_remote_path_ + "'";
+                          + " > " + ShellQuote(vpcolumns_remote_path_);
 
     LIBSSH2_CHANNEL* ch = nullptr;
     while (running_) {

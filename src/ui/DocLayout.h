@@ -140,6 +140,8 @@ private:
     };
 
     // All *Locked methods assume mtx_ is already held by the caller.
+    std::vector<SearchMatch> SearchRangeLocked(const std::u32string& foldedNeedle,
+                                               size_t fromLine, size_t toLine) const;
     ViewportAnchor WalkAnchorBy(ViewportAnchor a, int delta) const;
     RenderedLine   BuildRenderedLineLocked(ViewportAnchor pos) const;
     int            VisualCount(const DocLine& line) const;

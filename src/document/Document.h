@@ -49,13 +49,20 @@ struct CursorPos {
 struct DocLine {
     std::u32string text;
     std::vector<StyleRun> styles;
-    Style currentStyle;
 
-    void WriteAt(size_t col, char32_t ch);
-    void InsertAt(size_t col, char32_t ch);
+    // Write/insert operations take the style to apply explicitly — SGR state
+    // is terminal-global and owned by Document, never by a line.
+    void WriteAt(size_t col, char32_t ch, const Style& style);
+    void InsertAt(size_t col, char32_t ch, const Style& style);
     void DeletePreviousChar(size_t cursorCol);
     void DeleteAt(size_t col, size_t count);
-    void DeleteAtClamped(size_t col, size_t count, size_t boundary);
+    // padStyle is applied to the spaces that backfill the cleared cells.
+    void DeleteAtClamped(size_t col, size_t count, size_t boundary,
+                         const Style& padStyle);
+    // Erase all text from col to end of line, dropping style runs at or past
+    // col and truncating any run that straddles it. No-op when col is at or
+    // past the end of the text.
+    void TruncateFrom(size_t col);
     void Clear();
 };
 
@@ -105,7 +112,10 @@ public:
     virtual void Backspace() = 0;
     virtual void NewLine() = 0;
     virtual void CarriageReturn() = 0;
-    virtual void SetCurrentStyle(const Style& style) = 0;
+    // SGR state is terminal-global: it survives line breaks and cursor moves,
+    // exactly like a real terminal. Written and read only on the thread that
+    // feeds the parser, so no lock is required.
+    void SetCurrentStyle(const Style& style) override { currentStyle_ = style; }
     virtual const std::deque<DocLine>& GetLines() const = 0;
 
     virtual void MoveCursorLeft(int n)  = 0;
@@ -165,6 +175,7 @@ protected:
     CursorPos   cursor_{};
     std::string title_;
     bool        insertMode_ = false;
+    Style       currentStyle_{};   // accumulated SGR state; see SetCurrentStyle
 
     mutable std::shared_mutex linesMutex_;
 
@@ -179,6 +190,13 @@ struct ScrollbackSnapshot {
     std::string savedAt;   // ISO 8601, set at capture time by caller
 };
 
+// Builds the dim separator DocLine that marks where restored scrollback ends
+// and new output begins: "--- Scrollback restored from <savedAt> ---".
+// When padToCols exceeds the base text length the line is right-padded with
+// dashes to that width (used to span the full terminal row); otherwise a
+// plain "---" suffix closes the line.
+DocLine MakeScrollbackSeparator(const std::string& savedAt, int padToCols = 0);
+
 class MainScreenDocument : public Document {
 public:
     explicit MainScreenDocument(int maxLines = 100'000);
@@ -187,7 +205,6 @@ public:
     void Backspace() override;
     void NewLine() override;
     void CarriageReturn() override;
-    void SetCurrentStyle(const Style& style) override;
     const std::deque<DocLine>& GetLines() const override { return lines_; }
 
     void MoveCursorLeft(int n)  override;
@@ -258,7 +275,6 @@ public:
     void Backspace() override;
     void NewLine() override;
     void CarriageReturn() override;
-    void SetCurrentStyle(const Style& style) override;
     const std::deque<DocLine>& GetLines() const override { return lines_; }
 
     void MoveCursorLeft(int n)  override;

@@ -49,7 +49,7 @@ int CharWidth(char32_t cp)
 // DocLine
 // ---------------------------------------------------------------------------
 
-void DocLine::WriteAt(size_t col, char32_t ch)
+void DocLine::WriteAt(size_t col, char32_t ch, const Style& style)
 {
     // --- pad: cursor jumped past end of line ---
     if (col > text.size()) {
@@ -66,11 +66,11 @@ void DocLine::WriteAt(size_t col, char32_t ch)
     // --- append: cursor is at end of line ---
     if (col == text.size()) {
         text.push_back(ch);
-        if (!styles.empty() && styles.back().style == currentStyle &&
+        if (!styles.empty() && styles.back().style == style &&
             styles.back().start + styles.back().length == col)
             ++styles.back().length;
         else
-            styles.push_back({col, 1, currentStyle});
+            styles.push_back({col, 1, style});
         return;
     }
 
@@ -81,7 +81,7 @@ void DocLine::WriteAt(size_t col, char32_t ch)
         const size_t rEnd   = rStart + styles[i].length;
         if (rStart > col || rEnd <= col) continue;
 
-        if (styles[i].style == currentStyle) return;
+        if (styles[i].style == style) return;
 
         const Style  old       = styles[i].style;
         const size_t beforeLen = col - rStart;
@@ -91,12 +91,12 @@ void DocLine::WriteAt(size_t col, char32_t ch)
 
         size_t at = i;
         if (beforeLen > 0) styles.insert(styles.begin() + at++, {rStart,   beforeLen, old});
-        styles.insert(styles.begin() + at++,                    {col,       1,         currentStyle});
+        styles.insert(styles.begin() + at++,                    {col,       1,         style});
         if (afterLen  > 0) styles.insert(styles.begin() + at,   {col + 1,  afterLen,  old});
         return;
     }
     // col not covered by any run (gap in style tracking)
-    styles.push_back({col, 1, currentStyle});
+    styles.push_back({col, 1, style});
 }
 
 void DocLine::Clear()
@@ -163,9 +163,10 @@ void DocLine::DeleteAt(size_t col, size_t count)
 
 // VT100 CSI P semantics bounded to a visual row [col, boundary).
 // Deletes eff=min(count, boundary-col) chars at col, shifts [col+eff, boundary) left,
-// fills [boundary-eff, boundary) with spaces, leaves [boundary, ...) untouched.
+// fills [boundary-eff, boundary) with padStyle spaces, leaves [boundary, ...) untouched.
 // Style-safe: composed entirely from DeleteAt and InsertAt.
-void DocLine::DeleteAtClamped(size_t col, size_t count, size_t boundary)
+void DocLine::DeleteAtClamped(size_t col, size_t count, size_t boundary,
+                              const Style& padStyle)
 {
     if (col >= text.size() || col >= boundary || count == 0)
         return;
@@ -183,15 +184,15 @@ void DocLine::DeleteAtClamped(size_t col, size_t count, size_t boundary)
     // suffix back to [boundary, ...) and fills the gap with spaces.
     DeleteAt(col, eff);
     for (size_t i = 0; i < eff; ++i)
-        InsertAt(boundary - eff, U' ');
+        InsertAt(boundary - eff, U' ', padStyle);
 }
 
 // Insert `ch` at `col`, shifting all characters from `col` rightward by one.
 // If `col` is past the end of the line it delegates to WriteAt (pad + append).
-void DocLine::InsertAt(size_t col, char32_t ch)
+void DocLine::InsertAt(size_t col, char32_t ch, const Style& style)
 {
     if (col >= text.size()) {
-        WriteAt(col, ch);
+        WriteAt(col, ch, style);
         return;
     }
 
@@ -215,13 +216,30 @@ void DocLine::InsertAt(size_t col, char32_t ch)
             styles.insert(styles.begin() + static_cast<ptrdiff_t>(i) + 1,
                           {col + 1, afterLen, old});
             styles.insert(styles.begin() + static_cast<ptrdiff_t>(i) + 1,
-                          {col,     1,        currentStyle});
+                          {col,     1,        style});
             return;
         }
         // else: run is entirely before col — no change.
     }
     // Insertion point not covered by any run — add a new single-cell run.
-    styles.push_back({col, 1, currentStyle});
+    styles.push_back({col, 1, style});
+}
+
+void DocLine::TruncateFrom(size_t col)
+{
+    if (col >= text.size())
+        return;
+    text.erase(col);
+    for (auto it = styles.begin(); it != styles.end(); ) {
+        if (it->start >= col) {
+            it = styles.erase(it);
+        } else if (it->start + it->length > col) {
+            it->length = col - it->start;
+            ++it;
+        } else {
+            ++it;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -253,6 +271,20 @@ void Document::NotifyListeners(DocChangeType type, size_t lineIndex)
         l->OnDocumentChanged(type, lineIndex);
 }
 
+DocLine MakeScrollbackSeparator(const std::string& savedAt, int padToCols)
+{
+    std::string text = "--- Scrollback restored from " + savedAt + " ";
+    if (padToCols > static_cast<int>(text.size()))
+        text.append(static_cast<size_t>(padToCols) - text.size(), '-');
+    else if (padToCols <= 0)
+        text += "---";
+
+    DocLine sep;
+    sep.text.assign(text.begin(), text.end());
+    sep.styles.push_back({0, sep.text.size(), Style{.fg = 8, .dim = true}});
+    return sep;
+}
+
 // ---------------------------------------------------------------------------
 // MainScreenDocument
 // ---------------------------------------------------------------------------
@@ -272,11 +304,11 @@ void MainScreenDocument::AppendInsertChar(char32_t ch)
     {
         std::unique_lock<std::shared_mutex> wlk(linesMutex_);
         if (insertMode_) {
-            lines_[cursor_.line].InsertAt(cursor_.col, ch);
-            if (w == 2) lines_[cursor_.line].InsertAt(cursor_.col + 1, kWideFiller);
+            lines_[cursor_.line].InsertAt(cursor_.col, ch, currentStyle_);
+            if (w == 2) lines_[cursor_.line].InsertAt(cursor_.col + 1, kWideFiller, currentStyle_);
         } else {
-            lines_[cursor_.line].WriteAt(cursor_.col, ch);
-            if (w == 2) lines_[cursor_.line].WriteAt(cursor_.col + 1, kWideFiller);
+            lines_[cursor_.line].WriteAt(cursor_.col, ch, currentStyle_);
+            if (w == 2) lines_[cursor_.line].WriteAt(cursor_.col + 1, kWideFiller, currentStyle_);
         }
         cursor_.col += static_cast<size_t>(w);
     }
@@ -346,12 +378,6 @@ void MainScreenDocument::CarriageReturn()
     cursor_.col = (cursor_.col / c) * c;
     crPriorToNewLine_ = true;
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
-}
-
-void MainScreenDocument::SetCurrentStyle(const Style& style)
-{
-    std::unique_lock<std::shared_mutex> wlk(linesMutex_);
-    lines_[cursor_.line].currentStyle = style;
 }
 
 void MainScreenDocument::MoveCursorLeft(int n)
@@ -449,37 +475,17 @@ void MainScreenDocument::EraseInLine(int mode)
         {
             std::unique_lock<std::shared_mutex> wlk(linesMutex_);
             DocLine& line = lines_[cursor_.line];
-            if (cursor_.col < line.text.size()) {
-                line.text.erase(cursor_.col);
-                for (auto it = line.styles.begin(); it != line.styles.end(); ) {
-                    if (it->start >= cursor_.col) {
-                        it = line.styles.erase(it);
-                    } else if (it->start + it->length > cursor_.col) {
-                        it->length = cursor_.col - it->start;
-                        ++it;
-                    } else {
-                        ++it;
-                    }
-                }
-            }
+            line.TruncateFrom(cursor_.col);
             // After erasing subRow 1+ content (cursor is exactly at a subRow
             // start), trim trailing spaces left by DeleteAtClamped padding and
             // reset cursor to the true content end. Gated on hadPendingClear to
             // avoid false-positive trims from unrelated erases at a subRow boundary.
             if (hadPendingClear && cursor_.col > 0
                                 && cursor_.col % static_cast<size_t>(cols_) == 0) {
-                while (!line.text.empty() && line.text.back() == U' ') {
-                    line.text.pop_back();
-                    for (auto it = line.styles.begin(); it != line.styles.end(); ) {
-                        const size_t newLen = line.text.size();
-                        if (it->start >= newLen)
-                            it = line.styles.erase(it);
-                        else if (it->start + it->length > newLen)
-                            { it->length = newLen - it->start; ++it; }
-                        else
-                            ++it;
-                    }
-                }
+                size_t contentEnd = line.text.size();
+                while (contentEnd > 0 && line.text[contentEnd - 1] == U' ')
+                    --contentEnd;
+                line.TruncateFrom(contentEnd);
                 cursor_.col = line.text.size();
             }
         }
@@ -582,7 +588,7 @@ void MainScreenDocument::EraseChar(int count)
         const size_t end = std::min(cursor_.col + static_cast<size_t>(count),
                                     lines_[cursor_.line].text.size());
         for (size_t i = cursor_.col; i < end; ++i)
-            lines_[cursor_.line].WriteAt(i, U' ');
+            lines_[cursor_.line].WriteAt(i, U' ', currentStyle_);
     }
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
@@ -602,7 +608,7 @@ void MainScreenDocument::DeleteChar(int count)
             const size_t subRowEnd = (cursor_.col / c + 1) * c;
             lines_[cursor_.line].DeleteAtClamped(cursor_.col,
                                                  static_cast<size_t>(count),
-                                                 subRowEnd);
+                                                 subRowEnd, currentStyle_);
             pendingSubRowClear_ = true;
         } else {
             lines_[cursor_.line].DeleteAt(cursor_.col, static_cast<size_t>(count));
@@ -616,7 +622,7 @@ void MainScreenDocument::InsertChar(int count)
     {
         std::unique_lock<std::shared_mutex> wlk(linesMutex_);
         for (int i = 0; i < count; ++i)
-            lines_[cursor_.line].InsertAt(cursor_.col, U' ');
+            lines_[cursor_.line].InsertAt(cursor_.col, U' ', currentStyle_);
     }
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
@@ -680,20 +686,7 @@ void MainScreenDocument::EraseInDisplay(int mode)
         // Lines are kept (not popped) to preserve document structure.
         {
             std::unique_lock<std::shared_mutex> wlk(linesMutex_);
-            DocLine& cur = lines_[cursor_.line];
-            if (cursor_.col < cur.text.size()) {
-                cur.text.erase(cursor_.col);
-                for (auto it = cur.styles.begin(); it != cur.styles.end(); ) {
-                    if (it->start >= cursor_.col)
-                        it = cur.styles.erase(it);
-                    else if (it->start + it->length > cursor_.col) {
-                        it->length = cursor_.col - it->start;
-                        ++it;
-                    } else {
-                        ++it;
-                    }
-                }
-            }
+            lines_[cursor_.line].TruncateFrom(cursor_.col);
         }
         NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
         {
@@ -734,6 +727,7 @@ void MainScreenDocument::FullReset(bool clearContent)
 {
     insertMode_         = false;
     pendingSubRowClear_ = false;
+    currentStyle_       = {};
     title_.clear();
 
     if (clearContent) {
@@ -765,16 +759,7 @@ void MainScreenDocument::LoadScrollback(const ScrollbackSnapshot& snap)
 
     const size_t n = snap.lines.size();
 
-    // Build separator: "--- Scrollback restored from <savedAt> " padded to cols_ with dashes
-    DocLine sep;
-    {
-        const std::string prefix = "--- Scrollback restored from " + snap.savedAt + " ";
-        std::string sepText = prefix;
-        if (static_cast<int>(sepText.size()) < cols_)
-            sepText += std::string(static_cast<size_t>(cols_) - sepText.size(), '-');
-        sep.text = std::u32string(sepText.begin(), sepText.end());
-        sep.styles.push_back({0, sep.text.size(), Style{.fg = 8, .dim = true}});
-    }
+    DocLine sep = MakeScrollbackSeparator(snap.savedAt, cols_);
 
     {
         std::unique_lock<std::shared_mutex> wlk(linesMutex_);
@@ -837,13 +822,13 @@ void AltScreenDocument::AppendInsertChar(char32_t ch)
     {
         std::unique_lock<std::shared_mutex> wlk(linesMutex_);
         if (insertMode_) {
-            lines_[cursor_.line].InsertAt(cursor_.col, ch);
+            lines_[cursor_.line].InsertAt(cursor_.col, ch, currentStyle_);
             if (w == 2 && cursor_.col + 1 < static_cast<size_t>(cols_))
-                lines_[cursor_.line].InsertAt(cursor_.col + 1, kWideFiller);
+                lines_[cursor_.line].InsertAt(cursor_.col + 1, kWideFiller, currentStyle_);
         } else {
-            lines_[cursor_.line].WriteAt(cursor_.col, ch);
+            lines_[cursor_.line].WriteAt(cursor_.col, ch, currentStyle_);
             if (w == 2 && cursor_.col + 1 < static_cast<size_t>(cols_))
-                lines_[cursor_.line].WriteAt(cursor_.col + 1, kWideFiller);
+                lines_[cursor_.line].WriteAt(cursor_.col + 1, kWideFiller, currentStyle_);
         }
     }
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
@@ -967,12 +952,6 @@ void AltScreenDocument::CarriageReturn()
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
-void AltScreenDocument::SetCurrentStyle(const Style& style)
-{
-    std::unique_lock<std::shared_mutex> wlk(linesMutex_);
-    lines_[cursor_.line].currentStyle = style;
-}
-
 void AltScreenDocument::MoveCursorLeft(int n)
 {
     pendingWrap_ = false;
@@ -1038,19 +1017,7 @@ void AltScreenDocument::EraseInLine(int mode)
         DocLine& line = lines_[cursor_.line];
         switch (mode) {
         case 0: // cursor to end of line
-            if (cursor_.col < line.text.size()) {
-                line.text.erase(cursor_.col);
-                for (auto it = line.styles.begin(); it != line.styles.end(); ) {
-                    if (it->start >= cursor_.col)
-                        it = line.styles.erase(it);
-                    else if (it->start + it->length > cursor_.col) {
-                        it->length = cursor_.col - it->start;
-                        ++it;
-                    } else {
-                        ++it;
-                    }
-                }
-            }
+            line.TruncateFrom(cursor_.col);
             break;
         case 1: // beginning of line to cursor (inclusive) — fill with spaces
             for (size_t i = 0; i <= cursor_.col && i < line.text.size(); ++i)
@@ -1073,7 +1040,7 @@ void AltScreenDocument::EraseChar(int count)
         const size_t end = std::min(cursor_.col + static_cast<size_t>(count),
                                     static_cast<size_t>(cols_));
         for (size_t i = cursor_.col; i < end; ++i)
-            lines_[cursor_.line].WriteAt(i, U' ');
+            lines_[cursor_.line].WriteAt(i, U' ', currentStyle_);
     }
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
@@ -1093,7 +1060,7 @@ void AltScreenDocument::InsertChar(int count)
         std::unique_lock<std::shared_mutex> wlk(linesMutex_);
         DocLine& line = lines_[cursor_.line];
         for (int i = 0; i < count; ++i)
-            line.InsertAt(cursor_.col, U' ');
+            line.InsertAt(cursor_.col, U' ', currentStyle_);
         // Clamp line to cols_ — characters pushed past the right margin are lost.
         if (line.text.size() > static_cast<size_t>(cols_)) {
             line.DeleteAt(static_cast<size_t>(cols_),
@@ -1153,20 +1120,7 @@ void AltScreenDocument::EraseInDisplay(int mode)
     case 0: { // cursor to end of display
         {
             std::unique_lock<std::shared_mutex> wlk(linesMutex_);
-            DocLine& cur = lines_[cursor_.line];
-            if (cursor_.col < cur.text.size()) {
-                cur.text.erase(cursor_.col);
-                for (auto it = cur.styles.begin(); it != cur.styles.end(); ) {
-                    if (it->start >= cursor_.col)
-                        it = cur.styles.erase(it);
-                    else if (it->start + it->length > cursor_.col) {
-                        it->length = cursor_.col - it->start;
-                        ++it;
-                    } else {
-                        ++it;
-                    }
-                }
-            }
+            lines_[cursor_.line].TruncateFrom(cursor_.col);
         }
         NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
         {
@@ -1214,11 +1168,12 @@ void AltScreenDocument::EraseInDisplay(int mode)
 
 void AltScreenDocument::FullReset(bool /*clearContent*/)
 {
-    scrollTop_   = 0;
-    scrollBot_   = rows_ - 1;
-    savedCursor_ = {};
-    insertMode_  = false;
-    pendingWrap_ = false;
+    scrollTop_    = 0;
+    scrollBot_    = rows_ - 1;
+    savedCursor_  = {};
+    insertMode_   = false;
+    pendingWrap_  = false;
+    currentStyle_ = {};
     title_.clear();
     cursor_      = {0, 0};
     const int n  = static_cast<int>(lines_.size());

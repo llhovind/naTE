@@ -1,4 +1,5 @@
 #include "ui/UIManager.h"
+#include "ui/ClipboardUtils.h"
 #include "ui/ColorUtils.h"
 #include "app/App.h"
 #include "ui/TransferFilesDialog.h"
@@ -18,8 +19,6 @@
 #include "ui/StringUtils.h"
 #include <wx/brush.h>
 #include <wx/utils.h>
-#include <wx/clipbrd.h>
-#include <wx/dataobj.h>
 #include <wx/display.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
@@ -329,20 +328,7 @@ void UIManager::TakeSession(term::session::SessionId     id,
             return;
         }
         if (evt.ctrl && evt.key == term::input::Key::Character && evt.code == 'v') {
-            wxString text;
-            if (wxTheClipboard->Open()) {
-                if (wxTheClipboard->IsSupported(wxDF_UNICODETEXT)) {
-                    wxTextDataObject data;
-                    wxTheClipboard->GetData(data);
-                    text = data.GetText();
-                } else if (wxTheClipboard->IsSupported(wxDF_TEXT)) {
-                    wxTextDataObject data;
-                    wxTheClipboard->GetData(data);
-                    text = data.GetText();
-                }
-                wxTheClipboard->Close();
-            }
-            DoPaste(std::string(text.ToUTF8()));
+            PasteFromClipboard();
             return;
         }
         router_.Send(evt);
@@ -1209,20 +1195,7 @@ void UIManager::ResizeFrameToFitTiles()
 
 void UIManager::PasteFromClipboard()
 {
-    wxString text;
-    if (wxTheClipboard->Open()) {
-        if (wxTheClipboard->IsSupported(wxDF_UNICODETEXT)) {
-            wxTextDataObject data;
-            wxTheClipboard->GetData(data);
-            text = data.GetText();
-        } else if (wxTheClipboard->IsSupported(wxDF_TEXT)) {
-            wxTextDataObject data;
-            wxTheClipboard->GetData(data);
-            text = data.GetText();
-        }
-        wxTheClipboard->Close();
-    }
-    DoPaste(std::string(text.ToUTF8()));
+    DoPaste(ReadClipboardText());
 }
 
 void UIManager::DoPaste(const std::string& utf8)

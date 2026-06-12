@@ -1,22 +1,9 @@
 #include "ui/SearchController.h"
 #include "ui/DocLayout.h"
+#include "ui/SearchMatch.h"
 #include "ui/TerminalPanel.h"
 #include "ui/SearchBar.h"
 #include <algorithm>
-
-static char32_t CaseFold(char32_t c)
-{
-    return (c >= U'A' && c <= U'Z') ? c + (U'a' - U'A') : c;
-}
-
-static std::u32string FoldedStr(const std::u32string& s)
-{
-    std::u32string r;
-    r.reserve(s.size());
-    for (char32_t c : s)
-        r.push_back(CaseFold(c));
-    return r;
-}
 
 SearchController::SearchController(DocLayout& layout, TerminalPanel& panel)
     : layout_(layout), panel_(panel)
@@ -42,7 +29,7 @@ void SearchController::SetQuery(const std::u32string& query)
         Clear();
         return;
     }
-    foldedQuery_ = FoldedStr(query_);
+    foldedQuery_ = SearchCaseFoldStr(query_);
     RebuildMatches();
     appendedUpToLine_ = (size_t)layout_.GetLineCount();
     currentIdx_ = matches_.empty() ? 0 : matches_.size() - 1;

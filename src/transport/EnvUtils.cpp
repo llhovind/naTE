@@ -134,4 +134,15 @@ std::string MakeLoginShellArg0(const std::string& shellPath)
     return '-' + name;
 }
 
+std::string ShellQuote(const std::string& s)
+{
+    std::string out = "'";
+    for (char c : s) {
+        if (c == '\'') out += "'\\''";
+        else           out += c;
+    }
+    out += "'";
+    return out;
+}
+
 } // namespace term::transport

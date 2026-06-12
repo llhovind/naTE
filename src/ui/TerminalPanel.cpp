@@ -1,4 +1,5 @@
 #include "ui/TerminalPanel.h"
+#include "ui/ClipboardUtils.h"
 #include "ui/ReconnectBar.h"
 #include "ui/SearchBar.h"
 #include "ui/SearchController.h"
@@ -496,27 +497,9 @@ void TerminalPanel::OnBlinkTimer(wxTimerEvent&)
 void TerminalPanel::OnMiddleDown(wxMouseEvent& e)
 {
     if (!pasteCb_) { e.Skip(); return; }
-    wxString text;
-#ifdef __WXGTK__
-    wxTheClipboard->UsePrimarySelection(true);
-#endif
-    if (wxTheClipboard->Open()) {
-        if (wxTheClipboard->IsSupported(wxDF_UNICODETEXT)) {
-            wxTextDataObject data;
-            wxTheClipboard->GetData(data);
-            text = data.GetText();
-        } else if (wxTheClipboard->IsSupported(wxDF_TEXT)) {
-            wxTextDataObject data;
-            wxTheClipboard->GetData(data);
-            text = data.GetText();
-        }
-        wxTheClipboard->Close();
-    }
-#ifdef __WXGTK__
-    wxTheClipboard->UsePrimarySelection(false);
-#endif
-    if (!text.IsEmpty())
-        pasteCb_(std::string(text.ToUTF8()));
+    const std::string text = ui::ReadClipboardText(/*primary=*/true);
+    if (!text.empty())
+        pasteCb_(text);
 }
 
 void TerminalPanel::SetBroadcastCursorState(bool modeActive, bool inGroup)
@@ -564,11 +547,7 @@ void TerminalPanel::OnLeftDown(wxMouseEvent& e)
 
     // Ctrl+Click on a hovered URL → open in browser; skip selection start.
     if (e.ControlDown() && m_urlHovered_ && !m_hoveredUrl_.empty()) {
-        std::string utf8;
-        utf8.reserve(m_hoveredUrl_.size());
-        for (char32_t cp : m_hoveredUrl_)
-            utf8 += static_cast<char>(cp & 0x7F);
-        wxLaunchDefaultBrowser(wxString::FromUTF8(utf8));
+        wxLaunchDefaultBrowser(ToWxString(m_hoveredUrl_));
         return;
     }
 
@@ -709,13 +688,8 @@ void TerminalPanel::OnRightDown(wxMouseEvent& e)
 
     if (!hasUrl && !hasSel) { e.Skip(); return; }
 
-    // Convert URL to UTF-8 once (RFC 3986 URLs are ASCII).
-    std::string urlUtf8;
-    if (hasUrl) {
-        urlUtf8.reserve(urlSpan->url.size());
-        for (char32_t cp : urlSpan->url)
-            urlUtf8 += static_cast<char>(cp & 0x7F);
-    }
+    // Convert URL to UTF-8 once for the two menu lambdas below.
+    const std::string urlUtf8 = hasUrl ? ToUtf8(urlSpan->url) : std::string{};
 
     wxMenu menu;
 

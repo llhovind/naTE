@@ -4,11 +4,6 @@
 #include <algorithm>
 #include <limits>
 
-static char32_t CaseFold(char32_t c)
-{
-    return (c >= U'A' && c <= U'Z') ? c + (U'a' - U'A') : c;
-}
-
 DocLayout::DocLayout(Document& doc, int cols, int rows)
     : doc_(&doc), cols_(cols), rows_(rows)
 {
@@ -528,23 +523,7 @@ std::vector<SearchMatch> DocLayout::Search(const std::u32string& foldedNeedle) c
 {
     std::lock_guard<std::mutex> lk(mtx_);
     std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
-    std::vector<SearchMatch> results;
-    if (foldedNeedle.empty()) return results;
-
-    const auto& lines = doc_->GetLines();
-    for (size_t i = 0; i < lines.size(); ++i) {
-        std::u32string haystack;
-        haystack.reserve(lines[i].text.size());
-        for (char32_t c : lines[i].text)
-            haystack.push_back(CaseFold(c));
-
-        size_t pos = 0;
-        while ((pos = haystack.find(foldedNeedle, pos)) != std::u32string::npos) {
-            results.push_back({i, pos, foldedNeedle.size()});
-            pos += foldedNeedle.size();
-        }
-    }
-    return results;
+    return SearchRangeLocked(foldedNeedle, 0, doc_->GetLines().size());
 }
 
 std::vector<SearchMatch> DocLayout::SearchRange(const std::u32string& foldedNeedle,
@@ -552,16 +531,19 @@ std::vector<SearchMatch> DocLayout::SearchRange(const std::u32string& foldedNeed
 {
     std::lock_guard<std::mutex> lk(mtx_);
     std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
+    return SearchRangeLocked(foldedNeedle, fromLine, toLine);
+}
+
+std::vector<SearchMatch> DocLayout::SearchRangeLocked(const std::u32string& foldedNeedle,
+                                                       size_t fromLine, size_t toLine) const
+{
     std::vector<SearchMatch> results;
     if (foldedNeedle.empty()) return results;
 
     const auto& lines = doc_->GetLines();
     const size_t end = std::min(toLine, lines.size());
     for (size_t i = fromLine; i < end; ++i) {
-        std::u32string haystack;
-        haystack.reserve(lines[i].text.size());
-        for (char32_t c : lines[i].text)
-            haystack.push_back(CaseFold(c));
+        const std::u32string haystack = SearchCaseFoldStr(lines[i].text);
 
         size_t pos = 0;
         while ((pos = haystack.find(foldedNeedle, pos)) != std::u32string::npos) {
