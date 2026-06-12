@@ -91,10 +91,13 @@ public:
     void AddDocumentListener(IDocumentListener* listener);
     void RemoveDocumentListener(IDocumentListener* listener);
 
-    const std::string& GetTitle() const { return main_doc_->GetTitle(); }
+    // Returned by value — Document::GetTitle copies under its title mutex.
+    std::string GetTitle() const { return main_doc_->GetTitle(); }
     DocLayout& GetDocLayout();
 
     // Layout forwarding — UIManager routes viewport events through here.
+    // Both flags are atomics: written on the transport read thread (parser
+    // callbacks), read lock-free from the UI thread (menu guards, Paste).
     bool IsAltScreenActive()    const { return altScreenActive_; }
     bool IsBracketedPasteActive() const { return bracketedPaste_; }
     void ForceAltScreen(bool on);
@@ -188,14 +191,39 @@ private:
     std::function<void()>                                    onBell_;
     std::function<void(bool)>                                onCursorVisibilityChanged_;
 
+    // Serialises structural document/parser mutations between the transport
+    // read thread (OnData → parser_.Process) and the UI-thread entry points
+    // that mutate the document model directly (ResetTerminal, ForceAltScreen,
+    // LoadScrollback, SetViewportSize, SetWrapMode, listener registration,
+    // ReplaceConnection). Restores the single-mutator invariant the Document
+    // layer's unlocked writer-side reads rely on. The paint path deliberately
+    // does NOT take this — UI reads go through Document::linesMutex_, so
+    // rendering never blocks behind a parse chunk.
+    mutable std::mutex docMutex_;
+
+    // Guards lastCwd_ alone. OnCwdChanged also fires from the transport worker
+    // outside the OnData path (periodic /proc capture), so it cannot share
+    // docMutex_ without deadlocking the OSC 7 path (OnData already holds it).
+    mutable std::mutex cwdMutex_;
+
+    // Response bytes generated during a parse (DSR replies). Accumulated under
+    // docMutex_ and written to the transport only after the lock is released —
+    // LoopbackTransport echoes Write() synchronously on the calling thread, so
+    // writing mid-parse would re-enter OnData and self-deadlock on docMutex_.
+    std::string pendingResponse_;
+
     std::string        lastCwd_;
     unsigned short     lastCols_{0};
     unsigned short     lastRows_{0};
     unsigned short     ptyLineWidth_{1024};
-    bool               altScreenActive_{false};
-    bool               bracketedPaste_{false};
-    bool               cursorVisible_{true};
+    // Written under docMutex_ (parser callbacks or UI mutators); atomic so the
+    // UI thread can read them lock-free at any time.
+    std::atomic<bool>  altScreenActive_{false};
+    std::atomic<bool>  bracketedPaste_{false};
+    std::atomic<bool>  cursorVisible_{true};
     std::atomic<SessionStatus> status_{SessionStatus::Connected};
+    // Guarded by docMutex_: registered from the UI thread, iterated on the
+    // transport read thread during alt-screen switches.
     std::vector<IDocumentListener*> externalListeners_;
 
     // Port forward state.

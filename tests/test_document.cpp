@@ -2,6 +2,9 @@
 #include "document/Document.h"
 #include "parser/Parser.h"
 #include "parser/IScreenTarget.h"
+#include <atomic>
+#include <shared_mutex>
+#include <thread>
 
 // ---------------------------------------------------------------------------
 // DocLine::WriteAt
@@ -1119,4 +1122,35 @@ TEST_CASE("given FullReset when called then accumulated SGR state is cleared") {
     const auto& line0 = doc.GetLines()[0];
     REQUIRE(line0.styles.size() == 1);
     REQUIRE(line0.styles[0].style == Style{});
+}
+
+// ---------------------------------------------------------------------------
+// Cross-thread coherence — parser thread mutates while a reader thread takes
+// cursor/title/line snapshots. Single-threaded builds prove deadlock-freedom;
+// under TSan this is the regression test for the torn-read fixes.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given parser thread streaming styled output when another thread reads cursor and title then no torn state") {
+    MainScreenDocument doc;
+    NullScreen screen;
+    term::parser::Parser parser(doc, screen);
+
+    std::atomic<bool> stop{false};
+    std::thread reader([&] {
+        while (!stop.load()) {
+            const CursorPos c = doc.GetCursor();
+            (void)doc.GetTitle();
+            std::shared_lock<std::shared_mutex> lk(doc.GetLinesMutex());
+            const auto& lines = doc.GetLines();
+            if (c.line < lines.size())
+                (void)lines[c.line].text.size();
+        }
+    });
+
+    for (int i = 0; i < 2000; ++i)
+        parser.Process("\x1b[31mhello world\x1b[0m\r\n\x1b]0;stress title\x07plain\r\n");
+
+    stop.store(true);
+    reader.join();
+    REQUIRE(doc.GetLines().size() > 2000);
 }

@@ -18,15 +18,24 @@ DocLayout::~DocLayout()
 
 void DocLayout::SetDocument(Document& newDoc)
 {
-    std::lock_guard<std::mutex> lk(mtx_);
+    // Listener detach/attach happens OUTSIDE mtx_: NotifyListeners holds
+    // Document::listenerMutex_ and then takes mtx_ (OnDocumentChanged), so
+    // acquiring listenerMutex_ while holding mtx_ here would close a
+    // lock-order cycle. Reading doc_ unlocked is safe — only SetDocument
+    // writes it, and Session::docMutex_ serialises SetDocument against all
+    // notifications, so detaching before the swap cannot miss an update
+    // (allViewDirty_ forces a full repaint regardless).
     doc_->RemoveListener(this);
-    doc_ = &newDoc;
-    doc_->AddListener(this);
-    autoScroll_   = true;
-    allViewDirty_ = true;
-    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
-    ScrollToEndLocked();
-    ComputeMaxVisibleWidthLocked();
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        doc_ = &newDoc;
+        autoScroll_   = true;
+        allViewDirty_ = true;
+        std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
+        ScrollToEndLocked();
+        ComputeMaxVisibleWidthLocked();
+    }
+    newDoc.AddListener(this);
 }
 
 // ---------------------------------------------------------------------------
@@ -49,7 +58,7 @@ DocLayout::ViewportAnchor
 DocLayout::WalkAnchorBy(ViewportAnchor a, int delta) const
 {
     const auto&    lines = doc_->GetLines();
-    const CursorPos cur  = doc_->GetCursor();
+    const CursorPos cur  = doc_->GetCursorLocked();
 
     // Returns the visual row count for docLine, adding one extra sub-row when
     // the cursor sits exactly at a sub-row boundary end (pending-wrap state).
@@ -108,7 +117,7 @@ void DocLayout::SetViewportSize(int newCols, int newRows)
         // Viewport grew: leftCol_ may have been pushed right by an earlier
         // undersized viewport (e.g. before panel layout completes on startup).
         // Reset to the leftmost position that still keeps the cursor visible.
-        const int cursorCol = (int)doc_->GetCursor().col;
+        const int cursorCol = (int)doc_->GetCursorLocked().col;
         leftCol_     = std::max(0, cursorCol - cols_ + 1);
         leftClamped_ = (leftCol_ == 0);
     }
@@ -203,7 +212,7 @@ RenderedLine DocLayout::BuildRenderedLineLocked(ViewportAnchor pos) const
     }
 
     // Cursor: check whether the document cursor lands on this exact visual row.
-    const CursorPos cursor = doc_->GetCursor();
+    const CursorPos cursor = doc_->GetCursorLocked();
     if ((int)cursor.line == pos.docLine) {
         if (wrapMode_) {
             const int cursorSubRow = (cols_ > 0) ? (int)(cursor.col / (size_t)cols_) : 0;
@@ -370,7 +379,7 @@ void DocLayout::ScrollToEndLocked()
     // If the cursor is at a sub-row boundary end of the last DocLine, add the
     // extra empty sub-row so it is included in the viewport.
     if (wrapMode_ && cols_ > 0) {
-        const CursorPos cur = doc_->GetCursor();
+        const CursorPos cur = doc_->GetCursorLocked();
         const auto&     txt = lines.back().text;
         if ((int)cur.line == lastDocLine && !txt.empty()
                 && txt.size() % (size_t)cols_ == 0 && cur.col == txt.size())
@@ -393,7 +402,7 @@ bool DocLayout::IsAtEndLocked() const
 
 void DocLayout::EnsureCursorVisibleVertically()
 {
-    const CursorPos cur        = doc_->GetCursor();
+    const CursorPos cur        = doc_->GetCursorLocked();
     const int       curDocLine = (int)cur.line;
     const int       curSubRow  = (wrapMode_ && cols_ > 0)
                                ? (int)(cur.col / (size_t)cols_) : 0;
@@ -426,7 +435,7 @@ void DocLayout::EnsureCursorVisibleHorizontally()
     const int marginLeft  = cols_ / 4;  // context kept left of cursor — scales with viewport width
     const int marginRight = 3;          // context kept right of cursor
 
-    const CursorPos cursor  = doc_->GetCursor();
+    const CursorPos cursor  = doc_->GetCursorLocked();
     const int       docCol  = (int)cursor.col;
     const auto&     lines   = doc_->GetLines();
     const int       lineLen = (cursor.line < lines.size())

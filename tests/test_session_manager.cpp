@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <atomic>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 #include "input/InputRouter.h"
@@ -861,4 +862,42 @@ TEST_CASE("given session resized and wrap toggled when GetConnection called then
     CHECK(result.wrapMode    == true);
 
     sm.CloseSession(id);
+}
+
+// ---------------------------------------------------------------------------
+// Cross-thread serialization — LoopbackTransport echoes Paste() synchronously
+// on the calling thread, so a dedicated writer thread drives the full
+// OnData → docMutex_ → Parser → Document path while this thread exercises the
+// UI-side mutators that docMutex_ must exclude. Proves deadlock-freedom in
+// every build; proves race-freedom under TSan.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given loopback output on a worker thread when another thread resets and toggles alt-screen then no crash or deadlock") {
+    term::input::InputRouter router;
+    SessionManager sm;
+    const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
+
+    auto* target = sm.GetInputTarget(id);
+    REQUIRE(target != nullptr);
+
+    std::atomic<bool> stop{false};
+    std::thread writer([&] {
+        while (!stop.load())
+            target->Paste("\x1b[32mstress\x1b[0m line\r");
+    });
+
+    for (int i = 0; i < 200; ++i) {
+        sm.ForceAltScreen(id, true);
+        sm.ForceAltScreen(id, false);
+        sm.ResetTerminal(id, /*clearScrollback=*/(i % 2) == 0);
+        (void)sm.IsAltScreenActive(id);
+        (void)sm.IsBracketedPasteActive(id);
+        (void)sm.GetCurrentWorkingDir(id);
+        (void)sm.GetDocLayout(id).GetRenderedLines(0, 24);
+    }
+
+    stop.store(true);
+    writer.join();
+    sm.CloseSession(id);
+    SUCCEED("no crash, deadlock, or torn state");
 }

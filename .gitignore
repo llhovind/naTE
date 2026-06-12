@@ -2,6 +2,7 @@
 build/
 build-release/
 build-appimage/
+build-tsan/
 install/
 
 # Packaging artifacts

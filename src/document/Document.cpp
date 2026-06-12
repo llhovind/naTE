@@ -248,7 +248,10 @@ void DocLine::TruncateFrom(size_t col)
 
 void Document::SetTitle(const std::string& title)
 {
-    title_ = title;
+    {
+        std::lock_guard<std::mutex> lk(titleMutex_);
+        title_ = title;
+    }
     NotifyListeners(DocChangeType::TitleChanged, 0);
 }
 
@@ -338,7 +341,10 @@ void MainScreenDocument::NewLine()
     const int    cursorSubRow = (int)(cursor_.col / (size_t)cols_);
 
     if (cursorSubRow < lastSubRow) {
-        cursor_.col = static_cast<size_t>(cursorSubRow + 1) * static_cast<size_t>(cols_);
+        {
+            std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+            cursor_.col = static_cast<size_t>(cursorSubRow + 1) * static_cast<size_t>(cols_);
+        }
         NotifyListeners(DocChangeType::CursorMove, cursor_.line);
         return;
     }
@@ -375,22 +381,31 @@ void MainScreenDocument::NewLine()
 void MainScreenDocument::CarriageReturn()
 {
     const size_t c = static_cast<size_t>(cols_);
-    cursor_.col = (cursor_.col / c) * c;
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.col = (cursor_.col / c) * c;
+    }
     crPriorToNewLine_ = true;
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void MainScreenDocument::MoveCursorLeft(int n)
 {
-    cursor_.col = (cursor_.col >= static_cast<size_t>(n))
-                    ? cursor_.col - static_cast<size_t>(n)
-                    : 0;
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.col = (cursor_.col >= static_cast<size_t>(n))
+                        ? cursor_.col - static_cast<size_t>(n)
+                        : 0;
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void MainScreenDocument::MoveCursorRight(int n)
 {
-    cursor_.col += static_cast<size_t>(n);
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.col += static_cast<size_t>(n);
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
@@ -412,8 +427,8 @@ void MainScreenDocument::RestoreCursor()
         std::unique_lock<std::shared_mutex> wlk(linesMutex_);
         while (lines_.size() <= target)
             lines_.emplace_back();
+        cursor_ = { target, savedCursor_.col };
     }
-    cursor_ = { target, savedCursor_.col };
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
@@ -444,13 +459,19 @@ void MainScreenDocument::MoveCursorUp(int n)
     }
 
     const size_t delta = static_cast<size_t>(n) * static_cast<size_t>(cols_);
-    cursor_.col = (cursor_.col >= delta) ? cursor_.col - delta : 0;
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.col = (cursor_.col >= delta) ? cursor_.col - delta : 0;
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void MainScreenDocument::MoveCursorDown(int n)
 {
-    cursor_.col += static_cast<size_t>(n) * static_cast<size_t>(cols_);
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.col += static_cast<size_t>(n) * static_cast<size_t>(cols_);
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
@@ -511,19 +532,28 @@ void MainScreenDocument::MoveCursorToColumn(int col)
 {
     const size_t c        = static_cast<size_t>(cols_);
     const size_t virtRow  = cursor_.col / c;
-    cursor_.col = virtRow * c + static_cast<size_t>(std::max(1, col) - 1);
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.col = virtRow * c + static_cast<size_t>(std::max(1, col) - 1);
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void MainScreenDocument::MoveCursorToLineStart()
 {
-    cursor_.col = 0;
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.col = 0;
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void MainScreenDocument::MoveCursorToLineEnd()
 {
-    cursor_.col = lines_[cursor_.line].text.size();
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.col = lines_[cursor_.line].text.size();
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
@@ -728,7 +758,10 @@ void MainScreenDocument::FullReset(bool clearContent)
     insertMode_         = false;
     pendingSubRowClear_ = false;
     currentStyle_       = {};
-    title_.clear();
+    {
+        std::lock_guard<std::mutex> tlk(titleMutex_);
+        title_.clear();
+    }
 
     if (clearContent) {
         {
@@ -800,8 +833,11 @@ void AltScreenDocument::Resize(int rows, int cols)
     scrollBot_ = rows_ - 1;
     pendingWrap_ = false;
 
-    cursor_.line = std::min(cursor_.line, static_cast<size_t>(rows_ - 1));
-    cursor_.col  = std::min(cursor_.col,  static_cast<size_t>(cols_ - 1));
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.line = std::min(cursor_.line, static_cast<size_t>(rows_ - 1));
+        cursor_.col  = std::min(cursor_.col,  static_cast<size_t>(cols_ - 1));
+    }
 
     // Notify all remaining lines as updated so DocLayout rebuilds metadata.
     for (int i = 0; i < rows_; ++i)
@@ -830,20 +866,22 @@ void AltScreenDocument::AppendInsertChar(char32_t ch)
             if (w == 2 && cursor_.col + 1 < static_cast<size_t>(cols_))
                 lines_[cursor_.line].WriteAt(cursor_.col + 1, kWideFiller, currentStyle_);
         }
+        if (newCol >= static_cast<size_t>(cols_))
+            pendingWrap_ = true;  // wrap deferred until next printable char
+        else
+            cursor_.col = newCol;
     }
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
-
-    if (newCol >= static_cast<size_t>(cols_))
-        pendingWrap_ = true;  // wrap deferred until next printable char
-    else
-        cursor_.col = newCol;
 }
 
 void AltScreenDocument::Backspace()
 {
     pendingWrap_ = false;
     if (cursor_.col == 0) return;
-    --cursor_.col;
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        --cursor_.col;
+    }
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 
@@ -854,8 +892,11 @@ void AltScreenDocument::NewLine()
     const size_t top = static_cast<size_t>(scrollTop_);
 
     if (cursor_.line < bot) {
-        ++cursor_.line;
-        cursor_.col = 0;
+        {
+            std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+            ++cursor_.line;
+            cursor_.col = 0;
+        }
         NotifyListeners(DocChangeType::CursorMove, cursor_.line);
     } else if (cursor_.line == bot) {
         // At the bottom of the scroll region: scroll up within the region.
@@ -867,14 +908,17 @@ void AltScreenDocument::NewLine()
         {
             std::unique_lock<std::shared_mutex> wlk(linesMutex_);
             lines_.insert(lines_.begin() + scrollBot_, DocLine{});
+            cursor_.col = 0;
+            // cursor_.line stays at scrollBot_
         }
         NotifyListeners(DocChangeType::InsertLine, bot);
-        cursor_.col = 0;
-        // cursor_.line stays at scrollBot_
     } else {
         // Below scroll region — just advance without scrolling.
-        cursor_.line = std::min(cursor_.line + 1, static_cast<size_t>(rows_ - 1));
-        cursor_.col = 0;
+        {
+            std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+            cursor_.line = std::min(cursor_.line + 1, static_cast<size_t>(rows_ - 1));
+            cursor_.col = 0;
+        }
         NotifyListeners(DocChangeType::CursorMove, cursor_.line);
     }
 }
@@ -888,7 +932,10 @@ void AltScreenDocument::SetScrollRegion(int top, int bot)
     if (scrollBot_ < scrollTop_) scrollBot_ = rows_ - 1;
     // VT100 spec: cursor moves to home on DECSTBM.
     pendingWrap_ = false;
-    cursor_ = {static_cast<size_t>(scrollTop_), 0};
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_ = {static_cast<size_t>(scrollTop_), 0};
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
@@ -898,7 +945,10 @@ void AltScreenDocument::ReverseIndex()
     const size_t bot = static_cast<size_t>(scrollBot_);
 
     if (cursor_.line > top) {
-        --cursor_.line;
+        {
+            std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+            --cursor_.line;
+        }
         NotifyListeners(DocChangeType::CursorMove, cursor_.line);
     } else {
         // Cursor is at the top of the scroll region — scroll content DOWN.
@@ -919,16 +969,22 @@ void AltScreenDocument::ReverseIndex()
 void AltScreenDocument::MoveCursorToColumn(int col)
 {
     pendingWrap_ = false;
-    cursor_.col = std::min(static_cast<size_t>(std::max(1, col) - 1),
-                           static_cast<size_t>(cols_ - 1));
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.col = std::min(static_cast<size_t>(std::max(1, col) - 1),
+                               static_cast<size_t>(cols_ - 1));
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void AltScreenDocument::MoveCursorToRow(int row)
 {
     pendingWrap_ = false;
-    cursor_.line = std::min(static_cast<size_t>(std::max(1, row) - 1),
-                            static_cast<size_t>(rows_ - 1));
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.line = std::min(static_cast<size_t>(std::max(1, row) - 1),
+                                static_cast<size_t>(rows_ - 1));
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
@@ -940,63 +996,87 @@ void AltScreenDocument::SaveCursor()
 void AltScreenDocument::RestoreCursor()
 {
     pendingWrap_ = false;
-    cursor_.line = std::min(savedCursor_.line, static_cast<size_t>(rows_ - 1));
-    cursor_.col  = std::min(savedCursor_.col,  static_cast<size_t>(cols_ - 1));
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.line = std::min(savedCursor_.line, static_cast<size_t>(rows_ - 1));
+        cursor_.col  = std::min(savedCursor_.col,  static_cast<size_t>(cols_ - 1));
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void AltScreenDocument::CarriageReturn()
 {
     pendingWrap_ = false;
-    cursor_.col = 0;
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.col = 0;
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void AltScreenDocument::MoveCursorLeft(int n)
 {
     pendingWrap_ = false;
-    cursor_.col = (cursor_.col >= static_cast<size_t>(n))
-                    ? cursor_.col - static_cast<size_t>(n)
-                    : 0;
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.col = (cursor_.col >= static_cast<size_t>(n))
+                        ? cursor_.col - static_cast<size_t>(n)
+                        : 0;
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void AltScreenDocument::MoveCursorRight(int n)
 {
     pendingWrap_ = false;
-    cursor_.col = std::min(cursor_.col + static_cast<size_t>(n),
-                           static_cast<size_t>(cols_ - 1));
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.col = std::min(cursor_.col + static_cast<size_t>(n),
+                               static_cast<size_t>(cols_ - 1));
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void AltScreenDocument::MoveCursorUp(int n)
 {
     pendingWrap_ = false;
-    cursor_.line = (cursor_.line >= static_cast<size_t>(n))
-                     ? cursor_.line - static_cast<size_t>(n)
-                     : 0;
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.line = (cursor_.line >= static_cast<size_t>(n))
+                         ? cursor_.line - static_cast<size_t>(n)
+                         : 0;
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void AltScreenDocument::MoveCursorDown(int n)
 {
     pendingWrap_ = false;
-    cursor_.line = std::min(cursor_.line + static_cast<size_t>(n),
-                            static_cast<size_t>(rows_ - 1));
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.line = std::min(cursor_.line + static_cast<size_t>(n),
+                                static_cast<size_t>(rows_ - 1));
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void AltScreenDocument::MoveCursorToLineStart()
 {
     pendingWrap_ = false;
-    cursor_.col = 0;
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.col = 0;
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
 void AltScreenDocument::MoveCursorToLineEnd()
 {
     pendingWrap_ = false;
-    cursor_.col = static_cast<size_t>(cols_ - 1);
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.col = static_cast<size_t>(cols_ - 1);
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
@@ -1005,8 +1085,11 @@ void AltScreenDocument::MoveCursorToPosition(int row, int col)
     pendingWrap_ = false;
     const size_t r = static_cast<size_t>(std::max(1, row) - 1);
     const size_t c = static_cast<size_t>(std::max(1, col) - 1);
-    cursor_.line = std::min(r, static_cast<size_t>(rows_ - 1));
-    cursor_.col  = std::min(c, static_cast<size_t>(cols_ - 1));
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_.line = std::min(r, static_cast<size_t>(rows_ - 1));
+        cursor_.col  = std::min(c, static_cast<size_t>(cols_ - 1));
+    }
     NotifyListeners(DocChangeType::CursorMove, cursor_.line);
 }
 
@@ -1155,11 +1238,11 @@ void AltScreenDocument::EraseInDisplay(int mode)
             std::unique_lock<std::shared_mutex> wlk(linesMutex_);
             for (size_t i = 0; i < lines_.size(); ++i)
                 lines_[i].Clear();
+            pendingWrap_ = false;
+            cursor_ = {0, 0};
         }
         for (size_t i = 0; i < lines_.size(); ++i)
             NotifyListeners(DocChangeType::UpdateLine, i);
-        pendingWrap_ = false;
-        cursor_ = {0, 0};
         NotifyListeners(DocChangeType::CursorMove, 0);
         break;
     }
@@ -1174,11 +1257,14 @@ void AltScreenDocument::FullReset(bool /*clearContent*/)
     insertMode_   = false;
     pendingWrap_  = false;
     currentStyle_ = {};
-    title_.clear();
-    cursor_      = {0, 0};
+    {
+        std::lock_guard<std::mutex> tlk(titleMutex_);
+        title_.clear();
+    }
     const int n  = static_cast<int>(lines_.size());
     {
         std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        cursor_ = {0, 0};
         for (int i = 0; i < n; ++i)
             lines_[i].Clear();
     }

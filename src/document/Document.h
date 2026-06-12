@@ -141,6 +141,8 @@ public:
     // PTY-configured column width (what readline was told). Used by
     // MainScreenDocument to map readline's virtual (row,col) to a flat
     // document column. Defaults are safe; Session keeps this in sync.
+    // Callers must serialize this with parsing (Session holds docMutex_) —
+    // cols_ is read throughout the parser-driven mutation path.
     virtual void SetPtyCols(int cols) {}
     virtual void SaveCursor() {}                         // ESC 7 / CSI s
     virtual void RestoreCursor() {}                      // ESC 8 / CSI u
@@ -154,19 +156,37 @@ public:
     // DocLayout uses this to restore the viewport origin on document switch.
     virtual size_t GetScrollbackOrigin() const { return 0; }
 
-    CursorPos GetCursor() const { return cursor_; }
+    // Coherent cursor snapshot for cross-thread readers (UI paint, selection
+    // anchors). Writers mutate cursor_ only while holding linesMutex_
+    // exclusively, so a shared lock here guarantees the pair is never torn.
+    CursorPos GetCursor() const
+    {
+        std::shared_lock<std::shared_mutex> rlk(linesMutex_);
+        return cursor_;
+    }
+    // For callers that already hold linesMutex_ (DocLayout render path) or
+    // run on the mutating thread itself (document-change notifications) —
+    // taking the shared lock twice on one thread is undefined behaviour.
+    CursorPos GetCursorLocked() const { return cursor_; }
 
-    const std::string& GetTitle() const { return title_; }
+    // Returned by value under titleMutex_: the title is written by the parser
+    // thread (OSC 0/1/2) and read from the UI thread (tab labels).
+    std::string GetTitle() const
+    {
+        std::lock_guard<std::mutex> lk(titleMutex_);
+        return title_;
+    }
     void SetTitle(const std::string& title);
 
     void AddListener(IDocumentListener* listener);
     void RemoveListener(IDocumentListener* listener);
 
-    // Shared mutex protecting GetLines() content in derived classes.  Callers
-    // that read the deque from a different thread than the one that mutates it
-    // must hold a shared_lock for the duration of their access.  Derived-class
-    // mutation sites must hold a unique_lock that is RELEASED before any
-    // NotifyListeners call (to avoid deadlock with readers that hold mtx_ first).
+    // Shared mutex protecting GetLines() content AND cursor_ in derived
+    // classes.  Callers that read the deque (or need a coherent cursor) from a
+    // different thread than the one that mutates it must hold a shared_lock
+    // for the duration of their access.  Derived-class mutation sites must
+    // hold a unique_lock that is RELEASED before any NotifyListeners call
+    // (to avoid deadlock with readers that hold mtx_ first).
     std::shared_mutex& GetLinesMutex() const noexcept { return linesMutex_; }
 
 protected:
@@ -178,6 +198,7 @@ protected:
     Style       currentStyle_{};   // accumulated SGR state; see SetCurrentStyle
 
     mutable std::shared_mutex linesMutex_;
+    mutable std::mutex        titleMutex_;   // guards title_ (parser writes, UI reads)
 
 private:
     std::vector<IDocumentListener*> listeners_;

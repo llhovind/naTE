@@ -45,7 +45,13 @@ public:
     // Document line count.
     int GetLineCount() const;
 
-    CursorPos GetCursorDocPos() const { return doc_->GetCursor(); }
+    // Locks mtx_ for the doc_ pointer (swapped on alt-screen switch), then
+    // takes a coherent cursor snapshot via Document::GetCursor().
+    CursorPos GetCursorDocPos() const
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return doc_->GetCursor();
+    }
 
     // Viewport state in document-line coordinates (wrap mode unaware).
     int  GetTopRow() const;

@@ -96,6 +96,7 @@ void Session::Stop()
 void Session::ReplaceConnection(const Connection& conn,
                                 const AppSessionDefaults& appDefaults)
 {
+    std::lock_guard<std::mutex> lk(docMutex_);
     // Old transport is already stopped — its worker thread joined before
     // OnDisconnect() propagated to us. Reset it before creating the new one.
     transport_.reset();
@@ -123,6 +124,9 @@ void Session::ReplaceConnection(const Connection& conn,
 
 void Session::ForceAltScreen(bool on)
 {
+    // UI-thread entry point: exclude the read thread (mid-parse it may be
+    // using active_doc_ / the parser doc target this call swaps).
+    std::lock_guard<std::mutex> lk(docMutex_);
     if (on == altScreenActive_) return;
     if (on) OnEnterAltScreen();
     else    OnExitAltScreen();
@@ -158,7 +162,19 @@ void Session::OnData(const std::string& data)
 {
     if (status_.load(std::memory_order_acquire) == SessionStatus::Reconnecting)
         status_.store(SessionStatus::Connected, std::memory_order_release);
-    parser_.Process(data);
+    std::string response;
+    {
+        // One lock per chunk (not per byte): excludes UI-thread document
+        // mutators for the duration of the parse so the document has one
+        // mutator at a time.
+        std::lock_guard<std::mutex> lk(docMutex_);
+        parser_.Process(data);
+        response.swap(pendingResponse_);
+    }
+    // Flush parse-generated replies (DSR) outside the lock: a synchronous
+    // loopback echo re-enters OnData, which must take docMutex_ afresh.
+    if (!response.empty())
+        transport_->Write(response);
 }
 
 void Session::OnError(const transport::TransportError& error)
@@ -249,11 +265,15 @@ ScrollbackSnapshot Session::CaptureScrollback() const
 
 void Session::LoadScrollback(const ScrollbackSnapshot& snap)
 {
+    std::lock_guard<std::mutex> lk(docMutex_);
     main_doc_->LoadScrollback(snap);
 }
 
 void Session::ResetTerminal(bool clearScrollback)
 {
+    // UI-thread entry point: the read thread must not be mid-parse while we
+    // wipe content, reset the parser FSM, and restore main-screen mode.
+    std::lock_guard<std::mutex> lk(docMutex_);
     if (altScreenActive_) OnExitAltScreen();
     bracketedPaste_ = false;
     if (clearScrollback) {
@@ -283,7 +303,9 @@ void Session::OnDeviceStatusReport(int param)
     const size_t    vStart = altScreenActive_ ? 0 : main_doc_->GetScrollbackOrigin();
     const int row = static_cast<int>(pos.line - vStart) + 1;
     const int col = static_cast<int>(pos.col)           + 1;
-    transport_->Write("\x1b[" + std::to_string(row) + ";" + std::to_string(col) + "R");
+    // Buffered, not written: OnData flushes after releasing docMutex_.
+    pendingResponse_ += "\x1b[" + std::to_string(row) + ";"
+                      + std::to_string(col) + "R";
 }
 
 void Session::OnBell()
@@ -366,12 +388,14 @@ void Session::OnExitAltScreen()
 
 void Session::AddDocumentListener(IDocumentListener* listener)
 {
+    std::lock_guard<std::mutex> lk(docMutex_);
     active_doc_->AddListener(listener);
     externalListeners_.push_back(listener);
 }
 
 void Session::RemoveDocumentListener(IDocumentListener* listener)
 {
+    std::lock_guard<std::mutex> lk(docMutex_);
     active_doc_->RemoveListener(listener);
     externalListeners_.erase(
         std::remove(externalListeners_.begin(), externalListeners_.end(), listener),
@@ -390,6 +414,9 @@ void Session::SetTopRow(int row)
 
 void Session::SetViewportSize(unsigned short cols, unsigned short rows)
 {
+    // UI-thread entry point: SetPtyCols / alt_doc_->Resize mutate state the
+    // parser reads mid-Process.
+    std::lock_guard<std::mutex> lk(docMutex_);
     docLayout_->SetViewportSize(static_cast<int>(cols), static_cast<int>(rows));
     if (cols == lastCols_ && rows == lastRows_) return;
     if (cols != lastCols_)
@@ -409,6 +436,7 @@ void Session::SetViewportSize(unsigned short cols, unsigned short rows)
 
 void Session::SetWrapMode(bool wrap)
 {
+    std::lock_guard<std::mutex> lk(docMutex_);
     docLayout_->SetWrapMode(wrap);
     if (!altScreenActive_) {
         const int ptyCols = wrap ? lastCols_ : ptyLineWidth_;
@@ -419,13 +447,17 @@ void Session::SetWrapMode(bool wrap)
 
 void Session::OnCwdChanged(const std::string& path)
 {
+    std::lock_guard<std::mutex> lk(cwdMutex_);
     lastCwd_ = path;
 }
 
 std::string Session::GetCurrentWorkingDir() const
 {
-    if (!lastCwd_.empty())
-        return lastCwd_;
+    {
+        std::lock_guard<std::mutex> lk(cwdMutex_);
+        if (!lastCwd_.empty())
+            return lastCwd_;
+    }
     return transport_->GetCurrentWorkingDir();
 }
 
