@@ -36,7 +36,7 @@ for you.
 - Bracketed paste with optional confirmation dialog
 - URL detection and click-to-open
 - **Mouse selection** — click-drag to select; double-click selects the word under the cursor (word boundary pattern is a configurable regex); triple-click selects the full line
-- **Find in Terminal** (`Ctrl+Shift+F` / **Edit → Find in Terminal**) — case-insensitive search across the full scrollback buffer; all matches are highlighted and the current match is distinguished; navigate with `Enter` / `F3` (forward) and `Shift+F3` (back); pre-populates from the active selection
+- **Find in Terminal** (`Ctrl+Shift+F` / **Edit → Find in Terminal**) — case-insensitive search across the full scrollback buffer; all matches are highlighted and the current match is distinguished; results are ordered most-recent first so the first match is always the nearest one to the bottom of the buffer; navigate with `Enter` / `F3` (forward) and `Shift+F3` (back); pre-populates from the active selection; **live search** — the match list updates automatically as new output arrives (250 ms debounce), tracking the tail when the viewport is at the bottom and preserving your position when scrolled up
 
 ### Tiling & tabs
 - Each window holds one or more **tiles** arranged in a grid; each tile has its own tab strip
