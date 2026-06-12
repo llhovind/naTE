@@ -20,38 +20,57 @@ void Parser::Process(const std::string& data)
         case State::SkipOne:  HandleSkipOne(byte);  break;
         }
     }
+    // End of chunk: deliver any pending printable run so the document never
+    // waits on bytes that have already arrived. (A UTF-8 sequence split
+    // across chunks stays in utf8_codepoint_/utf8_remaining_ and completes
+    // with the next chunk.)
+    FlushRun();
+}
+
+void Parser::FlushRun()
+{
+    if (runBuf_.empty()) return;
+    doc_->AppendRun(runBuf_);
+    runBuf_.clear();
 }
 
 void Parser::HandleNormal(unsigned char byte)
 {
     if (byte == '\x1b') {
+        FlushRun();
         state_ = State::Escape;
         return;
     }
 
     if (byte == '\x07') {
+        FlushRun();
         screen_.OnBell();
         return;
     }
 
     if (byte == '\b' || byte == '\x7f') {
+        FlushRun();
         doc_->MoveCursorLeft(1);
         return;
     }
 
     if (byte == '\n') {
+        FlushRun();
         doc_->NewLine();
         return;
     }
 
     if (byte == '\r') {
+        FlushRun();
         doc_->CarriageReturn();
         return;
     }
 
-    // UTF-8 multi-byte decode
+    // UTF-8 multi-byte decode — completed codepoints accumulate in runBuf_
+    // and reach the document in one AppendRun batch at the next control byte
+    // or end of chunk.
     if (byte < 0x80) {
-        doc_->AppendInsertChar(static_cast<char32_t>(byte));
+        runBuf_.push_back(static_cast<char32_t>(byte));
     } else if ((byte & 0xE0) == 0xC0) {
         utf8_codepoint_ = byte & 0x1F;
         utf8_remaining_ = 1;
@@ -64,7 +83,7 @@ void Parser::HandleNormal(unsigned char byte)
     } else if ((byte & 0xC0) == 0x80) {
         utf8_codepoint_ = (utf8_codepoint_ << 6) | (byte & 0x3F);
         if (--utf8_remaining_ == 0) {
-            doc_->AppendInsertChar(utf8_codepoint_);
+            runBuf_.push_back(utf8_codepoint_);
             utf8_codepoint_ = 0;
         }
     }
@@ -400,6 +419,8 @@ void Parser::Reset()
     params_.clear();
     privateMode_    = false;
     osc_payload_.clear();
+    runBuf_.clear();   // discard, like the other partial state; runs are
+                       // always flushed before RIS dispatch reaches here
     utf8_codepoint_ = 0;
     utf8_remaining_ = 0;
     currentStyle_   = Style{};

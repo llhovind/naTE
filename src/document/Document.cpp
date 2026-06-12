@@ -318,6 +318,35 @@ void MainScreenDocument::AppendInsertChar(char32_t ch)
     NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
 }
 
+// Batched fast path for the streaming-output hot loop: one lock acquisition
+// and one UpdateLine notification for the whole run, instead of one of each
+// per character. Per-character semantics (wide-char fillers, insert mode,
+// phantom-flag clearing) are identical to N AppendInsertChar calls — the
+// cursor stays on one line because the parser never lets a run span a
+// control byte.
+void MainScreenDocument::AppendRun(std::u32string_view run)
+{
+    if (run.empty()) return;
+    newLineWasPhantom_ = false;  // real content — line is no longer phantom-eligible
+    newLineCRPhantom_  = false;
+    {
+        std::unique_lock<std::shared_mutex> wlk(linesMutex_);
+        DocLine& line = lines_[cursor_.line];
+        for (char32_t ch : run) {
+            const int w = CharWidth(ch);
+            if (insertMode_) {
+                line.InsertAt(cursor_.col, ch, currentStyle_);
+                if (w == 2) line.InsertAt(cursor_.col + 1, kWideFiller, currentStyle_);
+            } else {
+                line.WriteAt(cursor_.col, ch, currentStyle_);
+                if (w == 2) line.WriteAt(cursor_.col + 1, kWideFiller, currentStyle_);
+            }
+            cursor_.col += static_cast<size_t>(w);
+        }
+    }
+    NotifyListeners(DocChangeType::UpdateLine, cursor_.line);
+}
+
 void MainScreenDocument::Backspace()
 {
     {

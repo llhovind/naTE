@@ -4,6 +4,7 @@
 #include <shared_mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <deque>
 #include <cstdint>
@@ -73,6 +74,18 @@ public:
     virtual ~IDocumentTarget() = default;
 
     virtual void AppendInsertChar(char32_t ch) = 0;
+    // Appends a contiguous run of printable characters. The parser flushes a
+    // run at every control byte, so a run never spans cursor movement, line
+    // breaks, or mode changes. The default loops over AppendInsertChar (one
+    // lock + one notification per character); hot-path implementations
+    // (MainScreenDocument) override with a single-lock, single-notification
+    // batch. AltScreenDocument keeps the default: its deferred-wrap handling
+    // calls NewLine() mid-run, which must not run under the lines lock.
+    virtual void AppendRun(std::u32string_view run)
+    {
+        for (char32_t ch : run)
+            AppendInsertChar(ch);
+    }
     virtual void Backspace() = 0;
     virtual void NewLine() = 0;
     virtual void CarriageReturn() = 0;
@@ -223,6 +236,7 @@ public:
     explicit MainScreenDocument(int maxLines = 100'000);
 
     void AppendInsertChar(char32_t ch) override;
+    void AppendRun(std::u32string_view run) override;
     void Backspace() override;
     void NewLine() override;
     void CarriageReturn() override;

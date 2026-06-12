@@ -2,7 +2,9 @@
 #include "document/Document.h"
 #include "parser/Parser.h"
 #include "parser/IScreenTarget.h"
+#include "ui/DocLayout.h"
 #include <atomic>
+#include <chrono>
 #include <shared_mutex>
 #include <thread>
 
@@ -1153,4 +1155,118 @@ TEST_CASE("given parser thread streaming styled output when another thread reads
     stop.store(true);
     reader.join();
     REQUIRE(doc.GetLines().size() > 2000);
+}
+
+// ---------------------------------------------------------------------------
+// Hidden throughput probe — run explicitly with: naTE_core_tests "[perf]"
+// Feeds realistic build-log output through Parser → MainScreenDocument with a
+// DocLayout listener attached (the production notification load). Not part of
+// the default suite; used to quantify parser/document pipeline changes.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("parser throughput on streaming colored output", "[.][perf]") {
+    MainScreenDocument doc;
+    NullScreen screen;
+    term::parser::Parser parser(doc, screen);
+    DocLayout layout(doc, 80, 24);
+
+    std::string line = "\x1b[32m[ 42%]\x1b[0m Building CXX object src/CMakeFiles/app.dir/";
+    line += std::string(120, 'x');
+    line += ".cpp.o\r\n";
+    std::string chunk;
+    while (chunk.size() < 64 * 1024)
+        chunk += line;
+
+    const size_t total = 16 * 1024 * 1024;
+    const auto t0 = std::chrono::steady_clock::now();
+    size_t fed = 0;
+    while (fed < total) {
+        parser.Process(chunk);
+        fed += chunk.size();
+    }
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
+
+    WARN("processed " << (total / 1'000'000.0) << " MB in " << ms << " ms = "
+         << (total / 1'000'000.0) / (ms / 1000.0) << " MB/s");
+    REQUIRE(doc.GetLines().size() > 1000);
+}
+
+// ---------------------------------------------------------------------------
+// Parser run-batching — printable characters are delivered to the document in
+// batched AppendRun calls (flushed at control bytes and chunk ends). These
+// tests pin the batching to per-character semantics.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given printable run split across Process chunks then content matches unsplit input") {
+    MainScreenDocument whole, split;
+    NullScreen s1, s2;
+    term::parser::Parser pWhole(whole, s1);
+    term::parser::Parser pSplit(split, s2);
+
+    pWhole.Process("hello world");
+    pSplit.Process("hel");
+    pSplit.Process("lo wo");
+    pSplit.Process("rld");
+
+    REQUIRE(split.GetLines()[0].text == whole.GetLines()[0].text);
+    REQUIRE(split.GetCursor().col == whole.GetCursor().col);
+}
+
+TEST_CASE("given UTF-8 sequence split across Process chunks then codepoint decoded once") {
+    MainScreenDocument doc;
+    NullScreen screen;
+    term::parser::Parser parser(doc, screen);
+
+    // U+4E2D (中) = E4 B8 AD, split mid-sequence at the chunk boundary.
+    parser.Process("a\xe4\xb8");
+    parser.Process("\xadz");
+
+    const auto& text = doc.GetLines()[0].text;
+    REQUIRE(text.size() == 4);                 // a, 中, wide filler, z
+    REQUIRE(text[0] == U'a');
+    REQUIRE(text[1] == U'中');
+    REQUIRE(text[2] == kWideFiller);
+    REQUIRE(text[3] == U'z');
+    REQUIRE(doc.GetCursor().col == 4);
+}
+
+TEST_CASE("given run containing wide characters when parsed then fillers and cursor match per-char semantics") {
+    MainScreenDocument doc;
+    NullScreen screen;
+    term::parser::Parser parser(doc, screen);
+
+    parser.Process("x\xe4\xb8\xady");          // x 中 y in one chunk = one run
+
+    REQUIRE(doc.GetLines()[0].text ==
+            (std::u32string{U'x', U'中', kWideFiller, U'y'}));
+    REQUIRE(doc.GetCursor().col == 4);
+}
+
+TEST_CASE("given SGR change mid-line when parsed then style runs split at the boundary") {
+    MainScreenDocument doc;
+    NullScreen screen;
+    term::parser::Parser parser(doc, screen);
+
+    parser.Process("ab\x1b[31mcd");            // two runs: "ab" default, "cd" red
+
+    const auto& line = doc.GetLines()[0];
+    REQUIRE(line.text == U"abcd");
+    REQUIRE(line.styles.size() == 2);
+    REQUIRE(line.styles[0].start == 0); REQUIRE(line.styles[0].length == 2);
+    REQUIRE(line.styles[0].style == Style{});
+    REQUIRE(line.styles[1].start == 2); REQUIRE(line.styles[1].length == 2);
+    REQUIRE(line.styles[1].style.fg == 1);
+}
+
+TEST_CASE("given insert mode active when run parsed then characters insert rather than overwrite") {
+    MainScreenDocument doc;
+    NullScreen screen;
+    term::parser::Parser parser(doc, screen);
+
+    parser.Process("world\x1b[5D");            // write, cursor back to col 0
+    parser.Process("\x1b[4h");                 // insert mode on
+    parser.Process("hello ");                  // one run, inserted
+
+    REQUIRE(doc.GetLines()[0].text == U"hello world");
 }

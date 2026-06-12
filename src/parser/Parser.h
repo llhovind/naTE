@@ -35,6 +35,11 @@ private:
     void HandleOscEsc(unsigned char byte);
     void HandleSkipOne(unsigned char byte);
 
+    // Delivers the accumulated printable run to the document as one batched
+    // AppendRun call. Called before any control-byte dispatch and at the end
+    // of each Process() chunk, so document mutations always see completed runs.
+    void FlushRun();
+
     void DispatchSgr();
     void DispatchOsc();
     int  ParseFirstParam(int defaultVal) const;
@@ -47,6 +52,8 @@ private:
     bool             privateMode_  = false;
     std::string      osc_payload_;
     Style            currentStyle_;  // accumulated SGR state; mutated in place by DispatchSgr
+
+    std::u32string runBuf_;  // pending printable run; capacity reused across flushes
 
     char32_t utf8_codepoint_ = 0;
     int      utf8_remaining_ = 0;
