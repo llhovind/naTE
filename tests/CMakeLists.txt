@@ -46,6 +46,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/transport/LoopbackTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/PtyTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SerialTransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshChannelProxy.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/DocLayout.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/UrlScanner.cpp

@@ -148,6 +148,7 @@ set(SOURCES
     src/transport/LoopbackTransport.cpp
     src/transport/PtyTransport.cpp
     src/transport/SerialTransport.cpp
+    src/transport/SshChannelProxy.cpp
     src/transport/SshTransport.cpp
     src/parser/Parser.cpp
     src/ui/wxKeyAdapter.cpp
