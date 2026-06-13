@@ -41,11 +41,15 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/BastionTunnel.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshConfig.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshSession.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshSftpService.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshPortForwardEngine.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshPublicKey.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/X11Utils.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/LoopbackTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/PtyTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SerialTransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshAuthenticator.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshChannelProxy.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/DocLayout.cpp

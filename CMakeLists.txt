@@ -143,11 +143,15 @@ set(SOURCES
     src/transport/EnvUtils.cpp
     src/transport/BastionTunnel.cpp
     src/transport/SshConfig.cpp
+    src/transport/SshSession.cpp
+    src/transport/SshSftpService.cpp
+    src/transport/SshPortForwardEngine.cpp
     src/transport/SshPublicKey.cpp
     src/transport/X11Utils.cpp
     src/transport/LoopbackTransport.cpp
     src/transport/PtyTransport.cpp
     src/transport/SerialTransport.cpp
+    src/transport/SshAuthenticator.cpp
     src/transport/SshChannelProxy.cpp
     src/transport/SshTransport.cpp
     src/parser/Parser.cpp

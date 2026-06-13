@@ -4,7 +4,10 @@
 #include "transport/TransportDesc.h"
 #include "transport/BastionTunnel.h"
 #include "transport/PortForward.h"
+#include "transport/SshAuthenticator.h"
 #include "transport/SshChannelProxy.h"
+#include "transport/SshPortForwardEngine.h"
+#include "transport/SshSftpService.h"
 #include "transport/Transport.hpp"
 #include "transport/ITransportTarget.h"
 #include "transport/TransportError.h"
@@ -17,17 +20,12 @@
 #include <mutex>
 #include <string>
 #include <thread>
-#include <unordered_map>
-#include <variant>
 #include <vector>
-#include <poll.h>
 
 // Forward-declare libssh2 types to keep this header libssh2-free.
 struct _LIBSSH2_SESSION;
 struct _LIBSSH2_CHANNEL;
 struct _LIBSSH2_AGENT;
-struct _LIBSSH2_SFTP;
-struct _LIBSSH2_LISTENER;
 
 namespace term::transport {
 
@@ -101,36 +99,7 @@ public:
     // Worker-thread-only; accesses agent_channels_ without locking.
     void AcceptAgentChannel(_LIBSSH2_CHANNEL* ch);
 
-    // Called by KbdIntCallback (file-local static) to reach target_.
-    ITransportTarget& Target() { return target_; }
-
 private:
-    struct ActiveLocalFwd {
-        PortForwardDesc           desc;
-        int                       listen_fd = -1;
-        std::vector<ChannelProxy> conns;
-    };
-
-    struct ActiveRemoteFwd {
-        PortForwardDesc           desc;
-        _LIBSSH2_LISTENER*        listener   = nullptr;
-        int                       bound_port = 0;
-        std::vector<ChannelProxy> conns;
-    };
-
-    struct PfwAdd    { PortForwardDesc desc; };
-    struct PfwRemove { PortForwardId   id;   };
-
-    // Tag paired with each pollfd appended by BuildPortForwardPollFds so that
-    // ServicePortForwardConns can dispatch to the right fwd/conn without an
-    // implicit shared-order cursor.
-    struct PfwPollEntry {
-        enum class Kind : uint8_t { LocalListen, LocalConn, RemoteConn };
-        Kind   kind;
-        size_t fwdIdx;
-        size_t connIdx;  // unused for LocalListen
-    };
-
     // Worker thread — owns all libssh2 calls.
     void WorkerThread();
 
@@ -140,26 +109,6 @@ private:
     // Accepts an explicit session so it can be shared with the SCP transfer path.
     // Returns false and sets outError on failure; does NOT call NotifyError.
     bool VerifyHostKey(_LIBSSH2_SESSION* session, std::string& outError);
-    bool Authenticate();
-    bool AuthViaAgent();
-    bool AuthViaPassword();
-    bool AuthViaPrivateKey();
-    bool AuthViaKbdInteractive();
-
-    // Returns the public-key blobs that should be tried first from the agent.
-    // Checks desc_.agentIdentityHint first; falls back to ~/.ssh/config lookup.
-    // Returns empty if no preference is found (caller falls back to trying all keys).
-    std::vector<std::vector<uint8_t>> PreferredAgentKeyBlobs() const;
-
-    // Try only agent identities whose blob matches one in `preferred` (non-blocking).
-    // Returns true on first success. Caller owns agent lifetime.
-    // Sets *anyMatched=true if at least one matching identity was found in the agent.
-    bool AgentTryPreferred(_LIBSSH2_AGENT* agent,
-                           const std::vector<std::vector<uint8_t>>& preferred,
-                           bool* anyMatched);
-
-    // Try all agent identities in order (non-blocking). Returns true on first success.
-    bool AgentTryAll(_LIBSSH2_AGENT* agent);
     bool OpenChannel();
     bool RequestPty();
     bool SetupX11Forwarding();
@@ -204,42 +153,6 @@ private:
     // Worker-thread-only.
     static int ConnectToLocalSshAgent();
 
-    // Advances the front task in sftp_queue_ by one step.
-    // Must be called only from the worker thread.
-    void ServiceSftpQueue();
-
-    // Drains pfwPending_, sets up/tears down local listeners and remote listeners.
-    // Fires OnPortForwardStatusChanged when the set changes.
-    // Must be called only from the worker thread.
-    void ServicePortForwardQueue();
-
-    // Appends one pollfd+PfwPollEntry pair per listen socket and proxy conn.
-    // ServicePortForwardConns takes the same pfwBase and tags to dispatch results
-    // without relying on a shared iteration-order contract between the two functions.
-    // Must be called only from the worker thread.
-    void BuildPortForwardPollFds(std::vector<pollfd>& pfds,
-                                 std::vector<PfwPollEntry>& tags);
-    void ServicePortForwardConns(const std::vector<pollfd>& pfds, size_t pfwBase,
-                                 const std::vector<PfwPollEntry>& tags,
-                                 char* buf, size_t bufLen);
-
-    // Collects current status (including any persisted failures) and fires
-    // OnPortForwardStatusChanged if the snapshot changed.
-    void NotifyPortForwardStatus();
-
-    // Records a permanent failure for id in pfw_failed_ and fires a status update.
-    // The failure persists until the forward is explicitly removed via PfwRemove.
-    void FireFailedStatus(PortForwardId id, const std::string& error);
-
-    // Returns a human-readable error string for the current errno.
-    static std::string ErrnoString(int err);
-
-    // SFTP task state machines — defined in SshTransport.cpp.
-    // Declared as nested types so they have access to private members.
-    struct SftpListDirTask;
-    struct SftpDownloadTask;
-    struct SftpUploadTask;
-
     ITransportTarget&                    target_;
     term::transport::SshDesc               desc_;
     term::transport::SessionInit           sessionInit_;
@@ -253,7 +166,6 @@ private:
     _LIBSSH2_SESSION*           session_  = nullptr;
     _LIBSSH2_CHANNEL*           channel_  = nullptr;
     _LIBSSH2_AGENT*             agent_    = nullptr;
-    _LIBSSH2_SFTP*              sftp_     = nullptr;  // lazily initialised on first SFTP op
     int                         sock_fd_  = -1;
     // Non-null when the main session is tunnelled through a ProxyJump host.
     // Destroyed after the worker thread exits so the bridge outlives the session.
@@ -289,28 +201,15 @@ private:
     bool                        vpcolumns_pending_ = false;
     unsigned short              pending_vpcols_    = 0;
 
-    // SFTP task queue — shared between UI thread (enqueue) and worker (dequeue+advance).
-    // Tasks return true to be called again next iteration, false when complete.
-    using SftpTask = std::function<bool()>;
-    std::mutex                  sftp_queue_mutex_;
-    std::deque<SftpTask>        sftp_queue_;
+    // Authentication policy (binds desc_/session_/sock_fd_/running_/agent_/target_).
+    SshAuthenticator            authenticator_{desc_, session_, sock_fd_, running_,
+                                               agent_, target_};
 
-    // Port forward state — worker-thread-owned after Start().
-    std::vector<ActiveLocalFwd>  local_fwds_;
-    std::vector<ActiveRemoteFwd> remote_fwds_;
+    // SFTP subsystem + cooperative task queue (binds session_/running_ by ref).
+    SftpService                 sftpService_{session_, running_};
 
-    // Pending port forward additions/removals from the UI thread.
-    using PfwPending = std::variant<PfwAdd, PfwRemove>;
-    std::mutex                   pfw_mutex_;
-    std::vector<PfwPending>      pfw_pending_;
-
-    // Last-sent status snapshot; used to suppress redundant callbacks.
-    std::vector<PortForwardStatus> pfw_last_status_;
-
-    // Forwards that failed setup: id → error string.  Persisted here so they
-    // remain visible in the panel until the user explicitly removes them.
-    // Worker-thread-only after Start().
-    std::unordered_map<PortForwardId, std::string> pfw_failed_;
+    // Local/remote port forwards: listeners, proxies, pending queue, status.
+    PortForwardEngine           pfwEngine_{session_, sock_fd_, running_, target_};
 };
 
 } // namespace term::transport
