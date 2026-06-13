@@ -47,7 +47,6 @@ struct SshDesc {
     std::string    privateKeyPath;
     std::string    publicKeyPath;     // derived from privateKeyPath if empty
     std::string    passphrase;
-    int            keepaliveSeconds  = 30;   // 0 = disabled
     int            connectTimeoutSec = 10;
     std::string    remoteCommand;     // empty = login shell
     bool           compress          = false;

@@ -40,7 +40,6 @@ TEST_CASE("given SshDesc with KbdInteractive when serialised and deserialised th
     original.port              = 2222;
     original.username          = "alice";
     original.authMethod        = SshAuthMethod::KbdInteractive;
-    original.keepaliveSeconds  = 60;
     original.connectTimeoutSec = 15;
 
     const auto j = term::db::serialisation::SerialiseTransport(original);
@@ -54,7 +53,6 @@ TEST_CASE("given SshDesc with KbdInteractive when serialised and deserialised th
     CHECK(desc.port              == original.port);
     CHECK(desc.username          == original.username);
     CHECK(desc.authMethod        == SshAuthMethod::KbdInteractive);
-    CHECK(desc.keepaliveSeconds  == original.keepaliveSeconds);
     CHECK(desc.connectTimeoutSec == original.connectTimeoutSec);
 }
 

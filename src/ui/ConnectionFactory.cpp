@@ -36,7 +36,6 @@ term::session::Connection ToConnection(const ConnectionParams& params, int label
             d.port              = p.port;
             d.username          = p.username;
             d.connectTimeoutSec = p.connectTimeoutSec;
-            d.keepaliveSeconds  = p.keepaliveSeconds;
             d.remoteCommand     = p.remoteCommand;
             d.compress          = p.compress;
             d.x11Forwarding     = p.x11Forwarding;

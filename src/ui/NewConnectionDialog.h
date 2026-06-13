@@ -91,7 +91,6 @@ struct SshParams {
     std::string    password;
     std::string    privateKeyPath;
     std::string    passphrase;
-    int            keepaliveSeconds  = 30;
     int            connectTimeoutSec = 10;
     std::string    remoteCommand;
     bool           compress          = false;
@@ -237,7 +236,6 @@ private:
 
     // SSH options
     wxSpinCtrl*      m_timeoutCtrl     = nullptr;
-    wxSpinCtrl*      m_keepaliveCtrl   = nullptr;
     wxCheckBox*      m_cbCompress      = nullptr;
     wxCheckBox*      m_cbX11Fwd        = nullptr;
     wxCheckBox*      m_cbAgentFwd      = nullptr;

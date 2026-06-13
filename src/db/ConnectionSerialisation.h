@@ -88,7 +88,6 @@ inline json SerialiseTransport(const term::transport::TransportDesc& transport)
                 {"authMethod",         AuthMethodToString(desc.authMethod)},
                 {"privateKeyPath",     desc.privateKeyPath},
                 {"publicKeyPath",      desc.publicKeyPath},
-                {"keepaliveSeconds",   desc.keepaliveSeconds},
                 {"connectTimeoutSec",  desc.connectTimeoutSec},
                 {"remoteCommand",      desc.remoteCommand},
                 {"compress",             desc.compress},
@@ -159,7 +158,6 @@ inline term::transport::TransportDesc DeserialiseTransport(const json& j)
         d.authMethod        = AuthMethodFromString(j.value("authMethod", std::string{"agent"}));
         d.privateKeyPath    = j.value("privateKeyPath",    std::string{});
         d.publicKeyPath     = j.value("publicKeyPath",     std::string{});
-        d.keepaliveSeconds  = j.value("keepaliveSeconds",  30);
         d.connectTimeoutSec = j.value("connectTimeoutSec", 10);
         d.remoteCommand     = j.value("remoteCommand",     std::string{});
         d.compress          = j.value("compress",          false);

@@ -515,7 +515,7 @@ NewConnectionDialog::NewConnectionDialog(
 
         sizer->Add(m_jumpPane, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
 
-        // Options row — X11 · Agent · Compress · Timeout · Keep-alive
+        // Options row — X11 · Agent · Compress · Timeout
         {
             auto* row = new wxBoxSizer(wxHORIZONTAL);
 
@@ -534,13 +534,6 @@ NewConnectionDialog::NewConnectionDialog(
                                            wxDefaultPosition, wxDefaultSize,
                                            wxSP_ARROW_KEYS, 1, 120, 10);
             row->Add(m_timeoutCtrl, 0, wxRIGHT, 12);
-
-            row->Add(new wxStaticText(page, wxID_ANY, "Keep-alive (s):"),
-                     0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
-            m_keepaliveCtrl = new wxSpinCtrl(page, wxID_ANY, "30",
-                                             wxDefaultPosition, wxDefaultSize,
-                                             wxSP_ARROW_KEYS, 0, 300, 30);
-            row->Add(m_keepaliveCtrl, 0);
 
             sizer->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
         }
@@ -847,7 +840,6 @@ void NewConnectionDialog::ApplyPrefill(const term::db::ConnectionProfile& profil
             m_portCtrl->SetValue(wxString::Format("%d", desc.port));
             m_userCtrl->SetValue(desc.username);
             m_timeoutCtrl->SetValue(desc.connectTimeoutSec);
-            m_keepaliveCtrl->SetValue(desc.keepaliveSeconds);
             m_remoteCmdCtrl->SetValue(desc.remoteCommand);
             m_cbCompress->SetValue(desc.compress);
             m_cbX11Fwd->SetValue(desc.x11Forwarding);
@@ -1347,7 +1339,6 @@ ConnectionParams NewConnectionDialog::GetParams() const
             if (u) p.username = u;
         }
         p.connectTimeoutSec = m_timeoutCtrl->GetValue();
-        p.keepaliveSeconds  = m_keepaliveCtrl->GetValue();
         p.remoteCommand     = m_remoteCmdCtrl->GetValue().ToStdString();
         p.compress          = m_cbCompress->GetValue();
         p.x11Forwarding     = m_cbX11Fwd->GetValue();

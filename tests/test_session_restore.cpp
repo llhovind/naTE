@@ -64,7 +64,6 @@ static term::session::RestoreState MakeSampleState()
                 d.authMethod        = term::transport::SshAuthMethod::PrivateKey;
                 d.privateKeyPath    = "/home/user/.ssh/id_rsa";
                 d.publicKeyPath     = "/home/user/.ssh/id_rsa.pub";
-                d.keepaliveSeconds  = 30;
                 d.connectTimeoutSec = 10;
                 d.remoteCommand     = "";
                 d.compress          = true;
@@ -167,7 +166,6 @@ TEST_CASE("given a valid state when saved and loaded then all fields round-trip"
         CHECK(ssh->authMethod == term::transport::SshAuthMethod::PrivateKey);
         CHECK(ssh->privateKeyPath == "/home/user/.ssh/id_rsa");
         CHECK(ssh->publicKeyPath == "/home/user/.ssh/id_rsa.pub");
-        CHECK(ssh->keepaliveSeconds == 30);
         CHECK(ssh->connectTimeoutSec == 10);
         CHECK(ssh->compress == true);
         CHECK(ssh->agentForwarding == true);

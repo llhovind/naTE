@@ -236,9 +236,9 @@ void SshTransport::WorkerThread()
     // SSH application-level keepalive is intentionally disabled.  SO_KEEPALIVE
     // (set in ConnectSocket) handles both dead-connection detection (~40 s) and
     // NAT state maintenance at the kernel level.  The libssh2 keepalive would
-    // send SSH_MSG_GLOBAL_REQUEST every keepaliveSeconds seconds, which causes
-    // TCP to switch from keepalive-probe mode into retransmit mode and prevents
-    // ETIMEDOUT from being raised within the expected window.
+    // send SSH_MSG_GLOBAL_REQUEST periodically, which causes TCP to switch from
+    // keepalive-probe mode into retransmit mode and prevents ETIMEDOUT from
+    // being raised within the expected window.
 
     if (desc_.compress)
         libssh2_session_flag(session_, LIBSSH2_FLAG_COMPRESS, 1);
