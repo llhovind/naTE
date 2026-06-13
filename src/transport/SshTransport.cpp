@@ -676,9 +676,17 @@ bool SshTransport::StartShell()
 DisconnectReason SshTransport::ReadWriteLoop()
 {
     constexpr size_t kReadBuf = 4096;
+    // Bound the per-iteration read burst so a saturating remote (e.g. `find /`)
+    // cannot monopolise the loop in the inner read-while and starve
+    // DrainWriteQueue() — that starvation is what delays an interactive Ctrl+C
+    // from reaching the remote.  When the cap is hit we re-poll with a zero
+    // timeout so any still-pending data is read immediately rather than waiting
+    // kPollTimeoutMs, keeping throughput high while servicing writes between bursts.
+    constexpr size_t kMaxReadBurst = 64 * 1024;
     char buf[kReadBuf];
 
     DisconnectReason reason = DisconnectReason::Deliberate;
+    bool readBurstCapped = false;
 
     // Feed any bytes read past the PID newline during startup into the parser.
     if (!pidOvershoot_.empty()) {
@@ -717,7 +725,11 @@ DisconnectReason SshTransport::ReadWriteLoop()
             // Append port forward listen fds and proxy conn local fds.
             pfwEngine_.AppendPollFds(pfds);
 
-            ::poll(pfds.data(), static_cast<nfds_t>(pfds.size()), kPollTimeoutMs);
+            // A capped read burst left data pending: skip the wait so the next
+            // read picks it up immediately, otherwise block up to kPollTimeoutMs.
+            const int pollTimeout = readBurstCapped ? 0 : kPollTimeoutMs;
+            readBurstCapped = false;
+            ::poll(pfds.data(), static_cast<nfds_t>(pfds.size()), pollTimeout);
 
             if (!running_) break;
 
@@ -735,16 +747,24 @@ DisconnectReason SshTransport::ReadWriteLoop()
 
         // --- Read from main shell channel ---------------------------------
         ssize_t nRead;
-        while ((nRead = libssh2_channel_read(channel_, buf, kReadBuf)) > 0)
+        size_t  burst = 0;
+        while ((nRead = libssh2_channel_read(channel_, buf, kReadBuf)) > 0) {
             target_.OnData(std::string(buf, static_cast<size_t>(nRead)));
-
-        if (nRead == 0 || libssh2_channel_eof(channel_)) {
-            reason = DisconnectReason::Clean;
-            break;
+            burst += static_cast<size_t>(nRead);
+            if (burst >= kMaxReadBurst) { readBurstCapped = true; break; }
         }
-        if (nRead != LIBSSH2_ERROR_EAGAIN && nRead < 0) {
-            reason = DisconnectReason::Interrupted;
-            break;
+
+        // Only treat EOF/error when the burst drained naturally; a capped burst
+        // ended on a successful read (nRead > 0), so there is nothing to report.
+        if (!readBurstCapped) {
+            if (nRead == 0 || libssh2_channel_eof(channel_)) {
+                reason = DisconnectReason::Clean;
+                break;
+            }
+            if (nRead != LIBSSH2_ERROR_EAGAIN && nRead < 0) {
+                reason = DisconnectReason::Interrupted;
+                break;
+            }
         }
 
         // --- Service SSH X11 / agent channels → local sockets -------------

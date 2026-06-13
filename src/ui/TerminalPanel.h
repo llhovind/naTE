@@ -111,6 +111,7 @@ private:
     void OnKillFocus(wxFocusEvent&);
     void OnFlashTimer(wxTimerEvent&);
     void OnBlinkTimer(wxTimerEvent&);
+    void OnRenderTimer(wxTimerEvent&);
     void OnShow(wxShowEvent&);
 
     void LayoutScrollbars();
@@ -174,6 +175,12 @@ private:
     bool m_cursorHiddenByApp_   = false;
     wxTimer m_flashTimer_;
     wxTimer m_blinkTimer_;
+
+    // Render throttle: the data path (OnDocumentUpdate) only arms this timer
+    // instead of painting synchronously, so output saturation (`yes`, `find /`)
+    // cannot starve the UI thread of keyboard/menu/search events.  The timer
+    // flushes accumulated dirty rows once per frame.
+    wxTimer m_renderTimer_;
 
     // URL hover state
     std::u32string m_hoveredUrl_;

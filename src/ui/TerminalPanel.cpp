@@ -27,6 +27,7 @@ static int QueryScrollbarThickness()
 
 static constexpr int kResizeDebounceMs  = 80;
 static constexpr int kHScrollAnimMs     = 8;  // timer interval (~60 fps)
+static constexpr int kRenderFrameMs     = 16; // render-throttle frame budget (~60 fps)
 static constexpr int kHScrollMinStep    = 3;   // minimum columns per tick (tune for speed)
 
 static wxFont BuildFont(const AppConfig& cfg, bool bold, bool italic)
@@ -102,6 +103,8 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
     Bind(wxEVT_TIMER,      &TerminalPanel::OnBlinkTimer,     this, m_blinkTimer_.GetId());
     m_hScrollAnimTimer_.SetOwner(this);
     Bind(wxEVT_TIMER,      &TerminalPanel::OnHScrollAnim,    this, m_hScrollAnimTimer_.GetId());
+    m_renderTimer_.SetOwner(this);
+    Bind(wxEVT_TIMER,      &TerminalPanel::OnRenderTimer,    this, m_renderTimer_.GetId());
 
     reconnectBar_ = new ReconnectBar(this);
 
@@ -296,6 +299,21 @@ void TerminalPanel::UpdateScrollbars()
 void TerminalPanel::SetSearchController(SearchController* sc) { searchCtrl_ = sc; }
 
 void TerminalPanel::OnDocumentUpdate()
+{
+    // Data path: invoked via CallAfter from the read thread at the rate the
+    // remote produces output.  Flushing synchronously here (the forced gdk
+    // update below) means a saturating producer (`yes`, `find /`) pins the UI
+    // thread in a back-to-back repaint loop, starving keyboard, session-switch
+    // and search events.  Instead we only arm the render timer and return;
+    // DocLayout accumulates dirty rows in the meantime, and the timer flushes
+    // them once per frame, leaving the rest of each frame free for input.
+    // StartOnce (leading-edge) guarantees a trailing flush after output stops,
+    // since every chunk that mutates the document re-enters this method.
+    if (!m_renderTimer_.IsRunning())
+        m_renderTimer_.StartOnce(kRenderFrameMs);
+}
+
+void TerminalPanel::OnRenderTimer(wxTimerEvent&)
 {
     // DocLayout has already adjusted topRow_ internally (autoScroll_ policy).
     UpdateScrollbars();
