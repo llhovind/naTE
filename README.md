@@ -131,6 +131,7 @@ No installation required. The AppImage bundles all dependencies.
 | GCC or Clang | C++20 | |
 | GTK 3 dev headers | any | Linux only — `libgtk-3-dev` |
 | OpenSSL dev headers | any | `libssl-dev` |
+| zlib dev headers | any | `zlib1g-dev` — used by libssh2 for SSH compression |
 | pkg-config | any | Linux only |
 
 wxWidgets, libssh2, and nlohmann/json are fetched automatically by CMake at

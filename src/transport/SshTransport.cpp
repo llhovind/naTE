@@ -240,9 +240,6 @@ void SshTransport::WorkerThread()
     // keepalive-probe mode into retransmit mode and prevents ETIMEDOUT from
     // being raised within the expected window.
 
-    if (desc_.compress)
-        libssh2_session_flag(session_, LIBSSH2_FLAG_COMPRESS, 1);
-
     const auto disconnectReason = ReadWriteLoop();
 
     // Signal cancellation so pending SFTP tasks see !running_ and self-cancel.
@@ -388,6 +385,12 @@ bool SshTransport::PerformHandshake(int fd)
     }
 
     libssh2_session_set_blocking(session_, 0);
+
+    // Compression is negotiated during the handshake (key exchange), so the
+    // flag must be set before libssh2_session_handshake() — setting it later
+    // has no effect.
+    if (desc_.compress)
+        libssh2_session_flag(session_, LIBSSH2_FLAG_COMPRESS, 1);
 
     int rc;
     while ((rc = libssh2_session_handshake(session_, fd)) == LIBSSH2_ERROR_EAGAIN) {

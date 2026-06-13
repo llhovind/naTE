@@ -113,6 +113,10 @@ else()
     set(BUILD_EXAMPLES    OFF CACHE BOOL "" FORCE)
     set(BUILD_TESTING     OFF CACHE BOOL "" FORCE)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    # Compile zlib support into libssh2 so the SshDesc.compress option can
+    # negotiate zlib/zlib@openssh.com — without this the flag is a no-op even
+    # though the algorithm is selected at handshake time.
+    set(ENABLE_ZLIB_COMPRESSION ON CACHE BOOL "" FORCE)
     FetchContent_Declare(libssh2
         GIT_REPOSITORY https://github.com/libssh2/libssh2.git
         GIT_TAG        libssh2-1.11.1
@@ -321,13 +325,12 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/LICENSE")
 endif()
 set(CPACK_STRIP_FILES                 TRUE)
 
-if(NATE_SYSTEM_DEPS)
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libssh2-1, libgtk-3-0")
-    set(CPACK_RPM_PACKAGE_REQUIRES   "libssh2, gtk3")
-else()
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libgtk-3-0")
-    set(CPACK_RPM_PACKAGE_REQUIRES   "gtk3")
-endif()
+# Runtime dependencies are derived automatically from the binary's DT_NEEDED
+# entries rather than hand-maintained — this keeps the package metadata correct
+# as link-time dependencies change (e.g. libz.so.1, pulled in by the bundled
+# static libssh2's zlib compression code).  dpkg-shlibdeps (from dpkg-dev)
+# powers the Debian path; rpmbuild's find-requires does the RPM path by default.
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 set(CPACK_DEBIAN_PACKAGE_SECTION      "net")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY     "optional")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE     "https://github.com/lhovind/naTE")
