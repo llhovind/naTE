@@ -68,7 +68,7 @@ add_executable(naTE_core_tests
     test_scrollback_repo.cpp
     ${CORE_SOURCES}
 )
-target_link_libraries(naTE_core_tests PRIVATE Catch2::Catch2WithMain ${NATE_LIBSSH2_LINK})
+target_link_libraries(naTE_core_tests PRIVATE Catch2::Catch2WithMain ${NATE_LIBSSH2_LINK} nlohmann_json::nlohmann_json)
 target_include_directories(naTE_core_tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${NATE_LIBSSH2_INCLUDE})
 
 if(UNIX AND NOT APPLE)
