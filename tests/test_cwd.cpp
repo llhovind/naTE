@@ -1,9 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include "session/Connection.h"
 #include "session/Session.h"
-#include "ui/DocLayout.h"
+#include "layout/DocLayout.h"
 
 using namespace term::session;
+using namespace term::transport;
 
 // ---------------------------------------------------------------------------
 // Helpers

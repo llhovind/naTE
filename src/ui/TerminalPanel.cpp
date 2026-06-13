@@ -1,6 +1,8 @@
 #include "ui/TerminalPanel.h"
+#include "ui/ClipboardUtils.h"
 #include "ui/ReconnectBar.h"
 #include "ui/SearchBar.h"
+#include "ui/SearchController.h"
 #include "ui/StringUtils.h"
 #include "ui/wxKeyAdapter.h"
 #include <wx/clipbrd.h>
@@ -25,6 +27,7 @@ static int QueryScrollbarThickness()
 
 static constexpr int kResizeDebounceMs  = 80;
 static constexpr int kHScrollAnimMs     = 8;  // timer interval (~60 fps)
+static constexpr int kRenderFrameMs     = 16; // render-throttle frame budget (~60 fps)
 static constexpr int kHScrollMinStep    = 3;   // minimum columns per tick (tune for speed)
 
 static wxFont BuildFont(const AppConfig& cfg, bool bold, bool italic)
@@ -100,6 +103,8 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const AppConfig& cfg,
     Bind(wxEVT_TIMER,      &TerminalPanel::OnBlinkTimer,     this, m_blinkTimer_.GetId());
     m_hScrollAnimTimer_.SetOwner(this);
     Bind(wxEVT_TIMER,      &TerminalPanel::OnHScrollAnim,    this, m_hScrollAnimTimer_.GetId());
+    m_renderTimer_.SetOwner(this);
+    Bind(wxEVT_TIMER,      &TerminalPanel::OnRenderTimer,    this, m_renderTimer_.GetId());
 
     reconnectBar_ = new ReconnectBar(this);
 
@@ -291,10 +296,28 @@ void TerminalPanel::UpdateScrollbars()
     m_hScroll->Enable(hEnabled);
 }
 
+void TerminalPanel::SetSearchController(SearchController* sc) { searchCtrl_ = sc; }
+
 void TerminalPanel::OnDocumentUpdate()
+{
+    // Data path: invoked via CallAfter from the read thread at the rate the
+    // remote produces output.  Flushing synchronously here (the forced gdk
+    // update below) means a saturating producer (`yes`, `find /`) pins the UI
+    // thread in a back-to-back repaint loop, starving keyboard, session-switch
+    // and search events.  Instead we only arm the render timer and return;
+    // DocLayout accumulates dirty rows in the meantime, and the timer flushes
+    // them once per frame, leaving the rest of each frame free for input.
+    // StartOnce (leading-edge) guarantees a trailing flush after output stops,
+    // since every chunk that mutates the document re-enters this method.
+    if (!m_renderTimer_.IsRunning())
+        m_renderTimer_.StartOnce(kRenderFrameMs);
+}
+
+void TerminalPanel::OnRenderTimer(wxTimerEvent&)
 {
     // DocLayout has already adjusted topRow_ internally (autoScroll_ policy).
     UpdateScrollbars();
+    if (searchCtrl_) searchCtrl_->NotifyDocumentChanged();
     // GTK defers widget redraws to idle processing, which only runs when a
     // native input event is in flight. On the data path (CallAfter from a PTY
     // read) there is no input event, so Update() forces gdk_window_process_updates()
@@ -492,27 +515,9 @@ void TerminalPanel::OnBlinkTimer(wxTimerEvent&)
 void TerminalPanel::OnMiddleDown(wxMouseEvent& e)
 {
     if (!pasteCb_) { e.Skip(); return; }
-    wxString text;
-#ifdef __WXGTK__
-    wxTheClipboard->UsePrimarySelection(true);
-#endif
-    if (wxTheClipboard->Open()) {
-        if (wxTheClipboard->IsSupported(wxDF_UNICODETEXT)) {
-            wxTextDataObject data;
-            wxTheClipboard->GetData(data);
-            text = data.GetText();
-        } else if (wxTheClipboard->IsSupported(wxDF_TEXT)) {
-            wxTextDataObject data;
-            wxTheClipboard->GetData(data);
-            text = data.GetText();
-        }
-        wxTheClipboard->Close();
-    }
-#ifdef __WXGTK__
-    wxTheClipboard->UsePrimarySelection(false);
-#endif
-    if (!text.IsEmpty())
-        pasteCb_(std::string(text.ToUTF8()));
+    const std::string text = ui::ReadClipboardText(/*primary=*/true);
+    if (!text.empty())
+        pasteCb_(text);
 }
 
 void TerminalPanel::SetBroadcastCursorState(bool modeActive, bool inGroup)
@@ -560,11 +565,7 @@ void TerminalPanel::OnLeftDown(wxMouseEvent& e)
 
     // Ctrl+Click on a hovered URL → open in browser; skip selection start.
     if (e.ControlDown() && m_urlHovered_ && !m_hoveredUrl_.empty()) {
-        std::string utf8;
-        utf8.reserve(m_hoveredUrl_.size());
-        for (char32_t cp : m_hoveredUrl_)
-            utf8 += static_cast<char>(cp & 0x7F);
-        wxLaunchDefaultBrowser(wxString::FromUTF8(utf8));
+        wxLaunchDefaultBrowser(ToWxString(m_hoveredUrl_));
         return;
     }
 
@@ -705,13 +706,8 @@ void TerminalPanel::OnRightDown(wxMouseEvent& e)
 
     if (!hasUrl && !hasSel) { e.Skip(); return; }
 
-    // Convert URL to UTF-8 once (RFC 3986 URLs are ASCII).
-    std::string urlUtf8;
-    if (hasUrl) {
-        urlUtf8.reserve(urlSpan->url.size());
-        for (char32_t cp : urlSpan->url)
-            urlUtf8 += static_cast<char>(cp & 0x7F);
-    }
+    // Convert URL to UTF-8 once for the two menu lambdas below.
+    const std::string urlUtf8 = hasUrl ? ToUtf8(urlSpan->url) : std::string{};
 
     wxMenu menu;
 

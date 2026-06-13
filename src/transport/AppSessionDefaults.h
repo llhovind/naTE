@@ -1,9 +1,9 @@
 #pragma once
-#include "session/EnvVar.h"
+#include "transport/EnvVar.h"
 #include <string>
 #include <vector>
 
-namespace term::session {
+namespace term::transport {
 
 // App-wide defaults for session initialisation, constructed from AppConfig
 // and passed through to all transport constructors.
@@ -14,4 +14,4 @@ struct AppSessionDefaults {
     bool                loginShell = false;
 };
 
-} // namespace term::session
+} // namespace term::transport

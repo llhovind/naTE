@@ -4,13 +4,14 @@
 #include <wx/panel.h>
 #include <wx/scrolbar.h>
 #include <wx/timer.h>
-#include "ui/DocLayout.h"
+#include "layout/DocLayout.h"
 #include "ui/SelectionActionRegistry.h"
 #include "config/Config.h"
 #include "input/KeyEvent.hpp"
 
 class ReconnectBar;
 class SearchBar;
+class SearchController;
 
 class TerminalPanel : public wxWindow
 {
@@ -54,6 +55,10 @@ public:
     void SetSearchBar(SearchBar* bar);
     void ShowSearchBar(bool show);
     bool HasSearchBarFocus() const;
+
+    // Non-owning pointer to the active SearchController. Called by UIManager after
+    // construction and nulled before teardown so live-search notifications stop safely.
+    void SetSearchController(SearchController* sc);
 
     // Selection actions — non-owning; UIManager owns the registry.
     void SetActionRegistry(SelectionActionRegistry* reg) { actionRegistry_ = reg; }
@@ -106,6 +111,7 @@ private:
     void OnKillFocus(wxFocusEvent&);
     void OnFlashTimer(wxTimerEvent&);
     void OnBlinkTimer(wxTimerEvent&);
+    void OnRenderTimer(wxTimerEvent&);
     void OnShow(wxShowEvent&);
 
     void LayoutScrollbars();
@@ -141,8 +147,9 @@ private:
     wxTimer resizeTimer_;
     wxSize  pendingResize_{0, 0};
 
-    SearchBar*    searchBar_       = nullptr;  // wx-parent-owned; non-owning here
-    int           searchBarHeight_ = 0;
+    SearchBar*        searchBar_       = nullptr;  // wx-parent-owned; non-owning here
+    int               searchBarHeight_ = 0;
+    SearchController* searchCtrl_      = nullptr;  // non-owning
 
     ReconnectBar* reconnectBar_    = nullptr;  // wx-child-owned; hidden by default
     wxString      lastDisconnectMsg_;          // message to restore when tab is activated
@@ -168,6 +175,12 @@ private:
     bool m_cursorHiddenByApp_   = false;
     wxTimer m_flashTimer_;
     wxTimer m_blinkTimer_;
+
+    // Render throttle: the data path (OnDocumentUpdate) only arms this timer
+    // instead of painting synchronously, so output saturation (`yes`, `find /`)
+    // cannot starve the UI thread of keyboard/menu/search events.  The timer
+    // flushes accumulated dirty rows once per frame.
+    wxTimer m_renderTimer_;
 
     // URL hover state
     std::u32string m_hoveredUrl_;

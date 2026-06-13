@@ -80,14 +80,19 @@ public:
     // Must be called for every session in this tile on each broadcast change.
     void SetTabBroadcast(term::session::SessionId id, bool inBroadcast);
     void SetTabSupportsFileTransfer(term::session::SessionId id, bool supports);
+    // Callback queried at context-menu time to decide whether "Transfer Files..."
+    // should be enabled. Returns true when any open session (in any tile) supports
+    // file transfer. Wired once per tile by UIManager::WireTileCallbacks.
+    void SetFileTransferAvailableCallback(std::function<bool()> cb) { fileTransferAvailableCb_ = std::move(cb); }
 
     // Marks a tab as having unread output (content arrived while the tab was hidden).
     // Cleared automatically when the tab is activated.
     void SetTabUnread(term::session::SessionId id, bool hasUnread);
 
-    // Updates the connection status indicator on the tab badge.
-    // Disconnected/Reconnecting show an orange/yellow dot; Connected clears it.
-    void SetTabStatus(term::session::SessionId id, term::session::SessionStatus status);
+    // Wires a live status provider for the tab badge. The callback is invoked
+    // on every paint; it must be thread-safe and cheap to call.
+    void SetStatusProvider(
+        std::function<term::session::SessionStatus(term::session::SessionId)> provider);
 
     // Called by UIManager to reflect wrap mode changes originating outside this tile.
     void SetWrapMode(bool wrap);
@@ -163,7 +168,6 @@ private:
         bool                        inBroadcast         = false;
         bool                        hasUnreadOutput     = false;
         bool                        supportsFileTransfer = false;
-        term::session::SessionStatus status             = term::session::SessionStatus::Connected;
     };
 
     // Show the panel at index; hide the previous one. Does not emit ActivateSession — programmatic activation only.
@@ -197,9 +201,11 @@ private:
 
     wxPoint                    dragAnchor_  { -1, -1 };
     bool                       dragPending_ = false;
-    bool                       isFocused_          = false;
-    bool                       inBroadcast_        = false;
+    bool                       isFocused_           = false;
+    bool                       inBroadcast_         = false;
     bool                       broadcastModeActive_ = false;
+    std::function<bool()>      fileTransferAvailableCb_;
+    std::function<term::session::SessionStatus(term::session::SessionId)> statusProvider_;
 
     // Set by ApplyConfig, which is called from the constructor.
     wxColour colActive_;

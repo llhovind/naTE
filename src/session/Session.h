@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -7,7 +8,7 @@
 #include <vector>
 
 #include "input/InputRouter.h"
-#include "session/AppSessionDefaults.h"
+#include "transport/AppSessionDefaults.h"
 #include "session/Connection.h"
 #include "session/InputEncoder.h"
 #include "session/SessionStatus.h"
@@ -18,7 +19,7 @@
 #include "parser/Parser.h"
 #include "parser/IScreenTarget.h"
 #include "document/Document.h"
-#include "ui/DocLayout.h"
+#include "layout/DocLayout.h"
 
 namespace term::session {
 
@@ -32,7 +33,7 @@ public:
             unsigned short rows,
             std::function<void(transport::DisconnectReason)> onDisconnect,
             std::function<void(const transport::TransportError&)> onError,
-            AppSessionDefaults appDefaults = {},
+            transport::AppSessionDefaults appDefaults = {},
             unsigned short ptyLineWidth = 1024,
             bool wrapMode = false,
             std::function<void(bool)> onAltScreenChanged = {},
@@ -52,9 +53,9 @@ public:
     // The old transport must already be stopped (i.e. OnDisconnect() was received).
     // Document, DocLayout, and all UI state are preserved.
     void ReplaceConnection(const Connection& conn,
-                           const AppSessionDefaults& appDefaults);
+                           const transport::AppSessionDefaults& appDefaults);
 
-    SessionStatus GetStatus() const { return status_; }
+    SessionStatus GetStatus() const { return status_.load(std::memory_order_acquire); }
 
     // input::InputTarget
     void OnInput(const input::KeyEvent& event) override;
@@ -90,10 +91,13 @@ public:
     void AddDocumentListener(IDocumentListener* listener);
     void RemoveDocumentListener(IDocumentListener* listener);
 
-    const std::string& GetTitle() const { return main_doc_->GetTitle(); }
+    // Returned by value — Document::GetTitle copies under its title mutex.
+    std::string GetTitle() const { return main_doc_->GetTitle(); }
     DocLayout& GetDocLayout();
 
     // Layout forwarding — UIManager routes viewport events through here.
+    // Both flags are atomics: written on the transport read thread (parser
+    // callbacks), read lock-free from the UI thread (menu guards, Paste).
     bool IsAltScreenActive()    const { return altScreenActive_; }
     bool IsBracketedPasteActive() const { return bracketedPaste_; }
     void ForceAltScreen(bool on);
@@ -119,6 +123,22 @@ public:
     void SetTopRow(int row);
     void SetViewportSize(unsigned short cols, unsigned short rows);
     void SetWrapMode(bool wrap);
+
+    // Returns a reference to the main-screen document (scrollback history).
+    // Used by ScrollbackWriter to read lines on InsertLine notifications.
+    const Document& GetMainDoc() const { return *main_doc_; }
+
+    // Captures a thread-safe snapshot of the current main-screen scrollback.
+    // savedAt is set to the current wall-clock time; caller may persist it.
+    ScrollbackSnapshot CaptureScrollback() const;
+
+    // Injects a previously captured snapshot into the main document, prepending
+    // the restored lines and a separator before the current canvas.
+    void LoadScrollback(const ScrollbackSnapshot& snap);
+
+    // Wired by SessionManager to ScrollbackWriter::Truncate().
+    // Called inside ResetTerminal(clearScrollback=true).
+    std::function<void()> onClearScrollback_;
 
     std::string GetCurrentWorkingDir() const;
     bool        SupportsFileTransfer()   const;
@@ -148,7 +168,7 @@ private:
         unsigned short ptyCols,
         unsigned short rows,
         unsigned short viewportCols,
-        const AppSessionDefaults& appDefaults);
+        const transport::AppSessionDefaults& appDefaults);
 
 private:
     std::unique_ptr<transport::Transport> transport_;
@@ -171,14 +191,39 @@ private:
     std::function<void()>                                    onBell_;
     std::function<void(bool)>                                onCursorVisibilityChanged_;
 
+    // Serialises structural document/parser mutations between the transport
+    // read thread (OnData → parser_.Process) and the UI-thread entry points
+    // that mutate the document model directly (ResetTerminal, ForceAltScreen,
+    // LoadScrollback, SetViewportSize, SetWrapMode, listener registration,
+    // ReplaceConnection). Restores the single-mutator invariant the Document
+    // layer's unlocked writer-side reads rely on. The paint path deliberately
+    // does NOT take this — UI reads go through Document::linesMutex_, so
+    // rendering never blocks behind a parse chunk.
+    mutable std::mutex docMutex_;
+
+    // Guards lastCwd_ alone. OnCwdChanged also fires from the transport worker
+    // outside the OnData path (periodic /proc capture), so it cannot share
+    // docMutex_ without deadlocking the OSC 7 path (OnData already holds it).
+    mutable std::mutex cwdMutex_;
+
+    // Response bytes generated during a parse (DSR replies). Accumulated under
+    // docMutex_ and written to the transport only after the lock is released —
+    // LoopbackTransport echoes Write() synchronously on the calling thread, so
+    // writing mid-parse would re-enter OnData and self-deadlock on docMutex_.
+    std::string pendingResponse_;
+
     std::string        lastCwd_;
     unsigned short     lastCols_{0};
     unsigned short     lastRows_{0};
     unsigned short     ptyLineWidth_{1024};
-    bool               altScreenActive_{false};
-    bool               bracketedPaste_{false};
-    bool               cursorVisible_{true};
-    SessionStatus      status_{SessionStatus::Connected};
+    // Written under docMutex_ (parser callbacks or UI mutators); atomic so the
+    // UI thread can read them lock-free at any time.
+    std::atomic<bool>  altScreenActive_{false};
+    std::atomic<bool>  bracketedPaste_{false};
+    std::atomic<bool>  cursorVisible_{true};
+    std::atomic<SessionStatus> status_{SessionStatus::Connected};
+    // Guarded by docMutex_: registered from the UI thread, iterated on the
+    // transport read thread during alt-screen switches.
     std::vector<IDocumentListener*> externalListeners_;
 
     // Port forward state.

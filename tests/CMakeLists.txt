@@ -18,8 +18,8 @@ add_executable(naTE_tests
     ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
     ${CMAKE_SOURCE_DIR}/src/config/ColorScheme.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/UrlScanner.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/WordSelector.cpp
+    ${CMAKE_SOURCE_DIR}/src/layout/UrlScanner.cpp
+    ${CMAKE_SOURCE_DIR}/src/layout/WordSelector.cpp
 )
 target_link_libraries(naTE_tests PRIVATE Catch2::Catch2)
 target_include_directories(naTE_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -41,15 +41,23 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/BastionTunnel.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshConfig.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshSession.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshSftpService.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshPortForwardEngine.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshPublicKey.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/X11Utils.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/LoopbackTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/PtyTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SerialTransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshAuthenticator.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/SshChannelProxy.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshTransport.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/DocLayout.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/UrlScanner.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/WordSelector.cpp
+    ${CMAKE_SOURCE_DIR}/src/layout/DocLayout.cpp
+    ${CMAKE_SOURCE_DIR}/src/layout/UrlScanner.cpp
+    ${CMAKE_SOURCE_DIR}/src/layout/WordSelector.cpp
+    ${CMAKE_SOURCE_DIR}/src/db/JsonScrollbackRepository.cpp
+    ${CMAKE_SOURCE_DIR}/src/db/ScrollbackWriter.cpp
+    ${CMAKE_SOURCE_DIR}/src/db/ScrollbackPurge.cpp
 )
 
 add_executable(naTE_core_tests
@@ -57,9 +65,10 @@ add_executable(naTE_core_tests
     test_session_manager.cpp
     test_x11_utils.cpp
     test_cwd.cpp
+    test_scrollback_repo.cpp
     ${CORE_SOURCES}
 )
-target_link_libraries(naTE_core_tests PRIVATE Catch2::Catch2WithMain ${NATE_LIBSSH2_LINK})
+target_link_libraries(naTE_core_tests PRIVATE Catch2::Catch2WithMain ${NATE_LIBSSH2_LINK} nlohmann_json::nlohmann_json)
 target_include_directories(naTE_core_tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${NATE_LIBSSH2_INCLUDE})
 
 if(UNIX AND NOT APPLE)

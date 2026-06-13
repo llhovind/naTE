@@ -1,13 +1,8 @@
-#include "ui/DocLayout.h"
-#include "ui/SearchMatch.h"
-#include "ui/WordSelector.h"
+#include "layout/DocLayout.h"
+#include "layout/SearchMatch.h"
+#include "layout/WordSelector.h"
 #include <algorithm>
 #include <limits>
-
-static char32_t CaseFold(char32_t c)
-{
-    return (c >= U'A' && c <= U'Z') ? c + (U'a' - U'A') : c;
-}
 
 DocLayout::DocLayout(Document& doc, int cols, int rows)
     : doc_(&doc), cols_(cols), rows_(rows)
@@ -23,14 +18,24 @@ DocLayout::~DocLayout()
 
 void DocLayout::SetDocument(Document& newDoc)
 {
-    std::lock_guard<std::mutex> lk(mtx_);
+    // Listener detach/attach happens OUTSIDE mtx_: NotifyListeners holds
+    // Document::listenerMutex_ and then takes mtx_ (OnDocumentChanged), so
+    // acquiring listenerMutex_ while holding mtx_ here would close a
+    // lock-order cycle. Reading doc_ unlocked is safe — only SetDocument
+    // writes it, and Session::docMutex_ serialises SetDocument against all
+    // notifications, so detaching before the swap cannot miss an update
+    // (allViewDirty_ forces a full repaint regardless).
     doc_->RemoveListener(this);
-    doc_ = &newDoc;
-    doc_->AddListener(this);
-    autoScroll_   = true;
-    allViewDirty_ = true;
-    ScrollToEndLocked();
-    ComputeMaxVisibleWidthLocked();
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        doc_ = &newDoc;
+        autoScroll_   = true;
+        allViewDirty_ = true;
+        std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
+        ScrollToEndLocked();
+        ComputeMaxVisibleWidthLocked();
+    }
+    newDoc.AddListener(this);
 }
 
 // ---------------------------------------------------------------------------
@@ -53,7 +58,7 @@ DocLayout::ViewportAnchor
 DocLayout::WalkAnchorBy(ViewportAnchor a, int delta) const
 {
     const auto&    lines = doc_->GetLines();
-    const CursorPos cur  = doc_->GetCursor();
+    const CursorPos cur  = doc_->GetCursorLocked();
 
     // Returns the visual row count for docLine, adding one extra sub-row when
     // the cursor sits exactly at a sub-row boundary end (pending-wrap state).
@@ -95,6 +100,7 @@ DocLayout::WalkAnchorBy(ViewportAnchor a, int delta) const
 void DocLayout::SetViewportSize(int newCols, int newRows)
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     const int prevCols = cols_;
     cols_ = newCols;
     rows_ = newRows;
@@ -111,7 +117,7 @@ void DocLayout::SetViewportSize(int newCols, int newRows)
         // Viewport grew: leftCol_ may have been pushed right by an earlier
         // undersized viewport (e.g. before panel layout completes on startup).
         // Reset to the leftmost position that still keeps the cursor visible.
-        const int cursorCol = (int)doc_->GetCursor().col;
+        const int cursorCol = (int)doc_->GetCursorLocked().col;
         leftCol_     = std::max(0, cursorCol - cols_ + 1);
         leftClamped_ = (leftCol_ == 0);
     }
@@ -206,7 +212,7 @@ RenderedLine DocLayout::BuildRenderedLineLocked(ViewportAnchor pos) const
     }
 
     // Cursor: check whether the document cursor lands on this exact visual row.
-    const CursorPos cursor = doc_->GetCursor();
+    const CursorPos cursor = doc_->GetCursorLocked();
     if ((int)cursor.line == pos.docLine) {
         if (wrapMode_) {
             const int cursorSubRow = (cols_ > 0) ? (int)(cursor.col / (size_t)cols_) : 0;
@@ -230,12 +236,14 @@ RenderedLine DocLayout::BuildRenderedLineLocked(ViewportAnchor pos) const
 RenderedLine DocLayout::GetRenderedLine(int r)
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     return BuildRenderedLineLocked(WalkAnchorBy(topAnchor_, r));
 }
 
 std::vector<RenderedLine> DocLayout::GetRenderedLines(int first, int last)
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     std::vector<RenderedLine> out;
     out.reserve(static_cast<size_t>(last - first));
     ViewportAnchor pos = WalkAnchorBy(topAnchor_, first);
@@ -249,6 +257,7 @@ std::vector<RenderedLine> DocLayout::GetRenderedLines(int first, int last)
 int DocLayout::GetLineCount() const
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     return (int)doc_->GetLines().size();
 }
 
@@ -261,6 +270,7 @@ int DocLayout::GetTopRow() const
 void DocLayout::SetTopRow(int docLine)
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     SetTopRowLocked(docLine);
 }
 
@@ -276,12 +286,14 @@ int DocLayout::TotalVisualLinesLocked() const
 int DocLayout::GetTotalVisualLineCount() const
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     return TotalVisualLinesLocked();
 }
 
 int DocLayout::GetTopVisualRow() const
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     if (!wrapMode_) return topAnchor_.docLine;
     const auto& lines = doc_->GetLines();
     int visual = 0;
@@ -293,6 +305,7 @@ int DocLayout::GetTopVisualRow() const
 void DocLayout::SetTopVisualRow(int visualRow)
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     if (!wrapMode_) { SetTopRowLocked(visualRow); return; }
     const int total = TotalVisualLinesLocked();
     visualRow   = std::clamp(visualRow, 0, std::max(0, total - rows_));
@@ -304,6 +317,7 @@ void DocLayout::SetTopVisualRow(int visualRow)
 void DocLayout::ScrollByVisualDelta(int delta)
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     topAnchor_  = WalkAnchorBy(topAnchor_, delta);
     autoScroll_ = IsAtEndLocked();
     ComputeMaxVisibleWidthLocked();
@@ -312,18 +326,21 @@ void DocLayout::ScrollByVisualDelta(int delta)
 void DocLayout::ScrollToEnd()
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     ScrollToEndLocked();
 }
 
 bool DocLayout::IsAtEnd() const
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     return IsAtEndLocked();
 }
 
 void DocLayout::EnsureCursorVisible()
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     leftClamped_ = true;   // user interaction: resume horizontal cursor tracking
     EnsureCursorVisibleVertically();
     EnsureCursorVisibleHorizontally();
@@ -333,6 +350,7 @@ DocLayout::DocPosition
 DocLayout::HitTest(int viewportRow, int viewportCol) const
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     const ViewportAnchor pos = WalkAnchorBy(topAnchor_, viewportRow);
     const int startCol = wrapMode_ ? pos.subRow * cols_ : leftCol_;
     return {pos.docLine, startCol + viewportCol};
@@ -361,7 +379,7 @@ void DocLayout::ScrollToEndLocked()
     // If the cursor is at a sub-row boundary end of the last DocLine, add the
     // extra empty sub-row so it is included in the viewport.
     if (wrapMode_ && cols_ > 0) {
-        const CursorPos cur = doc_->GetCursor();
+        const CursorPos cur = doc_->GetCursorLocked();
         const auto&     txt = lines.back().text;
         if ((int)cur.line == lastDocLine && !txt.empty()
                 && txt.size() % (size_t)cols_ == 0 && cur.col == txt.size())
@@ -384,7 +402,7 @@ bool DocLayout::IsAtEndLocked() const
 
 void DocLayout::EnsureCursorVisibleVertically()
 {
-    const CursorPos cur        = doc_->GetCursor();
+    const CursorPos cur        = doc_->GetCursorLocked();
     const int       curDocLine = (int)cur.line;
     const int       curSubRow  = (wrapMode_ && cols_ > 0)
                                ? (int)(cur.col / (size_t)cols_) : 0;
@@ -417,7 +435,7 @@ void DocLayout::EnsureCursorVisibleHorizontally()
     const int marginLeft  = cols_ / 4;  // context kept left of cursor — scales with viewport width
     const int marginRight = 3;          // context kept right of cursor
 
-    const CursorPos cursor  = doc_->GetCursor();
+    const CursorPos cursor  = doc_->GetCursorLocked();
     const int       docCol  = (int)cursor.col;
     const auto&     lines   = doc_->GetLines();
     const int       lineLen = (cursor.line < lines.size())
@@ -450,6 +468,7 @@ void DocLayout::ComputeMaxVisibleWidthLocked() const
 int DocLayout::GetMaxVisibleWidth() const
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     if (maxVisibleWidthDirty_)
         ComputeMaxVisibleWidthLocked();
     return maxVisibleWidth_;
@@ -458,6 +477,7 @@ int DocLayout::GetMaxVisibleWidth() const
 void DocLayout::SetWrapMode(bool wrap)
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     if (wrapMode_ == wrap) return;
     wrapMode_         = wrap;
     leftCol_          = 0;
@@ -476,6 +496,7 @@ bool DocLayout::GetWrapMode() const
 void DocLayout::SetLeftCol(int col)
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     if (maxVisibleWidthDirty_)
         ComputeMaxVisibleWidthLocked();
     const int maxLeft = std::max(0, maxVisibleWidth_ - cols_);
@@ -510,15 +531,28 @@ int DocLayout::GetViewportCols() const
 std::vector<SearchMatch> DocLayout::Search(const std::u32string& foldedNeedle) const
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
+    return SearchRangeLocked(foldedNeedle, 0, doc_->GetLines().size());
+}
+
+std::vector<SearchMatch> DocLayout::SearchRange(const std::u32string& foldedNeedle,
+                                                 size_t fromLine, size_t toLine) const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
+    return SearchRangeLocked(foldedNeedle, fromLine, toLine);
+}
+
+std::vector<SearchMatch> DocLayout::SearchRangeLocked(const std::u32string& foldedNeedle,
+                                                       size_t fromLine, size_t toLine) const
+{
     std::vector<SearchMatch> results;
     if (foldedNeedle.empty()) return results;
 
     const auto& lines = doc_->GetLines();
-    for (size_t i = 0; i < lines.size(); ++i) {
-        std::u32string haystack;
-        haystack.reserve(lines[i].text.size());
-        for (char32_t c : lines[i].text)
-            haystack.push_back(CaseFold(c));
+    const size_t end = std::min(toLine, lines.size());
+    for (size_t i = fromLine; i < end; ++i) {
+        const std::u32string haystack = SearchCaseFoldStr(lines[i].text);
 
         size_t pos = 0;
         while ((pos = haystack.find(foldedNeedle, pos)) != std::u32string::npos) {
@@ -550,6 +584,7 @@ void DocLayout::ClearSearchState()
 std::optional<UrlScanner::UrlSpan> DocLayout::FindUrlAt(DocPosition pos) const
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     const auto& lines = doc_->GetLines();
     if (pos.docLine < 0 || pos.docLine >= (int)lines.size()) return std::nullopt;
     const auto spans = UrlScanner::ScanLine(lines[pos.docLine].text);
@@ -563,6 +598,7 @@ std::optional<UrlScanner::UrlSpan> DocLayout::FindUrlAt(DocPosition pos) const
 void DocLayout::SetHoveredUrl(std::optional<DocPosition> urlStart, int len)
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
 
     const bool samePos = hoveredUrlPos_.has_value() == urlStart.has_value()
                       && (!urlStart || (urlStart->docLine == hoveredUrlPos_->docLine
@@ -583,6 +619,7 @@ void DocLayout::SetHoveredUrl(std::optional<DocPosition> urlStart, int len)
 int DocLayout::GetVisualRowForDocLine(int docLine) const
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     if (!wrapMode_) return docLine;
     const auto& lines = doc_->GetLines();
     int visual = 0;
@@ -653,6 +690,7 @@ bool DocLayout::HasSelection() const
 std::u32string DocLayout::GetSelectedText() const
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     if (!selection_.active) return {};
 
     auto [selStart, selEnd] = NormalizeSelectionLocked();
@@ -676,6 +714,7 @@ std::u32string DocLayout::GetSelectedText() const
 bool DocLayout::SelectWordAt(DocPosition pos, const std::string& regexPattern)
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     const auto& lines = doc_->GetLines();
     if (pos.docLine < 0 || pos.docLine >= static_cast<int>(lines.size()))
         return false;
@@ -694,6 +733,7 @@ bool DocLayout::SelectWordAt(DocPosition pos, const std::string& regexPattern)
 void DocLayout::SelectLineAt(DocPosition pos)
 {
     std::lock_guard<std::mutex> lk(mtx_);
+    std::shared_lock<std::shared_mutex> ll(doc_->GetLinesMutex());
     const auto& lines = doc_->GetLines();
     if (pos.docLine < 0 || pos.docLine >= static_cast<int>(lines.size()))
         return;

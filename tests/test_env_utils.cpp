@@ -10,7 +10,7 @@
 #include <vector>
 
 using namespace term::transport;
-using term::session::EnvVar;
+using term::transport::EnvVar;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -248,4 +248,33 @@ TEST_CASE("given /bin/sh when MakeLoginShellArg0 called then returns -sh")
 TEST_CASE("given shell name with no path separator when MakeLoginShellArg0 called then returns -name")
 {
     CHECK(MakeLoginShellArg0("fish") == "-fish");
+}
+
+// ---------------------------------------------------------------------------
+// ShellQuote
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given plain string when ShellQuote called then wrapped in single quotes")
+{
+    CHECK(ShellQuote("hello") == "'hello'");
+}
+
+TEST_CASE("given string with spaces when ShellQuote called then preserved inside quotes")
+{
+    CHECK(ShellQuote("/tmp/my file.txt") == "'/tmp/my file.txt'");
+}
+
+TEST_CASE("given embedded single quote when ShellQuote called then escaped as quote-backslash-quote")
+{
+    CHECK(ShellQuote("it's") == "'it'\\''s'");
+}
+
+TEST_CASE("given empty string when ShellQuote called then returns empty quoted token")
+{
+    CHECK(ShellQuote("") == "''");
+}
+
+TEST_CASE("given shell metacharacters when ShellQuote called then left verbatim inside quotes")
+{
+    CHECK(ShellQuote("$HOME; rm -rf `x` && |") == "'$HOME; rm -rf `x` && |'");
 }

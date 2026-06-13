@@ -1,7 +1,7 @@
 #pragma once
 
-#include "session/AppSessionDefaults.h"
-#include "session/Connection.h"
+#include "transport/AppSessionDefaults.h"
+#include "transport/TransportDesc.h"
 #include "transport/Transport.hpp"
 #include "transport/ITransportTarget.h"
 #include <atomic>
@@ -19,8 +19,8 @@ public:
                  unsigned short cols,
                  unsigned short rows,
                  unsigned short viewportCols,
-                 const term::session::SessionInit& sessionInit = {},
-                 const term::session::AppSessionDefaults& appDefaults = {});
+                 const term::transport::SessionInit& sessionInit = {},
+                 const term::transport::AppSessionDefaults& appDefaults = {});
     ~PtyTransport() override;
 
     PtyTransport(const PtyTransport&) = delete;

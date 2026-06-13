@@ -16,16 +16,25 @@ RemoteFileBrowserDialog::RemoteFileBrowserDialog(
     term::session::SessionManager& sm,
     const std::string& remoteDescription,
     const wxString& confirmLabel,
-    const std::string& initialPath)
+    const std::string& initialPath,
+    BrowseMode mode)
     : wxDialog(parent, wxID_ANY,
-               remoteDescription.empty()
-                   ? wxString("Browse Remote Files")
-                   : wxString::Format("Browse %s",
-                                      wxString::FromUTF8(remoteDescription)),
+               [&]() -> wxString {
+                   if (mode == BrowseMode::Directory)
+                       return remoteDescription.empty()
+                           ? wxString("Select Destination Directory")
+                           : wxString::Format("Select Directory on %s",
+                                              wxString::FromUTF8(remoteDescription));
+                   return remoteDescription.empty()
+                       ? wxString("Browse Remote Files")
+                       : wxString::Format("Browse %s",
+                                          wxString::FromUTF8(remoteDescription));
+               }(),
                wxDefaultPosition, wxSize(560, 420),
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
     , sessionId_(sessionId)
     , sm_(sm)
+    , mode_(mode)
     , currentPath_(initialPath.empty() ? "." : initialPath)
 {
     auto* outer = new wxBoxSizer(wxVERTICAL);
@@ -56,9 +65,13 @@ RemoteFileBrowserDialog::RemoteFileBrowserDialog(
     // --- Buttons ---
     auto* btnRow = new wxBoxSizer(wxHORIZONTAL);
     btnRow->AddStretchSpacer();
-    addBtn_      = new wxButton(this, wxID_ANY, confirmLabel);
+    if (mode_ == BrowseMode::Directory) {
+        addBtn_ = new wxButton(this, wxID_ANY, "Select This Directory");
+    } else {
+        addBtn_ = new wxButton(this, wxID_ANY, confirmLabel);
+        addBtn_->Disable();
+    }
     auto* closeBtn = new wxButton(this, wxID_CANCEL, "Close");
-    addBtn_->Disable();
     btnRow->Add(addBtn_,   0, wxRIGHT, 6);
     btnRow->Add(closeBtn,  0);
     outer->Add(btnRow, 0, wxALL, 10);
@@ -70,10 +83,12 @@ RemoteFileBrowserDialog::RemoteFileBrowserDialog(
     goBtn->Bind(wxEVT_BUTTON,        &RemoteFileBrowserDialog::OnGo,         this);
     pathCtrl_->Bind(wxEVT_TEXT_ENTER, [this](wxCommandEvent& evt){ OnGo(evt); });
     fileList_->Bind(wxEVT_LIST_ITEM_ACTIVATED, &RemoteFileBrowserDialog::OnItemActivated, this);
-    fileList_->Bind(wxEVT_LIST_ITEM_SELECTED,
-        [this](wxListEvent&){ addBtn_->Enable(fileList_->GetSelectedItemCount() > 0); });
-    fileList_->Bind(wxEVT_LIST_ITEM_DESELECTED,
-        [this](wxListEvent&){ addBtn_->Enable(fileList_->GetSelectedItemCount() > 0); });
+    if (mode_ == BrowseMode::Files) {
+        fileList_->Bind(wxEVT_LIST_ITEM_SELECTED,
+            [this](wxListEvent&){ addBtn_->Enable(fileList_->GetSelectedItemCount() > 0); });
+        fileList_->Bind(wxEVT_LIST_ITEM_DESELECTED,
+            [this](wxListEvent&){ addBtn_->Enable(fileList_->GetSelectedItemCount() > 0); });
+    }
     addBtn_->Bind(wxEVT_BUTTON, &RemoteFileBrowserDialog::OnAdd, this);
 
     Navigate(currentPath_);
@@ -114,6 +129,8 @@ void RemoteFileBrowserDialog::Navigate(const std::string& path)
                     });
                 PopulateList(currentEntries_);
                 upBtn_->Enable(currentPath_ != "/");
+                if (mode_ == BrowseMode::Directory)
+                    addBtn_->Enable();
             });
         });
 }
@@ -172,6 +189,12 @@ void RemoteFileBrowserDialog::OnItemActivated(wxListEvent& evt)
 
 void RemoteFileBrowserDialog::OnAdd(wxCommandEvent&)
 {
+    if (mode_ == BrowseMode::Directory) {
+        selectedPaths_ = { currentPath_ };
+        EndModal(wxID_OK);
+        return;
+    }
+
     long item = -1;
     while (true) {
         item = fileList_->GetNextItem(item, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);

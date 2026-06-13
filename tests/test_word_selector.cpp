@@ -1,5 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
-#include "ui/WordSelector.h"
+#include "layout/WordSelector.h"
 
 using WordSelector::FindWordBounds;
 

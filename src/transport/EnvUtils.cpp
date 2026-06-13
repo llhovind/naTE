@@ -9,13 +9,13 @@ extern char** environ;
 
 namespace term::transport {
 
-std::vector<term::session::EnvVar> ParseEnvFile(const std::string& path)
+std::vector<term::transport::EnvVar> ParseEnvFile(const std::string& path)
 {
     std::ifstream file(path);
     if (!file.is_open())
         return {};
 
-    std::vector<term::session::EnvVar> result;
+    std::vector<term::transport::EnvVar> result;
     std::string line;
     while (std::getline(file, line)) {
         // Strip carriage returns (Windows-style line endings)
@@ -65,9 +65,9 @@ std::vector<std::string> CaptureParentEnv()
 
 EnvBlock BuildEnvBlock(
     const std::vector<std::string>&           parentEnv,
-    const std::vector<term::session::EnvVar>& appDefaults,
-    const std::vector<term::session::EnvVar>& envFileVars,
-    const std::vector<term::session::EnvVar>& profileVars)
+    const std::vector<term::transport::EnvVar>& appDefaults,
+    const std::vector<term::transport::EnvVar>& envFileVars,
+    const std::vector<term::transport::EnvVar>& profileVars)
 {
     // Build an ordered map preserving insertion order of keys as we encounter
     // them from lowest to highest priority, overwriting values as needed.
@@ -132,6 +132,17 @@ std::string MakeLoginShellArg0(const std::string& shellPath)
         ? shellPath
         : shellPath.substr(pos + 1);
     return '-' + name;
+}
+
+std::string ShellQuote(const std::string& s)
+{
+    std::string out = "'";
+    for (char c : s) {
+        if (c == '\'') out += "'\\''";
+        else           out += c;
+    }
+    out += "'";
+    return out;
 }
 
 } // namespace term::transport

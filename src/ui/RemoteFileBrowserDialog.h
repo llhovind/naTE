@@ -14,9 +14,11 @@
 
 namespace ui {
 
-// Modal dialog that lets the user browse a remote SSH filesystem and select
-// files for download. Calls SessionManager::ListRemoteDirectory via short-lived
-// exec sessions. Returns selected remote paths via GetSelectedPaths().
+enum class BrowseMode { Files, Directory };
+
+// Modal dialog that lets the user browse a remote SSH filesystem. In Files
+// mode, multi-selects individual files. In Directory mode, lets the user
+// navigate and confirm a destination directory via "Select This Directory".
 class RemoteFileBrowserDialog : public wxDialog {
 public:
     RemoteFileBrowserDialog(wxWindow* parent,
@@ -24,7 +26,8 @@ public:
                             term::session::SessionManager& sm,
                             const std::string& remoteDescription,
                             const wxString& confirmLabel = "Add Selected",
-                            const std::string& initialPath = ".");
+                            const std::string& initialPath = ".",
+                            BrowseMode mode = BrowseMode::Files);
 
     const std::vector<std::string>& GetSelectedPaths() const { return selectedPaths_; }
 
@@ -48,6 +51,7 @@ private:
     wxButton*   addBtn_    = nullptr;
     wxStaticText* statusLabel_ = nullptr;
 
+    BrowseMode  mode_;
     std::string currentPath_;
     std::vector<term::transport::RemoteDirEntry> currentEntries_;
     std::vector<std::string> selectedPaths_;

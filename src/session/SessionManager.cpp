@@ -1,7 +1,16 @@
 #include "session/SessionManager.h"
+#include "db/IScrollbackRepository.h"
+#include "db/ScrollbackWriter.h"
 #include "transport/TransportError.h"
 #include <algorithm>
+#include <chrono>
+#include <ctime>
+#include <filesystem>
+#include <iomanip>
+#include <random>
+#include <sstream>
 #include <stdexcept>
+#include <cstdio>
 
 namespace term::session {
 
@@ -11,8 +20,23 @@ namespace term::session {
 
 SessionManager::SessionManager() = default;
 
+SessionManager::SessionManager(
+    std::unique_ptr<term::db::IScrollbackRepository> scrollbackRepo,
+    std::string scrollbackDir,
+    size_t scrollbackSaveLines,
+    bool   scrollbackSaveStyles)
+    : scrollbackRepo_(std::move(scrollbackRepo))
+    , scrollbackDir_(std::move(scrollbackDir))
+    , scrollbackSaveLines_(scrollbackSaveLines)
+    , scrollbackSaveStyles_(scrollbackSaveStyles)
+{}
+
 SessionManager::~SessionManager()
 {
+    // Compact scrollback before stopping transports so segment files are merged.
+    if (scrollbackRepo_)
+        CompactAllSessions();
+
     // Stop all transport threads before records are destroyed. Listeners were
     // already detached by UIManager::~UIManager (which is destroyed before
     // SessionManager in WindowContext order) or by explicit CloseSession calls.
@@ -23,6 +47,32 @@ SessionManager::~SessionManager()
     }
 }
 
+// static
+std::string SessionManager::GenerateUuid()
+{
+    std::random_device rd;
+    std::mt19937_64 gen(rd());
+    std::uniform_int_distribution<uint64_t> dist;
+
+    uint64_t hi = dist(gen);
+    uint64_t lo = dist(gen);
+
+    // Set version 4
+    hi = (hi & 0xFFFFFFFFFFFF0FFFULL) | 0x0000000000004000ULL;
+    // Set RFC 4122 variant (10xx)
+    lo = (lo & 0x3FFFFFFFFFFFFFFFULL) | 0x8000000000000000ULL;
+
+    char buf[37];
+    std::snprintf(buf, sizeof(buf),
+        "%08x-%04x-%04x-%04x-%012llx",
+        static_cast<uint32_t>(hi >> 32),
+        static_cast<uint16_t>(hi >> 16),
+        static_cast<uint16_t>(hi & 0xFFFF),
+        static_cast<uint16_t>(lo >> 48),
+        static_cast<unsigned long long>(lo & 0x0000FFFFFFFFFFFFULL));
+    return buf;
+}
+
 // ---------------------------------------------------------------------------
 // Session lifecycle
 // ---------------------------------------------------------------------------
@@ -31,8 +81,9 @@ SessionId SessionManager::CreateSession(const Connection& conn,
                                         int scrollbackLines,
                                         unsigned short cols,
                                         unsigned short rows,
-                                        AppSessionDefaults appDefaults,
-                                        unsigned short ptyLineWidth)
+                                        transport::AppSessionDefaults appDefaults,
+                                        unsigned short ptyLineWidth,
+                                        std::string uuid)
 {
     const SessionId id = nextId_++;
 
@@ -43,6 +94,7 @@ SessionId SessionManager::CreateSession(const Connection& conn,
     rec->connection     = conn;
     rec->appDefaults    = appDefaults;
     rec->uiObserver     = std::make_shared<std::atomic<ISessionObserver*>>(nullptr);
+    rec->scrollbackUuid = uuid.empty() ? GenerateUuid() : std::move(uuid);
 
     // Capture the shared_ptr so the lambda remains valid even if this record
     // is erased from the map before the session thread fires the callback.
@@ -90,6 +142,21 @@ SessionId SessionManager::CreateSession(const Connection& conn,
                 obs->OnCursorVisibilityChanged(id, visible);
         });
 
+    // Create and start a scrollback writer if the feature is enabled.
+    if (scrollbackRepo_) {
+        auto writer = std::make_unique<term::db::ScrollbackWriter>(
+            rec->session->GetMainDoc(),
+            scrollbackDir_,
+            rec->scrollbackUuid,
+            scrollbackSaveLines_,
+            scrollbackSaveStyles_);
+        writer->Start();
+        rec->session->AddDocumentListener(writer.get());
+        // Wire the clear-scrollback callback (UI thread → writer).
+        rec->session->onClearScrollback_ = [w = writer.get()]{ w->Truncate(); };
+        rec->scrollbackWriter = std::move(writer);
+    }
+
     sessions_.emplace(id, std::move(rec));
     return id;
 }
@@ -103,6 +170,10 @@ void SessionManager::CloseSession(SessionId id)
     pendingClose_.push_back(id);
 
     if (SessionRecord* rec = FindRecord(id)) {
+        // Compact scrollback before the writer is destroyed with the record.
+        if (rec->scrollbackWriter)
+            rec->scrollbackWriter->Compact();
+
         rec->session->Stop();
 
         if (rec->router)
@@ -296,6 +367,12 @@ void SessionManager::RequestX11Forwarding(SessionId id)
         rec->session->RequestX11Forwarding();
 }
 
+SessionStatus SessionManager::GetSessionStatus(SessionId id) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    return rec ? rec->session->GetStatus() : SessionStatus::Connected;
+}
+
 bool SessionManager::SupportsFileTransfer(SessionId id) const
 {
     const SessionRecord* rec = FindRecord(id);
@@ -378,6 +455,62 @@ void SessionManager::ReceiveFile(SessionId id,
     if (rec) rec->session->ReceiveFile(remotePath, localDir, std::move(onDone));
 }
 
+void SessionManager::TransferFileBetweenSessions(
+    SessionId          srcId,
+    const std::string& srcPath,
+    SessionId          dstId,
+    const std::string& dstDir,
+    std::function<void(bool, std::string)> onDone)
+{
+    // Local → Remote
+    if (srcId == 0) {
+        SendFile(dstId, srcPath, dstDir, std::move(onDone));
+        return;
+    }
+    // Remote → Local
+    if (dstId == 0) {
+        ReceiveFile(srcId, srcPath, dstDir, std::move(onDone));
+        return;
+    }
+    // Remote → Remote: download to temp, upload, then clean up.
+    std::filesystem::path tempDir;
+    try {
+        tempDir = std::filesystem::temp_directory_path() / "nate_xfer_XXXXXXXX";
+        // Replace the X's with a unique suffix.
+        tempDir = std::filesystem::path(
+            std::string(tempDir) + std::to_string(
+                std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(tempDir);
+    } catch (const std::exception& ex) {
+        onDone(false, std::string("Failed to create temp directory: ") + ex.what());
+        return;
+    }
+
+    const std::string tempDirStr = tempDir.string();
+
+    ReceiveFile(srcId, srcPath, tempDirStr,
+        [this, dstId, dstDir, tempDirStr, srcPath,
+         onDone = std::move(onDone)](bool ok, std::string err) mutable {
+
+            if (!ok) {
+                std::filesystem::remove_all(tempDirStr);
+                onDone(false, std::move(err));
+                return;
+            }
+
+            const std::string filename =
+                std::filesystem::path(srcPath).filename().string();
+            const std::string tempFile =
+                (std::filesystem::path(tempDirStr) / filename).string();
+
+            SendFile(dstId, tempFile, dstDir,
+                [tempDirStr, onDone = std::move(onDone)](bool ok2, std::string err2) {
+                    std::filesystem::remove_all(tempDirStr);
+                    onDone(ok2, std::move(err2));
+                });
+        });
+}
+
 void SessionManager::ListRemoteDirectory(
     SessionId id,
     const std::string& remotePath,
@@ -403,6 +536,87 @@ void SessionManager::SftpUploadFile(SessionId id,
 {
     SessionRecord* rec = FindRecord(id);
     if (rec) rec->session->SftpUploadFile(localPath, remotePath, std::move(onDone));
+}
+
+// ---------------------------------------------------------------------------
+// Scrollback persistence
+// ---------------------------------------------------------------------------
+
+std::string SessionManager::GetScrollbackUuid(SessionId id) const
+{
+    const SessionRecord* rec = FindRecord(id);
+    return rec ? rec->scrollbackUuid : std::string{};
+}
+
+void SessionManager::LoadScrollback(SessionId id, const ScrollbackSnapshot& snap)
+{
+    if (SessionRecord* rec = FindRecord(id))
+        rec->session->LoadScrollback(snap);
+}
+
+void SessionManager::StartScrollbackWriter(SessionId id,
+                                           const ScrollbackSnapshot* initial)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (!rec || !rec->scrollbackWriter) return;
+    rec->scrollbackWriter->Start(initial);
+}
+
+void SessionManager::CompactScrollback(SessionId id)
+{
+    SessionRecord* rec = FindRecord(id);
+    if (rec && rec->scrollbackWriter)
+        rec->scrollbackWriter->Compact();
+}
+
+void SessionManager::CompactAllSessions()
+{
+    for (auto& [id, rec] : sessions_)
+        if (rec->scrollbackWriter)
+            rec->scrollbackWriter->Compact();
+}
+
+void SessionManager::PurgeScrollbackForState(const RestoreState& state)
+{
+    if (!scrollbackRepo_) return;
+    for (const auto& window : state.windows)
+        for (const auto& tile : window.tiles)
+            for (const auto& session : tile.sessions)
+                if (!session.scrollbackUuid.empty())
+                    scrollbackRepo_->Delete(session.scrollbackUuid);
+}
+
+void SessionManager::RestoreScrollback(SessionId id, const std::string& uuid)
+{
+    if (!scrollbackRepo_ || uuid.empty()) return;
+    if (!scrollbackRepo_->Exists(uuid)) return;
+
+    auto snap = scrollbackRepo_->Load(uuid, scrollbackSaveLines_);
+    if (snap.lines.empty()) return;
+
+    // savedAt is set from the file's mtime by the repository; fall back to
+    // current time if it couldn't be determined (e.g. file vanished mid-load).
+    if (snap.savedAt.empty()) {
+        const auto now   = std::chrono::system_clock::now();
+        const auto ttime = std::chrono::system_clock::to_time_t(now);
+        std::ostringstream ss;
+        ss << std::put_time(std::localtime(&ttime), "%Y-%m-%d %H:%M:%S");
+        snap.savedAt = ss.str();
+    }
+
+    SessionRecord* rec = FindRecord(id);
+    if (!rec) return;
+
+    rec->session->LoadScrollback(snap);
+
+    // Append the separator DocLine to the snapshot so it is saved to disk and
+    // appears in subsequent restores, marking each restore boundary.
+    snap.lines.push_back(MakeScrollbackSeparator(snap.savedAt));
+
+    // Re-start the writer pre-populated with the restored snapshot so segments
+    // are the single source of truth for crash recovery (Fix 1).
+    if (rec->scrollbackWriter)
+        rec->scrollbackWriter->Start(&snap);
 }
 
 // ---------------------------------------------------------------------------

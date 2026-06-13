@@ -32,7 +32,7 @@ static term::session::RestoreState MakeState(const std::string& label = "session
     tile.activeTabIndex = 0;
     term::session::Connection c;
     c.label     = label;
-    c.transport = term::session::LoopbackDesc{};
+    c.transport = term::transport::LoopbackDesc{};
     tile.sessions.push_back({c});
     w.tiles.push_back(std::move(tile));
     state.windows.push_back(std::move(w));

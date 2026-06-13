@@ -41,8 +41,8 @@ PtyTransport::PtyTransport(ITransportTarget& target,
                            unsigned short cols,
                            unsigned short rows,
                            unsigned short viewportCols,
-                           const term::session::SessionInit& sessionInit,
-                           const term::session::AppSessionDefaults& appDefaults)
+                           const term::transport::SessionInit& sessionInit,
+                           const term::transport::AppSessionDefaults& appDefaults)
     : target_(target), shell_(std::move(shell)), command_(std::move(command)),
       vpcolumns_file_(GenerateVpColumnsFilePath())
 {
@@ -72,7 +72,7 @@ PtyTransport::PtyTransport(ITransportTarget& target,
         if (!hasTerm)
             parentEnv.push_back("TERM=xterm-256color");
 
-        const std::vector<term::session::EnvVar> fileVars = ParseEnvFile(envFile);
+        const std::vector<term::transport::EnvVar> fileVars = ParseEnvFile(envFile);
 
         // Inject NATE_VPCOLUMNS_FILE alongside the profile vars so the shell
         // can read the actual viewport width even when COLUMNS is inflated.

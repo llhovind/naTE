@@ -18,11 +18,11 @@ public:
 
     // Creates a new profile with a generated UUID and current timestamp.
     const ConnectionProfile& Add(const std::string& name,
-                                 const term::session::TransportDesc& transport,
+                                 const term::transport::TransportDesc& transport,
                                  bool wrapMode,
                                  unsigned short columnWidth,
                                  unsigned short rows = 24,
-                                 term::session::SessionInit sessionInit = {},
+                                 term::transport::SessionInit sessionInit = {},
                                  std::string profileTitle = {},
                                  bool useProfileTitle = false);
 

@@ -22,38 +22,38 @@ constexpr int ID_BTN_NEW     = wxID_HIGHEST + 301;
 constexpr int ID_BTN_EDIT    = wxID_HIGHEST + 302;
 constexpr int ID_BTN_DELETE  = wxID_HIGHEST + 303;
 
-std::string TransportTypeName(const term::session::TransportDesc& t)
+std::string TransportTypeName(const term::transport::TransportDesc& t)
 {
     return std::visit([](const auto& d) -> std::string {
         using T = std::decay_t<decltype(d)>;
-        if constexpr (std::is_same_v<T, term::session::SshDesc>)       return "SSH";
-        if constexpr (std::is_same_v<T, term::session::PtyDesc>)       return "PTY";
-        if constexpr (std::is_same_v<T, term::session::LoopbackDesc>)  return "Loopback";
-        if constexpr (std::is_same_v<T, term::session::SerialDesc>)    return "Serial";
+        if constexpr (std::is_same_v<T, term::transport::SshDesc>)       return "SSH";
+        if constexpr (std::is_same_v<T, term::transport::PtyDesc>)       return "PTY";
+        if constexpr (std::is_same_v<T, term::transport::LoopbackDesc>)  return "Loopback";
+        if constexpr (std::is_same_v<T, term::transport::SerialDesc>)    return "Serial";
         return "Unknown";
     }, t);
 }
 
-std::string TransportHost(const term::session::TransportDesc& t)
+std::string TransportHost(const term::transport::TransportDesc& t)
 {
     return std::visit([](const auto& d) -> std::string {
         using T = std::decay_t<decltype(d)>;
-        if constexpr (std::is_same_v<T, term::session::SshDesc>) {
+        if constexpr (std::is_same_v<T, term::transport::SshDesc>) {
             std::string h = d.username + "@" + d.host;
             if (d.port != 22) h += ":" + std::to_string(d.port);
             return h;
         }
-        if constexpr (std::is_same_v<T, term::session::SerialDesc>)
+        if constexpr (std::is_same_v<T, term::transport::SerialDesc>)
             return d.device;
         return "Local";
     }, t);
 }
 
-std::string TransportFlags(const term::session::TransportDesc& t)
+std::string TransportFlags(const term::transport::TransportDesc& t)
 {
     return std::visit([](const auto& d) -> std::string {
         using T = std::decay_t<decltype(d)>;
-        if constexpr (std::is_same_v<T, term::session::SshDesc>) {
+        if constexpr (std::is_same_v<T, term::transport::SshDesc>) {
             std::string f;
             if (d.x11Forwarding)           f += "X11 ";
             if (d.agentForwarding)         f += "Agent ";

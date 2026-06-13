@@ -107,38 +107,24 @@
 
     <!-- ──────────── FILE TRANSFER ──────────── -->
     <h2 class="section-anchor" id="file-transfer">File Transfer (SFTP)</h2>
-    <p>naTE can upload and download files via SFTP on any active SSH session. Access these via the <strong>Terminal</strong> menu.</p>
+    <p>naTE can transfer files via SFTP between your local machine and any active SSH session, or between two remote sessions. Open the dialog with <strong>Terminal → Transfer Files...</strong> (or right-click a tile and choose <strong>Transfer Files...</strong>).</p>
 
-    <h3>Sending files (upload)</h3>
+    <h3>Transferring files</h3>
     <ol class="steps">
-      <li>Focus the SSH session you want to upload to.</li>
-      <li>Open <strong>Terminal → Send Files</strong>.</li>
-      <li>The file transfer dialog opens. Click <strong>Add Files</strong> to choose files from your local machine.</li>
-      <li>Set the remote destination folder, or leave blank to use the session's current directory.</li>
-      <li>Click <strong>Transfer</strong>. Progress is shown per-file.</li>
+      <li>Open <strong>Terminal → Transfer Files...</strong>.</li>
+      <li>In the <strong>Source</strong> section, choose the session the files are coming from — <em>Local (this computer)</em> or any active SSH session.</li>
+      <li>Click <strong>Add Files...</strong> to pick local files, or <strong>Browse Remote...</strong> to browse the remote filesystem and select files from there.</li>
+      <li>In the <strong>Destination</strong> section, choose the session to transfer to and set the target directory. Click <strong>Browse...</strong> to navigate to it.</li>
+      <li>Click <strong>Transfer</strong>. The status line shows progress per file.</li>
     </ol>
 
     <figure>
-      <img src="img/send-files.png" alt="Transfer Files dialog showing a local files list, Add Files and Remove buttons, a Remote Destination Folder field, and Transfer / Close buttons">
-      <figcaption>The Send Files dialog — add local files, optionally set a remote destination, then click Transfer</figcaption>
-    </figure>
-
-    <h3>Receiving files (download)</h3>
-    <ol class="steps">
-      <li>Focus the SSH session.</li>
-      <li>Open <strong>Terminal → Receive Files</strong>.</li>
-      <li>The remote file browser opens. Navigate to the directory you want using <strong>Up</strong> and the path field.</li>
-      <li>Select one or more files and click <strong>Add Selected</strong>.</li>
-      <li>Click <strong>Close</strong> to begin the download. Files are saved to your local current directory.</li>
-    </ol>
-
-    <figure>
-      <img src="img/receive-files-browser.png" alt="Browse remote filesystem dialog showing a directory listing of /etc with filename, size, and permissions columns, plus Up navigation and Add Selected / Close buttons">
-      <figcaption>The remote file browser — navigate the remote filesystem and select files to download</figcaption>
+      <img src="img/file-transfer-dialog.png" alt="Transfer Files dialog with Source and Destination sections, each with a Session dropdown; the source section has a file list with Browse Remote and Remove buttons; the destination has a directory field and Browse button; Transfer and Close buttons at the bottom">
+      <figcaption>The unified Transfer Files dialog — choose source and destination sessions independently, then click Transfer</figcaption>
     </figure>
 
     <div class="callout callout-note">
-      <p><strong>How it works:</strong> File transfer uses a separate SFTP session opened over a new SSH channel — it doesn't interrupt your running terminal session. You can keep typing in the terminal while the transfer runs.</p>
+      <p><strong>How it works:</strong> File transfer runs over a new SSH channel multiplexed on the existing authenticated connection — no re-authentication, and no interruption to your running terminal session. Remote-to-remote transfers stage through a temporary local file automatically.</p>
     </div>
 
     <!-- ──────────── REMOTE EDIT ──────────── -->

@@ -38,8 +38,11 @@ private:
     wxChoice*   m_wrapModeChoice = nullptr;
     wxCheckBox* m_loginShellChk    = nullptr;
     wxSpinCtrl* m_scrollbackCtrl   = nullptr;
-    wxCheckBox* m_autoRestoreChk   = nullptr;
-    wxSpinCtrl* m_saveIntervalCtrl = nullptr;
+    wxCheckBox* m_autoRestoreChk      = nullptr;
+    wxSpinCtrl* m_saveIntervalCtrl    = nullptr;
+    wxCheckBox* m_saveScrollbackChk   = nullptr;
+    wxSpinCtrl* m_scrollbackLinesCtrl = nullptr;
+    wxCheckBox* m_scrollbackStylesChk = nullptr;
 
     wxChoice*   m_bellModeChoice     = nullptr;
     wxTextCtrl* m_webSearchCtrl      = nullptr;

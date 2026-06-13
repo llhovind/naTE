@@ -1,5 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
 #include "document/Document.h"
+#include "parser/Parser.h"
+#include "parser/IScreenTarget.h"
+#include "layout/DocLayout.h"
+#include <atomic>
+#include <chrono>
+#include <shared_mutex>
+#include <thread>
 
 // ---------------------------------------------------------------------------
 // DocLine::WriteAt
@@ -7,8 +14,7 @@
 
 TEST_CASE("given empty line when WriteAt col 0 then character appended") {
     DocLine line;
-    line.currentStyle = Style{};
-    line.WriteAt(0, U'A');
+    line.WriteAt(0, U'A', Style{});
 
     REQUIRE(line.text == U"A");
     REQUIRE(line.styles.size() == 1);
@@ -18,8 +24,8 @@ TEST_CASE("given empty line when WriteAt col 0 then character appended") {
 
 TEST_CASE("given line with content when WriteAt at end then character appended") {
     DocLine line;
-    line.WriteAt(0, U'A');
-    line.WriteAt(1, U'B');
+    line.WriteAt(0, U'A', Style{});
+    line.WriteAt(1, U'B', Style{});
 
     REQUIRE(line.text == U"AB");
     REQUIRE(line.styles.size() == 1);
@@ -28,23 +34,22 @@ TEST_CASE("given line with content when WriteAt at end then character appended")
 
 TEST_CASE("given line with content when WriteAt overwrites middle then text updated") {
     DocLine line;
-    line.WriteAt(0, U'A');
-    line.WriteAt(1, U'B');
-    line.WriteAt(2, U'C');
+    line.WriteAt(0, U'A', Style{});
+    line.WriteAt(1, U'B', Style{});
+    line.WriteAt(2, U'C', Style{});
 
-    line.WriteAt(1, U'X');
+    line.WriteAt(1, U'X', Style{});
 
     REQUIRE(line.text == U"AXC");
 }
 
 TEST_CASE("given line when WriteAt overwrites with same style then single run preserved") {
     DocLine line;
-    line.currentStyle = Style{};
-    line.WriteAt(0, U'A');
-    line.WriteAt(1, U'B');
-    line.WriteAt(2, U'C');
+    line.WriteAt(0, U'A', Style{});
+    line.WriteAt(1, U'B', Style{});
+    line.WriteAt(2, U'C', Style{});
 
-    line.WriteAt(1, U'X');
+    line.WriteAt(1, U'X', Style{});
 
     // Same style — no run splitting needed, single run covers the whole line
     REQUIRE(line.styles.size() == 1);
@@ -53,14 +58,14 @@ TEST_CASE("given line when WriteAt overwrites with same style then single run pr
 
 TEST_CASE("given line when WriteAt overwrites with different style then runs split") {
     DocLine line;
-    line.currentStyle = Style{1, -1, false};  // fg=1 (red)
-    line.WriteAt(0, U'A');
-    line.WriteAt(1, U'B');
-    line.WriteAt(2, U'C');
+    const Style red  {1, -1, false};
+    const Style green{2, -1, false};
+    line.WriteAt(0, U'A', red);
+    line.WriteAt(1, U'B', red);
+    line.WriteAt(2, U'C', red);
     // Styles: [{0, 3, fg=1}]
 
-    line.currentStyle = Style{2, -1, false};  // fg=2 (green)
-    line.WriteAt(1, U'X');
+    line.WriteAt(1, U'X', green);
     // Expected runs: [{0,1,fg=1}, {1,1,fg=2}, {2,1,fg=1}]
 
     REQUIRE(line.text == U"AXC");
@@ -68,20 +73,20 @@ TEST_CASE("given line when WriteAt overwrites with different style then runs spl
     REQUIRE(line.styles[0].start  == 0); REQUIRE(line.styles[0].length == 1);
     REQUIRE(line.styles[1].start  == 1); REQUIRE(line.styles[1].length == 1);
     REQUIRE(line.styles[2].start  == 2); REQUIRE(line.styles[2].length == 1);
-    REQUIRE(line.styles[0].style == (Style{1, -1, false}));
-    REQUIRE(line.styles[1].style == (Style{2, -1, false}));
-    REQUIRE(line.styles[2].style == (Style{1, -1, false}));
+    REQUIRE(line.styles[0].style == red);
+    REQUIRE(line.styles[1].style == green);
+    REQUIRE(line.styles[2].style == red);
 }
 
 TEST_CASE("given line when WriteAt overwrites first char then only after-run remains") {
     DocLine line;
-    line.currentStyle = Style{1, -1, false};
-    line.WriteAt(0, U'A');
-    line.WriteAt(1, U'B');
+    const Style red  {1, -1, false};
+    const Style green{2, -1, false};
+    line.WriteAt(0, U'A', red);
+    line.WriteAt(1, U'B', red);
     // [{0, 2, fg=1}]
 
-    line.currentStyle = Style{2, -1, false};
-    line.WriteAt(0, U'X');
+    line.WriteAt(0, U'X', green);
     // [{0,1,fg=2}, {1,1,fg=1}]
 
     REQUIRE(line.text == U"XB");
@@ -92,13 +97,13 @@ TEST_CASE("given line when WriteAt overwrites first char then only after-run rem
 
 TEST_CASE("given line when WriteAt overwrites last char then only before-run remains") {
     DocLine line;
-    line.currentStyle = Style{1, -1, false};
-    line.WriteAt(0, U'A');
-    line.WriteAt(1, U'B');
+    const Style red  {1, -1, false};
+    const Style green{2, -1, false};
+    line.WriteAt(0, U'A', red);
+    line.WriteAt(1, U'B', red);
     // [{0, 2, fg=1}]
 
-    line.currentStyle = Style{2, -1, false};
-    line.WriteAt(1, U'X');
+    line.WriteAt(1, U'X', green);
     // [{0,1,fg=1}, {1,1,fg=2}]
 
     REQUIRE(line.text == U"AX");
@@ -109,14 +114,60 @@ TEST_CASE("given line when WriteAt overwrites last char then only before-run rem
 
 TEST_CASE("given empty line when WriteAt past end then padded with spaces") {
     DocLine line;
-    line.currentStyle = Style{};
-    line.WriteAt(3, U'Z');
+    line.WriteAt(3, U'Z', Style{});
 
     REQUIRE(line.text.size() == 4);
     REQUIRE(line.text[0] == U' ');
     REQUIRE(line.text[1] == U' ');
     REQUIRE(line.text[2] == U' ');
     REQUIRE(line.text[3] == U'Z');
+}
+
+// ---------------------------------------------------------------------------
+// DocLine::TruncateFrom
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given styled line when TruncateFrom mid-run then run truncated and later runs dropped") {
+    DocLine line;
+    const Style red  {1, -1, false};
+    const Style green{2, -1, false};
+    for (int i = 0; i < 4; ++i) line.WriteAt(i, U'A', red);    // cols 0-3 red
+    for (int i = 4; i < 8; ++i) line.WriteAt(i, U'B', green);  // cols 4-7 green
+
+    line.TruncateFrom(2);
+
+    REQUIRE(line.text == U"AA");
+    REQUIRE(line.styles.size() == 1);
+    REQUIRE(line.styles[0].start  == 0);
+    REQUIRE(line.styles[0].length == 2);
+    REQUIRE(line.styles[0].style  == red);
+}
+
+TEST_CASE("given line when TruncateFrom at run boundary then trailing runs dropped exactly") {
+    DocLine line;
+    const Style red  {1, -1, false};
+    const Style green{2, -1, false};
+    line.WriteAt(0, U'A', red);
+    line.WriteAt(1, U'B', green);
+
+    line.TruncateFrom(1);
+
+    REQUIRE(line.text == U"A");
+    REQUIRE(line.styles.size() == 1);
+    REQUIRE(line.styles[0].style == red);
+}
+
+TEST_CASE("given line when TruncateFrom at or past end then line unchanged") {
+    DocLine line;
+    line.WriteAt(0, U'A', Style{});
+    line.WriteAt(1, U'B', Style{});
+
+    line.TruncateFrom(2);
+    REQUIRE(line.text == U"AB");
+    REQUIRE(line.styles.size() == 1);
+
+    line.TruncateFrom(99);
+    REQUIRE(line.text == U"AB");
 }
 
 // ---------------------------------------------------------------------------
@@ -998,4 +1049,224 @@ TEST_CASE("given save then maxLines trimmed when RestoreCursor then savedCursor 
     // Must not crash or produce a negative (underflow) line index.
     doc.RestoreCursor();
     REQUIRE(doc.GetCursor().line == 0);
+}
+
+// ---------------------------------------------------------------------------
+// SGR style persistence — terminal-global, survives line breaks and cursor
+// moves (regression: style used to live per-DocLine and reset on every \n)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given red SGR active when NewLine then style persists onto the next line") {
+    MainScreenDocument doc;
+    const Style red{1, -1, false};
+    doc.SetCurrentStyle(red);
+    doc.AppendInsertChar(U'a');
+    doc.NewLine();
+    doc.AppendInsertChar(U'b');
+
+    const auto& line1 = doc.GetLines()[1];
+    REQUIRE(line1.text == U"b");
+    REQUIRE(line1.styles.size() == 1);
+    REQUIRE(line1.styles[0].style == red);
+}
+
+TEST_CASE("given red SGR active in AltScreen when NewLine then style persists onto the next row") {
+    AltScreenDocument doc(3, 5);
+    const Style red{1, -1, false};
+    doc.SetCurrentStyle(red);
+    doc.AppendInsertChar(U'a');
+    doc.NewLine();
+    doc.AppendInsertChar(U'b');
+
+    const auto& row1 = doc.GetLines()[1];
+    REQUIRE(row1.styles.size() == 1);
+    REQUIRE(row1.styles[0].style == red);
+}
+
+namespace {
+struct NullScreen : term::parser::IScreenTarget {};
+} // namespace
+
+TEST_CASE("given red SGR escape spanning a newline when parsed then the second line is red") {
+    MainScreenDocument doc;
+    NullScreen screen;
+    term::parser::Parser parser(doc, screen);
+
+    parser.Process("\x1b[31mred1\nred2\x1b[0m");
+
+    REQUIRE(doc.GetLines().size() == 2);
+    const auto& line1 = doc.GetLines()[1];
+    REQUIRE(line1.text == U"red2");
+    REQUIRE(line1.styles.size() == 1);
+    REQUIRE(line1.styles[0].style.fg == 1);
+}
+
+TEST_CASE("given SGR reset between lines when parsed then only the styled line is colored") {
+    MainScreenDocument doc;
+    NullScreen screen;
+    term::parser::Parser parser(doc, screen);
+
+    parser.Process("\x1b[32mgreen\x1b[0m\nplain");
+
+    REQUIRE(doc.GetLines().size() == 2);
+    REQUIRE(doc.GetLines()[0].styles[0].style.fg == 2);
+    const auto& line1 = doc.GetLines()[1];
+    REQUIRE(line1.styles.size() == 1);
+    REQUIRE(line1.styles[0].style == Style{});
+}
+
+TEST_CASE("given FullReset when called then accumulated SGR state is cleared") {
+    MainScreenDocument doc;
+    doc.SetCurrentStyle(Style{1, -1, true});
+    doc.FullReset(true);
+    doc.AppendInsertChar(U'x');
+
+    const auto& line0 = doc.GetLines()[0];
+    REQUIRE(line0.styles.size() == 1);
+    REQUIRE(line0.styles[0].style == Style{});
+}
+
+// ---------------------------------------------------------------------------
+// Cross-thread coherence — parser thread mutates while a reader thread takes
+// cursor/title/line snapshots. Single-threaded builds prove deadlock-freedom;
+// under TSan this is the regression test for the torn-read fixes.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given parser thread streaming styled output when another thread reads cursor and title then no torn state") {
+    MainScreenDocument doc;
+    NullScreen screen;
+    term::parser::Parser parser(doc, screen);
+
+    std::atomic<bool> stop{false};
+    std::thread reader([&] {
+        while (!stop.load()) {
+            const CursorPos c = doc.GetCursor();
+            (void)doc.GetTitle();
+            std::shared_lock<std::shared_mutex> lk(doc.GetLinesMutex());
+            const auto& lines = doc.GetLines();
+            if (c.line < lines.size())
+                (void)lines[c.line].text.size();
+        }
+    });
+
+    for (int i = 0; i < 2000; ++i)
+        parser.Process("\x1b[31mhello world\x1b[0m\r\n\x1b]0;stress title\x07plain\r\n");
+
+    stop.store(true);
+    reader.join();
+    REQUIRE(doc.GetLines().size() > 2000);
+}
+
+// ---------------------------------------------------------------------------
+// Hidden throughput probe — run explicitly with: naTE_core_tests "[perf]"
+// Feeds realistic build-log output through Parser → MainScreenDocument with a
+// DocLayout listener attached (the production notification load). Not part of
+// the default suite; used to quantify parser/document pipeline changes.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("parser throughput on streaming colored output", "[.][perf]") {
+    MainScreenDocument doc;
+    NullScreen screen;
+    term::parser::Parser parser(doc, screen);
+    DocLayout layout(doc, 80, 24);
+
+    std::string line = "\x1b[32m[ 42%]\x1b[0m Building CXX object src/CMakeFiles/app.dir/";
+    line += std::string(120, 'x');
+    line += ".cpp.o\r\n";
+    std::string chunk;
+    while (chunk.size() < 64 * 1024)
+        chunk += line;
+
+    const size_t total = 16 * 1024 * 1024;
+    const auto t0 = std::chrono::steady_clock::now();
+    size_t fed = 0;
+    while (fed < total) {
+        parser.Process(chunk);
+        fed += chunk.size();
+    }
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
+
+    WARN("processed " << (total / 1'000'000.0) << " MB in " << ms << " ms = "
+         << (total / 1'000'000.0) / (ms / 1000.0) << " MB/s");
+    REQUIRE(doc.GetLines().size() > 1000);
+}
+
+// ---------------------------------------------------------------------------
+// Parser run-batching — printable characters are delivered to the document in
+// batched AppendRun calls (flushed at control bytes and chunk ends). These
+// tests pin the batching to per-character semantics.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given printable run split across Process chunks then content matches unsplit input") {
+    MainScreenDocument whole, split;
+    NullScreen s1, s2;
+    term::parser::Parser pWhole(whole, s1);
+    term::parser::Parser pSplit(split, s2);
+
+    pWhole.Process("hello world");
+    pSplit.Process("hel");
+    pSplit.Process("lo wo");
+    pSplit.Process("rld");
+
+    REQUIRE(split.GetLines()[0].text == whole.GetLines()[0].text);
+    REQUIRE(split.GetCursor().col == whole.GetCursor().col);
+}
+
+TEST_CASE("given UTF-8 sequence split across Process chunks then codepoint decoded once") {
+    MainScreenDocument doc;
+    NullScreen screen;
+    term::parser::Parser parser(doc, screen);
+
+    // U+4E2D (中) = E4 B8 AD, split mid-sequence at the chunk boundary.
+    parser.Process("a\xe4\xb8");
+    parser.Process("\xadz");
+
+    const auto& text = doc.GetLines()[0].text;
+    REQUIRE(text.size() == 4);                 // a, 中, wide filler, z
+    REQUIRE(text[0] == U'a');
+    REQUIRE(text[1] == U'中');
+    REQUIRE(text[2] == kWideFiller);
+    REQUIRE(text[3] == U'z');
+    REQUIRE(doc.GetCursor().col == 4);
+}
+
+TEST_CASE("given run containing wide characters when parsed then fillers and cursor match per-char semantics") {
+    MainScreenDocument doc;
+    NullScreen screen;
+    term::parser::Parser parser(doc, screen);
+
+    parser.Process("x\xe4\xb8\xady");          // x 中 y in one chunk = one run
+
+    REQUIRE(doc.GetLines()[0].text ==
+            (std::u32string{U'x', U'中', kWideFiller, U'y'}));
+    REQUIRE(doc.GetCursor().col == 4);
+}
+
+TEST_CASE("given SGR change mid-line when parsed then style runs split at the boundary") {
+    MainScreenDocument doc;
+    NullScreen screen;
+    term::parser::Parser parser(doc, screen);
+
+    parser.Process("ab\x1b[31mcd");            // two runs: "ab" default, "cd" red
+
+    const auto& line = doc.GetLines()[0];
+    REQUIRE(line.text == U"abcd");
+    REQUIRE(line.styles.size() == 2);
+    REQUIRE(line.styles[0].start == 0); REQUIRE(line.styles[0].length == 2);
+    REQUIRE(line.styles[0].style == Style{});
+    REQUIRE(line.styles[1].start == 2); REQUIRE(line.styles[1].length == 2);
+    REQUIRE(line.styles[1].style.fg == 1);
+}
+
+TEST_CASE("given insert mode active when run parsed then characters insert rather than overwrite") {
+    MainScreenDocument doc;
+    NullScreen screen;
+    term::parser::Parser parser(doc, screen);
+
+    parser.Process("world\x1b[5D");            // write, cursor back to col 0
+    parser.Process("\x1b[4h");                 // insert mode on
+    parser.Process("hello ");                  // one run, inserted
+
+    REQUIRE(doc.GetLines()[0].text == U"hello world");
 }

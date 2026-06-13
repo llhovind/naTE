@@ -258,6 +258,25 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
                                         current.sessionSaveInterval);
     sesSizer->Add(m_saveIntervalCtrl, {6, 1}, {1, 1});
 
+    // Save scrollback buffer with workspace
+    m_saveScrollbackChk = new wxCheckBox(sesPage, wxID_ANY,
+                                          "Save scrollback buffer with workspace");
+    m_saveScrollbackChk->SetValue(current.saveScrollbackWithWorkspace);
+    sesSizer->Add(m_saveScrollbackChk, {7, 0}, {1, 2});
+
+    sesSizer->Add(new wxStaticText(sesPage, wxID_ANY, "Lines to save:"),
+                  {8, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+    m_scrollbackLinesCtrl = new wxSpinCtrl(sesPage, wxID_ANY,
+                                           wxEmptyString, wxDefaultPosition, wxDefaultSize,
+                                           wxSP_ARROW_KEYS, 1000, 500'000,
+                                           current.scrollbackSaveLines);
+    m_scrollbackLinesCtrl->SetIncrement(1000);
+    sesSizer->Add(m_scrollbackLinesCtrl, {8, 1}, {1, 1});
+
+    m_scrollbackStylesChk = new wxCheckBox(sesPage, wxID_ANY, "Save styles (color/bold)");
+    m_scrollbackStylesChk->SetValue(current.scrollbackSaveStyles);
+    sesSizer->Add(m_scrollbackStylesChk, {9, 0}, {1, 2});
+
     sesSizer->AddGrowableCol(1);
     auto* sesOuter = new wxBoxSizer(wxVERTICAL);
     sesOuter->Add(sesSizer, 1, wxEXPAND | wxALL, 12);
@@ -338,9 +357,12 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
     result_.defaultWorkingDir  = m_workDirCtrl->GetValue().ToStdString();
     result_.defaultWrapMode    = m_wrapModeChoice->GetSelection() == 1;
     result_.defaultLoginShell  = m_loginShellChk->IsChecked();
-    result_.scrollbackLines    = m_scrollbackCtrl->GetValue();
-    result_.autoRestoreSession  = m_autoRestoreChk->IsChecked();
-    result_.sessionSaveInterval = m_saveIntervalCtrl->GetValue();
+    result_.scrollbackLines              = m_scrollbackCtrl->GetValue();
+    result_.autoRestoreSession           = m_autoRestoreChk->IsChecked();
+    result_.sessionSaveInterval          = m_saveIntervalCtrl->GetValue();
+    result_.saveScrollbackWithWorkspace  = m_saveScrollbackChk->IsChecked();
+    result_.scrollbackSaveLines          = m_scrollbackLinesCtrl->GetValue();
+    result_.scrollbackSaveStyles         = m_scrollbackStylesChk->IsChecked();
     result_.webSearchUrl       = m_webSearchCtrl->GetValue().ToStdString();
     result_.wordSelectRegex    = wordRegex;
     result_.copyOnSelect          = m_copyOnSelectChk->IsChecked();

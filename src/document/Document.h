@@ -1,8 +1,10 @@
 #pragma once
 
 #include <mutex>
+#include <shared_mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <deque>
 #include <cstdint>
@@ -48,13 +50,20 @@ struct CursorPos {
 struct DocLine {
     std::u32string text;
     std::vector<StyleRun> styles;
-    Style currentStyle;
 
-    void WriteAt(size_t col, char32_t ch);
-    void InsertAt(size_t col, char32_t ch);
+    // Write/insert operations take the style to apply explicitly — SGR state
+    // is terminal-global and owned by Document, never by a line.
+    void WriteAt(size_t col, char32_t ch, const Style& style);
+    void InsertAt(size_t col, char32_t ch, const Style& style);
     void DeletePreviousChar(size_t cursorCol);
     void DeleteAt(size_t col, size_t count);
-    void DeleteAtClamped(size_t col, size_t count, size_t boundary);
+    // padStyle is applied to the spaces that backfill the cleared cells.
+    void DeleteAtClamped(size_t col, size_t count, size_t boundary,
+                         const Style& padStyle);
+    // Erase all text from col to end of line, dropping style runs at or past
+    // col and truncating any run that straddles it. No-op when col is at or
+    // past the end of the text.
+    void TruncateFrom(size_t col);
     void Clear();
 };
 
@@ -65,6 +74,18 @@ public:
     virtual ~IDocumentTarget() = default;
 
     virtual void AppendInsertChar(char32_t ch) = 0;
+    // Appends a contiguous run of printable characters. The parser flushes a
+    // run at every control byte, so a run never spans cursor movement, line
+    // breaks, or mode changes. The default loops over AppendInsertChar (one
+    // lock + one notification per character); hot-path implementations
+    // (MainScreenDocument) override with a single-lock, single-notification
+    // batch. AltScreenDocument keeps the default: its deferred-wrap handling
+    // calls NewLine() mid-run, which must not run under the lines lock.
+    virtual void AppendRun(std::u32string_view run)
+    {
+        for (char32_t ch : run)
+            AppendInsertChar(ch);
+    }
     virtual void Backspace() = 0;
     virtual void NewLine() = 0;
     virtual void CarriageReturn() = 0;
@@ -104,7 +125,10 @@ public:
     virtual void Backspace() = 0;
     virtual void NewLine() = 0;
     virtual void CarriageReturn() = 0;
-    virtual void SetCurrentStyle(const Style& style) = 0;
+    // SGR state is terminal-global: it survives line breaks and cursor moves,
+    // exactly like a real terminal. Written and read only on the thread that
+    // feeds the parser, so no lock is required.
+    void SetCurrentStyle(const Style& style) override { currentStyle_ = style; }
     virtual const std::deque<DocLine>& GetLines() const = 0;
 
     virtual void MoveCursorLeft(int n)  = 0;
@@ -130,6 +154,8 @@ public:
     // PTY-configured column width (what readline was told). Used by
     // MainScreenDocument to map readline's virtual (row,col) to a flat
     // document column. Defaults are safe; Session keeps this in sync.
+    // Callers must serialize this with parsing (Session holds docMutex_) —
+    // cols_ is read throughout the parser-driven mutation path.
     virtual void SetPtyCols(int cols) {}
     virtual void SaveCursor() {}                         // ESC 7 / CSI s
     virtual void RestoreCursor() {}                      // ESC 8 / CSI u
@@ -143,35 +169,77 @@ public:
     // DocLayout uses this to restore the viewport origin on document switch.
     virtual size_t GetScrollbackOrigin() const { return 0; }
 
-    CursorPos GetCursor() const { return cursor_; }
+    // Coherent cursor snapshot for cross-thread readers (UI paint, selection
+    // anchors). Writers mutate cursor_ only while holding linesMutex_
+    // exclusively, so a shared lock here guarantees the pair is never torn.
+    CursorPos GetCursor() const
+    {
+        std::shared_lock<std::shared_mutex> rlk(linesMutex_);
+        return cursor_;
+    }
+    // For callers that already hold linesMutex_ (DocLayout render path) or
+    // run on the mutating thread itself (document-change notifications) —
+    // taking the shared lock twice on one thread is undefined behaviour.
+    CursorPos GetCursorLocked() const { return cursor_; }
 
-    const std::string& GetTitle() const { return title_; }
+    // Returned by value under titleMutex_: the title is written by the parser
+    // thread (OSC 0/1/2) and read from the UI thread (tab labels).
+    std::string GetTitle() const
+    {
+        std::lock_guard<std::mutex> lk(titleMutex_);
+        return title_;
+    }
     void SetTitle(const std::string& title);
 
     void AddListener(IDocumentListener* listener);
     void RemoveListener(IDocumentListener* listener);
 
+    // Shared mutex protecting GetLines() content AND cursor_ in derived
+    // classes.  Callers that read the deque (or need a coherent cursor) from a
+    // different thread than the one that mutates it must hold a shared_lock
+    // for the duration of their access.  Derived-class mutation sites must
+    // hold a unique_lock that is RELEASED before any NotifyListeners call
+    // (to avoid deadlock with readers that hold mtx_ first).
+    std::shared_mutex& GetLinesMutex() const noexcept { return linesMutex_; }
+
 protected:
     void NotifyListeners(DocChangeType type, size_t lineIndex);
 
-    CursorPos  cursor_{};
+    CursorPos   cursor_{};
     std::string title_;
-    bool insertMode_ = false;
+    bool        insertMode_ = false;
+    Style       currentStyle_{};   // accumulated SGR state; see SetCurrentStyle
+
+    mutable std::shared_mutex linesMutex_;
+    mutable std::mutex        titleMutex_;   // guards title_ (parser writes, UI reads)
 
 private:
     std::vector<IDocumentListener*> listeners_;
     std::mutex                      listenerMutex_;
 };
 
+struct ScrollbackSnapshot {
+    std::vector<DocLine> lines;
+    size_t virtualDocStart = 0;
+    std::string savedAt;   // ISO 8601, set at capture time by caller
+};
+
+// Builds the dim separator DocLine that marks where restored scrollback ends
+// and new output begins: "--- Scrollback restored from <savedAt> ---".
+// When padToCols exceeds the base text length the line is right-padded with
+// dashes to that width (used to span the full terminal row); otherwise a
+// plain "---" suffix closes the line.
+DocLine MakeScrollbackSeparator(const std::string& savedAt, int padToCols = 0);
+
 class MainScreenDocument : public Document {
 public:
     explicit MainScreenDocument(int maxLines = 100'000);
 
     void AppendInsertChar(char32_t ch) override;
+    void AppendRun(std::u32string_view run) override;
     void Backspace() override;
     void NewLine() override;
     void CarriageReturn() override;
-    void SetCurrentStyle(const Style& style) override;
     const std::deque<DocLine>& GetLines() const override { return lines_; }
 
     void MoveCursorLeft(int n)  override;
@@ -201,6 +269,14 @@ public:
     // Resets soft terminal modes (insert mode, pending-wrap) without touching
     // content, cursor, or canvas origin.  Used by Session::ResetTerminal(false).
     void   SoftReset();
+
+    // Thread-safe snapshot of current lines (shared_lock on linesMutex_).
+    // savedAt is not populated — caller sets it before persisting.
+    ScrollbackSnapshot CaptureLines() const;
+
+    // Prepends restored lines + a styled separator before the current canvas.
+    // Advances virtualDocStartLine_ and cursor_.line past the injected content.
+    void LoadScrollback(const ScrollbackSnapshot& snap);
 
 private:
     // Converts 1-indexed canvas-relative PTY row/col to a CursorPos in the
@@ -234,7 +310,6 @@ public:
     void Backspace() override;
     void NewLine() override;
     void CarriageReturn() override;
-    void SetCurrentStyle(const Style& style) override;
     const std::deque<DocLine>& GetLines() const override { return lines_; }
 
     void MoveCursorLeft(int n)  override;

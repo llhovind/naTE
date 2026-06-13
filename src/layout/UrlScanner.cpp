@@ -1,4 +1,4 @@
-#include "ui/UrlScanner.h"
+#include "layout/UrlScanner.h"
 
 namespace UrlScanner {
 

@@ -177,7 +177,7 @@ void TabStrip::OnPaint(wxPaintEvent&)
                 if (badgeCol.IsOk()) {
                     dc.SetBrush(wxBrush(badgeCol));
                     dc.SetPen(*wxTRANSPARENT_PEN);
-                    dc.DrawCircle(x + g.tabW - kCloseW - 10, sz.y / 2, 3);
+                    dc.DrawCircle(x + g.tabW - kCloseW - 10, sz.y / 2, 5);
                 }
             }
 

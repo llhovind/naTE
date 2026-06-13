@@ -12,7 +12,15 @@ public:
 
     void Process(const std::string& data);
     void Reset();
-    void SetDocTarget(IDocumentTarget* target) { doc_ = target; }
+
+    // SGR state is terminal-global, not per-document: re-apply the accumulated
+    // style so output on the newly active document (e.g. after an alt-screen
+    // switch) continues with the attributes set while the previous one was active.
+    void SetDocTarget(IDocumentTarget* target)
+    {
+        doc_ = target;
+        doc_->SetCurrentStyle(currentStyle_);
+    }
 
 private:
     enum class State { Normal, Escape, Ss3, Csi, Osc, OscEsc, SkipOne };
@@ -27,6 +35,11 @@ private:
     void HandleOscEsc(unsigned char byte);
     void HandleSkipOne(unsigned char byte);
 
+    // Delivers the accumulated printable run to the document as one batched
+    // AppendRun call. Called before any control-byte dispatch and at the end
+    // of each Process() chunk, so document mutations always see completed runs.
+    void FlushRun();
+
     void DispatchSgr();
     void DispatchOsc();
     int  ParseFirstParam(int defaultVal) const;
@@ -39,6 +52,8 @@ private:
     bool             privateMode_  = false;
     std::string      osc_payload_;
     Style            currentStyle_;  // accumulated SGR state; mutated in place by DispatchSgr
+
+    std::u32string runBuf_;  // pending printable run; capacity reused across flushes
 
     char32_t utf8_codepoint_ = 0;
     int      utf8_remaining_ = 0;

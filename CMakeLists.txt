@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.28)
 
 # Derive version from the nearest annotated or lightweight git tag (e.g. v1.2.3).
 # Fallback to 0.0.0 when building outside a git repo or before the first tag.
@@ -59,6 +59,10 @@ FetchContent_Declare(wxWidgets
     GIT_TAG        v3.2.6
     GIT_SHALLOW    TRUE
 )
+# wxBUILD_INSTALL OFF keeps wxWidgets' own install rules (wx-config, headers,
+# static libs) out of our package staging — we ship only the naTE binary and
+# its assets, not the build-time toolchain of a bundled dependency.
+set(wxBUILD_INSTALL   OFF CACHE BOOL "" FORCE)
 set(wxBUILD_SHARED    OFF CACHE BOOL "" FORCE)
 set(wxBUILD_TESTS     OFF CACHE BOOL "" FORCE)
 set(wxBUILD_DEMOS     OFF CACHE BOOL "" FORCE)
@@ -113,10 +117,18 @@ else()
     set(BUILD_EXAMPLES    OFF CACHE BOOL "" FORCE)
     set(BUILD_TESTING     OFF CACHE BOOL "" FORCE)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    # Compile zlib support into libssh2 so the SshDesc.compress option can
+    # negotiate zlib/zlib@openssh.com — without this the flag is a no-op even
+    # though the algorithm is selected at handshake time.
+    set(ENABLE_ZLIB_COMPRESSION ON CACHE BOOL "" FORCE)
+    # EXCLUDE_FROM_ALL keeps libssh2's unconditional install rules (static lib,
+    # headers, pkg-config, CMake export) out of our package — libssh2 offers no
+    # install opt-out option, so this is the only clean suppression mechanism.
     FetchContent_Declare(libssh2
         GIT_REPOSITORY https://github.com/libssh2/libssh2.git
         GIT_TAG        libssh2-1.11.1
-        GIT_SHALLOW    TRUE)
+        GIT_SHALLOW    TRUE
+        EXCLUDE_FROM_ALL)
     FetchContent_MakeAvailable(libssh2)
     set(NATE_LIBSSH2_LINK    "libssh2")
     set(NATE_LIBSSH2_INCLUDE "")
@@ -143,18 +155,23 @@ set(SOURCES
     src/transport/EnvUtils.cpp
     src/transport/BastionTunnel.cpp
     src/transport/SshConfig.cpp
+    src/transport/SshSession.cpp
+    src/transport/SshSftpService.cpp
+    src/transport/SshPortForwardEngine.cpp
     src/transport/SshPublicKey.cpp
     src/transport/X11Utils.cpp
     src/transport/LoopbackTransport.cpp
     src/transport/PtyTransport.cpp
     src/transport/SerialTransport.cpp
+    src/transport/SshAuthenticator.cpp
+    src/transport/SshChannelProxy.cpp
     src/transport/SshTransport.cpp
     src/parser/Parser.cpp
     src/ui/wxKeyAdapter.cpp
     src/ui/MainFrame.cpp
     src/ui/NewConnectionDialog.cpp
     src/ui/ConnectionManagerDialog.cpp
-    src/ui/FileTransferDialog.cpp
+    src/ui/TransferFilesDialog.cpp
     src/ui/KbdIntDialog.cpp
     src/ui/PasteConfirmDialog.cpp
     src/ui/RemoteFileBrowserDialog.cpp
@@ -175,9 +192,9 @@ set(SOURCES
     src/ui/DragGhost.cpp
     src/ui/TabStrip.cpp
     src/ui/TerminalGrid.cpp
-    src/ui/DocLayout.cpp
-    src/ui/UrlScanner.cpp
-    src/ui/WordSelector.cpp
+    src/layout/DocLayout.cpp
+    src/layout/UrlScanner.cpp
+    src/layout/WordSelector.cpp
     src/ui/UIManager.cpp
     src/ui/SearchController.cpp
     src/ui/SearchBar.cpp
@@ -188,6 +205,9 @@ set(SOURCES
     src/db/JsonSessionRestoreRepository.cpp
     src/db/JsonNamedWorkspaceRepository.cpp
     src/db/ConnectionStore.cpp
+    src/db/JsonScrollbackRepository.cpp
+    src/db/ScrollbackWriter.cpp
+    src/db/ScrollbackPurge.cpp
     src/ui/AboutDialog.cpp
 )
 
@@ -313,13 +333,12 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/LICENSE")
 endif()
 set(CPACK_STRIP_FILES                 TRUE)
 
-if(NATE_SYSTEM_DEPS)
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libssh2-1, libgtk-3-0")
-    set(CPACK_RPM_PACKAGE_REQUIRES   "libssh2, gtk3")
-else()
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libgtk-3-0")
-    set(CPACK_RPM_PACKAGE_REQUIRES   "gtk3")
-endif()
+# Runtime dependencies are derived automatically from the binary's DT_NEEDED
+# entries rather than hand-maintained — this keeps the package metadata correct
+# as link-time dependencies change (e.g. libz.so.1, pulled in by the bundled
+# static libssh2's zlib compression code).  dpkg-shlibdeps (from dpkg-dev)
+# powers the Debian path; rpmbuild's find-requires does the RPM path by default.
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 set(CPACK_DEBIAN_PACKAGE_SECTION      "net")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY     "optional")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE     "https://github.com/lhovind/naTE")

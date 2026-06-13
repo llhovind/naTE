@@ -125,6 +125,9 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
             else if (key == "DefaultWrapMode")     cfg.defaultWrapMode    = (val == "true" || val == "1");
             else if (key == "AutoRestoreSession")  cfg.autoRestoreSession  = (val == "true" || val == "1");
             else if (key == "SessionSaveInterval") cfg.sessionSaveInterval = toInt(val, cfg.sessionSaveInterval);
+            else if (key == "SaveScrollbackWithWorkspace") cfg.saveScrollbackWithWorkspace = (val == "true" || val == "1");
+            else if (key == "ScrollbackSaveLines")         cfg.scrollbackSaveLines = toInt(val, cfg.scrollbackSaveLines);
+            else if (key == "ScrollbackSaveStyles")        cfg.scrollbackSaveStyles = (val == "true" || val == "1");
             else {
                 constexpr int kMaxEnvVars = 64;
                 for (int i = 0; i < kMaxEnvVars; ++i) {
@@ -148,7 +151,7 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
 
     cfg.defaultEnvVars.erase(
         std::remove_if(cfg.defaultEnvVars.begin(), cfg.defaultEnvVars.end(),
-                       [](const term::session::EnvVar& ev) { return ev.key.empty(); }),
+                       [](const term::transport::EnvVar& ev) { return ev.key.empty(); }),
         cfg.defaultEnvVars.end());
 
     // Resolve theme colours from file; keep struct defaults if unavailable.
@@ -228,7 +231,10 @@ void AppConfig::save(const std::string& configPath) const
       << "DefaultLoginShell="   << (defaultLoginShell  ? "true" : "false") << "\n"
       << "DefaultWrapMode="     << (defaultWrapMode    ? "true" : "false") << "\n"
       << "AutoRestoreSession="  << (autoRestoreSession ? "true" : "false") << "\n"
-      << "SessionSaveInterval=" << sessionSaveInterval << "\n";
+      << "SessionSaveInterval=" << sessionSaveInterval << "\n"
+      << "SaveScrollbackWithWorkspace=" << (saveScrollbackWithWorkspace ? "true" : "false") << "\n"
+      << "ScrollbackSaveLines="         << scrollbackSaveLines << "\n"
+      << "ScrollbackSaveStyles="        << (scrollbackSaveStyles ? "true" : "false") << "\n";
 
     for (std::size_t i = 0; i < defaultEnvVars.size(); ++i) {
         f << "EnvVar" << i << "Key="   << defaultEnvVars[i].key   << "\n"

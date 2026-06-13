@@ -1,6 +1,6 @@
 # naTE
 
-**not another Terminal Emulator — tiling layouts, SSH, and serial support.**
+**A workspace-oriented terminal emulator for SSH-heavy engineers.**
 
 [![CI](https://github.com/lhovind/naTE/actions/workflows/ci.yml/badge.svg)](https://github.com/lhovind/naTE/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.md)
@@ -12,7 +12,7 @@
 
 ## What is naTE?
 
-naTE (*not another Terminal Emulator*) is a graphical terminal emulator built for people who live in SSH sessions. It
+naTE (*not another Terminal Emulator*) is a workspace-oriented terminal emulator for SSH-heavy engineers. It
 gives you a tiling, tabbed interface where multiple terminals share a single window,
 remembers your sessions across restarts so you can pick up exactly where you left
 off, and ships with a full suite of SSH features — agent forwarding, X11 forwarding,
@@ -36,7 +36,7 @@ for you.
 - Bracketed paste with optional confirmation dialog
 - URL detection and click-to-open
 - **Mouse selection** — click-drag to select; double-click selects the word under the cursor (word boundary pattern is a configurable regex); triple-click selects the full line
-- **Find in Terminal** (`Ctrl+Shift+F` / **Edit → Find in Terminal**) — case-insensitive search across the full scrollback buffer; all matches are highlighted and the current match is distinguished; navigate with `Enter` / `F3` (forward) and `Shift+F3` (back); pre-populates from the active selection
+- **Find in Terminal** (`Ctrl+Shift+F` / **Edit → Find in Terminal**) — case-insensitive search across the full scrollback buffer; all matches are highlighted and the current match is distinguished; results are ordered most-recent first so the first match is always the nearest one to the bottom of the buffer; navigate with `Enter` / `F3` (forward) and `Shift+F3` (back); pre-populates from the active selection; **live search** — the match list updates automatically as new output arrives (250 ms debounce), tracking the tail when the viewport is at the bottom and preserving your position when scrolled up
 
 ### Tiling & tabs
 - Each window holds one or more **tiles** arranged in a grid; each tile has its own tab strip
@@ -52,6 +52,7 @@ for you.
 ### Session management
 - Auto-save and restore open sessions on launch
 - Named workspaces ("Save Workspace As...")
+- **Scrollback persistence** — opt-in (`saveScrollbackWithWorkspace` in config) streaming save of the scrollback buffer per session; on restore, the saved history is prepended to the new session and a separator line marks where the old output ends and new output begins. Configurable line limit (`scrollbackSaveLines`, default 10,000) and optional style (colour/bold) preservation (`scrollbackSaveStyles`).
 - Reconnect bar when a connection drops — resume without re-entering credentials
 - Confirm-close protection — a dialog warns before closing a window with active sessions; auto-suppressed for single-session close; configurable via **Edit → Preferences → Behavior** or a "Don't ask again" option in the dialog itself
 
@@ -86,8 +87,9 @@ for you.
 - Verification dialog confirms connectivity before closing the panel, so you know the tunnel is up before you depend on it
 
 ### File transfer
-- SFTP send and receive via the existing authenticated session (no re-authentication)
-- Remote directory browser with alphabetical listing
+- Unified **Transfer Files** dialog (**Terminal → Transfer Files...**) — choose source and destination independently: local machine or any active SSH session
+- Upload, download, or transfer between two remote sessions from a single dialog; remote-to-remote transfers stage through a temporary local file automatically
+- Browse the remote filesystem to pick source files or set the destination directory
 - **Edit remote file** — open a remote file in your local editor (**Terminal → Edit Remote File**); naTE downloads it to a temp path, watches for saves via inotify, and re-uploads automatically on each write. Supports direct-save editors (vim, nano) and atomic-rename editors (VSCode, gedit). Configure the editor command in **Edit → Preferences → Behavior** or via the `$EDITOR` environment variable.
 
 ### Appearance
@@ -124,11 +126,12 @@ No installation required. The AppImage bundles all dependencies.
 
 | Dependency | Version | Notes |
 |---|---|---|
-| CMake | ≥ 3.20 | |
+| CMake | ≥ 3.28 | `EXCLUDE_FROM_ALL` for FetchContent dependencies |
 | Ninja | any | `ninja-build` on Debian/Ubuntu |
 | GCC or Clang | C++20 | |
 | GTK 3 dev headers | any | Linux only — `libgtk-3-dev` |
 | OpenSSL dev headers | any | `libssl-dev` |
+| zlib dev headers | any | `zlib1g-dev` — used by libssh2 for SSH compression |
 | pkg-config | any | Linux only |
 
 wxWidgets, libssh2, and nlohmann/json are fetched automatically by CMake at
@@ -186,6 +189,7 @@ immediately in open sessions.
 | `~/.nate/connections.json` | Saved connection profiles |
 | `~/.nate/workspaces/` | Named workspaces |
 | `~/.nate/themes/` | Custom color themes |
+| `~/.nate/scrollback/` | Per-session scrollback snapshots (when `saveScrollbackWithWorkspace` is enabled) |
 
 ### Custom themes
 
@@ -251,7 +255,7 @@ ctest --preset debug
 ```
 
 Tests are written with [Catch2](https://github.com/catchorg/Catch2). The suite
-currently covers 316 scenarios across all major subsystems.
+currently covers 356 scenarios across all major subsystems.
 
 ### Packaging (AppImage)
 
@@ -263,8 +267,9 @@ currently covers 316 scenarios across all major subsystems.
 ### Architecture
 
 naTE follows a ports-and-adapters layout. The core — terminal parsing (`src/parser/`),
-document model (`src/document/`), session management (`src/session/`), and transport
-backends (`src/transport/`) — is entirely headless and has no dependency on wxWidgets.
+document model (`src/document/`), viewport layout (`src/layout/`), session management
+(`src/session/`), and transport backends (`src/transport/`) — is entirely headless and
+has no dependency on wxWidgets.
 The wxWidgets UI (`src/ui/`) is one implementation of the presentation layer and is,
 in principle, swappable for another frontend without touching the core. Persistence
 uses a thin JSON repository layer (`src/db/`) so the storage format can change

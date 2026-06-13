@@ -1,6 +1,6 @@
 #pragma once
 #include "config/Color.h"     // Rgb, UiColors
-#include "session/EnvVar.h"
+#include "transport/EnvVar.h"
 #include <array>
 #include <string>
 #include <vector>
@@ -76,7 +76,7 @@ struct AppConfig {
     // [Session] defaults — applied to every new session, overridable per profile
     std::string                        defaultShell;        // empty = $SHELL → /bin/sh
     std::string                        defaultWorkingDir;   // empty = inherit launcher cwd
-    std::vector<term::session::EnvVar> defaultEnvVars;
+    std::vector<term::transport::EnvVar> defaultEnvVars;
     std::string                        defaultEnvFilePath;
     bool                               defaultLoginShell  = false;
     bool                               defaultWrapMode    = false;
@@ -84,6 +84,9 @@ struct AppConfig {
     // [Restore] session-restore behaviour
     bool autoRestoreSession  = false;
     int  sessionSaveInterval = 300;    // seconds; 0 = disabled
+    bool saveScrollbackWithWorkspace = false;
+    int  scrollbackSaveLines         = 10'000;
+    bool scrollbackSaveStyles        = true;
 
     // themesDir is the user themes directory (~/.nate/themes).
     // When empty or the named theme file is missing, textColour/bgColour

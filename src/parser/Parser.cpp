@@ -20,38 +20,57 @@ void Parser::Process(const std::string& data)
         case State::SkipOne:  HandleSkipOne(byte);  break;
         }
     }
+    // End of chunk: deliver any pending printable run so the document never
+    // waits on bytes that have already arrived. (A UTF-8 sequence split
+    // across chunks stays in utf8_codepoint_/utf8_remaining_ and completes
+    // with the next chunk.)
+    FlushRun();
+}
+
+void Parser::FlushRun()
+{
+    if (runBuf_.empty()) return;
+    doc_->AppendRun(runBuf_);
+    runBuf_.clear();
 }
 
 void Parser::HandleNormal(unsigned char byte)
 {
     if (byte == '\x1b') {
+        FlushRun();
         state_ = State::Escape;
         return;
     }
 
     if (byte == '\x07') {
+        FlushRun();
         screen_.OnBell();
         return;
     }
 
     if (byte == '\b' || byte == '\x7f') {
+        FlushRun();
         doc_->MoveCursorLeft(1);
         return;
     }
 
     if (byte == '\n') {
+        FlushRun();
         doc_->NewLine();
         return;
     }
 
     if (byte == '\r') {
+        FlushRun();
         doc_->CarriageReturn();
         return;
     }
 
-    // UTF-8 multi-byte decode
+    // UTF-8 multi-byte decode — completed codepoints accumulate in runBuf_
+    // and reach the document in one AppendRun batch at the next control byte
+    // or end of chunk.
     if (byte < 0x80) {
-        doc_->AppendInsertChar(static_cast<char32_t>(byte));
+        runBuf_.push_back(static_cast<char32_t>(byte));
     } else if ((byte & 0xE0) == 0xC0) {
         utf8_codepoint_ = byte & 0x1F;
         utf8_remaining_ = 1;
@@ -64,7 +83,7 @@ void Parser::HandleNormal(unsigned char byte)
     } else if ((byte & 0xC0) == 0x80) {
         utf8_codepoint_ = (utf8_codepoint_ << 6) | (byte & 0x3F);
         if (--utf8_remaining_ == 0) {
-            doc_->AppendInsertChar(utf8_codepoint_);
+            runBuf_.push_back(utf8_codepoint_);
             utf8_codepoint_ = 0;
         }
     }
@@ -113,14 +132,12 @@ void Parser::HandleSkipOne(unsigned char /*byte*/)
 }
 
 // SS3 sequences: ESC O <byte>
-// Used for F1–F4 and application-mode cursor/home/end keys.
+// Application-mode cursor/home/end movements; F1–F4 (P/Q/R/S) are keyboard
+// input sequences that never appear in legitimate display output and are
+// silently consumed.
 void Parser::HandleSs3(unsigned char byte)
 {
     switch (byte) {
-    case 'P': screen_.OnFunctionKey(1);            break;
-    case 'Q': screen_.OnFunctionKey(2);            break;
-    case 'R': screen_.OnFunctionKey(3);            break;
-    case 'S': screen_.OnFunctionKey(4);            break;
     case 'A': doc_->MoveCursorUp(1);               break;
     case 'B': doc_->MoveCursorDown(1);             break;
     case 'C': doc_->MoveCursorRight(1);            break;
@@ -181,26 +198,14 @@ void Parser::HandleCsiFinal(unsigned char byte)
     case 'h': if (ParseFirstParam(0) == 4) doc_->SetInsertMode(true);              break;
     case 'l': if (ParseFirstParam(0) == 4) doc_->SetInsertMode(false);             break;
     case '~': {
+        // PageUp/PageDown (5/6) and F-keys (11–24) are keyboard input
+        // sequences, never legitimate display output — silently consumed.
         const int code = ParseParam(0, 0);
         switch (code) {
         case 1: case 7:  doc_->MoveCursorToLineStart();  break;
         case 2:          /* insert mode toggle — no-op */ break;
         case 3:          doc_->DeleteChar(1);             break;
         case 4: case 8:  doc_->MoveCursorToLineEnd();     break;
-        case 5:          screen_.OnScrollUp(1);           break;
-        case 6:          screen_.OnScrollDown(1);         break;
-        case 11:         screen_.OnFunctionKey(1);        break;
-        case 12:         screen_.OnFunctionKey(2);        break;
-        case 13:         screen_.OnFunctionKey(3);        break;
-        case 14:         screen_.OnFunctionKey(4);        break;
-        case 15:         screen_.OnFunctionKey(5);        break;
-        case 17:         screen_.OnFunctionKey(6);        break;
-        case 18:         screen_.OnFunctionKey(7);        break;
-        case 19:         screen_.OnFunctionKey(8);        break;
-        case 20:         screen_.OnFunctionKey(9);        break;
-        case 21:         screen_.OnFunctionKey(10);       break;
-        case 23:         screen_.OnFunctionKey(11);       break;
-        case 24:         screen_.OnFunctionKey(12);       break;
         default: break;
         }
         break;
@@ -414,6 +419,8 @@ void Parser::Reset()
     params_.clear();
     privateMode_    = false;
     osc_payload_.clear();
+    runBuf_.clear();   // discard, like the other partial state; runs are
+                       // always flushed before RIS dispatch reaches here
     utf8_codepoint_ = 0;
     utf8_remaining_ = 0;
     currentStyle_   = Style{};

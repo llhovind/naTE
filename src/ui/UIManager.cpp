@@ -1,7 +1,8 @@
 #include "ui/UIManager.h"
+#include "ui/ClipboardUtils.h"
 #include "ui/ColorUtils.h"
 #include "app/App.h"
-#include "ui/FileTransferDialog.h"
+#include "ui/TransferFilesDialog.h"
 #include "ui/RemoteEditManager.h"
 #include "ui/RemoteFileBrowserDialog.h"
 #include "ui/KbdIntDialog.h"
@@ -11,15 +12,13 @@
 #include "ui/TerminalPanel.h"
 #include "ui/TerminalTile.h"
 #include "ui/TerminalGrid.h"
-#include "ui/DocLayout.h"
+#include "layout/DocLayout.h"
 #include "ui/SearchBar.h"
 #include "ui/SearchController.h"
 #include "ui/SelectionActions.h"
 #include "ui/StringUtils.h"
 #include <wx/brush.h>
 #include <wx/utils.h>
-#include <wx/clipbrd.h>
-#include <wx/dataobj.h>
 #include <wx/display.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
@@ -163,7 +162,6 @@ void UIManager::OnSessionDisconnected(term::session::SessionId id,
 {
     frame_->CallAfter([this, id, reason]() {
         using R = term::transport::DisconnectReason;
-        using S = term::session::SessionStatus;
 
         // Deliberate: Stop() was called — CloseSession already owns the teardown.
         if (reason == R::Deliberate)
@@ -177,13 +175,10 @@ void UIManager::OnSessionDisconnected(term::session::SessionId id,
         }
 
         // Interrupted + reconnectable: preserve session, show indicator.
+        // Session::status_ is already Disconnected; the badge updates on next paint.
         SessionUI* ui = FindSessionUI(id);
         if (!ui) return;
 
-        ui->tile->SetTabStatus(id, S::Disconnected);
-
-        // Build a message string from the last TransportError if available,
-        // otherwise use a generic text.
         const wxString msg = wxString::FromUTF8("Connection lost.");
         ui->panel->ShowReconnectBar(msg);
     });
@@ -298,6 +293,12 @@ void UIManager::WireTileCallbacks(TerminalTile* tile)
         [this](std::span<const term::session::SessionId> ids, TerminalTile* dstTile) -> bool {
             return static_cast<App&>(wxGetApp()).DropSession(ids, frame_, dstTile);
         });
+    tile->SetFileTransferAvailableCallback([this] {
+        return AnySessionSupportsFileTransfer();
+    });
+    tile->SetStatusProvider([this](term::session::SessionId id) {
+        return sm_.GetSessionStatus(id);
+    });
 }
 
 void UIManager::TakeSession(term::session::SessionId     id,
@@ -327,20 +328,7 @@ void UIManager::TakeSession(term::session::SessionId     id,
             return;
         }
         if (evt.ctrl && evt.key == term::input::Key::Character && evt.code == 'v') {
-            wxString text;
-            if (wxTheClipboard->Open()) {
-                if (wxTheClipboard->IsSupported(wxDF_UNICODETEXT)) {
-                    wxTextDataObject data;
-                    wxTheClipboard->GetData(data);
-                    text = data.GetText();
-                } else if (wxTheClipboard->IsSupported(wxDF_TEXT)) {
-                    wxTextDataObject data;
-                    wxTheClipboard->GetData(data);
-                    text = data.GetText();
-                }
-                wxTheClipboard->Close();
-            }
-            DoPaste(std::string(text.ToUTF8()));
+            PasteFromClipboard();
             return;
         }
         router_.Send(evt);
@@ -353,6 +341,7 @@ void UIManager::TakeSession(term::session::SessionId     id,
     auto* bar = new SearchBar(panel, *ctrl);
     ctrl->SetBar(bar);
     panel->SetSearchBar(bar);
+    panel->SetSearchController(ctrl.get());
 
     // Wire ReconnectBar buttons. Captured by value so they stay valid after
     // TakeSession returns. The panel is wx-owned and outlives these lambdas.
@@ -360,7 +349,6 @@ void UIManager::TakeSession(term::session::SessionId     id,
         SessionUI* ui = FindSessionUI(id);
         if (!ui) return;
         ui->panel->HideReconnectBar();
-        ui->tile->SetTabStatus(id, term::session::SessionStatus::Reconnecting);
         sm_.ReconnectSession(id);
     });
     panel->SetReconnectSaveCallback([this, id]() {
@@ -508,31 +496,35 @@ void UIManager::ResetAndClearSession(term::session::SessionId id)
     sm_.ResetTerminal(id, true);
 }
 
-void UIManager::SendFilesForSession(term::session::SessionId id)
+void UIManager::TransferFilesForSession(term::session::SessionId preSelectedSrc)
 {
-    if (!id || !sm_.SupportsFileTransfer(id)) return;
-    const std::string remote = sm_.GetRemoteDescription(id);
-    ui::FileTransferDialog dlg(frame_, id, sm_, remote, ui::TransferDirection::Send);
-    dlg.ShowModal();
-}
-
-void UIManager::ReceiveFilesForSession(term::session::SessionId id)
-{
-    if (!id || !sm_.SupportsFileTransfer(id)) return;
-    const std::string remote = sm_.GetRemoteDescription(id);
-    ui::FileTransferDialog dlg(frame_, id, sm_, remote, ui::TransferDirection::Receive);
+    auto all = GetSessionList();
+    std::vector<std::pair<term::session::SessionId, std::string>> eligible;
+    for (auto& [id, label] : all) {
+        if (sm_.SupportsFileTransfer(id))
+            eligible.emplace_back(id, label);
+    }
+    ui::TransferFilesDialog dlg(frame_, sm_, std::move(eligible), preSelectedSrc);
     dlg.ShowModal();
 }
 
 void UIManager::ResetActiveTerminal()         { ResetTerminalForSession(activeId_); }
 void UIManager::ResetAndClearActiveTerminal() { ResetAndClearSession(activeId_); }
-void UIManager::SendFilesForActive()          { SendFilesForSession(activeId_); }
-void UIManager::ReceiveFilesForActive()       { ReceiveFilesForSession(activeId_); }
+void UIManager::TransferFilesForActive()      { TransferFilesForSession(activeId_); }
 
 bool UIManager::ActiveSessionSupportsFileTransfer() const
 {
     return activeId_ && sm_.SupportsFileTransfer(activeId_);
 }
+
+bool UIManager::AnySessionSupportsFileTransfer() const
+{
+    for (const auto& [id, _] : sessions_) {
+        if (sm_.SupportsFileTransfer(id)) return true;
+    }
+    return false;
+}
+
 
 void UIManager::EditRemoteFileForSession(term::session::SessionId id)
 {
@@ -663,6 +655,7 @@ void UIManager::TearDownSessionUI(term::session::SessionId id)
     if (onSessionListChanged_ && !teardownInProgress_) onSessionListChanged_();
 
     if (ui->searchCtrl) ui->searchCtrl->SetBar(nullptr);
+    if (ui->panel) ui->panel->SetSearchController(nullptr);
 
     if (ui->tile) {
         const bool tileEmpty = ui->tile->RemoveTab(id);
@@ -873,11 +866,8 @@ void UIManager::OnTerminalAction(TerminalActionEvent& evt)
         case TerminalAction::SaveToFile:
             SaveSessionToFile(evt.GetSessionId());
             break;
-        case TerminalAction::SendFiles:
-            SendFilesForSession(evt.GetSessionId());
-            break;
-        case TerminalAction::ReceiveFiles:
-            ReceiveFilesForSession(evt.GetSessionId());
+        case TerminalAction::TransferFiles:
+            TransferFilesForSession(evt.GetSessionId());
             break;
         case TerminalAction::EditRemoteFile:
             EditRemoteFileForSession(evt.GetSessionId());
@@ -1091,8 +1081,8 @@ const UIManager::SessionUI* UIManager::FindSessionUI(term::session::SessionId id
 bool UIManager::IsReconnectable(term::session::SessionId id) const
 {
     const term::session::Connection conn = sm_.GetConnection(id);
-    return std::holds_alternative<term::session::SshDesc>(conn.transport)
-        || std::holds_alternative<term::session::SerialDesc>(conn.transport);
+    return std::holds_alternative<term::transport::SshDesc>(conn.transport)
+        || std::holds_alternative<term::transport::SerialDesc>(conn.transport);
 }
 
 std::vector<std::pair<term::session::SessionId, std::string>>
@@ -1205,20 +1195,7 @@ void UIManager::ResizeFrameToFitTiles()
 
 void UIManager::PasteFromClipboard()
 {
-    wxString text;
-    if (wxTheClipboard->Open()) {
-        if (wxTheClipboard->IsSupported(wxDF_UNICODETEXT)) {
-            wxTextDataObject data;
-            wxTheClipboard->GetData(data);
-            text = data.GetText();
-        } else if (wxTheClipboard->IsSupported(wxDF_TEXT)) {
-            wxTextDataObject data;
-            wxTheClipboard->GetData(data);
-            text = data.GetText();
-        }
-        wxTheClipboard->Close();
-    }
-    DoPaste(std::string(text.ToUTF8()));
+    DoPaste(ReadClipboardText());
 }
 
 void UIManager::DoPaste(const std::string& utf8)

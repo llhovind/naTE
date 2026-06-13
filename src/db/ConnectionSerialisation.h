@@ -11,74 +11,74 @@ namespace term::db::serialisation {
 
 using json = nlohmann::json;
 
-inline std::string AuthMethodToString(term::session::SshAuthMethod m)
+inline std::string AuthMethodToString(term::transport::SshAuthMethod m)
 {
     switch (m) {
-        case term::session::SshAuthMethod::Password:       return "password";
-        case term::session::SshAuthMethod::PrivateKey:     return "privatekey";
-        case term::session::SshAuthMethod::KbdInteractive: return "keyboard-interactive";
+        case term::transport::SshAuthMethod::Password:       return "password";
+        case term::transport::SshAuthMethod::PrivateKey:     return "privatekey";
+        case term::transport::SshAuthMethod::KbdInteractive: return "keyboard-interactive";
         default:                                            return "agent";
     }
 }
 
-inline term::session::SshAuthMethod AuthMethodFromString(const std::string& s)
+inline term::transport::SshAuthMethod AuthMethodFromString(const std::string& s)
 {
-    if (s == "password")             return term::session::SshAuthMethod::Password;
-    if (s == "privatekey")           return term::session::SshAuthMethod::PrivateKey;
-    if (s == "keyboard-interactive") return term::session::SshAuthMethod::KbdInteractive;
-    return term::session::SshAuthMethod::Agent;
+    if (s == "password")             return term::transport::SshAuthMethod::Password;
+    if (s == "privatekey")           return term::transport::SshAuthMethod::PrivateKey;
+    if (s == "keyboard-interactive") return term::transport::SshAuthMethod::KbdInteractive;
+    return term::transport::SshAuthMethod::Agent;
 }
 
-inline std::string ParityToString(term::session::SerialParity p)
+inline std::string ParityToString(term::transport::SerialParity p)
 {
     switch (p) {
-        case term::session::SerialParity::Even: return "even";
-        case term::session::SerialParity::Odd:  return "odd";
+        case term::transport::SerialParity::Even: return "even";
+        case term::transport::SerialParity::Odd:  return "odd";
         default:                                return "none";
     }
 }
 
-inline term::session::SerialParity ParityFromString(const std::string& s)
+inline term::transport::SerialParity ParityFromString(const std::string& s)
 {
-    if (s == "even") return term::session::SerialParity::Even;
-    if (s == "odd")  return term::session::SerialParity::Odd;
-    return term::session::SerialParity::None;
+    if (s == "even") return term::transport::SerialParity::Even;
+    if (s == "odd")  return term::transport::SerialParity::Odd;
+    return term::transport::SerialParity::None;
 }
 
-inline std::string FlowToString(term::session::SerialFlowControl f)
+inline std::string FlowToString(term::transport::SerialFlowControl f)
 {
     switch (f) {
-        case term::session::SerialFlowControl::Hardware: return "hardware";
-        case term::session::SerialFlowControl::Software: return "software";
+        case term::transport::SerialFlowControl::Hardware: return "hardware";
+        case term::transport::SerialFlowControl::Software: return "software";
         default:                                         return "none";
     }
 }
 
-inline term::session::SerialFlowControl FlowFromString(const std::string& s)
+inline term::transport::SerialFlowControl FlowFromString(const std::string& s)
 {
-    if (s == "hardware") return term::session::SerialFlowControl::Hardware;
-    if (s == "software") return term::session::SerialFlowControl::Software;
-    return term::session::SerialFlowControl::None;
+    if (s == "hardware") return term::transport::SerialFlowControl::Hardware;
+    if (s == "software") return term::transport::SerialFlowControl::Software;
+    return term::transport::SerialFlowControl::None;
 }
 
-inline std::string StopBitsToString(term::session::SerialStopBits sb)
+inline std::string StopBitsToString(term::transport::SerialStopBits sb)
 {
-    return sb == term::session::SerialStopBits::Two ? "2" : "1";
+    return sb == term::transport::SerialStopBits::Two ? "2" : "1";
 }
 
-inline term::session::SerialStopBits StopBitsFromString(const std::string& s)
+inline term::transport::SerialStopBits StopBitsFromString(const std::string& s)
 {
-    return s == "2" ? term::session::SerialStopBits::Two
-                    : term::session::SerialStopBits::One;
+    return s == "2" ? term::transport::SerialStopBits::Two
+                    : term::transport::SerialStopBits::One;
 }
 
-inline json SerialiseTransport(const term::session::TransportDesc& transport)
+inline json SerialiseTransport(const term::transport::TransportDesc& transport)
 {
     return std::visit([](const auto& desc) -> json {
         using T = std::decay_t<decltype(desc)>;
-        if constexpr (std::is_same_v<T, term::session::PtyDesc>) {
+        if constexpr (std::is_same_v<T, term::transport::PtyDesc>) {
             return json{{"type", "pty"}, {"shell", desc.shell}, {"command", desc.command}};
-        } else if constexpr (std::is_same_v<T, term::session::SshDesc>) {
+        } else if constexpr (std::is_same_v<T, term::transport::SshDesc>) {
             // passwords and passphrases are intentionally excluded
             json j{
                 {"type",               "ssh"},
@@ -88,7 +88,6 @@ inline json SerialiseTransport(const term::session::TransportDesc& transport)
                 {"authMethod",         AuthMethodToString(desc.authMethod)},
                 {"privateKeyPath",     desc.privateKeyPath},
                 {"publicKeyPath",      desc.publicKeyPath},
-                {"keepaliveSeconds",   desc.keepaliveSeconds},
                 {"connectTimeoutSec",  desc.connectTimeoutSec},
                 {"remoteCommand",      desc.remoteCommand},
                 {"compress",             desc.compress},
@@ -124,7 +123,7 @@ inline json SerialiseTransport(const term::session::TransportDesc& transport)
                 j["portForwards"] = std::move(pfArr);
             }
             return j;
-        } else if constexpr (std::is_same_v<T, term::session::SerialDesc>) {
+        } else if constexpr (std::is_same_v<T, term::transport::SerialDesc>) {
             return json{
                 {"type",        "serial"},
                 {"device",      desc.device},
@@ -141,25 +140,24 @@ inline json SerialiseTransport(const term::session::TransportDesc& transport)
     }, transport);
 }
 
-inline term::session::TransportDesc DeserialiseTransport(const json& j)
+inline term::transport::TransportDesc DeserialiseTransport(const json& j)
 {
     const std::string type = j.value("type", "loopback");
 
     if (type == "pty") {
-        return term::session::PtyDesc{
+        return term::transport::PtyDesc{
             j.value("shell",   std::string{}),
             j.value("command", std::string{}),
         };
     }
     if (type == "ssh") {
-        term::session::SshDesc d;
+        term::transport::SshDesc d;
         d.host              = j.value("host",              std::string{});
         d.port              = j.value("port",              static_cast<unsigned short>(22));
         d.username          = j.value("username",          std::string{});
         d.authMethod        = AuthMethodFromString(j.value("authMethod", std::string{"agent"}));
         d.privateKeyPath    = j.value("privateKeyPath",    std::string{});
         d.publicKeyPath     = j.value("publicKeyPath",     std::string{});
-        d.keepaliveSeconds  = j.value("keepaliveSeconds",  30);
         d.connectTimeoutSec = j.value("connectTimeoutSec", 10);
         d.remoteCommand     = j.value("remoteCommand",     std::string{});
         d.compress          = j.value("compress",          false);
@@ -187,7 +185,7 @@ inline term::session::TransportDesc DeserialiseTransport(const json& j)
             const auto& pj = j["proxyJump"];
             const std::string pjHost = pj.value("host", std::string{});
             if (!pjHost.empty()) {
-                term::session::ProxyJumpDesc jump;
+                term::transport::ProxyJumpDesc jump;
                 jump.host              = pjHost;
                 jump.port              = pj.value("port",              static_cast<unsigned short>(22));
                 jump.user              = pj.value("user",              std::string{});
@@ -201,7 +199,7 @@ inline term::session::TransportDesc DeserialiseTransport(const json& j)
         return d;
     }
     if (type == "serial") {
-        term::session::SerialDesc d;
+        term::transport::SerialDesc d;
         d.device      = j.value("device",      std::string{});
         d.baudRate    = j.value("baudRate",    115200u);
         d.dataBits    = j.value("dataBits",    static_cast<unsigned short>(8));
@@ -211,10 +209,10 @@ inline term::session::TransportDesc DeserialiseTransport(const json& j)
         d.dialScript  = j.value("dialScript",  std::string{});
         return d;
     }
-    return term::session::LoopbackDesc{};
+    return term::transport::LoopbackDesc{};
 }
 
-inline json SerialiseSessionInit(const term::session::SessionInit& si)
+inline json SerialiseSessionInit(const term::transport::SessionInit& si)
 {
     json envVars = json::array();
     for (const auto& ev : si.envVars)
@@ -228,9 +226,9 @@ inline json SerialiseSessionInit(const term::session::SessionInit& si)
     };
 }
 
-inline term::session::SessionInit DeserialiseSessionInit(const json& j)
+inline term::transport::SessionInit DeserialiseSessionInit(const json& j)
 {
-    term::session::SessionInit si;
+    term::transport::SessionInit si;
     si.workingDir   = j.value("workingDir",  std::string{});
     si.loginShell   = j.value("loginShell",  false);
     si.envFilePath  = j.value("envFilePath", std::string{});

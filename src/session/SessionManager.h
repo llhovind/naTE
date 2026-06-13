@@ -10,16 +10,31 @@
 
 #include "document/IDocumentListener.h"
 #include "input/InputRouter.h"
-#include "session/AppSessionDefaults.h"
+#include "transport/AppSessionDefaults.h"
 #include "session/Connection.h"
 #include "session/ISessionObserver.h"
+#include "session/RestoreState.h"
 #include "session/Session.h"
+
+namespace term::db {
+    class IScrollbackRepository;
+    class ScrollbackWriter;
+}
 
 namespace term::session {
 
 class SessionManager {
 public:
+    // Scrollback feature disabled.
     SessionManager();
+
+    // scrollbackRepo may be null (feature disabled); remaining params are ignored when null.
+    explicit SessionManager(
+        std::unique_ptr<term::db::IScrollbackRepository> scrollbackRepo,
+        std::string scrollbackDir = {},
+        size_t scrollbackSaveLines = 0,
+        bool   scrollbackSaveStyles = false);
+
     ~SessionManager();
 
     SessionManager(const SessionManager&) = delete;
@@ -29,12 +44,17 @@ public:
     // Session lifecycle
     // -------------------------------------------------------------------------
 
+    // uuid: if non-empty, the session reuses this UUID for its scrollback file
+    //       (restore path); if empty, a fresh UUID v4 is generated.
     SessionId CreateSession(const Connection& conn,
                             int scrollbackLines,
                             unsigned short cols,
                             unsigned short rows,
-                            AppSessionDefaults appDefaults = {},
-                            unsigned short ptyLineWidth = 1024);
+                            transport::AppSessionDefaults appDefaults = {},
+                            unsigned short ptyLineWidth = 1024,
+                            std::string uuid = {});
+
+    static std::string GenerateUuid();
 
     // Stops the transport, fires OnSessionDestroyed on the per-session observer,
     // then destroys the session record.
@@ -106,6 +126,8 @@ public:
     void ForceAltScreen(SessionId id, bool on);
     void RequestX11Forwarding(SessionId id);
 
+    SessionStatus GetSessionStatus(SessionId id) const;
+
     bool        SupportsFileTransfer(SessionId id)    const;
     bool        SupportsX11Forwarding(SessionId id)   const;
     bool        IsX11ForwardingActive(SessionId id)   const;
@@ -128,6 +150,16 @@ public:
                             const std::string& remotePath,
                             const std::string& localDir,
                             std::function<void(bool, std::string)> onDone);
+
+    // Unified transfer between any two endpoints. Pass SessionId 0 for the
+    // local filesystem. Routes to SendFile / ReceiveFile for local↔remote
+    // cases; uses a temp file for remote↔remote.
+    void        TransferFileBetweenSessions(
+                    SessionId          srcId,
+                    const std::string& srcPath,
+                    SessionId          dstId,
+                    const std::string& dstDir,
+                    std::function<void(bool, std::string)> onDone);
     void        ListRemoteDirectory(
                     SessionId id,
                     const std::string& remotePath,
@@ -152,6 +184,36 @@ public:
     // Non-empty only for PTY sessions on Linux (/proc/<pid>/cwd).
     std::string GetCurrentWorkingDir(SessionId id) const;
 
+    // -------------------------------------------------------------------------
+    // Scrollback persistence
+    // -------------------------------------------------------------------------
+
+    // UUID for the session's scrollback file (empty if no repo is configured).
+    std::string GetScrollbackUuid(SessionId id) const;
+
+    // Inject a snapshot into the session's main document.
+    void LoadScrollback(SessionId id, const ScrollbackSnapshot& snap);
+
+    // Start the scrollback writer for a session. If initial is non-null,
+    // pre-populates segment 0 with the snapshot before streaming begins (Fix 1).
+    void StartScrollbackWriter(SessionId id,
+                               const ScrollbackSnapshot* initial = nullptr);
+
+    // Compact the session's scrollback writer (no-op if no writer).
+    void CompactScrollback(SessionId id);
+
+    // Compact all live sessions. Called on clean exit and explicit workspace save.
+    void CompactAllSessions();
+
+    // Delete scrollback files for every UUID referenced in state.
+    // Call before deleting any restore/workspace file.
+    void PurgeScrollbackForState(const RestoreState& state);
+
+    // Load scrollback snapshot for uuid from repo, inject into session, and
+    // start the writer pre-populated with the snapshot. No-op if uuid is empty
+    // or no repo is configured.
+    void RestoreScrollback(SessionId id, const std::string& uuid);
+
 private:
     struct SessionRecord {
         std::unique_ptr<Session>                         session;
@@ -167,11 +229,14 @@ private:
         // Snapshot of the Connection and app defaults used to create this session;
         // retained so CloseSession / ReconnectSession can recreate the transport.
         Connection                                       connection;
-        AppSessionDefaults                               appDefaults;
+        transport::AppSessionDefaults                               appDefaults;
         // Written by the worker thread (via onX11FwdChanged lambda); read by the
         // UI thread (IsX11ForwardingActive). Must be atomic — SessionRecord is
         // heap-allocated so its address is stable across map rehash.
         std::atomic<bool>                                x11ForwardingActive{false};
+        // Scrollback persistence (null when feature is disabled).
+        std::string                                      scrollbackUuid;
+        std::unique_ptr<term::db::ScrollbackWriter>      scrollbackWriter;
     };
 
     SessionRecord*       FindRecord(SessionId id);
@@ -182,6 +247,11 @@ private:
     std::unordered_map<SessionId, std::unique_ptr<SessionRecord>> sessions_;
     std::vector<SessionId>                                         pendingClose_;
     SessionId                                                      nextId_ = 1;
+
+    std::unique_ptr<term::db::IScrollbackRepository> scrollbackRepo_;
+    std::string                                       scrollbackDir_;
+    size_t                                            scrollbackSaveLines_  = 0;
+    bool                                              scrollbackSaveStyles_ = false;
 };
 
 } // namespace term::session

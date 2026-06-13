@@ -33,10 +33,12 @@ public:
         const term::session::Connection& conn, MainFrame* target);
 
     // Creates a session as a new tab in an existing tile.
+    // uuid: if non-empty, the session reuses this scrollback UUID (restore path).
     term::session::SessionId CreateSessionInTile(
         const term::session::Connection& conn,
         MainFrame*    target,
-        TerminalTile* targetTile);
+        TerminalTile* targetTile,
+        std::string   uuid = {});
 
     // Transfers sessions to a destination tile/frame.
     // dstFrame = nullptr → create a new MainFrame.
@@ -113,6 +115,10 @@ private:
 
     void RestoreStateImpl(const term::session::RestoreState& state,
                           MainFrame* firstFrame);
+
+    // Deletes scrollback files whose UUIDs are not referenced by any saved state.
+    // Called once at startup after all restore repos are loaded.
+    void PurgeOrphanedScrollback();
 
     term::session::RestoreState BuildCurrentState() const;
 

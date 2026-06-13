@@ -1,11 +1,9 @@
 #include "transport/SshTransport.h"
 #include "transport/EnvUtils.h"
-#include "transport/SshConfig.h"
-#include "transport/SshPublicKey.h"
+#include "transport/SshSession.h"
 #include "transport/X11Utils.h"
 
 #include <libssh2.h>
-#include <libssh2_sftp.h>
 
 #include <algorithm>
 #include <atomic>
@@ -14,8 +12,6 @@
 #include <cstdint>
 #include <cstring>
 #include <ctime>
-#include <filesystem>
-#include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -36,8 +32,9 @@ namespace term::transport {
 
 namespace {
 
+using term::transport::ssh::kPollTimeoutMs;
+
 constexpr char kTermType[]            = "xterm-256color";
-constexpr int  kPollTimeoutMs         = 100;
 constexpr int  kCwdCaptureIntervalSec = 120;
 
 // TCP keepalive parameters applied to every established SSH socket.
@@ -48,72 +45,6 @@ constexpr int  kCwdCaptureIntervalSec = 120;
 constexpr int  kTcpKeepIdleSec  = 10;
 constexpr int  kTcpKeepIntvlSec = 10;
 constexpr int  kTcpKeepCnt      = 3;
-
-// Returns preferred public-key blobs for agent auth derived from the connection's
-// agentIdentityHint (first priority) or ~/.ssh/config lookup (second priority).
-// Used by both the main-session and aux-session agent auth paths.
-std::vector<std::vector<uint8_t>> LoadPreferredBlobs(
-    const term::session::SshDesc& desc)
-{
-    std::vector<std::filesystem::path> paths;
-
-    if (!desc.agentIdentityHint.empty()) {
-        std::filesystem::path p(desc.agentIdentityHint);
-        if (p.extension() != ".pub") p += ".pub";
-        paths.push_back(std::move(p));
-    } else {
-        paths = QuerySshConfigIdentities(desc.host, desc.port, desc.username);
-        for (auto& p : paths)
-            if (p.extension() != ".pub") p += ".pub";
-    }
-
-    std::vector<std::vector<uint8_t>> blobs;
-    blobs.reserve(paths.size());
-    for (const auto& p : paths) {
-        auto blob = LoadPublicKeyBlob(p);
-        if (!blob.empty())
-            blobs.push_back(std::move(blob));
-    }
-    return blobs;
-}
-
-// Try agent identities (blocking) whose blob matches one in `preferred`.
-// Returns true on first accepted identity.
-// Sets *anyMatched=true if at least one matching identity was found in the agent.
-bool AgentTryPreferredBlocking(LIBSSH2_AGENT* agent,
-                               const char* username,
-                               const std::vector<std::vector<uint8_t>>& preferred,
-                               bool* anyMatched)
-{
-    *anyMatched = false;
-    libssh2_agent_publickey* id   = nullptr;
-    libssh2_agent_publickey* prev = nullptr;
-    while (libssh2_agent_get_identity(agent, &id, prev) == 0) {
-        const bool matches = std::any_of(
-            preferred.begin(), preferred.end(),
-            [&](const std::vector<uint8_t>& b) {
-                return b.size() == id->blob_len &&
-                       std::memcmp(b.data(), id->blob, b.size()) == 0;
-            });
-        if (!matches) { prev = id; continue; }
-        *anyMatched = true;
-        if (libssh2_agent_userauth(agent, username, id) == 0) return true;
-        prev = id;
-    }
-    return false;
-}
-
-// Try all agent identities (blocking). Returns true on first accepted identity.
-bool AgentTryAllBlocking(LIBSSH2_AGENT* agent, const char* username)
-{
-    libssh2_agent_publickey* id   = nullptr;
-    libssh2_agent_publickey* prev = nullptr;
-    while (libssh2_agent_get_identity(agent, &id, prev) == 0) {
-        if (libssh2_agent_userauth(agent, username, id) == 0) return true;
-        prev = id;
-    }
-    return false;
-}
 
 // libssh2 X11 channel-open callback — invoked on the worker thread from within
 // libssh2_channel_read() when the server opens a reverse X11 channel.
@@ -140,73 +71,6 @@ void AgentOpenCallback(LIBSSH2_SESSION* /*session*/,
 }
 #endif
 
-// Shared keyboard-interactive response logic.  Builds a KbdIntChallenge from
-// the libssh2 prompt arrays, delegates to target for user responses, then fills
-// in libssh2's response structs.  libssh2 owns the response buffers and frees
-// them with free(), so strdup() is the correct allocator here.
-void ApplyKbdIntResponses(
-    const char* name,        int name_len,
-    const char* instruction, int instruction_len,
-    int num_prompts,
-    const LIBSSH2_USERAUTH_KBDINT_PROMPT* prompts,
-    LIBSSH2_USERAUTH_KBDINT_RESPONSE*     responses,
-    term::transport::ITransportTarget&    target)
-{
-    term::transport::KbdIntChallenge challenge;
-    challenge.name        = std::string(name,        static_cast<size_t>(name_len));
-    challenge.instruction = std::string(instruction, static_cast<size_t>(instruction_len));
-    for (int i = 0; i < num_prompts; ++i)
-        challenge.prompts.push_back({
-            std::string(reinterpret_cast<const char*>(prompts[i].text),
-                        prompts[i].length),
-            prompts[i].echo != 0
-        });
-
-    const auto answers = target.OnKbdIntChallenge(challenge);
-
-    for (int i = 0; i < num_prompts; ++i) {
-        const std::string& ans =
-            (i < static_cast<int>(answers.size())) ? answers[i] : "";
-        responses[i].text   = strdup(ans.c_str());
-        responses[i].length = static_cast<unsigned int>(ans.size());
-    }
-}
-
-// Keyboard-interactive callback for the main worker-thread session.
-// abstract is the session user pointer, set to `this` (SshTransport*) in WorkerThread.
-void KbdIntCallback(
-    const char* name,        int name_len,
-    const char* instruction, int instruction_len,
-    int num_prompts,
-    const LIBSSH2_USERAUTH_KBDINT_PROMPT* prompts,
-    LIBSSH2_USERAUTH_KBDINT_RESPONSE*     responses,
-    void**                                abstract)
-{
-    auto* self = static_cast<term::transport::SshTransport*>(*abstract);
-    ApplyKbdIntResponses(name, name_len, instruction, instruction_len,
-                         num_prompts, prompts, responses, self->Target());
-}
-
-// Context struct used by the auxiliary-session keyboard-interactive callback.
-struct KbdIntAuxCtx {
-    term::transport::ITransportTarget* target;
-};
-
-// Keyboard-interactive callback for blocking auxiliary sessions.
-// abstract points to a KbdIntAuxCtx on the caller's stack.
-void KbdIntAuxCallback(
-    const char* name,        int name_len,
-    const char* instruction, int instruction_len,
-    int num_prompts,
-    const LIBSSH2_USERAUTH_KBDINT_PROMPT* prompts,
-    LIBSSH2_USERAUTH_KBDINT_RESPONSE*     responses,
-    void**                                abstract)
-{
-    auto* ctx = static_cast<KbdIntAuxCtx*>(*abstract);
-    ApplyKbdIntResponses(name, name_len, instruction, instruction_len,
-                         num_prompts, prompts, responses, *ctx->target);
-}
-
 std::string GenerateVpColumnsFilePath() {
     static std::atomic<int> counter{0};
     return "/tmp/nate-vpcolumns-"
@@ -222,12 +86,12 @@ std::string GenerateVpColumnsFilePath() {
 // ---------------------------------------------------------------------------
 
 SshTransport::SshTransport(ITransportTarget& target,
-                           const term::session::SshDesc& desc,
+                           const term::transport::SshDesc& desc,
                            unsigned short cols,
                            unsigned short rows,
                            unsigned short viewportCols,
-                           const term::session::SessionInit& sessionInit,
-                           const term::session::AppSessionDefaults& appDefaults)
+                           const term::transport::SessionInit& sessionInit,
+                           const term::transport::AppSessionDefaults& appDefaults)
     : target_(target), desc_(desc), sessionInit_(sessionInit),
       appDefaults_(appDefaults), cols_(cols), rows_(rows),
       viewportCols_(viewportCols),
@@ -315,13 +179,20 @@ void SshTransport::WorkerThread()
           return;
       }
     }
-    // Store `this` in the session abstract slot before Authenticate() so that
-    // KbdIntCallback (and later X11/agent callbacks) can reach this instance.
+    // Authenticate returns a typed result; the authenticator points the session
+    // abstract at itself only for keyboard-interactive prompts, so we (re)claim
+    // the slot here for the X11/agent channel-open callbacks registered below.
+    if (const auto r = authenticator_.Authenticate(); !r.ok) {
+        // Empty message => the transport is shutting down (running_ already
+        // false); skip the user-facing error in that case, matching the prior
+        // behaviour where a stop-during-auth returned without NotifyError.
+        if (!r.message.empty())
+            NotifyError(r.category, r.message);
+        return;
+    }
     *libssh2_session_abstract(session_) = this;
 
-    if (!Authenticate())                return;
-
-    // Register X11 callback — abstract already set above.
+    // Register X11 callback — abstract set above.
 #if LIBSSH2_VERSION_NUM >= 0x010B01
     libssh2_session_callback_set2(session_, LIBSSH2_CALLBACK_X11,
                                   reinterpret_cast<libssh2_cb_generic*>(X11OpenCallback));
@@ -365,26 +236,15 @@ void SshTransport::WorkerThread()
     // SSH application-level keepalive is intentionally disabled.  SO_KEEPALIVE
     // (set in ConnectSocket) handles both dead-connection detection (~40 s) and
     // NAT state maintenance at the kernel level.  The libssh2 keepalive would
-    // send SSH_MSG_GLOBAL_REQUEST every keepaliveSeconds seconds, which causes
-    // TCP to switch from keepalive-probe mode into retransmit mode and prevents
-    // ETIMEDOUT from being raised within the expected window.
-
-    if (desc_.compress)
-        libssh2_session_flag(session_, LIBSSH2_FLAG_COMPRESS, 1);
+    // send SSH_MSG_GLOBAL_REQUEST periodically, which causes TCP to switch from
+    // keepalive-probe mode into retransmit mode and prevents ETIMEDOUT from
+    // being raised within the expected window.
 
     const auto disconnectReason = ReadWriteLoop();
 
     // Signal cancellation so pending SFTP tasks see !running_ and self-cancel.
     running_.store(false);
-    {
-        std::deque<SftpTask> pending;
-        {
-            std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
-            pending.swap(sftp_queue_);
-        }
-        for (auto& task : pending)
-            task();  // task checks !running_, calls onDone(false,...), returns false
-    }
+    sftpService_.CancelPending();
 
     // For Interrupted (dead socket), SO_ERROR was consumed by the recv() that
     // detected the failure.  Subsequent poll() calls on the socket may no longer
@@ -397,15 +257,12 @@ void SshTransport::WorkerThread()
     if (!socketDead && session_) {
         libssh2_session_set_blocking(session_, 1);
 
-        if (sftp_) {
-            libssh2_sftp_shutdown(sftp_);
-            sftp_ = nullptr;
-        }
+        sftpService_.Shutdown();
 
         if (!vpcolumns_remote_path_.empty()) {
             LIBSSH2_CHANNEL* ch = libssh2_channel_open_session(session_);
             if (ch) {
-                const std::string rm = "rm -f '" + vpcolumns_remote_path_ + "'";
+                const std::string rm = "rm -f " + ShellQuote(vpcolumns_remote_path_);
                 if (libssh2_channel_exec(ch, rm.c_str()) == 0) {
                     char discard[64];
                     while (libssh2_channel_read(ch, discard, sizeof(discard)) > 0) {}
@@ -419,11 +276,8 @@ void SshTransport::WorkerThread()
     // Orderly teardown: send close/disconnect messages only when the socket is
     // alive.  On a dead socket these sends would block in libssh2's internal
     // poll() loop waiting for a response the server can never deliver.
-    if (sftp_) {
-        // sftp_ was not shut down cleanly (socket was dead); free local resources.
-        libssh2_sftp_shutdown(sftp_);
-        sftp_ = nullptr;
-    }
+    // (Shutdown is idempotent — no-op if the orderly path above already ran.)
+    sftpService_.Shutdown();
     if (channel_) {
         if (!socketDead)
             libssh2_channel_close(channel_);
@@ -532,6 +386,12 @@ bool SshTransport::PerformHandshake(int fd)
 
     libssh2_session_set_blocking(session_, 0);
 
+    // Compression is negotiated during the handshake (key exchange), so the
+    // flag must be set before libssh2_session_handshake() — setting it later
+    // has no effect.
+    if (desc_.compress)
+        libssh2_session_flag(session_, LIBSSH2_FLAG_COMPRESS, 1);
+
     int rc;
     while ((rc = libssh2_session_handshake(session_, fd)) == LIBSSH2_ERROR_EAGAIN) {
         if (!running_) return false;
@@ -624,195 +484,6 @@ bool SshTransport::VerifyHostKey(_LIBSSH2_SESSION* session, std::string& outErro
 
     libssh2_knownhost_free(hosts);
     return ok;
-}
-
-// ---------------------------------------------------------------------------
-// Authenticate
-// ---------------------------------------------------------------------------
-
-bool SshTransport::Authenticate()
-{
-    using AM = term::session::SshAuthMethod;
-    switch (desc_.authMethod) {
-        case AM::Agent:          return AuthViaAgent();
-        case AM::Password:       return AuthViaPassword();
-        case AM::PrivateKey:     return AuthViaPrivateKey();
-        case AM::KbdInteractive: return AuthViaKbdInteractive();
-    }
-    return false;
-}
-
-std::vector<std::vector<uint8_t>> SshTransport::PreferredAgentKeyBlobs() const
-{
-    return LoadPreferredBlobs(desc_);
-}
-
-bool SshTransport::AgentTryPreferred(_LIBSSH2_AGENT* agent,
-                                     const std::vector<std::vector<uint8_t>>& preferred,
-                                     bool* anyMatched)
-{
-    *anyMatched = false;
-    libssh2_agent_publickey* identity = nullptr;
-    libssh2_agent_publickey* prev     = nullptr;
-
-    while (running_) {
-        int rc = libssh2_agent_get_identity(agent, &identity, prev);
-        if (rc != 0) break;  // rc==1: exhausted; rc<0: error
-
-        // Check if this identity's blob matches any preferred blob.
-        const bool matches = std::any_of(
-            preferred.begin(), preferred.end(),
-            [&](const std::vector<uint8_t>& b) {
-                return b.size() == identity->blob_len &&
-                       std::memcmp(b.data(), identity->blob, b.size()) == 0;
-            });
-
-        if (!matches) { prev = identity; continue; }
-        *anyMatched = true;
-
-        int auth;
-        while ((auth = libssh2_agent_userauth(agent, desc_.username.c_str(), identity))
-               == LIBSSH2_ERROR_EAGAIN) {
-            if (!running_) return false;
-            PollUntilReady(kPollTimeoutMs);
-        }
-        if (auth == 0) return true;
-
-        prev = identity;
-    }
-    return false;
-}
-
-bool SshTransport::AgentTryAll(_LIBSSH2_AGENT* agent)
-{
-    libssh2_agent_publickey* identity = nullptr;
-    libssh2_agent_publickey* prev     = nullptr;
-
-    while (running_) {
-        int rc = libssh2_agent_get_identity(agent, &identity, prev);
-        if (rc == 1) {
-            NotifyError(TransportError::Category::Authentication,
-                        "SSH: agent has no identity that was accepted by the server");
-            return false;
-        }
-        if (rc < 0) {
-            NotifyError(TransportError::Category::Authentication,
-                        "SSH: agent identity enumeration failed");
-            return false;
-        }
-
-        int auth;
-        while ((auth = libssh2_agent_userauth(agent, desc_.username.c_str(), identity))
-               == LIBSSH2_ERROR_EAGAIN) {
-            if (!running_) return false;
-            PollUntilReady(kPollTimeoutMs);
-        }
-        if (auth == 0) return true;
-
-        prev = identity;
-    }
-    return false;
-}
-
-bool SshTransport::AuthViaAgent()
-{
-    agent_ = libssh2_agent_init(session_);
-    if (!agent_) {
-        NotifyError(TransportError::Category::Authentication,
-                    "SSH: could not initialise SSH agent");
-        return false;
-    }
-
-    if (libssh2_agent_connect(agent_) != 0) {
-        NotifyError(TransportError::Category::Authentication,
-                    "SSH: could not connect to SSH agent — is SSH_AUTH_SOCK set?");
-        return false;
-    }
-
-    if (libssh2_agent_list_identities(agent_) != 0) {
-        NotifyError(TransportError::Category::Authentication,
-                    "SSH: could not list SSH agent identities");
-        return false;
-    }
-
-    const auto preferred = PreferredAgentKeyBlobs();
-    if (!preferred.empty()) {
-        bool anyMatched = false;
-        if (AgentTryPreferred(agent_, preferred, &anyMatched)) return true;
-        if (anyMatched) {
-            // The SSH config / hint key was in the agent but was rejected — do not
-            // spray the remaining keys at a server with strict MaxAuthTries.
-            NotifyError(TransportError::Category::Authentication,
-                        "SSH: preferred identity (from SSH config or hint) was not accepted by the server");
-            return false;
-        }
-        // Preferred keys weren't in the agent at all — fall back to trying all.
-    }
-
-    return AgentTryAll(agent_);
-}
-
-bool SshTransport::AuthViaPassword()
-{
-    int rc;
-    while ((rc = libssh2_userauth_password(
-                session_,
-                desc_.username.c_str(),
-                desc_.password.c_str())) == LIBSSH2_ERROR_EAGAIN) {
-        if (!running_) return false;
-        PollUntilReady(kPollTimeoutMs);
-    }
-    if (rc != 0) {
-        NotifyError(TransportError::Category::Authentication,
-                    "SSH: password authentication failed — " + LastSshError());
-        return false;
-    }
-    return true;
-}
-
-bool SshTransport::AuthViaPrivateKey()
-{
-    const char* pubkey = desc_.publicKeyPath.empty()
-                         ? nullptr
-                         : desc_.publicKeyPath.c_str();
-    const char* passphrase = desc_.passphrase.empty()
-                             ? nullptr
-                             : desc_.passphrase.c_str();
-
-    int rc;
-    while ((rc = libssh2_userauth_publickey_fromfile(
-                session_,
-                desc_.username.c_str(),
-                pubkey,
-                desc_.privateKeyPath.c_str(),
-                passphrase)) == LIBSSH2_ERROR_EAGAIN) {
-        if (!running_) return false;
-        PollUntilReady(kPollTimeoutMs);
-    }
-    if (rc != 0) {
-        NotifyError(TransportError::Category::Authentication,
-                    "SSH: private key authentication failed — " + LastSshError());
-        return false;
-    }
-    return true;
-}
-
-bool SshTransport::AuthViaKbdInteractive()
-{
-    int rc;
-    while ((rc = libssh2_userauth_keyboard_interactive(
-                session_,
-                desc_.username.c_str(),
-                &KbdIntCallback)) == LIBSSH2_ERROR_EAGAIN) {
-        if (!running_) return false;
-        PollUntilReady(kPollTimeoutMs);
-    }
-    if (rc != 0) {
-        NotifyError(TransportError::Category::Authentication,
-                    "SSH: keyboard-interactive authentication failed — " + LastSshError());
-        return false;
-    }
-    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -934,35 +605,29 @@ bool SshTransport::StartShell()
     const std::string& rawEnvFile = sessionInit_.envFilePath.empty()
         ? appDefaults_.envFilePath
         : sessionInit_.envFilePath;
-    const std::vector<term::session::EnvVar> fileVars =
+    const std::vector<term::transport::EnvVar> fileVars =
         ParseEnvFile(ExpandTilde(rawEnvFile, localHome));
 
     // Merge: app defaults → file vars → profile vars (profile wins)
-    std::vector<term::session::EnvVar> merged = appDefaults_.envVars;
+    std::vector<term::transport::EnvVar> merged = appDefaults_.envVars;
     for (const auto& ev : fileVars)              merged.push_back(ev);
     for (const auto& ev : sessionInit_.envVars)  merged.push_back(ev);
 
-    // Build a POSIX-safe export prefix: single-quote each value,
-    // escaping any embedded single quotes as '\''.
+    // Build a POSIX-safe export prefix; ShellQuote handles embedded quotes.
     std::string envPrefix;
     for (const auto& ev : merged) {
         if (ev.key.empty()) continue;
-        std::string escaped = ev.value;
-        for (size_t pos = 0; (pos = escaped.find('\'', pos)) != std::string::npos; pos += 4)
-            escaped.replace(pos, 1, "'\\''");
-        envPrefix += "export " + ev.key + "='" + escaped + "'; ";
+        envPrefix += "export " + ev.key + "=" + ShellQuote(ev.value) + "; ";
     }
 
     // Inject NATE_VPCOLUMNS_FILE and write the initial viewport width so
     // the shell can read the actual display columns even when COLUMNS is
     // inflated by wrap-OFF mode.
     {
-        std::string escaped = vpcolumns_remote_path_;
-        for (size_t p = 0; (p = escaped.find('\'', p)) != std::string::npos; p += 4)
-            escaped.replace(p, 1, "'\\''");
-        envPrefix += "export NATE_VPCOLUMNS_FILE='" + escaped + "'; ";
+        const std::string quotedPath = ShellQuote(vpcolumns_remote_path_);
+        envPrefix += "export NATE_VPCOLUMNS_FILE=" + quotedPath + "; ";
         envPrefix += "printf '%d\\n' " + std::to_string(viewportCols_)
-                   + " > '" + escaped + "'; ";
+                   + " > " + quotedPath + "; ";
     }
 
     // Resolve remote working directory. Do NOT expand ~ locally — the path
@@ -1014,9 +679,17 @@ bool SshTransport::StartShell()
 DisconnectReason SshTransport::ReadWriteLoop()
 {
     constexpr size_t kReadBuf = 4096;
+    // Bound the per-iteration read burst so a saturating remote (e.g. `find /`)
+    // cannot monopolise the loop in the inner read-while and starve
+    // DrainWriteQueue() — that starvation is what delays an interactive Ctrl+C
+    // from reaching the remote.  When the cap is hit we re-poll with a zero
+    // timeout so any still-pending data is read immediately rather than waiting
+    // kPollTimeoutMs, keeping throughput high while servicing writes between bursts.
+    constexpr size_t kMaxReadBurst = 64 * 1024;
     char buf[kReadBuf];
 
     DisconnectReason reason = DisconnectReason::Deliberate;
+    bool readBurstCapped = false;
 
     // Feed any bytes read past the PID newline during startup into the parser.
     if (!pidOvershoot_.empty()) {
@@ -1053,148 +726,69 @@ DisconnectReason SshTransport::ReadWriteLoop()
                 pfds.push_back({a.local_fd, POLLIN, 0});
 
             // Append port forward listen fds and proxy conn local fds.
-            const size_t pfwBase = pfds.size();
-            std::vector<PfwPollEntry> pfwTags;
-            BuildPortForwardPollFds(pfds, pfwTags);
+            pfwEngine_.AppendPollFds(pfds);
 
-            ::poll(pfds.data(), static_cast<nfds_t>(pfds.size()), kPollTimeoutMs);
+            // A capped read burst left data pending: skip the wait so the next
+            // read picks it up immediately, otherwise block up to kPollTimeoutMs.
+            const int pollTimeout = readBurstCapped ? 0 : kPollTimeoutMs;
+            readBurstCapped = false;
+            ::poll(pfds.data(), static_cast<nfds_t>(pfds.size()), pollTimeout);
 
             if (!running_) break;
 
-            // Service local X11 sockets → SSH X11 channels (data from local X server).
-            for (size_t i = 0; i < x11_channels_.size(); ++i) {
-                auto& x = x11_channels_[i];
-                if (x.closed) continue;
-                const short rev = pfds[1 + i].revents;
-                if (rev & (POLLHUP | POLLERR)) { x.closed = true; continue; }
-                if (!(rev & POLLIN))             continue;
+            // Service local X11 / agent sockets → their SSH channels.
+            for (size_t i = 0; i < x11_channels_.size(); ++i)
+                x11_channels_[i].PumpLocalToChannel(pfds[1 + i].revents, buf, kReadBuf);
 
-                ssize_t n = ::read(x.local_fd, buf, kReadBuf);
-                if (n <= 0) { x.closed = true; continue; }
-
-                // Best-effort write to the SSH X11 channel; EAGAIN = partial send is OK.
-                libssh2_channel_write(x.channel, buf, static_cast<size_t>(n));
-            }
-
-            // Service local agent sockets → SSH agent channels (data from local agent).
             const size_t agentBase = 1 + x11_channels_.size();
-            for (size_t i = 0; i < agent_channels_.size(); ++i) {
-                auto& a = agent_channels_[i];
-                if (a.closed) continue;
-                const short rev = pfds[agentBase + i].revents;
-                if (rev & (POLLHUP | POLLERR)) { a.closed = true; continue; }
-                if (!(rev & POLLIN))             continue;
-
-                ssize_t n = ::read(a.local_fd, buf, kReadBuf);
-                if (n <= 0) { a.closed = true; continue; }
-
-                libssh2_channel_write(a.channel, buf, static_cast<size_t>(n));
-            }
+            for (size_t i = 0; i < agent_channels_.size(); ++i)
+                agent_channels_[i].PumpLocalToChannel(pfds[agentBase + i].revents, buf, kReadBuf);
 
             // Service port forward listen fds and proxy connections (both directions).
-            ServicePortForwardConns(pfds, pfwBase, pfwTags, buf, kReadBuf);
+            pfwEngine_.ServiceConns(pfds, buf, kReadBuf);
         }
 
         // --- Read from main shell channel ---------------------------------
         ssize_t nRead;
-        while ((nRead = libssh2_channel_read(channel_, buf, kReadBuf)) > 0)
+        size_t  burst = 0;
+        while ((nRead = libssh2_channel_read(channel_, buf, kReadBuf)) > 0) {
             target_.OnData(std::string(buf, static_cast<size_t>(nRead)));
-
-        if (nRead == 0 || libssh2_channel_eof(channel_)) {
-            reason = DisconnectReason::Clean;
-            break;
-        }
-        if (nRead != LIBSSH2_ERROR_EAGAIN && nRead < 0) {
-            reason = DisconnectReason::Interrupted;
-            break;
+            burst += static_cast<size_t>(nRead);
+            if (burst >= kMaxReadBurst) { readBurstCapped = true; break; }
         }
 
-        // --- Service SSH X11 channels → local X11 sockets ----------------
-        // X11 channel data travels over sock_fd_, serviced after the main read.
-        for (auto& x : x11_channels_) {
-            if (x.closed) continue;
-            ssize_t n;
-            while ((n = libssh2_channel_read(x.channel, buf, kReadBuf)) > 0) {
-                if (::write(x.local_fd, buf, static_cast<size_t>(n)) < 0) {
-                    x.closed = true;
-                    break;
-                }
+        // Only treat EOF/error when the burst drained naturally; a capped burst
+        // ended on a successful read (nRead > 0), so there is nothing to report.
+        if (!readBurstCapped) {
+            if (nRead == 0 || libssh2_channel_eof(channel_)) {
+                reason = DisconnectReason::Clean;
+                break;
             }
-            if (!x.closed &&
-                (n == 0 || (n < 0 && n != LIBSSH2_ERROR_EAGAIN) ||
-                 libssh2_channel_eof(x.channel)))
-                x.closed = true;
-        }
-
-        // Sweep closed X11 channels (resources released before erase).
-        for (auto& x : x11_channels_) {
-            if (!x.closed) continue;
-            ::close(x.local_fd);
-            libssh2_channel_free(x.channel);
-        }
-        x11_channels_.erase(
-            std::remove_if(x11_channels_.begin(), x11_channels_.end(),
-                           [](const X11Channel& x) { return x.closed; }),
-            x11_channels_.end());
-
-        // --- Service SSH agent channels → local agent sockets -------------
-        for (auto& a : agent_channels_) {
-            if (a.closed) continue;
-            ssize_t n;
-            while ((n = libssh2_channel_read(a.channel, buf, kReadBuf)) > 0) {
-                if (::write(a.local_fd, buf, static_cast<size_t>(n)) < 0) {
-                    a.closed = true;
-                    break;
-                }
+            if (nRead != LIBSSH2_ERROR_EAGAIN && nRead < 0) {
+                reason = DisconnectReason::Interrupted;
+                break;
             }
-            if (!a.closed &&
-                (n == 0 || (n < 0 && n != LIBSSH2_ERROR_EAGAIN) ||
-                 libssh2_channel_eof(a.channel)))
-                a.closed = true;
         }
 
-        // Sweep closed agent channels (resources released before erase).
-        for (auto& a : agent_channels_) {
-            if (!a.closed) continue;
-            ::close(a.local_fd);
-            libssh2_channel_free(a.channel);
-        }
-        agent_channels_.erase(
-            std::remove_if(agent_channels_.begin(), agent_channels_.end(),
-                           [](const AgentChannel& a) { return a.closed; }),
-            agent_channels_.end());
+        // --- Service SSH X11 / agent channels → local sockets -------------
+        // Channel data travels over sock_fd_, serviced after the main read.
+        PumpChannelsToLocal(x11_channels_, buf, kReadBuf);
+        SweepClosedProxies(x11_channels_);
+
+        PumpChannelsToLocal(agent_channels_, buf, kReadBuf);
+        SweepClosedProxies(agent_channels_);
 
         // --- Drain writes + resize + vpcolumns + port forwards -----------
         DrainWriteQueue();
         CaptureCwdPeriodic();
-        ServiceSftpQueue();
-        ServicePortForwardQueue();
+        sftpService_.Service();
+        pfwEngine_.ServiceQueue();
 
     }
 
-cleanup_x11:
-    for (auto& x : x11_channels_) {
-        ::close(x.local_fd);
-        libssh2_channel_free(x.channel);
-    }
-    x11_channels_.clear();
-    for (auto& a : agent_channels_) {
-        ::close(a.local_fd);
-        libssh2_channel_free(a.channel);
-    }
-    agent_channels_.clear();
-
-    // Close all port forward listeners and proxy connections.
-    for (auto& fwd : local_fwds_) {
-        ::close(fwd.listen_fd);
-        for (auto& c : fwd.conns) { if (!c.closed) { ::close(c.local_fd); libssh2_channel_free(c.channel); } }
-    }
-    local_fwds_.clear();
-    for (auto& fwd : remote_fwds_) {
-        libssh2_channel_forward_cancel(fwd.listener);
-        for (auto& c : fwd.conns) { if (!c.closed) { ::close(c.local_fd); libssh2_channel_free(c.channel); } }
-    }
-    remote_fwds_.clear();
+    ReleaseAllProxies(x11_channels_);
+    ReleaseAllProxies(agent_channels_);
+    pfwEngine_.Teardown();
 
     return reason;
 }
@@ -1266,7 +860,7 @@ void SshTransport::DrainWriteQueue()
 void SshTransport::RemoteWriteVpCols(unsigned short cols)
 {
     const std::string cmd = "printf '%d\\n' " + std::to_string(cols)
-                          + " > '" + vpcolumns_remote_path_ + "'";
+                          + " > " + ShellQuote(vpcolumns_remote_path_);
 
     LIBSSH2_CHANNEL* ch = nullptr;
     while (running_) {
@@ -1368,7 +962,7 @@ void SshTransport::AcceptX11Channel(LIBSSH2_CHANNEL* ch)
         libssh2_channel_free(ch);
         return;
     }
-    x11_channels_.push_back({ch, fd, false});
+    x11_channels_.push_back({.channel = ch, .local_fd = fd});
 }
 
 // Delegates to ConnectToX11Display() using the current process's $DISPLAY.
@@ -1386,7 +980,7 @@ void SshTransport::AcceptAgentChannel(LIBSSH2_CHANNEL* ch)
         libssh2_channel_free(ch);
         return;
     }
-    agent_channels_.push_back({ch, fd, false});
+    agent_channels_.push_back({.channel = ch, .local_fd = fd});
 }
 
 // Opens a Unix domain socket to $SSH_AUTH_SOCK.
@@ -1416,14 +1010,7 @@ int SshTransport::ConnectToLocalSshAgent()
 
 bool SshTransport::PollUntilReady(int timeout_ms)
 {
-    int dir = libssh2_session_block_directions(session_);
-    pollfd pfd{};
-    pfd.fd     = sock_fd_;
-    pfd.events = ((dir & LIBSSH2_SESSION_BLOCK_INBOUND)  ? POLLIN  : 0) |
-                 ((dir & LIBSSH2_SESSION_BLOCK_OUTBOUND) ? POLLOUT : 0);
-    if (pfd.events == 0) pfd.events = POLLIN;
-    ::poll(&pfd, 1, timeout_ms);
-    return running_.load();
+    return ssh::PollUntilReady(session_, sock_fd_, timeout_ms, running_);
 }
 
 void SshTransport::NotifyError(TransportError::Category category,
@@ -1437,11 +1024,7 @@ void SshTransport::NotifyError(TransportError::Category category,
 
 std::string SshTransport::LastSshError() const
 {
-    if (!session_) return "(no session)";
-    char* msg  = nullptr;
-    int   len  = 0;
-    libssh2_session_last_error(session_, &msg, &len, 0);
-    return msg ? std::string(msg, static_cast<size_t>(len)) : "(unknown)";
+    return ssh::LastSshError(session_);
 }
 
 std::string SshTransport::KnownHostsPath()
@@ -1468,744 +1051,56 @@ std::string SshTransport::GetRemoteDescription() const
 }
 
 // ---------------------------------------------------------------------------
-// SFTP task state machines (nested types — have access to SshTransport privates)
-// ---------------------------------------------------------------------------
-
-// Formats a POSIX permission bitmask as a "drwxr-xr-x" style string.
-static std::string SftpFormatPermissions(unsigned long mode)
-{
-    char buf[11];
-    buf[0] = LIBSSH2_SFTP_S_ISDIR(mode) ? 'd' :
-             LIBSSH2_SFTP_S_ISLNK(mode) ? 'l' : '-';
-    const unsigned long bits[9] = {0400, 0200, 0100, 0040, 0020, 0010, 0004, 0002, 0001};
-    const char         chars[3] = {'r', 'w', 'x'};
-    for (int i = 0; i < 9; ++i)
-        buf[1 + i] = (mode & bits[i]) ? chars[i % 3] : '-';
-    buf[10] = '\0';
-    return buf;
-}
-
-// Formats a Unix timestamp as "YYYY-MM-DD HH:MM".
-static std::string SftpFormatModTime(unsigned long mtime)
-{
-    char buf[32];
-    const time_t t = static_cast<time_t>(mtime);
-    struct tm tm{};
-    localtime_r(&t, &tm);
-    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &tm);
-    return buf;
-}
-
-struct SshTransport::SftpListDirTask {
-    enum class State { InitSftp, OpenDir, ReadLoop };
-
-    SshTransport* self  = nullptr;
-    State         state = State::InitSftp;
-    std::string   path;
-    LIBSSH2_SFTP_HANDLE* handle = nullptr;
-    std::vector<RemoteDirEntry> entries;
-    std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone;
-
-    SftpListDirTask() = default;
-    SftpListDirTask(SftpListDirTask&&) = default;
-    SftpListDirTask& operator=(SftpListDirTask&&) = default;
-    SftpListDirTask(const SftpListDirTask&) = delete;
-    SftpListDirTask& operator=(const SftpListDirTask&) = delete;
-
-    ~SftpListDirTask() { if (handle) libssh2_sftp_closedir(handle); }
-
-    bool operator()()
-    {
-        if (!self->running_) {
-            if (handle) { libssh2_sftp_closedir(handle); handle = nullptr; }
-            onDone({}, "Session closed");
-            return false;
-        }
-
-        if (state == State::InitSftp) {
-            if (!self->sftp_) {
-                LIBSSH2_SFTP* s = libssh2_sftp_init(self->session_);
-                if (!s) {
-                    if (libssh2_session_last_errno(self->session_) == LIBSSH2_ERROR_EAGAIN)
-                        return true;
-                    onDone({}, "SFTP unavailable: " + self->LastSshError());
-                    return false;
-                }
-                self->sftp_ = s;
-            }
-            state = State::OpenDir;
-        }
-
-        if (state == State::OpenDir) {
-            LIBSSH2_SFTP_HANDLE* h = libssh2_sftp_opendir(self->sftp_, path.c_str());
-            if (!h) {
-                if (libssh2_session_last_errno(self->session_) == LIBSSH2_ERROR_EAGAIN)
-                    return true;
-                onDone({}, "Cannot list '" + path + "': " + self->LastSshError());
-                return false;
-            }
-            handle = h;
-            state  = State::ReadLoop;
-        }
-
-        // ReadLoop: drain all available entries this iteration.
-        char namebuf[512];
-        LIBSSH2_SFTP_ATTRIBUTES attrs{};
-        while (true) {
-            const int rc = libssh2_sftp_readdir_ex(
-                handle, namebuf, sizeof(namebuf) - 1, nullptr, 0, &attrs);
-            if (rc == LIBSSH2_ERROR_EAGAIN) return true;
-            if (rc == 0) {
-                libssh2_sftp_closedir(handle); handle = nullptr;
-                auto cb   = std::move(onDone);
-                auto ents = std::move(entries);
-                cb(std::move(ents), {});
-                return false;
-            }
-            if (rc < 0) {
-                libssh2_sftp_closedir(handle); handle = nullptr;
-                onDone({}, "Directory read error: " + self->LastSshError());
-                return false;
-            }
-            namebuf[rc] = '\0';
-            std::string name(namebuf, static_cast<size_t>(rc));
-            if (name == "." || name == "..") continue;
-
-            RemoteDirEntry e;
-            e.name = std::move(name);
-            if (attrs.flags & LIBSSH2_SFTP_ATTR_SIZE)
-                e.size = attrs.filesize;
-            if (attrs.flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) {
-                e.isDir       = LIBSSH2_SFTP_S_ISDIR(attrs.permissions) != 0;
-                e.isSymlink   = LIBSSH2_SFTP_S_ISLNK(attrs.permissions) != 0;
-                e.permissions = SftpFormatPermissions(attrs.permissions);
-            }
-            if (attrs.flags & LIBSSH2_SFTP_ATTR_ACMODTIME)
-                e.modTime = SftpFormatModTime(attrs.mtime);
-            entries.push_back(std::move(e));
-        }
-    }
-};
-
-struct SshTransport::SftpDownloadTask {
-    enum class State { InitSftp, OpenHandle, ReadLoop };
-
-    SshTransport* self  = nullptr;
-    State         state = State::InitSftp;
-    std::string   remotePath;
-    std::string   localPath;
-    LIBSSH2_SFTP_HANDLE* handle = nullptr;
-    std::ofstream out;
-    std::function<void(bool, std::string)> onDone;
-
-    SftpDownloadTask() = default;
-    SftpDownloadTask(SftpDownloadTask&&) = default;
-    SftpDownloadTask& operator=(SftpDownloadTask&&) = default;
-    SftpDownloadTask(const SftpDownloadTask&) = delete;
-    SftpDownloadTask& operator=(const SftpDownloadTask&) = delete;
-
-    ~SftpDownloadTask() { if (handle) libssh2_sftp_close(handle); }
-
-    bool operator()()
-    {
-        if (!self->running_) {
-            if (handle) { libssh2_sftp_close(handle); handle = nullptr; }
-            onDone(false, "Session closed");
-            return false;
-        }
-
-        if (state == State::InitSftp) {
-            if (!self->sftp_) {
-                LIBSSH2_SFTP* s = libssh2_sftp_init(self->session_);
-                if (!s) {
-                    if (libssh2_session_last_errno(self->session_) == LIBSSH2_ERROR_EAGAIN)
-                        return true;
-                    onDone(false, "SFTP unavailable: " + self->LastSshError());
-                    return false;
-                }
-                self->sftp_ = s;
-            }
-            out.open(localPath, std::ios::binary | std::ios::trunc);
-            if (!out) {
-                onDone(false, "Cannot create local file: " + localPath);
-                return false;
-            }
-            state = State::OpenHandle;
-        }
-
-        if (state == State::OpenHandle) {
-            LIBSSH2_SFTP_HANDLE* h = libssh2_sftp_open(
-                self->sftp_, remotePath.c_str(), LIBSSH2_FXF_READ, 0);
-            if (!h) {
-                if (libssh2_session_last_errno(self->session_) == LIBSSH2_ERROR_EAGAIN)
-                    return true;
-                onDone(false, "Cannot open '" + remotePath + "': " +
-                              self->LastSshError());
-                return false;
-            }
-            handle = h;
-            state  = State::ReadLoop;
-        }
-
-        // ReadLoop: drain all available data this iteration.
-        char buf[32768];
-        while (true) {
-            const ssize_t n = libssh2_sftp_read(handle, buf, sizeof(buf));
-            if (n == LIBSSH2_ERROR_EAGAIN) return true;
-            if (n < 0) {
-                libssh2_sftp_close(handle); handle = nullptr;
-                onDone(false, "Read error: " + self->LastSshError());
-                return false;
-            }
-            if (n == 0) {
-                libssh2_sftp_close(handle); handle = nullptr;
-                out.close();
-                onDone(true, localPath);
-                return false;
-            }
-            out.write(buf, n);
-        }
-    }
-};
-
-struct SshTransport::SftpUploadTask {
-    enum class State { InitSftp, OpenHandle, WriteLoop };
-
-    SshTransport* self  = nullptr;
-    State         state = State::InitSftp;
-    std::string   localPath;
-    std::string   remotePath;
-    LIBSSH2_SFTP_HANDLE* handle  = nullptr;
-    std::ifstream in;
-    char          buf[32768]{};
-    size_t        bufLen  = 0;
-    size_t        bufSent = 0;
-    std::function<void(bool, std::string)> onDone;
-
-    SftpUploadTask() = default;
-    SftpUploadTask(SftpUploadTask&&) = default;
-    SftpUploadTask& operator=(SftpUploadTask&&) = default;
-    SftpUploadTask(const SftpUploadTask&) = delete;
-    SftpUploadTask& operator=(const SftpUploadTask&) = delete;
-
-    ~SftpUploadTask() { if (handle) libssh2_sftp_close(handle); }
-
-    bool operator()()
-    {
-        if (!self->running_) {
-            if (handle) { libssh2_sftp_close(handle); handle = nullptr; }
-            onDone(false, "Session closed");
-            return false;
-        }
-
-        if (state == State::InitSftp) {
-            if (!self->sftp_) {
-                LIBSSH2_SFTP* s = libssh2_sftp_init(self->session_);
-                if (!s) {
-                    if (libssh2_session_last_errno(self->session_) == LIBSSH2_ERROR_EAGAIN)
-                        return true;
-                    onDone(false, "SFTP unavailable: " + self->LastSshError());
-                    return false;
-                }
-                self->sftp_ = s;
-            }
-            in.open(localPath, std::ios::binary);
-            if (!in) {
-                onDone(false, "Cannot open local file: " + localPath);
-                return false;
-            }
-            state = State::OpenHandle;
-        }
-
-        if (state == State::OpenHandle) {
-            LIBSSH2_SFTP_HANDLE* h = libssh2_sftp_open(
-                self->sftp_, remotePath.c_str(),
-                LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_TRUNC,
-                LIBSSH2_SFTP_S_IRUSR | LIBSSH2_SFTP_S_IWUSR |
-                LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH);  // 0644
-            if (!h) {
-                if (libssh2_session_last_errno(self->session_) == LIBSSH2_ERROR_EAGAIN)
-                    return true;
-                onDone(false, "Cannot open remote '" + remotePath + "' for write: " +
-                              self->LastSshError());
-                return false;
-            }
-            handle = h;
-            state  = State::WriteLoop;
-        }
-
-        // WriteLoop: send buffered data; read next chunk when buffer exhausted.
-        while (true) {
-            if (bufSent >= bufLen) {
-                in.read(buf, sizeof(buf));
-                bufLen  = static_cast<size_t>(in.gcount());
-                bufSent = 0;
-                if (bufLen == 0) {
-                    libssh2_sftp_close(handle); handle = nullptr;
-                    onDone(true, {});
-                    return false;
-                }
-            }
-            const ssize_t n = libssh2_sftp_write(handle, buf + bufSent, bufLen - bufSent);
-            if (n == LIBSSH2_ERROR_EAGAIN) return true;
-            if (n < 0) {
-                libssh2_sftp_close(handle); handle = nullptr;
-                onDone(false, "Write error: " + self->LastSshError());
-                return false;
-            }
-            bufSent += static_cast<size_t>(n);
-        }
-    }
-};
-
-// ---------------------------------------------------------------------------
-// ServiceSftpQueue — advances the front SFTP task by one step.
-// Must be called only from the worker thread.
-// ---------------------------------------------------------------------------
-
-void SshTransport::ServiceSftpQueue()
-{
-    SftpTask task;
-    {
-        std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
-        if (sftp_queue_.empty()) return;
-        task = std::move(sftp_queue_.front());
-        sftp_queue_.pop_front();
-    }
-    const bool again = task();
-    if (again) {
-        std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
-        sftp_queue_.push_front(std::move(task));
-    }
-}
-
-// ---------------------------------------------------------------------------
-// SFTP public dispatch methods
+// SFTP — thin delegation to SftpService (owns the queue + task machines)
 // ---------------------------------------------------------------------------
 
 void SshTransport::SendFile(const std::string& localPath,
                             const std::string& remoteDir,
                             std::function<void(bool, std::string)> onDone)
 {
-    std::string filename = localPath;
-    if (const auto pos = filename.rfind('/'); pos != std::string::npos)
-        filename = filename.substr(pos + 1);
-    std::string remotePath = remoteDir;
-    if (!remotePath.empty() && remotePath.back() != '/') remotePath += '/';
-    remotePath += filename;
-
-    SftpUploadTask t;
-    t.self       = this;
-    t.localPath  = localPath;
-    t.remotePath = std::move(remotePath);
-    t.onDone     = std::move(onDone);
-    auto ptr = std::make_shared<SftpUploadTask>(std::move(t));
-    std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
-    sftp_queue_.emplace_back([ptr]() mutable { return (*ptr)(); });
+    sftpService_.SendFile(localPath, remoteDir, std::move(onDone));
 }
-
-// ---------------------------------------------------------------------------
-// Remaining SFTP dispatch methods
-// ---------------------------------------------------------------------------
 
 void SshTransport::ReceiveFile(const std::string& remotePath,
                                const std::string& localDir,
                                std::function<void(bool, std::string)> onDone)
 {
-    std::string filename = remotePath;
-    if (const auto pos = filename.rfind('/'); pos != std::string::npos)
-        filename = filename.substr(pos + 1);
-    std::string localPath = localDir;
-    if (!localPath.empty() && localPath.back() != '/') localPath += '/';
-    localPath += filename;
-
-    SftpDownloadTask t;
-    t.self       = this;
-    t.remotePath = remotePath;
-    t.localPath  = std::move(localPath);
-    t.onDone     = std::move(onDone);
-    auto ptr = std::make_shared<SftpDownloadTask>(std::move(t));
-    std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
-    sftp_queue_.emplace_back([ptr]() mutable { return (*ptr)(); });
+    sftpService_.ReceiveFile(remotePath, localDir, std::move(onDone));
 }
 
 void SshTransport::ListRemoteDirectory(
     const std::string& remotePath,
     std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone)
 {
-    SftpListDirTask t;
-    t.self   = this;
-    t.path   = remotePath;
-    t.onDone = std::move(onDone);
-    auto ptr = std::make_shared<SftpListDirTask>(std::move(t));
-    std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
-    sftp_queue_.emplace_back([ptr]() mutable { return (*ptr)(); });
+    sftpService_.ListRemoteDirectory(remotePath, std::move(onDone));
 }
 
 void SshTransport::SftpDownloadFile(const std::string& remotePath,
                                     const std::string& localPath,
                                     std::function<void(bool, std::string)> onDone)
 {
-    SftpDownloadTask t;
-    t.self       = this;
-    t.remotePath = remotePath;
-    t.localPath  = localPath;
-    t.onDone     = std::move(onDone);
-    auto ptr = std::make_shared<SftpDownloadTask>(std::move(t));
-    std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
-    sftp_queue_.emplace_back([ptr]() mutable { return (*ptr)(); });
+    sftpService_.DownloadToPath(remotePath, localPath, std::move(onDone));
 }
 
 void SshTransport::SftpUploadFile(const std::string& localPath,
                                   const std::string& remotePath,
                                   std::function<void(bool, std::string)> onDone)
 {
-    SftpUploadTask t;
-    t.self       = this;
-    t.localPath  = localPath;
-    t.remotePath = remotePath;
-    t.onDone     = std::move(onDone);
-    auto ptr = std::make_shared<SftpUploadTask>(std::move(t));
-    std::lock_guard<std::mutex> lk(sftp_queue_mutex_);
-    sftp_queue_.emplace_back([ptr]() mutable { return (*ptr)(); });
+    sftpService_.UploadFromPath(localPath, remotePath, std::move(onDone));
 }
 
 // ---------------------------------------------------------------------------
-// Port Forwarding — public API (UI thread)
+// Port Forwarding — thin delegation to PortForwardEngine
 // ---------------------------------------------------------------------------
 
 void SshTransport::AddPortForward(const PortForwardDesc& desc)
 {
-    std::lock_guard<std::mutex> lk(pfw_mutex_);
-    pfw_pending_.push_back(PfwAdd{desc});
+    pfwEngine_.AddForward(desc);
 }
 
 void SshTransport::RemovePortForward(PortForwardId id)
 {
-    std::lock_guard<std::mutex> lk(pfw_mutex_);
-    pfw_pending_.push_back(PfwRemove{id});
-}
-
-// ---------------------------------------------------------------------------
-// Port Forwarding — worker-thread helpers
-// ---------------------------------------------------------------------------
-
-std::string SshTransport::ErrnoString(int err)
-{
-    char buf[256];
-    return ::strerror_r(err, buf, sizeof(buf));
-}
-
-void SshTransport::NotifyPortForwardStatus()
-{
-    std::vector<PortForwardStatus> status;
-    for (const auto& fwd : local_fwds_) {
-        PortForwardStatus s;
-        s.id          = fwd.desc.id;
-        s.active      = fwd.listen_fd >= 0;
-        s.connections = fwd.conns.size();
-        status.push_back(std::move(s));
-    }
-    for (const auto& fwd : remote_fwds_) {
-        PortForwardStatus s;
-        s.id          = fwd.desc.id;
-        s.active      = fwd.listener != nullptr;
-        s.connections = fwd.conns.size();
-        status.push_back(std::move(s));
-    }
-    // Append persisted failures so they remain visible until explicitly removed.
-    for (const auto& [id, error] : pfw_failed_) {
-        PortForwardStatus s;
-        s.id     = id;
-        s.active = false;
-        s.error  = error;
-        status.push_back(std::move(s));
-    }
-
-    if (status == pfw_last_status_) return;
-    pfw_last_status_ = status;
-    target_.OnPortForwardStatusChanged(std::move(status));
-}
-
-void SshTransport::FireFailedStatus(PortForwardId id, const std::string& error)
-{
-    pfw_failed_[id] = error;
-    NotifyPortForwardStatus();
-}
-
-void SshTransport::ServicePortForwardQueue()
-{
-    std::vector<PfwPending> pending;
-    {
-        std::lock_guard<std::mutex> lk(pfw_mutex_);
-        pending.swap(pfw_pending_);
-    }
-    if (pending.empty()) return;
-
-    bool changed = false;
-    for (auto& item : pending) {
-        std::visit([&](auto& v) {
-            using T = std::decay_t<decltype(v)>;
-
-            if constexpr (std::is_same_v<T, PfwAdd>) {
-                const PortForwardDesc& desc = v.desc;
-
-                if (desc.direction == PortForwardDirection::Local) {
-                    // Resolve bindAddr and create the listening socket.
-                    const std::string portStr = std::to_string(desc.localPort);
-                    addrinfo hints{};
-                    hints.ai_family   = AF_UNSPEC;
-                    hints.ai_socktype = SOCK_STREAM;
-                    hints.ai_flags    = AI_PASSIVE | AI_NUMERICSERV;
-                    const char* host  = desc.bindAddr.empty() ? nullptr
-                                                              : desc.bindAddr.c_str();
-                    addrinfo* res = nullptr;
-                    if (::getaddrinfo(host, portStr.c_str(), &hints, &res) != 0 || !res) {
-                        FireFailedStatus(desc.id, "getaddrinfo: " + ErrnoString(errno));
-                        return;
-                    }
-                    int fd = ::socket(res->ai_family, SOCK_STREAM, 0);
-                    if (fd < 0) {
-                        ::freeaddrinfo(res);
-                        FireFailedStatus(desc.id, "socket: " + ErrnoString(errno));
-                        return;
-                    }
-                    int on = 1;
-                    ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-                    if (::bind(fd, res->ai_addr, res->ai_addrlen) < 0) {
-                        const std::string msg = "bind: " + ErrnoString(errno);
-                        ::close(fd);
-                        ::freeaddrinfo(res);
-                        FireFailedStatus(desc.id, msg);
-                        return;
-                    }
-                    ::freeaddrinfo(res);
-                    ::listen(fd, 16);
-                    ::fcntl(fd, F_SETFL, O_NONBLOCK);
-                    local_fwds_.push_back({desc, fd, {}});
-                    changed = true;
-
-                } else {
-                    // Remote forward: ask the SSH server to listen on a port.
-                    int bound = 0;
-                    _LIBSSH2_LISTENER* lst = nullptr;
-                    while (running_) {
-                        lst = libssh2_channel_forward_listen_ex(
-                                session_,
-                                desc.bindAddr.c_str(),
-                                static_cast<int>(desc.remotePort),
-                                &bound, 16);
-                        if (lst) break;
-                        const int err = libssh2_session_last_error(
-                                session_, nullptr, nullptr, 0);
-                        if (err != LIBSSH2_ERROR_EAGAIN) {
-                            FireFailedStatus(desc.id, "forward-listen: " + LastSshError());
-                            return;
-                        }
-                        if (!PollUntilReady(kPollTimeoutMs)) return;
-                    }
-                    if (!lst) return;
-                    ActiveRemoteFwd rfwd;
-                    rfwd.desc       = desc;
-                    rfwd.listener   = lst;
-                    rfwd.bound_port = bound;
-                    remote_fwds_.push_back(std::move(rfwd));
-                    changed = true;
-                }
-
-            } else if constexpr (std::is_same_v<T, PfwRemove>) {
-                const PortForwardId id = v.id;
-
-                // Remove from local forwards.
-                auto lit = std::find_if(local_fwds_.begin(), local_fwds_.end(),
-                                        [id](const ActiveLocalFwd& f) { return f.desc.id == id; });
-                if (lit != local_fwds_.end()) {
-                    ::close(lit->listen_fd);
-                    for (auto& c : lit->conns) {
-                        if (!c.closed) {
-                            ::close(c.local_fd);
-                            libssh2_channel_free(c.channel);
-                        }
-                    }
-                    local_fwds_.erase(lit);
-                    pfw_failed_.erase(id);
-                    changed = true;
-                    return;
-                }
-
-                // Remove from remote forwards.
-                auto rit = std::find_if(remote_fwds_.begin(), remote_fwds_.end(),
-                                        [id](const ActiveRemoteFwd& f) { return f.desc.id == id; });
-                if (rit != remote_fwds_.end()) {
-                    libssh2_channel_forward_cancel(rit->listener);
-                    for (auto& c : rit->conns) {
-                        if (!c.closed) {
-                            ::close(c.local_fd);
-                            libssh2_channel_free(c.channel);
-                        }
-                    }
-                    remote_fwds_.erase(rit);
-                    pfw_failed_.erase(id);
-                    changed = true;
-                    return;
-                }
-
-                // May be in pfw_failed_ only (setup never succeeded).
-                if (pfw_failed_.erase(id)) changed = true;
-            }
-        }, item);
-    }
-
-    if (changed) NotifyPortForwardStatus();
-}
-
-void SshTransport::BuildPortForwardPollFds(std::vector<pollfd>& pfds,
-                                           std::vector<PfwPollEntry>& tags)
-{
-    // Listen sockets for local forwards.
-    for (size_t i = 0; i < local_fwds_.size(); ++i) {
-        pfds.push_back({local_fwds_[i].listen_fd, POLLIN, 0});
-        tags.push_back({PfwPollEntry::Kind::LocalListen, i, 0});
-    }
-    // Proxy connection local sockets for local forwards.
-    for (size_t i = 0; i < local_fwds_.size(); ++i) {
-        for (size_t j = 0; j < local_fwds_[i].conns.size(); ++j) {
-            const auto& c = local_fwds_[i].conns[j];
-            pfds.push_back({c.closed ? -1 : c.local_fd, POLLIN, 0});
-            tags.push_back({PfwPollEntry::Kind::LocalConn, i, j});
-        }
-    }
-    // Proxy connection local sockets for remote forwards.
-    for (size_t i = 0; i < remote_fwds_.size(); ++i) {
-        for (size_t j = 0; j < remote_fwds_[i].conns.size(); ++j) {
-            const auto& c = remote_fwds_[i].conns[j];
-            pfds.push_back({c.closed ? -1 : c.local_fd, POLLIN, 0});
-            tags.push_back({PfwPollEntry::Kind::RemoteConn, i, j});
-        }
-    }
-}
-
-void SshTransport::ServicePortForwardConns(const std::vector<pollfd>& pfds,
-                                           size_t pfwBase,
-                                           const std::vector<PfwPollEntry>& tags,
-                                           char* buf, size_t bufLen)
-{
-    // --- Process tagged poll entries (accept + local→SSH data) ---------------
-    for (size_t t = 0; t < tags.size(); ++t) {
-        const size_t pfdIdx = pfwBase + t;
-        const auto&  tag    = tags[t];
-        const short  rev    = pfds[pfdIdx].revents;
-
-        if (tag.kind == PfwPollEntry::Kind::LocalListen) {
-            if (!(rev & POLLIN)) continue;
-            auto& fwd  = local_fwds_[tag.fwdIdx];
-            int   conn = ::accept(fwd.listen_fd, nullptr, nullptr);
-            if (conn < 0) continue;
-            ::fcntl(conn, F_SETFL, O_NONBLOCK);
-
-            _LIBSSH2_CHANNEL* ch = nullptr;
-            while (running_) {
-                ch = libssh2_channel_direct_tcpip_ex(
-                        session_,
-                        fwd.desc.remoteHost.c_str(),
-                        static_cast<int>(fwd.desc.remotePort),
-                        "127.0.0.1",
-                        static_cast<int>(fwd.desc.localPort));
-                if (ch) break;
-                const int err = libssh2_session_last_error(session_, nullptr, nullptr, 0);
-                if (err != LIBSSH2_ERROR_EAGAIN) { ch = nullptr; break; }
-                if (!PollUntilReady(kPollTimeoutMs)) { ch = nullptr; break; }
-            }
-            if (ch) fwd.conns.push_back({conn, ch, false});
-            else    ::close(conn);  // connection-time failure; forward stays live
-
-        } else {
-            // LocalConn or RemoteConn: local→SSH data.
-            ProxyConn& c = (tag.kind == PfwPollEntry::Kind::LocalConn)
-                           ? local_fwds_[tag.fwdIdx].conns[tag.connIdx]
-                           : remote_fwds_[tag.fwdIdx].conns[tag.connIdx];
-
-            if (c.closed) continue;
-            if (rev & (POLLHUP | POLLERR)) { c.closed = true; continue; }
-            if (!(rev & POLLIN))             continue;
-            ssize_t n = ::read(c.local_fd, buf, bufLen);
-            if (n <= 0) { c.closed = true; continue; }
-            libssh2_channel_write(c.channel, buf, static_cast<size_t>(n));
-        }
-    }
-
-    // --- Accept new remote-forward connections (SSH-side, non-blocking) ------
-    for (auto& fwd : remote_fwds_) {
-        _LIBSSH2_CHANNEL* ch = libssh2_channel_forward_accept(fwd.listener);
-        if (!ch) continue;
-
-        // Resolve the local connect target and create the socket.
-        const std::string portStr  = std::to_string(fwd.desc.localPort);
-        const char*       host     = fwd.desc.remoteHost.empty()
-                                     ? "127.0.0.1" : fwd.desc.remoteHost.c_str();
-        addrinfo hints{};
-        hints.ai_family   = AF_UNSPEC;
-        hints.ai_socktype = SOCK_STREAM;
-        hints.ai_flags    = AI_NUMERICSERV;
-        addrinfo* res = nullptr;
-        if (::getaddrinfo(host, portStr.c_str(), &hints, &res) != 0 || !res) {
-            libssh2_channel_free(ch);
-            continue;
-        }
-        int  conn = ::socket(res->ai_family, SOCK_STREAM, 0);
-        bool ok   = false;
-        if (conn >= 0) {
-            ok = (::connect(conn, res->ai_addr, res->ai_addrlen) == 0 ||
-                  errno == EINPROGRESS);
-            if (!ok) { ::close(conn); conn = -1; }
-        }
-        ::freeaddrinfo(res);
-        if (!ok || conn < 0) { libssh2_channel_free(ch); continue; }
-        ::fcntl(conn, F_SETFL, O_NONBLOCK);
-        fwd.conns.push_back({conn, ch, false});
-    }
-
-    // --- SSH→local for all proxy connections ---------------------------------
-    auto serviceConnsSshToLocal = [&](std::vector<ProxyConn>& conns) {
-        for (auto& c : conns) {
-            if (c.closed) continue;
-            ssize_t n;
-            while ((n = libssh2_channel_read(c.channel, buf, bufLen)) > 0) {
-                if (::write(c.local_fd, buf, static_cast<size_t>(n)) < 0) {
-                    c.closed = true;
-                    break;
-                }
-            }
-            if (!c.closed &&
-                (n == 0 || (n < 0 && n != LIBSSH2_ERROR_EAGAIN) ||
-                 libssh2_channel_eof(c.channel)))
-                c.closed = true;
-        }
-    };
-    for (auto& fwd : local_fwds_)  serviceConnsSshToLocal(fwd.conns);
-    for (auto& fwd : remote_fwds_) serviceConnsSshToLocal(fwd.conns);
-
-    // --- Sweep closed proxy connections --------------------------------------
-    // Resource cleanup (close/free) is performed in a separate loop before
-    // erase so the predicate passed to remove_if has no side effects.
-    bool connChanged = false;
-    auto sweepConns = [&](std::vector<ProxyConn>& conns) {
-        const size_t before = conns.size();
-        for (auto& c : conns) {
-            if (!c.closed) continue;
-            if (c.local_fd >= 0) ::close(c.local_fd);
-            if (c.channel)       libssh2_channel_free(c.channel);
-        }
-        conns.erase(
-            std::remove_if(conns.begin(), conns.end(),
-                           [](const ProxyConn& c) { return c.closed; }),
-            conns.end());
-        if (conns.size() != before) connChanged = true;
-    };
-    for (auto& fwd : local_fwds_)  sweepConns(fwd.conns);
-    for (auto& fwd : remote_fwds_) sweepConns(fwd.conns);
-
-    if (connChanged) NotifyPortForwardStatus();
+    pfwEngine_.RemoveForward(id);
 }
 
 } // namespace term::transport

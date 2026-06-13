@@ -3,9 +3,10 @@
 #include "config/Color.h"
 #include "document/Document.h"
 #include "document/IDocumentListener.h"
-#include "ui/SearchMatch.h"
-#include "ui/UrlScanner.h"
+#include "layout/SearchMatch.h"
+#include "layout/UrlScanner.h"
 #include <mutex>
+#include <shared_mutex>
 #include <optional>
 #include <vector>
 
@@ -44,7 +45,13 @@ public:
     // Document line count.
     int GetLineCount() const;
 
-    CursorPos GetCursorDocPos() const { return doc_->GetCursor(); }
+    // Locks mtx_ for the doc_ pointer (swapped on alt-screen switch), then
+    // takes a coherent cursor snapshot via Document::GetCursor().
+    CursorPos GetCursorDocPos() const
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return doc_->GetCursor();
+    }
 
     // Viewport state in document-line coordinates (wrap mode unaware).
     int  GetTopRow() const;
@@ -72,6 +79,9 @@ public:
     // Search — caller passes a case-folded needle; DocLayout folds each haystack
     // character internally so both sides are folded before comparison.
     std::vector<SearchMatch> Search(const std::u32string& foldedNeedle) const;
+    // Scan only lines [fromLine, toLine). Same folding contract as Search().
+    std::vector<SearchMatch> SearchRange(const std::u32string& foldedNeedle,
+                                         size_t fromLine, size_t toLine) const;
     void SetSearchState(const std::vector<SearchMatch>& matches, size_t currentIdx);
     void ClearSearchState();
 
@@ -136,6 +146,8 @@ private:
     };
 
     // All *Locked methods assume mtx_ is already held by the caller.
+    std::vector<SearchMatch> SearchRangeLocked(const std::u32string& foldedNeedle,
+                                               size_t fromLine, size_t toLine) const;
     ViewportAnchor WalkAnchorBy(ViewportAnchor a, int delta) const;
     RenderedLine   BuildRenderedLineLocked(ViewportAnchor pos) const;
     int            VisualCount(const DocLine& line) const;
