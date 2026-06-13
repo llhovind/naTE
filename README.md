@@ -126,7 +126,7 @@ No installation required. The AppImage bundles all dependencies.
 
 | Dependency | Version | Notes |
 |---|---|---|
-| CMake | ≥ 3.20 | |
+| CMake | ≥ 3.28 | `EXCLUDE_FROM_ALL` for FetchContent dependencies |
 | Ninja | any | `ninja-build` on Debian/Ubuntu |
 | GCC or Clang | C++20 | |
 | GTK 3 dev headers | any | Linux only — `libgtk-3-dev` |

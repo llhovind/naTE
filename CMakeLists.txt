@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.28)
 
 # Derive version from the nearest annotated or lightweight git tag (e.g. v1.2.3).
 # Fallback to 0.0.0 when building outside a git repo or before the first tag.
@@ -59,6 +59,10 @@ FetchContent_Declare(wxWidgets
     GIT_TAG        v3.2.6
     GIT_SHALLOW    TRUE
 )
+# wxBUILD_INSTALL OFF keeps wxWidgets' own install rules (wx-config, headers,
+# static libs) out of our package staging — we ship only the naTE binary and
+# its assets, not the build-time toolchain of a bundled dependency.
+set(wxBUILD_INSTALL   OFF CACHE BOOL "" FORCE)
 set(wxBUILD_SHARED    OFF CACHE BOOL "" FORCE)
 set(wxBUILD_TESTS     OFF CACHE BOOL "" FORCE)
 set(wxBUILD_DEMOS     OFF CACHE BOOL "" FORCE)
@@ -117,10 +121,14 @@ else()
     # negotiate zlib/zlib@openssh.com — without this the flag is a no-op even
     # though the algorithm is selected at handshake time.
     set(ENABLE_ZLIB_COMPRESSION ON CACHE BOOL "" FORCE)
+    # EXCLUDE_FROM_ALL keeps libssh2's unconditional install rules (static lib,
+    # headers, pkg-config, CMake export) out of our package — libssh2 offers no
+    # install opt-out option, so this is the only clean suppression mechanism.
     FetchContent_Declare(libssh2
         GIT_REPOSITORY https://github.com/libssh2/libssh2.git
         GIT_TAG        libssh2-1.11.1
-        GIT_SHALLOW    TRUE)
+        GIT_SHALLOW    TRUE
+        EXCLUDE_FROM_ALL)
     FetchContent_MakeAvailable(libssh2)
     set(NATE_LIBSSH2_LINK    "libssh2")
     set(NATE_LIBSSH2_INCLUDE "")
