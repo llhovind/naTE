@@ -63,7 +63,7 @@ for you.
 - ProxyJump / bastion hop (single hop, auto-detected from `~/.ssh/config`)
 - Auto-populate from `~/.ssh/config` — hosts, identity files, ProxyJump rules
 - SSH agent identity hints for multi-key setups
-- Keepalive and optional compression
+- Optional compression
 - Working-directory tracking — shells that emit OSC 7 (`file://host/path`) update the tracked CWD continuously; a `pwd` subchannel captures the final CWD at disconnect for session-restore accuracy
 - **Port forwarding** — local (`-L`) and remote (`-R`) TCP tunnels managed per session via the port-forward button in the tile title bar
 
