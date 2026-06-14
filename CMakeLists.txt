@@ -318,6 +318,9 @@ install(FILES config.ini
 install(DIRECTORY themes/
     DESTINATION ${CMAKE_INSTALL_DATADIR}/nate/themes
 )
+install(DIRECTORY helpers/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/nate/helpers
+)
 
 # ---------------------------------------------------------------------------
 # CPack packaging (distro starting point: cpack -G DEB / RPM / TGZ)
