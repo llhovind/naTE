@@ -14,6 +14,12 @@
 
 namespace term::transport {
 
+namespace {
+// Pending-connection queue depth for forwarded listeners (local accept() and
+// the remote libssh2 forward listener share the same semantics).
+constexpr int kListenBacklog = 16;
+}  // namespace
+
 PortForwardEngine::PortForwardEngine(_LIBSSH2_SESSION*& session, int& sockFd,
                                      const std::atomic<bool>& running,
                                      ITransportTarget& target)
@@ -139,7 +145,7 @@ void PortForwardEngine::ServiceQueue()
                         return;
                     }
                     ::freeaddrinfo(res);
-                    ::listen(fd, 16);
+                    ::listen(fd, kListenBacklog);
                     ::fcntl(fd, F_SETFL, O_NONBLOCK);
                     localFwds_.push_back({desc, fd, {}});
                     changed = true;
@@ -153,7 +159,7 @@ void PortForwardEngine::ServiceQueue()
                                 session_,
                                 desc.bindAddr.c_str(),
                                 static_cast<int>(desc.remotePort),
-                                &bound, 16);
+                                &bound, kListenBacklog);
                         if (lst) break;
                         const int err = libssh2_session_last_error(
                                 session_, nullptr, nullptr, 0);

@@ -17,6 +17,10 @@ namespace term::transport {
 
 namespace {
 
+// Read-loop poll cadence: bounds how long the read thread blocks waiting for
+// serial data before re-checking running_ for shutdown.
+constexpr int kReadPollTimeoutMs = 100;
+
 speed_t BaudToSpeed(unsigned int baud)
 {
     switch (baud) {
@@ -213,7 +217,7 @@ void SerialTransport::ReadLoop()
         pfd.fd     = fd_;
         pfd.events = POLLIN;
 
-        const int ret = poll(&pfd, 1, 100);
+        const int ret = poll(&pfd, 1, kReadPollTimeoutMs);
         if (ret < 0) {
             if (errno == EINTR)
                 continue;

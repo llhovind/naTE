@@ -58,7 +58,12 @@ TerminalPanel ← Document ← Parser ← Transport (read thread)
 
 - Every function has **one reason to change** (SRP)
 - Functions longer than 20 lines are a signal to decompose
-- **No magic numbers or strings** — all constants are named and located centrally
+- **No magic numbers or strings** — all constants are named and located centrally.
+  Exemptions (do **not** flag these): self-documenting protocol values that *are*
+  the spec (ANSI/SGR/DECSET codes in `parser/`, baud-rate `switch` arms, base16
+  palette indices), POSIX conventions (e.g. `_exit(127)`), and `wxSize(w, h)` /
+  layout pixel literals in `ui/` dialogs — these are presentation tuning, not
+  domain logic.
 - **Error handling is explicit** — never silently swallow exceptions
 - All allocations use **RAII** — no raw owning pointers; prefer `unique_ptr`, `shared_ptr`, or stack allocation
 - **Errors surface through typed structs** (`TransportError`, status enums) — never swallowed silently or stringified at the wrong layer

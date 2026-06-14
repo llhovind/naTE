@@ -15,6 +15,11 @@
 
 namespace term::transport {
 
+namespace {
+// X11 over TCP: display N listens on port 6000 + N (X protocol convention).
+constexpr int kX11BaseTcpPort = 6000;
+}  // namespace
+
 int ConnectToX11Display(const char* display)
 {
     if (!display || display[0] == '\0') return -1;
@@ -50,8 +55,8 @@ int ConnectToX11Display(const char* display)
         return fd;
     }
 
-    // TCP socket: host:6000+displayNum
-    const std::string portStr = std::to_string(6000 + displayNum);
+    // TCP socket: host:(6000 + displayNum)
+    const std::string portStr = std::to_string(kX11BaseTcpPort + displayNum);
 
     addrinfo hints{};
     hints.ai_family   = AF_UNSPEC;
