@@ -4,8 +4,10 @@
 #include <vector>
 #include <wx/dialog.h>
 
+class wxButton;
 class wxCheckBox;
 class wxChoice;
+class wxListBox;
 class wxSpinCtrl;
 class wxTextCtrl;
 
@@ -21,9 +23,19 @@ public:
 private:
     void OnBrowseFont(wxCommandEvent&);
     void OnOk(wxCommandEvent&);
+    void OnGeometryAdd(wxCommandEvent&);
+    void OnGeometryEdit(wxCommandEvent&);
+    void OnGeometryRemove(wxCommandEvent&);
+    void OnGeometrySelected(wxCommandEvent&);
+
+    // Repopulates m_geoList from m_geometryPresets and syncs button enable state.
+    void RefreshGeometryList();
 
     AppConfig                    result_;
     std::vector<ColorScheme>     themes_;   // parallel to m_themeChoice items
+
+    // Editable working copy of the geometry presets; committed to result_ on OK.
+    std::vector<GeometryPreset>  m_geometryPresets;
 
     wxChoice*   m_themeChoice       = nullptr;
     wxTextCtrl* m_familyCtrl        = nullptr;
@@ -32,6 +44,9 @@ private:
     wxChoice*   m_cursorStyleChoice  = nullptr;
     wxCheckBox* m_cursorBlinkChk     = nullptr;
     wxChoice*   m_tileLayoutChoice   = nullptr;
+    wxListBox*  m_geoList            = nullptr;
+    wxButton*   m_geoEditBtn         = nullptr;
+    wxButton*   m_geoRemoveBtn       = nullptr;
 
     wxTextCtrl* m_shellCtrl      = nullptr;
     wxTextCtrl* m_workDirCtrl    = nullptr;

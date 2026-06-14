@@ -862,6 +862,71 @@ TEST_CASE("given AppConfig with bellMode=None when saved and reloaded then field
 }
 
 // ---------------------------------------------------------------------------
+// [Terminal] GeometryPresets
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given default AppConfig then geometryPresets are 80x24 and 132x24")
+{
+    const AppConfig cfg;
+    REQUIRE(cfg.geometryPresets.size() == 2);
+    CHECK(cfg.geometryPresets[0].cols == 80);
+    CHECK(cfg.geometryPresets[0].rows == 24);
+    CHECK(cfg.geometryPresets[1].cols == 132);
+    CHECK(cfg.geometryPresets[1].rows == 24);
+}
+
+TEST_CASE("given GeometryPresets CSV when parsed then yields ordered presets")
+{
+    const TempIni ini{"[Terminal]\nGeometryPresets=80x24,110x24,120x40,132x24\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.geometryPresets.size() == 4);
+    CHECK(cfg.geometryPresets[0].cols == 80);
+    CHECK(cfg.geometryPresets[0].rows == 24);
+    CHECK(cfg.geometryPresets[1].cols == 110);
+    CHECK(cfg.geometryPresets[2].cols == 120);
+    CHECK(cfg.geometryPresets[2].rows == 40);
+    CHECK(cfg.geometryPresets[3].cols == 132);
+}
+
+TEST_CASE("given empty GeometryPresets value when parsed then falls back to defaults")
+{
+    const TempIni ini{"[Terminal]\nGeometryPresets=\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.geometryPresets.size() == 2);
+    CHECK(cfg.geometryPresets[0].cols == 80);
+    CHECK(cfg.geometryPresets[1].cols == 132);
+}
+
+TEST_CASE("given garbage GeometryPresets value when parsed then falls back to defaults")
+{
+    const TempIni ini{"[Terminal]\nGeometryPresets=foo,12,xy,0x0\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.geometryPresets.size() == 2);
+    CHECK(cfg.geometryPresets[0].cols == 80);
+    CHECK(cfg.geometryPresets[1].cols == 132);
+}
+
+TEST_CASE("given AppConfig with custom geometryPresets when saved and reloaded then round-trips")
+{
+    AppConfig original;
+    original.geometryPresets = {{80, 24}, {100, 30}, {200, 50}};
+
+    const auto savePath = (std::filesystem::temp_directory_path()
+                           / "nate_test_geometrypresets.ini").string();
+    original.save(savePath);
+    const auto loaded = AppConfig::load(savePath);
+    std::filesystem::remove(savePath);
+
+    REQUIRE(loaded.geometryPresets.size() == 3);
+    CHECK(loaded.geometryPresets[0].cols == 80);
+    CHECK(loaded.geometryPresets[0].rows == 24);
+    CHECK(loaded.geometryPresets[1].cols == 100);
+    CHECK(loaded.geometryPresets[1].rows == 30);
+    CHECK(loaded.geometryPresets[2].cols == 200);
+    CHECK(loaded.geometryPresets[2].rows == 50);
+}
+
+// ---------------------------------------------------------------------------
 
 TEST_CASE("given ColorScheme with palette when computeAnsiColors called then ANSI mapping is correct")
 {

@@ -1,10 +1,12 @@
 #include "ui/PreferencesDialog.h"
+#include "ui/GeometryDialog.h"
 #include <regex>
 #include <wx/button.h>
 #include <wx/checkbox.h>
 #include <wx/choice.h>
 #include <wx/fontdlg.h>
 #include <wx/gbsizer.h>
+#include <wx/listbox.h>
 #include <wx/msgdlg.h>
 #include <wx/notebook.h>
 #include <wx/panel.h>
@@ -14,7 +16,11 @@
 #include <wx/textctrl.h>
 
 namespace {
-    constexpr int kBrowseFontId = wxID_HIGHEST + 600;
+    constexpr int kBrowseFontId   = wxID_HIGHEST + 600;
+    constexpr int kGeoListId      = wxID_HIGHEST + 601;
+    constexpr int kGeoAddId       = wxID_HIGHEST + 602;
+    constexpr int kGeoEditId      = wxID_HIGHEST + 603;
+    constexpr int kGeoRemoveId    = wxID_HIGHEST + 604;
 }
 
 PreferencesDialog::PreferencesDialog(wxWindow* parent,
@@ -24,7 +30,8 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
                wxDefaultPosition, wxDefaultSize,
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
       result_(current),
-      themes_(themes)
+      themes_(themes),
+      m_geometryPresets(current.geometryPresets)
 {
     auto* nb = new wxNotebook(this, wxID_ANY);
 
@@ -120,6 +127,26 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
         m_tileLayoutChoice->SetSelection(preselect);
     }
     appSizer->Add(m_tileLayoutChoice, {row, 1}, {1, 1});
+    ++row;
+
+    // Geometry presets — drives the Terminal > Set Geometry menu and the New
+    // Connection dialog's geometry combo.
+    appSizer->Add(new wxStaticText(appPage, wxID_ANY, "Geometry presets:"),
+                  {row, 0}, {1, 1}, wxALIGN_TOP);
+    m_geoList = new wxListBox(appPage, kGeoListId,
+                              wxDefaultPosition, {-1, 96});
+    appSizer->Add(m_geoList, {row, 1}, {1, 1}, wxEXPAND);
+    {
+        auto* btnCol = new wxBoxSizer(wxVERTICAL);
+        auto* addBtn   = new wxButton(appPage, kGeoAddId,    "Add...");
+        m_geoEditBtn   = new wxButton(appPage, kGeoEditId,   "Edit...");
+        m_geoRemoveBtn = new wxButton(appPage, kGeoRemoveId, "Remove");
+        btnCol->Add(addBtn,         0, wxEXPAND | wxBOTTOM, 4);
+        btnCol->Add(m_geoEditBtn,   0, wxEXPAND | wxBOTTOM, 4);
+        btnCol->Add(m_geoRemoveBtn, 0, wxEXPAND);
+        appSizer->Add(btnCol, {row, 2}, {1, 1}, wxALIGN_TOP);
+    }
+    RefreshGeometryList();
     ++row;
 
     appSizer->AddGrowableCol(1);
@@ -293,6 +320,11 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
 
     Bind(wxEVT_BUTTON, &PreferencesDialog::OnBrowseFont, this, kBrowseFontId);
     Bind(wxEVT_BUTTON, &PreferencesDialog::OnOk,         this, wxID_OK);
+    Bind(wxEVT_BUTTON,  &PreferencesDialog::OnGeometryAdd,      this, kGeoAddId);
+    Bind(wxEVT_BUTTON,  &PreferencesDialog::OnGeometryEdit,     this, kGeoEditId);
+    Bind(wxEVT_BUTTON,  &PreferencesDialog::OnGeometryRemove,   this, kGeoRemoveId);
+    Bind(wxEVT_LISTBOX, &PreferencesDialog::OnGeometrySelected, this, kGeoListId);
+    Bind(wxEVT_LISTBOX_DCLICK, &PreferencesDialog::OnGeometryEdit, this, kGeoListId);
 }
 
 void PreferencesDialog::OnBrowseFont(wxCommandEvent&)
@@ -348,6 +380,10 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
     result_.cursorBlink  = m_cursorBlinkChk->IsChecked();
     result_.tileLayout   = (m_tileLayoutChoice->GetSelection() == 1)
                            ? TileLayout::ColumnFirst : TileLayout::RowFirst;
+    // Mirror parseGeometryPresets' empty-fallback so the menu always has entries.
+    result_.geometryPresets = m_geometryPresets.empty()
+                              ? std::vector<GeometryPreset>{{80, 24}, {132, 24}}
+                              : m_geometryPresets;
     switch (m_bellModeChoice->GetSelection()) {
         case 1:  result_.bellMode = BellMode::Audible; break;
         case 2:  result_.bellMode = BellMode::None;    break;
@@ -370,4 +406,56 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
     result_.remoteEditorCommand   = m_remoteEditorCtrl->GetValue().ToStdString();
 
     evt.Skip();
+}
+
+void PreferencesDialog::RefreshGeometryList()
+{
+    if (!m_geoList) return;
+    const int prevSel = m_geoList->GetSelection();
+    m_geoList->Clear();
+    for (const auto& g : m_geometryPresets)
+        m_geoList->Append(wxString::Format("%u x %u", g.cols, g.rows));
+
+    if (!m_geometryPresets.empty()) {
+        const int count = static_cast<int>(m_geometryPresets.size());
+        m_geoList->SetSelection(prevSel >= 0 && prevSel < count ? prevSel : count - 1);
+    }
+    wxCommandEvent dummy;
+    OnGeometrySelected(dummy);
+}
+
+void PreferencesDialog::OnGeometrySelected(wxCommandEvent&)
+{
+    const bool hasSel = m_geoList && m_geoList->GetSelection() != wxNOT_FOUND;
+    if (m_geoEditBtn)   m_geoEditBtn->Enable(hasSel);
+    // Always keep at least one preset so the menu/combo are never empty.
+    if (m_geoRemoveBtn) m_geoRemoveBtn->Enable(hasSel && m_geometryPresets.size() > 1);
+}
+
+void PreferencesDialog::OnGeometryAdd(wxCommandEvent&)
+{
+    GeometryDialog dlg(this, 80, 24);
+    if (dlg.ShowModal() != wxID_OK) return;
+    m_geometryPresets.push_back({dlg.GetCols(), dlg.GetRows()});
+    m_geoList->SetSelection(wxNOT_FOUND);   // select the newly appended row
+    RefreshGeometryList();
+}
+
+void PreferencesDialog::OnGeometryEdit(wxCommandEvent&)
+{
+    const int sel = m_geoList ? m_geoList->GetSelection() : wxNOT_FOUND;
+    if (sel == wxNOT_FOUND || sel >= static_cast<int>(m_geometryPresets.size())) return;
+    auto& preset = m_geometryPresets[static_cast<std::size_t>(sel)];
+    GeometryDialog dlg(this, preset.cols, preset.rows);
+    if (dlg.ShowModal() != wxID_OK) return;
+    preset = {dlg.GetCols(), dlg.GetRows()};
+    RefreshGeometryList();
+}
+
+void PreferencesDialog::OnGeometryRemove(wxCommandEvent&)
+{
+    const int sel = m_geoList ? m_geoList->GetSelection() : wxNOT_FOUND;
+    if (sel == wxNOT_FOUND || m_geometryPresets.size() <= 1) return;
+    m_geometryPresets.erase(m_geometryPresets.begin() + sel);
+    RefreshGeometryList();
 }
