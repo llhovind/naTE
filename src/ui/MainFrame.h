@@ -44,6 +44,7 @@ public:
     // and re-apply any theme-derived chrome colors.
     void UpdateConfig(const AppConfig& cfg) {
         m_cfg = cfg;
+        BuildGeometryMenu();
         SetBackgroundColour(toWx(cfg.uiColors.frameBackground));
         Refresh();
     }
@@ -68,6 +69,10 @@ public:
 
     // Rebuilds the Window menu to reflect the current set of open frames and their sessions.
     void RebuildWindowMenu(const std::vector<WindowMenuEntry>& entries);
+
+    // (Re)populates the Set Geometry submenu from m_cfg.geometryPresets, followed by
+    // the Custom... item. Called at construction and whenever config changes.
+    void BuildGeometryMenu();
 
     // Activates a session owned by this window (called from Window menu lambdas).
     void ActivateSession(term::session::SessionId id);
@@ -96,8 +101,7 @@ private:
 
     void OnPreferences(wxCommandEvent&);
 
-    void OnSetGeometry80x24(wxCommandEvent&);
-    void OnSetGeometry132x24(wxCommandEvent&);
+    void OnSetGeometryPreset(wxCommandEvent&);
     void OnSetGeometryCustom(wxCommandEvent&);
     void OnSetFont(wxCommandEvent&);
     void OnResetTerminal(wxCommandEvent&);
@@ -125,6 +129,7 @@ private:
     wxMenu*                      m_connMenu   = nullptr;
     wxMenu*                      m_editMenu   = nullptr;
     wxMenu*                      m_windowMenu  = nullptr;
+    wxMenu*                      m_geoMenu     = nullptr;
     wxMenuItem*                  m_miwrapMode  = nullptr;
     wxMenuItem*                  m_miBroadcast = nullptr;
     int                          m_sessionCount = 0;

@@ -47,7 +47,22 @@
     <h1>Shell Helpers</h1>
     <p class="page-subtitle">Optional shell scripts that integrate your shell environment with naTE's wide-column and CWD-tracking features.</p>
 
-    <p>naTE ships a small collection of shell scripts in the <code>helpers/</code> directory of the source tree (or AppImage). None of them are required — naTE works without them — but each one unlocks a specific feature that needs cooperation from the shell.</p>
+    <p>naTE ships a small collection of shell scripts in the <code>helpers/</code> directory. None of them are required — naTE works without them — but each one unlocks a specific feature that needs cooperation from the shell.</p>
+
+    <p>Where to find them depends on how you installed naTE:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Install method</th><th>Helpers location</th></tr></thead>
+        <tbody>
+          <tr><td>Source checkout</td><td><code>helpers/</code> in the repository root</td></tr>
+          <tr><td>Portable tarball</td><td><code>helpers/</code> inside the extracted directory</td></tr>
+          <tr><td><code>.deb</code> / <code>.rpm</code> package</td><td><code>/usr/share/nate/helpers/</code></td></tr>
+          <tr><td>AppImage</td><td><code>usr/share/nate/helpers/</code> inside the mounted image</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>In the examples below, replace <code>/path/to/naTE/helpers</code> with the location for your install — for example <code>/usr/share/nate/helpers</code> on a packaged install.</p>
 
     <div class="table-wrap">
       <table>

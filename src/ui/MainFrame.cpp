@@ -31,8 +31,6 @@ namespace {
     constexpr int ID_QUIT_ALL                = wxID_HIGHEST + 5;
     constexpr int ID_BROADCAST_MODE          = wxID_HIGHEST + 6;
     constexpr int ID_NEW_CONNECTION_IN_TILE  = wxID_HIGHEST + 7;
-    constexpr int ID_SET_GEOMETRY_80x24      = wxID_HIGHEST + 9;
-    constexpr int ID_SET_GEOMETRY_132x24     = wxID_HIGHEST + 18;
     constexpr int ID_SET_GEOMETRY_CUSTOM     = wxID_HIGHEST + 19;
     constexpr int ID_SET_FONT                = wxID_HIGHEST + 20;
     constexpr int ID_SAVE_SESSION_FILE_TERM  = wxID_HIGHEST + 21;
@@ -66,6 +64,13 @@ namespace {
     // Window menu: session entries occupy [kWindowSessionBase, kWindowSessionBase + kWindowSessionMax).
     constexpr int kWindowSessionBase = wxID_HIGHEST + 500;
     constexpr int kWindowSessionMax  = 128;
+
+    // Set Geometry submenu: one entry per configured preset, indexed by
+    // (id - kGeometryPresetBase) into AppConfig::geometryPresets.
+    // Must stay clear of the Window session range above
+    // ([kWindowSessionBase, kWindowSessionBase + kWindowSessionMax) = [+500, +628)).
+    constexpr int kGeometryPresetBase = wxID_HIGHEST + 800;
+    constexpr int kGeometryPresetMax  = 64;
 
 }
 
@@ -135,14 +140,12 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_MENU, &MainFrame::OnToggleBroadcast, this, ID_BROADCAST_MODE);
 
     termMenu->AppendSeparator();
-    auto* geoMenu = new wxMenu;
-    geoMenu->Append(ID_SET_GEOMETRY_80x24,  "80 x 24");
-    geoMenu->Append(ID_SET_GEOMETRY_132x24, "132 x 24");
-    geoMenu->Append(ID_SET_GEOMETRY_CUSTOM, "Custom...");
-    termMenu->AppendSubMenu(geoMenu, "Set Geometry");
+    m_geoMenu = new wxMenu;
+    BuildGeometryMenu();
+    termMenu->AppendSubMenu(m_geoMenu, "Set Geometry");
     termMenu->Append(ID_SET_FONT, "Set Font...");
-    Bind(wxEVT_MENU, &MainFrame::OnSetGeometry80x24,  this, ID_SET_GEOMETRY_80x24);
-    Bind(wxEVT_MENU, &MainFrame::OnSetGeometry132x24, this, ID_SET_GEOMETRY_132x24);
+    Bind(wxEVT_MENU, &MainFrame::OnSetGeometryPreset, this,
+         kGeometryPresetBase, kGeometryPresetBase + kGeometryPresetMax - 1);
     Bind(wxEVT_MENU, &MainFrame::OnSetGeometryCustom, this, ID_SET_GEOMETRY_CUSTOM);
     Bind(wxEVT_MENU, &MainFrame::OnSetFont,           this, ID_SET_FONT);
 
@@ -482,14 +485,33 @@ void MainFrame::ActivateSession(term::session::SessionId id)
         m_uiManager->RequestActivate(id);
 }
 
-void MainFrame::OnSetGeometry80x24(wxCommandEvent&)
+void MainFrame::BuildGeometryMenu()
 {
-    if (m_uiManager) m_uiManager->SetGeometryForActive(80, 24);
+    if (!m_geoMenu) return;
+
+    // Clear any previously built items (Destroy invalidates each pointer, so walk
+    // a snapshot rather than mutating the live item list while iterating).
+    while (m_geoMenu->GetMenuItemCount() > 0)
+        m_geoMenu->Destroy(m_geoMenu->FindItemByPosition(0));
+
+    const auto& presets = m_cfg.geometryPresets;
+    const std::size_t count = std::min<std::size_t>(presets.size(), kGeometryPresetMax);
+    for (std::size_t i = 0; i < count; ++i) {
+        m_geoMenu->Append(kGeometryPresetBase + static_cast<int>(i),
+                          wxString::Format("%u x %u", presets[i].cols, presets[i].rows));
+    }
+
+    m_geoMenu->AppendSeparator();
+    m_geoMenu->Append(ID_SET_GEOMETRY_CUSTOM, "Custom...");
 }
 
-void MainFrame::OnSetGeometry132x24(wxCommandEvent&)
+void MainFrame::OnSetGeometryPreset(wxCommandEvent& evt)
 {
-    if (m_uiManager) m_uiManager->SetGeometryForActive(132, 24);
+    if (!m_uiManager) return;
+    const std::size_t idx = static_cast<std::size_t>(evt.GetId() - kGeometryPresetBase);
+    if (idx >= m_cfg.geometryPresets.size()) return;
+    const auto& preset = m_cfg.geometryPresets[idx];
+    m_uiManager->SetGeometryForActive(preset.cols, preset.rows);
 }
 
 void MainFrame::OnSetGeometryCustom(wxCommandEvent&)

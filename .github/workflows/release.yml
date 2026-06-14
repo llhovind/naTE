@@ -95,6 +95,7 @@ jobs:
           cp build-appimage/naTE "${DIR}/"
           cp config.ini "${DIR}/"
           cp -r themes "${DIR}/"
+          cp -r helpers "${DIR}/"
           cp packaging/naTE.desktop "${DIR}/"
           cp packaging/nate.svg "${DIR}/"
           for size in 16 32 48 128 256; do
