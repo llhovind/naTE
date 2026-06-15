@@ -85,6 +85,7 @@ for you.
 - **Remote port forwarding (`-R`)** — expose a local port on the remote host so remote-side processes can reach it
 - Click the port-forward button in the tile title bar to open an inline panel showing all active tunnels with their local/remote endpoints and live status; add new forwards or stop existing ones without reconnecting
 - Verification dialog confirms connectivity before closing the panel, so you know the tunnel is up before you depend on it
+- **Forward health detection** — when a local (`-L`) forward is created, naTE probes it immediately rather than waiting until first use. A forward refused by server policy (`AllowTcpForwarding no`) shows a **red** error with the reason ("administratively prohibited") instead of failing silently; a forward whose target host is not yet reachable shows an **amber** warning that clears automatically once the first connection succeeds. The tile title-bar indicator reflects the same state at a glance
 
 ### File transfer
 - Unified **Transfer Files** dialog (**Terminal → Transfer Files...**) — choose source and destination independently: local machine or any active SSH session

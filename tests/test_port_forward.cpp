@@ -136,3 +136,51 @@ TEST_CASE("given JSON with missing portForwards when deserialised then portForwa
     REQUIRE(std::holds_alternative<SshDesc>(td));
     CHECK(std::get<SshDesc>(td).portForwards.empty());
 }
+
+// ---------------------------------------------------------------------------
+// direct-tcpip open error classification (drives the probe error/warning split)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given a libssh2 channel-open error when classified then prohibition is an error and the rest are transient")
+{
+    SECTION("administratively prohibited → persistent error")
+    {
+        CHECK(ClassifyDirectOpenError(
+                  "Channel open failure (administratively prohibited)")
+              == DirectOpenKind::Prohibited);
+    }
+
+    SECTION("connect failed → transient warning")
+    {
+        CHECK(ClassifyDirectOpenError("Channel open failure (connect failed)")
+              == DirectOpenKind::ConnectFailed);
+    }
+
+    SECTION("resource shortage → transient warning")
+    {
+        CHECK(ClassifyDirectOpenError("Channel open failure (resource shortage)")
+              == DirectOpenKind::ConnectFailed);
+    }
+
+    SECTION("unrecognised message → transient warning, never a false prohibition")
+    {
+        CHECK(ClassifyDirectOpenError("") == DirectOpenKind::ConnectFailed);
+        CHECK(ClassifyDirectOpenError("Channel open failure")
+              == DirectOpenKind::ConnectFailed);
+    }
+}
+
+TEST_CASE("given two PortForwardStatus when warning differs then they compare unequal")
+{
+    PortForwardStatus a;
+    a.id = 1; a.active = true;
+    PortForwardStatus b = a;
+
+    CHECK(a == b);
+
+    b.warning = "Channel open failure (connect failed)";
+    CHECK_FALSE(a == b);
+
+    a.warning = b.warning;
+    CHECK(a == b);
+}

@@ -65,6 +65,8 @@ void PortForwardEngine::NotifyStatus()
         s.id          = fwd.desc.id;
         s.active      = fwd.listen_fd >= 0;
         s.connections = fwd.conns.size();
+        s.error       = fwd.error;
+        s.warning     = fwd.warning;
         status.push_back(std::move(s));
     }
     for (const auto& fwd : remoteFwds_) {
@@ -92,6 +94,67 @@ void PortForwardEngine::FireFailed(PortForwardId id, const std::string& error)
 {
     failed_[id] = error;
     NotifyStatus();
+}
+
+// ---------------------------------------------------------------------------
+// direct-tcpip channel open (probe + per-connection)
+// ---------------------------------------------------------------------------
+
+PortForwardEngine::DirectOpenResult
+PortForwardEngine::OpenDirectTcpip(const PortForwardDesc& desc)
+{
+    while (running_) {
+        _LIBSSH2_CHANNEL* ch = libssh2_channel_direct_tcpip_ex(
+                session_,
+                desc.remoteHost.c_str(),
+                static_cast<int>(desc.remotePort),
+                "127.0.0.1",
+                static_cast<int>(desc.localPort));
+        if (ch) return {DirectOpenKind::Ok, ch, {}};
+
+        const int err = libssh2_session_last_error(session_, nullptr, nullptr, 0);
+        if (err != LIBSSH2_ERROR_EAGAIN) {
+            std::string msg = ssh::LastSshError(session_);
+            return {ClassifyDirectOpenError(msg), nullptr, std::move(msg)};
+        }
+        if (!PollUntilReady()) break;
+    }
+    return {DirectOpenKind::Aborted, nullptr, {}};
+}
+
+void PortForwardEngine::FreeChannel(_LIBSSH2_CHANNEL* channel)
+{
+    if (!channel) return;
+    // Bound the EAGAIN loop: a freshly opened probe channel frees quickly, and a
+    // stuck session must not pin the worker thread here.
+    for (int i = 0; i < 64 && running_; ++i) {
+        if (libssh2_channel_free(channel) != LIBSSH2_ERROR_EAGAIN) return;
+        if (!PollUntilReady()) return;
+    }
+}
+
+void PortForwardEngine::ProbeLocalForward(ActiveLocalFwd& fwd)
+{
+    DirectOpenResult r = OpenDirectTcpip(fwd.desc);
+    switch (r.kind) {
+        case DirectOpenKind::Ok:
+            FreeChannel(r.channel);  // throwaway probe channel
+            break;
+        case DirectOpenKind::Prohibited:
+            // Server policy forbids forwarding: the local listener can never
+            // service a connection, so retire it and surface a hard error.
+            ::close(fwd.listen_fd);
+            fwd.listen_fd = -1;
+            fwd.error     = r.message;
+            break;
+        case DirectOpenKind::ConnectFailed:
+            // Forwarding works; the target just isn't reachable yet. Soft
+            // warning that clears on the first successful connection.
+            fwd.warning = r.message;
+            break;
+        case DirectOpenKind::Aborted:
+            break;  // session tearing down — leave state untouched
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +210,12 @@ void PortForwardEngine::ServiceQueue()
                     ::freeaddrinfo(res);
                     ::listen(fd, kListenBacklog);
                     ::fcntl(fd, F_SETFL, O_NONBLOCK);
-                    localFwds_.push_back({desc, fd, {}});
+                    localFwds_.push_back(ActiveLocalFwd{desc, fd, {}, {}, {}});
+                    // Probe immediately: a -L listener binds locally and reports
+                    // success regardless of the server's AllowTcpForwarding
+                    // policy, so a prohibited/refused forward would otherwise
+                    // stay silent until first use.
+                    ProbeLocalForward(localFwds_.back());
                     changed = true;
 
                 } else {
@@ -249,6 +317,8 @@ void PortForwardEngine::AppendPollFds(std::vector<pollfd>& pfds)
 void PortForwardEngine::ServiceConns(const std::vector<pollfd>& pfds,
                                      char* buf, size_t bufLen)
 {
+    bool changed = false;  // any status-affecting change → NotifyStatus at end
+
     // --- Process tagged poll entries (accept + local→SSH data) ---------------
     for (size_t t = 0; t < pollTags_.size(); ++t) {
         const size_t pfdIdx = pollBase_ + t;
@@ -262,21 +332,29 @@ void PortForwardEngine::ServiceConns(const std::vector<pollfd>& pfds,
             if (conn < 0) continue;
             ::fcntl(conn, F_SETFL, O_NONBLOCK);
 
-            _LIBSSH2_CHANNEL* ch = nullptr;
-            while (running_) {
-                ch = libssh2_channel_direct_tcpip_ex(
-                        session_,
-                        fwd.desc.remoteHost.c_str(),
-                        static_cast<int>(fwd.desc.remotePort),
-                        "127.0.0.1",
-                        static_cast<int>(fwd.desc.localPort));
-                if (ch) break;
-                const int err = libssh2_session_last_error(session_, nullptr, nullptr, 0);
-                if (err != LIBSSH2_ERROR_EAGAIN) { ch = nullptr; break; }
-                if (!PollUntilReady()) { ch = nullptr; break; }
+            DirectOpenResult r = OpenDirectTcpip(fwd.desc);
+            switch (r.kind) {
+                case DirectOpenKind::Ok:
+                    if (!fwd.warning.empty()) { fwd.warning.clear(); changed = true; }
+                    fwd.conns.push_back({.channel = r.channel, .local_fd = conn});
+                    changed = true;
+                    break;
+                case DirectOpenKind::Prohibited:
+                    // Forwarding was revoked since setup: retire the listener.
+                    ::close(conn);
+                    ::close(fwd.listen_fd);
+                    fwd.listen_fd = -1;
+                    fwd.error     = r.message;
+                    changed       = true;
+                    break;
+                case DirectOpenKind::ConnectFailed:
+                    ::close(conn);
+                    if (fwd.warning != r.message) { fwd.warning = r.message; changed = true; }
+                    break;
+                case DirectOpenKind::Aborted:
+                    ::close(conn);  // session tearing down
+                    break;
             }
-            if (ch) fwd.conns.push_back({.channel = ch, .local_fd = conn});
-            else    ::close(conn);  // connection-time failure; forward stays live
 
         } else {
             // LocalConn or RemoteConn: local→SSH data.
@@ -319,17 +397,16 @@ void PortForwardEngine::ServiceConns(const std::vector<pollfd>& pfds,
     }
 
     // --- SSH→local, then sweep closed proxy connections ----------------------
-    bool connChanged = false;
     for (auto& fwd : localFwds_) {
         PumpChannelsToLocal(fwd.conns, buf, bufLen);
-        connChanged |= SweepClosedProxies(fwd.conns);
+        changed |= SweepClosedProxies(fwd.conns);
     }
     for (auto& fwd : remoteFwds_) {
         PumpChannelsToLocal(fwd.conns, buf, bufLen);
-        connChanged |= SweepClosedProxies(fwd.conns);
+        changed |= SweepClosedProxies(fwd.conns);
     }
 
-    if (connChanged) NotifyStatus();
+    if (changed) NotifyStatus();
 }
 
 void PortForwardEngine::Teardown()
