@@ -1,6 +1,7 @@
 #include "ui/PortForwardPanel.h"
 #include "ui/AddPortForwardDialog.h"
 #include "ui/ColorUtils.h"
+#include "ui/DialogPlacement.h"
 
 #include <wx/button.h>
 #include <wx/menu.h>
@@ -238,6 +239,8 @@ void PortForwardPanel::OnAddClicked(wxCommandEvent&)
             pendingResultCbs_[id] = std::move(resultCb);
         });
 
+    // GetParent() is the TerminalTile hosting this inline panel.
+    ui::CentreDialogOnTile(*dlg, GetParent());
     dlg->ShowModal();
     dlg->Destroy();
 }

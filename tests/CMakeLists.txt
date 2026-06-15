@@ -15,6 +15,7 @@ add_executable(naTE_tests
     test_env_utils.cpp
     test_url_scanner.cpp
     test_word_selector.cpp
+    test_dialog_placement.cpp
     ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
     ${CMAKE_SOURCE_DIR}/src/config/ColorScheme.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
