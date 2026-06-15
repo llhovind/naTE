@@ -29,6 +29,9 @@ static constexpr int kResizeDebounceMs  = 80;
 static constexpr int kHScrollAnimMs     = 8;  // timer interval (~60 fps)
 static constexpr int kRenderFrameMs     = 16; // render-throttle frame budget (~60 fps)
 static constexpr int kHScrollMinStep    = 3;   // minimum columns per tick (tune for speed)
+static constexpr int kCursorBlinkMs     = 500; // cursor blink half-period
+static constexpr int kSelScrollMs       = 50;  // auto-scroll cadence during drag-select
+static constexpr int kReconnectBarFallbackHeight = 30; // px, used when GetBestSize().y is 0
 
 static wxFont BuildFont(const AppConfig& cfg, bool bold, bool italic)
 {
@@ -121,7 +124,7 @@ void TerminalPanel::ApplyConfig(const AppConfig& cfg)
 
     if (m_cfg.cursorBlink && m_hasFocus_) {
         if (!m_blinkTimer_.IsRunning())
-            m_blinkTimer_.Start(500);
+            m_blinkTimer_.Start(kCursorBlinkMs);
     } else {
         m_blinkTimer_.Stop();
         m_cursorVisible_ = true;
@@ -225,7 +228,8 @@ void TerminalPanel::ShowReconnectBar(const wxString& message)
     lastDisconnectMsg_ = message;
     if (!reconnectBar_) return;
     const wxSize best = reconnectBar_->GetBestSize();
-    reconnectBar_->SetSize(0, 0, GetClientSize().x, best.y > 0 ? best.y : 30);
+    reconnectBar_->SetSize(0, 0, GetClientSize().x,
+                           best.y > 0 ? best.y : kReconnectBarFallbackHeight);
     reconnectBar_->Raise();
     reconnectBar_->ShowBar(message);
     Refresh();
@@ -263,7 +267,8 @@ void TerminalPanel::OnShow(wxShowEvent& e)
     // session is still in a disconnected state (message was saved by ShowReconnectBar).
     if (e.IsShown() && !lastDisconnectMsg_.empty() && reconnectBar_ && !reconnectBar_->IsShown()) {
         const wxSize best = reconnectBar_->GetBestSize();
-        reconnectBar_->SetSize(0, 0, GetClientSize().x, best.y > 0 ? best.y : 30);
+        reconnectBar_->SetSize(0, 0, GetClientSize().x,
+                           best.y > 0 ? best.y : kReconnectBarFallbackHeight);
         reconnectBar_->Raise();
         reconnectBar_->ShowBar(lastDisconnectMsg_);
         Refresh();
@@ -471,7 +476,7 @@ void TerminalPanel::OnFocus(wxFocusEvent& e)
 {
     m_hasFocus_ = true;
     if (m_cfg.cursorBlink)
-        m_blinkTimer_.Start(500);
+        m_blinkTimer_.Start(kCursorBlinkMs);
     Refresh();
     if (focusCb_) focusCb_();
     e.Skip();
@@ -597,7 +602,7 @@ void TerminalPanel::OnLeftDown(wxMouseEvent& e)
     m_selecting_    = true;
     m_lastMousePos_ = pos;
     CaptureMouse();
-    m_selScrollTimer_.Start(50);
+    m_selScrollTimer_.Start(kSelScrollMs);
     Refresh();
 }
 

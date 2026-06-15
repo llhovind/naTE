@@ -1,6 +1,7 @@
 #include "ui/PortForwardPanel.h"
 #include "ui/AddPortForwardDialog.h"
 #include "ui/ColorUtils.h"
+#include "ui/DialogPlacement.h"
 
 #include <wx/button.h>
 #include <wx/menu.h>
@@ -113,7 +114,8 @@ void PortForwardPanel::RebuildRows()
         for (const auto& s : status_)
             if (s.id == desc.id) { st = &s; break; }
 
-        const bool hasError = st && !st->error.empty();
+        const bool hasError   = st && !st->error.empty();
+        const bool hasWarning = st && !hasError && !st->warning.empty();
 
         auto* rowPanel = new wxPanel(scroll_, wxID_ANY, wxDefaultPosition,
                                      wxDefaultSize, wxBORDER_NONE);
@@ -150,17 +152,21 @@ void PortForwardPanel::RebuildRows()
         rowSizer->Add(portLbl, 0, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, kRowPadV);
         rowSizer->AddSpacer(kColGap);
 
-        // Label or error — expands to fill available space.
+        // Label, error, or warning — expands to fill available space.
         wxString infoText;
         if (hasError)
             infoText = wxString::FromUTF8(st->error);
+        else if (hasWarning)
+            infoText = wxString::FromUTF8(st->warning);
         else if (!desc.label.empty())
             infoText = wxString::FromUTF8(desc.label);
 
         auto* infoLbl = new wxStaticText(rowPanel, wxID_ANY, infoText,
                                           wxDefaultPosition, wxDefaultSize,
                                           wxST_ELLIPSIZE_END);
-        infoLbl->SetForegroundColour(hasError ? wxColour(220, 60, 60) : labelFg_);
+        infoLbl->SetForegroundColour(hasError   ? wxColour(220, 60, 60)
+                                     : hasWarning ? wxColour(220, 150, 40)
+                                                  : labelFg_);
 
         rowSizer->Add(infoLbl, 1, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, kRowPadV);
         rowSizer->AddSpacer(kColGap);
@@ -238,6 +244,8 @@ void PortForwardPanel::OnAddClicked(wxCommandEvent&)
             pendingResultCbs_[id] = std::move(resultCb);
         });
 
+    // GetParent() is the TerminalTile hosting this inline panel.
+    ui::CentreDialogOnTile(*dlg, GetParent());
     dlg->ShowModal();
     dlg->Destroy();
 }

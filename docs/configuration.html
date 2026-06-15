@@ -82,12 +82,6 @@ copyOnSelect = true</code></pre>
             <td>Monospace font family name. Empty string uses the system default monospace font.</td>
           </tr>
           <tr>
-            <td><code>fontSize</code></td>
-            <td>integer</td>
-            <td><code>12</code></td>
-            <td>Terminal font size in points.</td>
-          </tr>
-          <tr>
             <td><code>padding</code></td>
             <td>integer</td>
             <td><code>4</code></td>
@@ -232,32 +226,38 @@ copyOnSelect = true</code></pre>
       </table>
     </div>
 
-    <!-- ──────────── TERMINAL ──────────── -->
-    <h2 class="section-anchor" id="terminal">[Terminal]</h2>
+    <!-- ──────────── PANEL ──────────── -->
+    <h2 class="section-anchor" id="panel">[Panel]</h2>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
           <tr>
-            <td><code>columns</code></td>
+            <td><code>Columns</code></td>
             <td>integer</td>
             <td><code>80</code></td>
             <td>Default terminal width in columns. This is what the shell reports as the terminal width.</td>
           </tr>
           <tr>
-            <td><code>rows</code></td>
+            <td><code>Rows</code></td>
             <td>integer</td>
             <td><code>24</code></td>
             <td>Default terminal height in rows.</td>
           </tr>
           <tr>
-            <td><code>scrollbackLines</code></td>
+            <td><code>FontSize</code></td>
+            <td>integer</td>
+            <td><code>12</code></td>
+            <td>Terminal font size in points.</td>
+          </tr>
+          <tr>
+            <td><code>ScrollbackLines</code></td>
             <td>integer</td>
             <td><code>100000</code></td>
             <td>Maximum number of lines kept in the scrollback buffer per session.</td>
           </tr>
           <tr>
-            <td><code>ptyLineWidth</code></td>
+            <td><code>PtyLineWidth</code></td>
             <td>integer</td>
             <td><code>4096</code></td>
             <td>
@@ -268,7 +268,27 @@ copyOnSelect = true</code></pre>
               so lines are captured in full rather than truncated at the visible tile edge.
               When wrap mode is <strong>on</strong>, naTE reports the actual tile pixel width
               in columns instead, and this setting has no effect.
-              See also <code>defaultWrapMode</code> in <a href="#session">[Session]</a>.
+              See also <code>DefaultWrapMode</code> in <a href="#session">[Session]</a>.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ──────────── TERMINAL ──────────── -->
+    <h2 class="section-anchor" id="terminal">[Terminal]</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>GeometryPresets</code></td>
+            <td>string</td>
+            <td><code>80x24,132x24</code></td>
+            <td>
+              Comma-separated list of <code>COLSxROWS</code> geometry presets offered in the
+              <strong>Set Geometry</strong> dialog and the New Connection dialog. Managed via
+              <strong>Edit → Preferences → Appearance</strong>; rarely edited by hand.
             </td>
           </tr>
         </tbody>
@@ -375,13 +395,16 @@ defaultWorkingDir   = ~/Projects
 defaultLoginShell   = true
 remoteEditorCommand = code --wait
 
+[Panel]
+Columns         = 220
+Rows            = 50
+ScrollbackLines = 200000
+
 [Terminal]
-columns       = 220
-rows          = 50
-scrollbackLines = 200000</code></pre>
+GeometryPresets = 80x24,132x24,220x50</code></pre>
 
     <div class="callout callout-note">
-      <p><strong>Note:</strong> Setting <code>columns = 220</code> globally means every new session will tell its shell that the terminal is 220 columns wide. For most users the default of 80 is fine; use a wider value if you regularly work with wide output (DataFrames, long log lines, etc.) and want naTE to capture it without truncation. You can always override per-connection profile.</p>
+      <p><strong>Note:</strong> Setting <code>Columns = 220</code> globally means every new session will tell its shell that the terminal is 220 columns wide. For most users the default of 80 is fine; use a wider value if you regularly work with wide output (DataFrames, long log lines, etc.) and want naTE to capture it without truncation. You can always override per-connection profile.</p>
     </div>
 
   </main>

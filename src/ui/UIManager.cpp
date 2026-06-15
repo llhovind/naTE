@@ -1,6 +1,8 @@
 #include "ui/UIManager.h"
 #include "ui/ClipboardUtils.h"
 #include "ui/ColorUtils.h"
+#include "ui/DialogPlacement.h"
+#include "ui/ResetAndClearDialog.h"
 #include "app/App.h"
 #include "ui/TransferFilesDialog.h"
 #include "ui/RemoteEditManager.h"
@@ -257,7 +259,7 @@ void UIManager::OnCursorVisibilityChanged(term::session::SessionId id, bool visi
 }
 
 std::vector<std::string> UIManager::OnKbdIntChallenge(
-    term::session::SessionId /*id*/,
+    term::session::SessionId id,
     const term::transport::KbdIntChallenge& challenge)
 {
     // Called on the transport worker thread — must dispatch to the UI thread
@@ -266,8 +268,12 @@ std::vector<std::string> UIManager::OnKbdIntChallenge(
     auto promise = std::make_shared<std::promise<std::vector<std::string>>>();
     auto future  = promise->get_future();
 
-    frame_->CallAfter([this, challenge, promise]() {
+    frame_->CallAfter([this, id, challenge, promise]() {
         KbdIntDialog dlg(frame_, challenge);
+        // sessions_ is touched only here on the UI thread, not on the caller's
+        // transport worker thread.
+        if (SessionUI* sui = FindSessionUI(id); sui && sui->tile)
+            CentreDialogOnTile(dlg, sui->tile);
         if (dlg.ShowModal() == wxID_OK)
             promise->set_value(dlg.GetResponses());
         else
@@ -478,14 +484,14 @@ void UIManager::ResetAndClearSession(term::session::SessionId id)
 
     DocLayout& layout = sm_.GetDocLayout(id);
     if (layout.GetLineCount() > 1) {
-        const int answer = wxMessageBox(
-            "Save scrollback before clearing?",
-            "Reset and Clear",
-            wxYES_NO | wxCANCEL | wxICON_QUESTION);
+        ResetAndClearDialog dlg(frame_);
+        if (SessionUI* sui = FindSessionUI(id); sui && sui->tile)
+            CentreDialogOnTile(dlg, sui->tile);
+        const int answer = dlg.ShowModal();
 
-        if (answer == wxCANCEL) return;
+        if (answer == wxID_CANCEL) return;
 
-        if (answer == wxYES) {
+        if (answer == wxID_YES) {
             layout.SelectAll();
             const auto text = layout.GetSelectedText();
             layout.ClearSelection();
@@ -505,6 +511,8 @@ void UIManager::TransferFilesForSession(term::session::SessionId preSelectedSrc)
             eligible.emplace_back(id, label);
     }
     ui::TransferFilesDialog dlg(frame_, sm_, std::move(eligible), preSelectedSrc);
+    if (SessionUI* sui = FindSessionUI(preSelectedSrc); sui && sui->tile)
+        CentreDialogOnTile(dlg, sui->tile);
     dlg.ShowModal();
 }
 
@@ -533,6 +541,8 @@ void UIManager::EditRemoteFileForSession(term::session::SessionId id)
     const std::string remote = sm_.GetRemoteDescription(id);
     const std::string cwd    = sm_.GetCurrentWorkingDir(id);
     RemoteFileBrowserDialog dlg(frame_, id, sm_, remote, "Edit", cwd);
+    if (SessionUI* sui = FindSessionUI(id); sui && sui->tile)
+        CentreDialogOnTile(dlg, sui->tile);
     if (dlg.ShowModal() != wxID_OK) return;
 
     const auto& paths = dlg.GetSelectedPaths();
@@ -1206,6 +1216,8 @@ void UIManager::DoPaste(const std::string& utf8)
                          || utf8.find('\r') != std::string::npos;
     if (hasNewline && !sm_.IsBracketedPasteActive(activeId_)) {
         PasteConfirmDialog dlg(frame_, utf8);
+        if (SessionUI* sui = FindSessionUI(activeId_); sui && sui->tile)
+            CentreDialogOnTile(dlg, sui->tile);
         if (dlg.ShowModal() != wxID_OK)
             return;
     }

@@ -102,6 +102,23 @@
       <figcaption>The Add Port Forward dialog — fill in direction, ports, and an optional label</figcaption>
     </figure>
 
+    <h3>Forward health detection</h3>
+    <p>A local (<code>−L</code>) forward only opens a listening socket on <em>your</em> machine, so binding it always appears to succeed — the SSH server is not consulted until something actually connects through the tunnel. That means a forward the server forbids can look healthy right up until the moment you try to use it.</p>
+    <p>naTE closes that gap by <strong>probing each local forward the instant it is created</strong>, surfacing problems immediately instead of on first use. Each forward shows one of three states in the panel and in the tile title-bar indicator:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>State</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Active</strong> (normal)</td><td>The tunnel is up and the target is reachable.</td></tr>
+          <tr><td><strong>Error</strong> (red)</td><td>The server refused the forward — typically <code>AllowTcpForwarding no</code>, shown as <em>"administratively prohibited"</em>. The listener is retired because it can never carry traffic.</td></tr>
+          <tr><td><strong>Warning</strong> (amber)</td><td>Forwarding is permitted, but the target host/port was not reachable at probe time (e.g. the service has not started yet). This clears automatically the first time a connection succeeds.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout callout-note">
+      <p><strong>How it works:</strong> naTE opens a single throwaway channel to the target as soon as the forward is set up and reads the server's response. The SSH reason code distinguishes a policy refusal (a hard error) from a target that is merely down (a transient warning), so you get the same diagnostics a command-line <code>ssh −L</code> prints to stderr — but tied to the visual forward state rather than buried in the log.</p>
+    </div>
+
     <h3>Saving forwards to a profile</h3>
     <p>Port forwards can be saved to a connection profile so they are set up automatically every time you connect. Add the forwards in the New Connection dialog (SSH tab) before saving the profile.</p>
 

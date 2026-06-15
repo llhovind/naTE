@@ -12,6 +12,11 @@ namespace term::transport {
 
 namespace {
 
+// Upper bound on how long EnsureSftp will wait for the SFTP subsystem to come
+// up. Generous enough for a slow link's handshake, short enough that a remote
+// without a working sftp-server fails with a clear message rather than hanging.
+constexpr auto kSftpInitTimeout = std::chrono::seconds(15);
+
 // Formats a POSIX permission bitmask as a "drwxr-xr-x" style string.
 std::string SftpFormatPermissions(unsigned long mode)
 {
@@ -70,15 +75,11 @@ struct SftpService::ListDirTask {
         }
 
         if (state == State::InitSftp) {
-            if (!svc->sftp_) {
-                LIBSSH2_SFTP* s = libssh2_sftp_init(svc->session_);
-                if (!s) {
-                    if (libssh2_session_last_errno(svc->session_) == LIBSSH2_ERROR_EAGAIN)
-                        return true;
-                    onDone({}, "SFTP unavailable: " + ssh::LastSshError(svc->session_));
-                    return false;
-                }
-                svc->sftp_ = s;
+            std::string err;
+            switch (svc->EnsureSftp(err)) {
+                case InitResult::Pending: return true;
+                case InitResult::Failed:  onDone({}, std::move(err)); return false;
+                case InitResult::Ready:   break;
             }
             state = State::OpenDir;
         }
@@ -162,15 +163,11 @@ struct SftpService::DownloadTask {
         }
 
         if (state == State::InitSftp) {
-            if (!svc->sftp_) {
-                LIBSSH2_SFTP* s = libssh2_sftp_init(svc->session_);
-                if (!s) {
-                    if (libssh2_session_last_errno(svc->session_) == LIBSSH2_ERROR_EAGAIN)
-                        return true;
-                    onDone(false, "SFTP unavailable: " + ssh::LastSshError(svc->session_));
-                    return false;
-                }
-                svc->sftp_ = s;
+            std::string err;
+            switch (svc->EnsureSftp(err)) {
+                case InitResult::Pending: return true;
+                case InitResult::Failed:  onDone(false, std::move(err)); return false;
+                case InitResult::Ready:   break;
             }
             out.open(localPath, std::ios::binary | std::ios::trunc);
             if (!out) {
@@ -246,15 +243,11 @@ struct SftpService::UploadTask {
         }
 
         if (state == State::InitSftp) {
-            if (!svc->sftp_) {
-                LIBSSH2_SFTP* s = libssh2_sftp_init(svc->session_);
-                if (!s) {
-                    if (libssh2_session_last_errno(svc->session_) == LIBSSH2_ERROR_EAGAIN)
-                        return true;
-                    onDone(false, "SFTP unavailable: " + ssh::LastSshError(svc->session_));
-                    return false;
-                }
-                svc->sftp_ = s;
+            std::string err;
+            switch (svc->EnsureSftp(err)) {
+                case InitResult::Pending: return true;
+                case InitResult::Failed:  onDone(false, std::move(err)); return false;
+                case InitResult::Ready:   break;
             }
             in.open(localPath, std::ios::binary);
             if (!in) {
@@ -312,6 +305,34 @@ struct SftpService::UploadTask {
 SftpService::SftpService(_LIBSSH2_SESSION*& session, const std::atomic<bool>& running)
     : session_(session), running_(running)
 {}
+
+SftpService::InitResult SftpService::EnsureSftp(std::string& err)
+{
+    if (sftp_) return InitResult::Ready;
+
+    if (LIBSSH2_SFTP* s = libssh2_sftp_init(session_)) {
+        sftp_ = s;
+        initDeadline_.reset();
+        return InitResult::Ready;
+    }
+
+    if (libssh2_session_last_errno(session_) != LIBSSH2_ERROR_EAGAIN) {
+        initDeadline_.reset();
+        err = "SFTP unavailable: " + ssh::LastSshError(session_);
+        return InitResult::Failed;
+    }
+
+    // EAGAIN: arm the deadline on first sight, then fail once it elapses.
+    const auto now = std::chrono::steady_clock::now();
+    if (!initDeadline_) initDeadline_ = now + kSftpInitTimeout;
+    if (now >= *initDeadline_) {
+        initDeadline_.reset();
+        err = "SFTP unavailable: timed out starting the SFTP subsystem "
+              "(is sftp-server installed on the remote?)";
+        return InitResult::Failed;
+    }
+    return InitResult::Pending;
+}
 
 void SftpService::Service()
 {

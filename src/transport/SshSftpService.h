@@ -2,9 +2,11 @@
 #include "transport/Transport.hpp"   // RemoteDirEntry
 
 #include <atomic>
+#include <chrono>
 #include <deque>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -61,11 +63,25 @@ private:
 
     using Task = std::function<bool()>;
 
+    // Outcome of a single non-blocking attempt to bring up the SFTP subsystem.
+    enum class InitResult { Ready, Pending, Failed };
+
+    // Worker-thread only. Lazily initialises sftp_ one non-blocking step at a
+    // time. Returns Pending while libssh2 reports EAGAIN, Ready once the
+    // subsystem is up, and Failed (with err populated) on a hard error or once
+    // the init deadline elapses — the latter guards against servers that accept
+    // the channel but never complete the SFTP handshake (e.g. a missing
+    // sftp-server binary), where libssh2_sftp_init would otherwise spin on
+    // EAGAIN forever and the transfer would hang with no error surfaced.
+    InitResult EnsureSftp(std::string& err);
+
     _LIBSSH2_SESSION*&       session_;
     const std::atomic<bool>& running_;
     _LIBSSH2_SFTP*           sftp_ = nullptr;
     std::mutex               queueMutex_;
     std::deque<Task>         queue_;
+    // Set on the first EAGAIN of an init attempt; cleared once it resolves.
+    std::optional<std::chrono::steady_clock::time_point> initDeadline_;
 };
 
 } // namespace term::transport

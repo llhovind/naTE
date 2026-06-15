@@ -14,6 +14,7 @@ public:
 
 private:
     void OnPaint(wxPaintEvent&);
-    bool hasActive_ = false;
-    bool hasError_  = false;
+    bool hasActive_  = false;
+    bool hasError_   = false;
+    bool hasWarning_ = false;
 };

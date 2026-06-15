@@ -21,6 +21,7 @@ TransferFilesDialog::TransferFilesDialog(
                wxDefaultPosition, wxDefaultSize,
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
     , sm_(sm)
+    , alive_(std::make_shared<std::atomic<bool>>(true))
 {
     // Build parallel id + label arrays: index 0 is always Local.
     sessionIds_.push_back(0);
@@ -124,6 +125,13 @@ TransferFilesDialog::TransferFilesDialog(
 
     // Initialise add button label to match the resolved source selection.
     addBtn_->SetLabel(SelectedSrcId() == 0 ? "Add Files..." : "Browse Remote...");
+}
+
+TransferFilesDialog::~TransferFilesDialog()
+{
+    // Invalidate before destruction so any in-flight transfer callback no-ops
+    // instead of touching this freed dialog (see alive_).
+    alive_->store(false, std::memory_order_release);
 }
 
 term::session::SessionId TransferFilesDialog::SelectedSrcId() const
@@ -265,8 +273,13 @@ void TransferFilesDialog::TransferNext()
     const term::session::SessionId srcId = SelectedSrcId();
     const term::session::SessionId dstId = SelectedDstId();
 
-    const auto callback = [this, idx](bool success, std::string error) {
-        wxTheApp->CallAfter([this, success, idx, err = std::move(error)]() mutable {
+    std::weak_ptr<std::atomic<bool>> weakAlive = alive_;
+    const auto callback = [this, weakAlive, idx](bool success, std::string error) {
+        wxTheApp->CallAfter(
+            [this, weakAlive, success, idx, err = std::move(error)]() mutable {
+            auto alive = weakAlive.lock();
+            if (!alive || !alive->load(std::memory_order_acquire))
+                return;
             if (!success) {
                 statusLabel_->SetLabel("Transfer failed.");
                 transferBtn_->Enable();

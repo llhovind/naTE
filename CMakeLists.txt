@@ -175,6 +175,8 @@ set(SOURCES
     src/ui/KbdIntDialog.cpp
     src/ui/PasteConfirmDialog.cpp
     src/ui/RemoteFileBrowserDialog.cpp
+    src/ui/ResetAndClearDialog.cpp
+    src/ui/DialogPlacement.cpp
     src/ui/RemoteEditSession.cpp
     src/ui/RemoteEditManager.cpp
     src/ui/WorkspaceManagerDialog.cpp

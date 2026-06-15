@@ -2,8 +2,10 @@
 #include "ui/AboutDialog.h"
 #include "ui/ConnectionFactory.h"
 #include "ui/ConnectionManagerDialog.h"
+#include "ui/DialogPlacement.h"
 #include "ui/GeometryDialog.h"
 #include "ui/PreferencesDialog.h"
+#include "ui/TerminalTile.h"
 #include "config/ColorScheme.h"
 #include "ui/WorkspaceManagerDialog.h"
 #include "ui/UIManager.h"
@@ -521,6 +523,7 @@ void MainFrame::OnSetGeometryCustom(wxCommandEvent&)
     const auto defCols  = current ? current->cols : static_cast<unsigned short>(80);
     const auto defRows  = current ? current->rows : static_cast<unsigned short>(24);
     GeometryDialog dlg(this, defCols, defRows);
+    ui::CentreDialogOnTile(dlg, m_uiManager->GetActiveTile());
     if (dlg.ShowModal() == wxID_OK)
         m_uiManager->SetGeometryForActive(dlg.GetCols(), dlg.GetRows());
 }

@@ -2,6 +2,8 @@
 
 #include "session/SessionManager.h"
 
+#include <atomic>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -28,6 +30,8 @@ public:
         term::session::SessionManager& sm,
         std::vector<std::pair<term::session::SessionId, std::string>> sessions,
         term::session::SessionId    preSelectedSrcId = 0);
+
+    ~TransferFilesDialog() override;
 
 private:
     void OnAddSourceFiles(wxCommandEvent&);
@@ -61,6 +65,13 @@ private:
 
     int transferIndex_ = 0;
     int transferTotal_ = 0;
+
+    // Guards deferred (CallAfter) completion callbacks against a dialog that has
+    // already been destroyed: a transfer can still be queued in the worker
+    // thread when the user closes the modal, and its callback fires later (on
+    // completion or session-teardown cancellation). The callback captures a weak
+    // ref and no-ops once this is cleared in the destructor.
+    std::shared_ptr<std::atomic<bool>> alive_;
 };
 
 } // namespace ui

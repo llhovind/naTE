@@ -25,6 +25,10 @@ namespace term::transport {
 
 namespace {
 
+// Read-loop poll cadence: bounds how long the read thread blocks waiting for
+// PTY data before re-checking running_ for shutdown.
+constexpr int kReadPollTimeoutMs = 100;
+
 std::string GenerateVpColumnsFilePath() {
     static std::atomic<int> counter{0};
     return "/tmp/nate-vpcolumns-"
@@ -171,7 +175,7 @@ void PtyTransport::ReadLoop()
         pfd.fd     = master_fd_;
         pfd.events = POLLIN;
 
-        const int ret = poll(&pfd, 1, 100);
+        const int ret = poll(&pfd, 1, kReadPollTimeoutMs);
         if (ret < 0) {
             if (errno == EINTR)
                 continue;

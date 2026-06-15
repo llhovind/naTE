@@ -13,6 +13,7 @@
 
 struct _LIBSSH2_SESSION;
 struct _LIBSSH2_LISTENER;
+struct _LIBSSH2_CHANNEL;
 
 namespace term::transport {
 
@@ -69,6 +70,16 @@ private:
         PortForwardDesc           desc;
         int                       listen_fd = -1;
         std::vector<ChannelProxy> conns;
+        std::string               error;    // forwarding prohibited (persistent)
+        std::string               warning;  // target unreachable (clears on success)
+    };
+
+    // Result of opening a direct-tcpip channel: the channel on success, plus a
+    // classification + libssh2 message used to drive error/warning state.
+    struct DirectOpenResult {
+        DirectOpenKind    kind    = DirectOpenKind::Aborted;
+        _LIBSSH2_CHANNEL* channel = nullptr;
+        std::string       message;
     };
 
     struct ActiveRemoteFwd {
@@ -86,6 +97,15 @@ private:
     // persists until the forward is explicitly removed via RemoveForward.
     void FireFailed(PortForwardId id, const std::string& error);
     static std::string ErrnoString(int err);
+
+    // Opens a direct-tcpip channel to the local forward's target, looping over
+    // EAGAIN. Caller owns the returned channel on DirectOpenKind::Ok.
+    DirectOpenResult OpenDirectTcpip(const PortForwardDesc& desc);
+    // Probes a freshly created local listener so a prohibited/refused forward is
+    // surfaced immediately rather than on first use. Sets error/warning in place.
+    void ProbeLocalForward(ActiveLocalFwd& fwd);
+    // Best-effort close+free of a channel, looping over EAGAIN with a bound.
+    void FreeChannel(_LIBSSH2_CHANNEL* channel);
 
     _LIBSSH2_SESSION*&       session_;
     int&                     sockFd_;

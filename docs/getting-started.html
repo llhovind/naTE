@@ -61,8 +61,22 @@
       <p><strong>Tip:</strong> Move the AppImage to <code>~/.local/bin/</code> and create a desktop entry if you want it to appear in your application launcher.</p>
     </div>
 
+    <h3>Distro packages (.deb / .rpm)</h3>
+    <p>Native packages are attached to each <a href="https://github.com/lhovind/naTE/releases" target="_blank">release</a>. They install the binary to <code>/usr/bin/nate</code> and bundle the themes and shell helpers under <code>/usr/share/nate/</code>. Runtime dependencies are resolved by your package manager.</p>
+    <pre><code># Debian / Ubuntu
+sudo apt install ./nate_&lt;version&gt;_amd64.deb
+
+# Fedora / RHEL / openSUSE
+sudo dnf install ./nate-&lt;version&gt;.x86_64.rpm</code></pre>
+
+    <h3>Portable tarball (.tar.gz)</h3>
+    <p>The <code>naTE-&lt;version&gt;-linux-x86_64.tar.gz</code> archive contains the binary alongside <code>config.ini</code>, themes, helpers, and the desktop/icon assets. Extract it anywhere and run the binary directly — nothing is installed system-wide.</p>
+    <pre><code>tar -xzf naTE-&lt;version&gt;-linux-x86_64.tar.gz
+cd naTE-&lt;version&gt;-linux-x86_64
+./naTE</code></pre>
+
     <h3>Build from Source</h3>
-    <p>You need: <strong>CMake 3.22+</strong>, a C++17 compiler, <strong>wxWidgets 3.2</strong>, and <strong>libssh2</strong> (fetched automatically if not found).</p>
+    <p>You need: <strong>CMake 3.28+</strong>, a <strong>C++20</strong> compiler, and <strong>zlib</strong> (including development headers — required for the bundled libssh2's compression support). <strong>wxWidgets 3.2.6</strong>, <strong>libssh2</strong>, and <strong>nlohmann_json</strong> are fetched and built automatically. (Pass <code>-DNATE_SYSTEM_DEPS=ON</code> to use a system-installed libssh2 and nlohmann_json instead.)</p>
     <pre><code>git clone https://github.com/lhovind/naTE.git
 cd naTE
 cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -70,7 +84,7 @@ cmake --build build -j$(nproc)
 ./build/naTE</code></pre>
 
     <div class="callout callout-note">
-      <p><strong>macOS:</strong> Support is experimental. Install wxWidgets via Homebrew (<code>brew install wxwidgets</code>) before building.</p>
+      <p><strong>macOS:</strong> Support is experimental. All dependencies are fetched and built automatically, so no extra installation is required beyond CMake and a C++20 toolchain.</p>
     </div>
 
     <h2 class="section-anchor" id="first-launch">First Launch</h2>
@@ -140,10 +154,10 @@ cmake --build build -j$(nproc)
     <p>Each session lives in a tab. A small colored dot on the tab indicates connection status:</p>
     <ul>
       <li><strong>No dot:</strong> Connected and healthy</li>
+      <li><strong>Themed dot:</strong> Unread output — content arrived while the tab was not visible</li>
       <li><strong>Orange dot:</strong> Disconnected — a reconnect bar appears in the terminal</li>
       <li><strong>Pulsing:</strong> Reconnecting in progress</li>
     </ul>
-    <p>Tabs with unread output (i.e., the tab is not currently visible) show a subtle highlight.</p>
 
     <h3>The menu bar</h3>
     <div class="table-wrap">
