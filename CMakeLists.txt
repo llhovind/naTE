@@ -202,6 +202,7 @@ set(SOURCES
     src/fs/DirModel.cpp
     src/fs/TransferQueue.cpp
     src/fs/ExplorerController.cpp
+    src/fs/RemoteDeleter.cpp
     src/layout/DocLayout.cpp
     src/layout/UrlScanner.cpp
     src/layout/WordSelector.cpp

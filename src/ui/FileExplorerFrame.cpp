@@ -6,7 +6,6 @@
 #include "ui/FilePropertiesDialog.h"
 #include "ui/StringUtils.h"
 
-#include <cmath>
 #include <ctime>
 
 #include <wx/app.h>
@@ -14,6 +13,7 @@
 #include <wx/dataobj.h>
 #include <wx/menu.h>
 #include <wx/msgdlg.h>
+#include <wx/textdlg.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 
@@ -54,26 +54,6 @@ wxString FormatTime(int64_t unixSeconds)
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &tm);
     return wxString::FromUTF8(buf);
-}
-
-// Picks whichever of the theme's text colours actually reads against bg.
-//
-// Derived here rather than taken from UiColors because every slot there is
-// defined against a *specific* background (tabText against tileInactive, and
-// so on); none of them is "text on the window background". Measuring the
-// luminance of the real background is the only way to be right on both light
-// and dark palettes.
-wxColour ContrastingText(const wxColour& bg, const AppConfig& cfg)
-{
-    const double luminance = 0.299 * bg.Red() + 0.587 * bg.Green() + 0.114 * bg.Blue();
-    const wxColour a = toWx(cfg.ansiColors[0]);
-    const wxColour b = toWx(cfg.ansiColors[7]);
-    const double lumA = 0.299 * a.Red() + 0.587 * a.Green() + 0.114 * a.Blue();
-    // Whichever of the two sits further from the background in luminance.
-    const bool preferA = std::abs(lumA - luminance) >
-                         std::abs((0.299 * b.Red() + 0.587 * b.Green() +
-                                   0.114 * b.Blue()) - luminance);
-    return preferA ? a : b;
 }
 
 // wxButton does not inherit its foreground from the parent panel on GTK, so
@@ -155,6 +135,7 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
     , sm_(sm)
     , cfg_(cfg)
     , onOpenInEditor_(std::move(onOpenInEditor))
+    , guard_([](std::function<void()> fn) { wxTheApp->CallAfter(std::move(fn)); })
 {
     auto* outer = new wxBoxSizer(wxVERTICAL);
     BuildToolbar(this, outer);
@@ -184,6 +165,9 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
         *remote,
         [](std::function<void()> fn) { wxTheApp->CallAfter(std::move(fn)); });
     controller_->SetListener(this);
+    deleter_ = std::make_unique<term::fs::RemoteDeleter>(
+        *remote,
+        [](std::function<void()> fn) { wxTheApp->CallAfter(std::move(fn)); });
     controller_->Model().SetShowHidden(hiddenCheck_->GetValue());
 
     // Start where the shell is, when we know it. The controller canonicalises
@@ -203,12 +187,14 @@ void FileExplorerFrame::BuildToolbar(wxWindow* parent, wxSizer* outer)
     pathCtrl_   = new wxTextCtrl(parent, wxID_ANY, wxEmptyString,
                                  wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
     refreshBtn_ = new wxButton(parent, wxID_ANY, "Refresh", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+    newFolderBtn_ = new wxButton(parent, wxID_ANY, "New Folder", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
 
     row->Add(backBtn_,    0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 2);
     row->Add(forwardBtn_, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 2);
     row->Add(upBtn_,      0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 6);
     row->Add(pathCtrl_,   1, wxRIGHT | wxALIGN_CENTER_VERTICAL, 6);
-    row->Add(refreshBtn_, 0, wxALIGN_CENTER_VERTICAL);
+    row->Add(refreshBtn_,   0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 2);
+    row->Add(newFolderBtn_, 0, wxALIGN_CENTER_VERTICAL);
     outer->Add(row, 0, wxEXPAND | wxALL, 8);
 
     auto* filterRow = new wxBoxSizer(wxHORIZONTAL);
@@ -226,6 +212,7 @@ void FileExplorerFrame::BuildToolbar(wxWindow* parent, wxSizer* outer)
     forwardBtn_->Bind(wxEVT_BUTTON, &FileExplorerFrame::OnForward, this);
     upBtn_->Bind(wxEVT_BUTTON,      &FileExplorerFrame::OnUp,      this);
     refreshBtn_->Bind(wxEVT_BUTTON, &FileExplorerFrame::OnRefresh, this);
+    newFolderBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { NewFolder(); });
     pathCtrl_->Bind(wxEVT_TEXT_ENTER, &FileExplorerFrame::OnGo,    this);
     filterCtrl_->Bind(wxEVT_TEXT,   &FileExplorerFrame::OnFilterChanged, this);
     hiddenCheck_->Bind(wxEVT_CHECKBOX, &FileExplorerFrame::OnShowHiddenToggled, this);
@@ -246,6 +233,7 @@ void FileExplorerFrame::BuildList(wxSizer* outer)
     list_->Bind(wxEVT_LIST_ITEM_ACTIVATED,   &FileExplorerFrame::OnItemActivated, this);
     list_->Bind(wxEVT_LIST_COL_CLICK,        &FileExplorerFrame::OnColumnClick,   this);
     list_->Bind(wxEVT_LIST_ITEM_RIGHT_CLICK, &FileExplorerFrame::OnContextMenu,   this);
+    list_->Bind(wxEVT_LIST_KEY_DOWN,         &FileExplorerFrame::OnListKeyDown,   this);
 }
 
 void FileExplorerFrame::ApplyConfig(const AppConfig& cfg)
@@ -273,14 +261,17 @@ void FileExplorerFrame::ApplyConfig(const AppConfig& cfg)
     // computed against *that*. uiColors.tabText would be the tempting choice
     // and is the wrong one: it is defined to contrast against tileInactive,
     // and on a light palette it resolves to a near-white that vanishes here.
-    const wxColour labelFg = ContrastingText(frameBg, cfg_);
+    const wxColour labelFg = pickContrasting(frameBg, bg, fg);
     if (filterLabel_) filterLabel_->SetForegroundColour(labelFg);
     if (hiddenCheck_) hiddenCheck_->SetForegroundColour(labelFg);
 
-    // Buttons keep the chrome pairing, where tabText's contract does hold.
-    for (wxButton* btn : {backBtn_, forwardBtn_, upBtn_, refreshBtn_})
-        if (btn) StyleButton(btn, toWx(cfg_.uiColors.tileInactive),
-                             toWx(cfg_.uiColors.tabText));
+    // Button text is measured against the button's own background rather than
+    // taken from uiColors.tabText. tabText is derived to contrast tileInactive
+    // via a helper whose light/dark arguments assume a dark palette, so it
+    // inverts on light themes; measuring here is right on both.
+    const wxColour btnBg = toWx(cfg_.uiColors.tileInactive);
+    for (wxButton* btn : {backBtn_, forwardBtn_, upBtn_, refreshBtn_, newFolderBtn_})
+        if (btn) StyleButton(btn, btnBg, pickContrasting(btnBg, bg, fg));
 
     Refresh();
 }
@@ -298,6 +289,20 @@ void FileExplorerFrame::OnExplorerLoadingChanged(bool loading)
 void FileExplorerFrame::OnExplorerContentsChanged()
 {
     RefreshRows();
+
+    // Put the cursor back on whatever the last write produced, so a rename or
+    // a new folder leaves the user looking at it rather than at row zero.
+    if (!pendingFocusName_.empty() && controller_) {
+        const size_t row = controller_->Model().IndexOfName(pendingFocusName_);
+        if (row < controller_->Model().VisibleCount()) {
+            const auto item = static_cast<long>(row);
+            list_->SetItemState(item, wxLIST_STATE_SELECTED | wxLIST_STATE_FOCUSED,
+                                wxLIST_STATE_SELECTED | wxLIST_STATE_FOCUSED);
+            list_->EnsureVisible(item);
+        }
+        pendingFocusName_.clear();
+    }
+
     UpdateStatus();
     UpdateNavigationState();
 }
@@ -326,7 +331,8 @@ void FileExplorerFrame::UpdateNavigationState()
     if (backBtn_)    backBtn_->Enable(live && !loading && controller_->CanGoBack());
     if (forwardBtn_) forwardBtn_->Enable(live && !loading && controller_->CanGoForward());
     if (upBtn_)      upBtn_->Enable(live && !loading && controller_->CurrentPath() != "/");
-    if (refreshBtn_) refreshBtn_->Enable(live && !loading);
+    if (refreshBtn_)   refreshBtn_->Enable(live && !loading);
+    if (newFolderBtn_) newFolderBtn_->Enable(live && !loading);
     if (pathCtrl_)   pathCtrl_->Enable(live);
     if (filterCtrl_) filterCtrl_->Enable(live);
     if (hiddenCheck_) hiddenCheck_->Enable(live);
@@ -454,10 +460,14 @@ void FileExplorerFrame::OnContextMenu(wxListEvent& evt)
     const bool isDir = controller_->Model().At(row).isDir;
 
     wxMenu menu;
-    auto* editItem  = menu.Append(wxID_ANY, "Open in Editor");
-    auto* copyItem  = menu.Append(wxID_ANY, "Copy Path");
+    auto* editItem   = menu.Append(wxID_ANY, "Open in Editor");
+    auto* copyItem   = menu.Append(wxID_ANY, "Copy Path");
     menu.AppendSeparator();
-    auto* propsItem = menu.Append(wxID_ANY, "Properties...");
+    auto* newItem    = menu.Append(wxID_ANY, "New Folder...");
+    auto* renameItem = menu.Append(wxID_ANY, "Rename...\tF2");
+    auto* deleteItem = menu.Append(wxID_ANY, "Delete...\tDel");
+    menu.AppendSeparator();
+    auto* propsItem  = menu.Append(wxID_ANY, "Properties...");
 
     // Editing a directory is meaningless; the item stays visible but disabled
     // so the menu's shape does not shift between rows.
@@ -468,6 +478,9 @@ void FileExplorerFrame::OnContextMenu(wxListEvent& evt)
     // would quietly operate on a different file than the one under the cursor.
     menu.Bind(wxEVT_MENU, [this, row](wxCommandEvent&) { EditRow(row); }, editItem->GetId());
     menu.Bind(wxEVT_MENU, [this, row](wxCommandEvent&) { CopyPathOf(row); }, copyItem->GetId());
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) { NewFolder(); }, newItem->GetId());
+    menu.Bind(wxEVT_MENU, [this, row](wxCommandEvent&) { RenameRow(row); }, renameItem->GetId());
+    menu.Bind(wxEVT_MENU, [this, row](wxCommandEvent&) { DeleteRow(row); }, deleteItem->GetId());
     menu.Bind(wxEVT_MENU, [this, row](wxCommandEvent&) { ShowPropertiesFor(row); },
               propsItem->GetId());
 
@@ -498,13 +511,220 @@ void FileExplorerFrame::CopyPathOf(size_t row)
 void FileExplorerFrame::ShowPropertiesFor(size_t row)
 {
     if (!controller_ || row >= controller_->Model().VisibleCount()) return;
-
-    term::transport::IRemoteFileSystem* remote = sm_.GetRemoteFileSystem(sessionId_);
+    term::transport::IRemoteFileSystem* remote = Remote();
     if (!remote) return;
 
-    FilePropertiesDialog dlg(this, cfg_, controller_->Model().At(row),
-                             controller_->PathOf(row), *remote);
-    dlg.ShowModal();
+    const std::string path = controller_->PathOf(row);
+    const std::string name = controller_->Model().At(row).name;
+
+    FilePropertiesDialog dlg(this, cfg_, controller_->Model().At(row), path, *remote);
+    if (dlg.ShowModal() != wxID_OK || !dlg.PermissionsChanged()) return;
+
+    auto ctx = guard_.For(this);
+    remote->SetPermissions(path, dlg.SelectedMode(),
+        [ctx, name](term::transport::FsError err) {
+            ctx.Post([name, err = std::move(err)](FileExplorerFrame& f) mutable {
+                f.AfterWrite("Change permissions", err, name);
+            });
+        });
+}
+
+// ---------------------------------------------------------------------------
+// Write operations
+// ---------------------------------------------------------------------------
+
+term::transport::IRemoteFileSystem* FileExplorerFrame::Remote()
+{
+    return controller_ ? sm_.GetRemoteFileSystem(sessionId_) : nullptr;
+}
+
+bool FileExplorerFrame::RequireLiveSession()
+{
+    if (Remote()) return true;
+    wxMessageBox("The session for this window has closed.",
+                 "File Explorer", wxOK | wxICON_INFORMATION, this);
+    return false;
+}
+
+void FileExplorerFrame::AfterWrite(const wxString& what,
+                                   const term::transport::FsError& err,
+                                   std::string focusName)
+{
+    if (err.Failed()) {
+        wxMessageBox(what + " failed:\n\n" + DecodeForDisplay(err.message),
+                     "File Explorer", wxOK | wxICON_ERROR, this);
+        return;
+    }
+    // Re-read only this directory. Nothing else can have changed as a result
+    // of the write, and a wider refresh would cost round trips for nothing.
+    pendingFocusName_ = std::move(focusName);
+    if (controller_) controller_->Refresh();
+}
+
+void FileExplorerFrame::NewFolder()
+{
+    if (!RequireLiveSession()) return;
+
+    wxTextEntryDialog dlg(this, "Name for the new folder:", "New Folder");
+    if (dlg.ShowModal() != wxID_OK) return;
+
+    const std::string name = dlg.GetValue().Trim().Trim(false).ToStdString();
+    if (name.empty()) return;
+    if (name.find('/') != std::string::npos) {
+        wxMessageBox("A folder name cannot contain '/'.",
+                     "New Folder", wxOK | wxICON_WARNING, this);
+        return;
+    }
+
+    const std::string path = term::fs::path::Join(controller_->CurrentPath(), name);
+    auto ctx = guard_.For(this);
+    // 0755: the conventional default for a directory, and the same thing
+    // `mkdir` would produce before the server applies its umask.
+    Remote()->MakeDirectory(path, 0755,
+        [ctx, name](term::transport::FsError err) {
+            ctx.Post([name, err = std::move(err)](FileExplorerFrame& f) mutable {
+                f.AfterWrite("Create folder", err, name);
+            });
+        });
+}
+
+void FileExplorerFrame::RenameRow(size_t row)
+{
+    if (!RequireLiveSession()) return;
+    if (row >= controller_->Model().VisibleCount()) return;
+
+    const std::string oldName = controller_->Model().At(row).name;
+    const std::string oldPath = controller_->PathOf(row);
+
+    wxTextEntryDialog dlg(this, "New name:", "Rename", DecodeForDisplay(oldName));
+    if (dlg.ShowModal() != wxID_OK) return;
+
+    const std::string newName = dlg.GetValue().Trim().Trim(false).ToStdString();
+    if (newName.empty() || newName == oldName) return;
+    if (newName.find('/') != std::string::npos) {
+        wxMessageBox("A name cannot contain '/'.",
+                     "Rename", wxOK | wxICON_WARNING, this);
+        return;
+    }
+
+    const std::string newPath =
+        term::fs::path::Join(controller_->CurrentPath(), newName);
+
+    // Check the destination first rather than trusting the server to refuse.
+    // The adapter does not request overwrite, and OpenSSH's sftp-server does
+    // reject a rename onto an existing path — but that is a property of that
+    // server, not of the protocol, and renaming over a file destroys it. One
+    // round trip is a cheap price for not depending on the remote's manners.
+    auto ctx = guard_.For(this);
+    Remote()->Stat(newPath,
+        [ctx, oldPath, newPath, newName](term::transport::FileInfo,
+                                         term::transport::FsError statErr) {
+            ctx.Post([oldPath, newPath, newName,
+                      statErr = std::move(statErr)](FileExplorerFrame& f) mutable {
+                if (statErr.code != term::transport::FsErrorCode::NoSuchFile) {
+                    wxMessageBox(
+                        wxString::Format("'%s' already exists in this directory.",
+                                         DecodeForDisplay(newName)),
+                        "Rename", wxOK | wxICON_WARNING, &f);
+                    return;
+                }
+                term::transport::IRemoteFileSystem* remote = f.Remote();
+                if (!remote) return;
+
+                auto inner = f.guard_.For(&f);
+                remote->Rename(oldPath, newPath,
+                    [inner, newName](term::transport::FsError err) {
+                        inner.Post([newName, err = std::move(err)](
+                                       FileExplorerFrame& fr) mutable {
+                            fr.AfterWrite("Rename", err, newName);
+                        });
+                    });
+            });
+        });
+}
+
+bool FileExplorerFrame::ConfirmDeletion(const term::fs::DeletePlan& plan,
+                                        const wxString& target)
+{
+    if (plan.Empty()) return false;
+
+    wxString detail;
+    if (plan.dirCount + plan.fileCount > 1) {
+        detail = wxString::Format(
+            "This will permanently delete %zu file%s and %zu director%s (%s).",
+            plan.fileCount, plan.fileCount == 1 ? "" : "s",
+            plan.dirCount,  plan.dirCount == 1 ? "y" : "ies",
+            FormatSize(plan.totalBytes));
+    } else {
+        detail = "This cannot be undone.";
+    }
+
+    // An incomplete enumeration means the count understates the real one. Say
+    // so before asking, rather than discovering it partway through.
+    if (plan.error.Failed()) {
+        detail += "\n\nPart of this tree could not be read (" +
+                  DecodeForDisplay(plan.error.message) +
+                  "), so more may exist than is listed above, and the deletion "
+                  "may stop partway.";
+    }
+
+    wxMessageDialog dlg(this,
+                        wxString::Format("Delete '%s'?", target),
+                        "Delete",
+                        wxYES_NO | wxNO_DEFAULT | wxICON_WARNING);
+    dlg.SetExtendedMessage(detail);
+    dlg.SetYesNoLabels("Delete", "Cancel");
+    return dlg.ShowModal() == wxID_YES;
+}
+
+void FileExplorerFrame::DeleteRow(size_t row)
+{
+    if (!RequireLiveSession() || !deleter_) return;
+    if (row >= controller_->Model().VisibleCount()) return;
+
+    const term::transport::FileInfo& entry = controller_->Model().At(row);
+    const std::string path   = controller_->PathOf(row);
+    const wxString    target = DecodeForDisplay(entry.name);
+    const bool isDir     = entry.isDir;
+    const bool isSymlink = entry.isSymlink;
+
+    if (status_) status_->SetStatusText("Examining " + target + "...");
+
+    auto ctx = guard_.For(this);
+    deleter_->Plan(path, isDir, isSymlink,
+        [ctx, target](term::fs::DeletePlan plan) {
+            ctx.Post([target, plan = std::move(plan)](FileExplorerFrame& f) mutable {
+                f.UpdateStatus();
+                if (!f.ConfirmDeletion(plan, target)) return;
+                if (!f.deleter_) return;
+
+                auto inner = f.guard_.For(&f);
+                f.deleter_->Execute(std::move(plan),
+                    [inner](size_t done, size_t total) {
+                        inner.Post([done, total](FileExplorerFrame& fr) {
+                            if (fr.status_)
+                                fr.status_->SetStatusText(
+                                    wxString::Format("Deleting... %zu/%zu", done, total));
+                        });
+                    },
+                    [inner](term::transport::FsError err) {
+                        inner.Post([err = std::move(err)](FileExplorerFrame& fr) mutable {
+                            fr.AfterWrite("Delete", err, {});
+                        });
+                    });
+            });
+        });
+}
+
+void FileExplorerFrame::OnListKeyDown(wxListEvent& evt)
+{
+    const size_t row = static_cast<size_t>(evt.GetIndex());
+    switch (evt.GetKeyCode()) {
+        case WXK_DELETE: DeleteRow(row); break;
+        case WXK_F2:     RenameRow(row); break;
+        case WXK_F5:     if (controller_) controller_->Refresh(); break;
+        default:         evt.Skip(); break;
+    }
 }
 
 void FileExplorerFrame::ReportError(const wxString& what,

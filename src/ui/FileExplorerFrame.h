@@ -2,6 +2,7 @@
 
 #include "config/Config.h"
 #include "fs/ExplorerController.h"
+#include "fs/RemoteDeleter.h"
 #include "session/SessionManager.h"
 
 #include <functional>
@@ -72,6 +73,7 @@ private:
     void OnContextMenu(wxListEvent&);
     void OnFilterChanged(wxCommandEvent&);
     void OnShowHiddenToggled(wxCommandEvent&);
+    void OnListKeyDown(wxListEvent&);
     void OnDestroy(wxWindowDestroyEvent&);
 
     // --- Helpers -------------------------------------------------------------
@@ -83,6 +85,21 @@ private:
     void CopyPathOf(size_t row);
     void ShowPropertiesFor(size_t row);
     void EditRow(size_t row);
+
+    // --- Write operations ----------------------------------------------------
+    void NewFolder();
+    void RenameRow(size_t row);
+    void DeleteRow(size_t row);
+    // Confirms a planned deletion, naming what will go and admitting when the
+    // plan is incomplete. Returns true when the user chose to proceed.
+    bool ConfirmDeletion(const term::fs::DeletePlan& plan, const wxString& target);
+    // Reports the outcome of a write and re-reads the directory, leaving the
+    // cursor on focusName when it is present after the refresh.
+    void AfterWrite(const wxString& what, const term::transport::FsError& err,
+                    std::string focusName);
+    // True when a write can be attempted; reports why not when it cannot.
+    bool RequireLiveSession();
+    term::transport::IRemoteFileSystem* Remote();
     void ReportError(const wxString& what, const term::transport::FsError& err);
 
     term::session::SessionId       sessionId_;
@@ -94,6 +111,15 @@ private:
     // Null once the session has ended, which is also the guard on every
     // operation that would need the connection.
     std::unique_ptr<term::fs::ExplorerController> controller_;
+    std::unique_ptr<term::fs::RemoteDeleter>      deleter_;
+
+    // Write callbacks come back from the transport's worker thread and must
+    // not touch a window the user has closed in the meantime.
+    term::fs::DispatchGuard guard_;
+
+    // Name to put the cursor back on after the next listing arrives, so a
+    // rename or a new folder leaves the user looking at what they just made.
+    std::string pendingFocusName_;
 
     wxTextCtrl* pathCtrl_    = nullptr;
     wxTextCtrl* filterCtrl_  = nullptr;
@@ -103,6 +129,7 @@ private:
     wxButton*   forwardBtn_  = nullptr;
     wxButton*   upBtn_       = nullptr;
     wxButton*   refreshBtn_  = nullptr;
+    wxButton*   newFolderBtn_ = nullptr;
     RemoteFileListCtrl* list_ = nullptr;
     wxStatusBar* status_     = nullptr;
 };

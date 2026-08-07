@@ -8,6 +8,7 @@
 
 #include <wx/app.h>
 #include <wx/button.h>
+#include <wx/statbox.h>
 #include <wx/sizer.h>
 
 namespace ui {
@@ -64,8 +65,16 @@ FilePropertiesDialog::FilePropertiesDialog(
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
     , alive_(std::make_shared<std::atomic<bool>>(true))
 {
-    const wxColour fg = toWx(cfg.uiColors.tabText);
-    SetBackgroundColour(toWx(cfg.uiColors.frameBackground));
+    // Text colours are measured against the surface each control actually sits
+    // on. uiColors.tabText is the tempting shortcut and the wrong one here: it
+    // is defined to contrast tileInactive, and on a light palette it resolves
+    // to a near-white that vanishes against this dialog's background.
+    const wxColour dialogBg = toWx(cfg.uiColors.frameBackground);
+    const wxColour termBg   = toWx(cfg.ansiColors[0]);
+    const wxColour termFg   = toWx(cfg.ansiColors[7]);
+    const wxColour fg       = pickContrasting(dialogBg, termBg, termFg);
+
+    SetBackgroundColour(dialogBg);
     SetForegroundColour(fg);
 
     auto* outer = new wxBoxSizer(wxVERTICAL);
@@ -79,10 +88,6 @@ FilePropertiesDialog::FilePropertiesDialog(
         AddRow(this, grid, "Size",
                wxString::Format("%llu bytes",
                                 static_cast<unsigned long long>(info.size)));
-    AddRow(this, grid, "Permissions",
-           wxString::Format("%s  (%s)",
-                            wxString::FromUTF8(term::fs::FormatPermissions(info.mode)),
-                            wxString::FromUTF8(term::fs::FormatOctal(info.mode))));
     AddRow(this, grid, "Owner",    FormatOwnership(info));
     AddRow(this, grid, "Modified", FormatTimestamp(info.mtime));
 
@@ -91,15 +96,26 @@ FilePropertiesDialog::FilePropertiesDialog(
 
     outer->Add(grid, 1, wxEXPAND | wxALL, kMargin);
 
-    auto* buttons = new wxStdDialogButtonSizer();
-    auto* closeBtn = new wxButton(this, wxID_OK, "Close");
-    closeBtn->SetBackgroundColour(toWx(cfg.uiColors.tileInactive));
-    closeBtn->SetForegroundColour(fg);
-    buttons->AddButton(closeBtn);
+    termBg_ = termBg;
+    termFg_ = termFg;
+    originalMode_ = info.mode & (term::fs::kPermissionMask | 07000);
+    selectedMode_ = originalMode_;
+    BuildPermissionEditor(outer);
+
+    auto* buttons  = new wxStdDialogButtonSizer();
+    auto* okBtn    = new wxButton(this, wxID_OK, "OK");
+    auto* cancelBtn = new wxButton(this, wxID_CANCEL, "Cancel");
+    const wxColour btnBg = toWx(cfg.uiColors.tileInactive);
+    for (wxButton* b : {okBtn, cancelBtn}) {
+        b->SetBackgroundColour(btnBg);
+        b->SetForegroundColour(pickContrasting(btnBg, termBg, termFg));
+    }
+    buttons->AddButton(okBtn);
+    buttons->AddButton(cancelBtn);
     buttons->Realize();
     // Realize() is what binds the affirmative button; SetDefault must follow it
-    // or CreateStdDialogButtonSizer's wiring overrides the choice.
-    closeBtn->SetDefault();
+    // or the sizer's own wiring overrides the choice.
+    okBtn->SetDefault();
     outer->Add(buttons, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, kMargin);
 
     SetSizerAndFit(outer);
@@ -128,6 +144,97 @@ FilePropertiesDialog::FilePropertiesDialog(
 FilePropertiesDialog::~FilePropertiesDialog()
 {
     alive_->store(false, std::memory_order_release);
+}
+
+void FilePropertiesDialog::BuildPermissionEditor(wxSizer* outer)
+{
+    const wxColour fg = GetForegroundColour();
+
+    auto* box = new wxStaticBoxSizer(wxVERTICAL, this, "Permissions");
+    box->GetStaticBox()->SetForegroundColour(fg);
+
+    auto* octalRow = new wxBoxSizer(wxHORIZONTAL);
+    auto* octalLabel = new wxStaticText(this, wxID_ANY, "Octal:");
+    octalLabel->SetForegroundColour(fg);
+    octalCtrl_ = new wxTextCtrl(this, wxID_ANY,
+                                wxString::FromUTF8(term::fs::FormatOctal(selectedMode_)));
+    octalCtrl_->SetBackgroundColour(termBg_);
+    octalCtrl_->SetForegroundColour(termFg_);
+    octalRow->Add(octalLabel, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 6);
+    octalRow->Add(octalCtrl_, 0, wxALIGN_CENTER_VERTICAL);
+    box->Add(octalRow, 0, wxALL, kRowGap);
+
+    // Three rows of read/write/execute, laid out the way chmod documents them.
+    static constexpr const char* kWho[3]  = {"Owner", "Group", "Other"};
+    static constexpr const char* kWhat[3] = {"Read", "Write", "Execute"};
+
+    auto* gridSizer = new wxFlexGridSizer(4, kRowGap, kLabelGap);
+    gridSizer->AddSpacer(0);
+    for (const char* what : kWhat) {
+        auto* header = new wxStaticText(this, wxID_ANY, what);
+        header->SetForegroundColour(fg);
+        gridSizer->Add(header, 0, wxALIGN_CENTER);
+    }
+    for (int who = 0; who < 3; ++who) {
+        auto* label = new wxStaticText(this, wxID_ANY, kWho[who]);
+        label->SetForegroundColour(fg);
+        gridSizer->Add(label, 0, wxALIGN_CENTER_VERTICAL);
+        for (int what = 0; what < 3; ++what) {
+            const int idx = who * 3 + what;
+            permBoxes_[idx] = new wxCheckBox(this, wxID_ANY, "");
+            gridSizer->Add(permBoxes_[idx], 0, wxALIGN_CENTER);
+            permBoxes_[idx]->Bind(wxEVT_CHECKBOX,
+                                  [this](wxCommandEvent&) { SyncFromCheckboxes(); });
+        }
+    }
+    box->Add(gridSizer, 0, wxALL, kRowGap);
+    outer->Add(box, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, kMargin);
+
+    octalCtrl_->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { SyncFromOctal(); });
+    PushModeToControls();
+}
+
+void FilePropertiesDialog::SyncFromOctal()
+{
+    if (syncing_) return;
+    uint32_t parsed = 0;
+    // Rejecting silently is deliberate: the field is mid-edit while the user
+    // types, and blanking or correcting it under the cursor would fight them.
+    if (!term::fs::ParseOctal(octalCtrl_->GetValue().ToStdString(), parsed)) return;
+
+    selectedMode_ = parsed;
+    syncing_ = true;
+    for (int i = 0; i < 9; ++i)
+        permBoxes_[i]->SetValue((selectedMode_ & (0400u >> i)) != 0);
+    syncing_ = false;
+}
+
+void FilePropertiesDialog::SyncFromCheckboxes()
+{
+    if (syncing_) return;
+    uint32_t bits = 0;
+    for (int i = 0; i < 9; ++i)
+        if (permBoxes_[i]->GetValue()) bits |= (0400u >> i);
+
+    // Preserve setuid/setgid/sticky, which the grid does not expose but the
+    // octal field can carry — a chmod through this dialog must not silently
+    // clear them.
+    selectedMode_ = (selectedMode_ & ~term::fs::kPermissionMask) | bits;
+
+    syncing_ = true;
+    octalCtrl_->ChangeValue(
+        wxString::FromUTF8(term::fs::FormatOctal(selectedMode_)));
+    syncing_ = false;
+}
+
+void FilePropertiesDialog::PushModeToControls()
+{
+    syncing_ = true;
+    for (int i = 0; i < 9; ++i)
+        permBoxes_[i]->SetValue((selectedMode_ & (0400u >> i)) != 0);
+    octalCtrl_->ChangeValue(
+        wxString::FromUTF8(term::fs::FormatOctal(selectedMode_)));
+    syncing_ = false;
 }
 
 wxStaticText* FilePropertiesDialog::AddRow(wxWindow* parent, wxSizer* grid,
