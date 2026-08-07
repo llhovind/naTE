@@ -1,10 +1,9 @@
 #pragma once
+#include "fs/Dispatcher.h"
 #include "transport/IRemoteFileSystem.h"
 
-#include <atomic>
 #include <cstdint>
 #include <functional>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -73,14 +72,6 @@ public:
     virtual void OnTransferJobChanged(JobId /*id*/) {}
     virtual void OnTransferQueueIdle() {}
 };
-
-// Marshals a callback onto the thread that owns the queue. The UI supplies
-// wxTheApp->CallAfter; tests supply an executor they can drain deliberately.
-//
-// This is what keeps TransferQueue free of locks: IRemoteFileSystem calls back
-// on a worker thread, everything is bounced through here first, and so all
-// queue state is touched from exactly one thread.
-using Dispatcher = std::function<void(std::function<void()>)>;
 
 // Asks how to resolve a collision. The queue calls this and suspends the job
 // until the continuation runs; applyToAll promotes the answer to the standing
@@ -169,27 +160,6 @@ public:
     bool   IsIdle() const;
 
 private:
-    // Everything the transport's callbacks need in order to get back onto the
-    // owning thread safely.
-    //
-    // Captured by value into every callback handed to IRemoteFileSystem, so
-    // the callback never touches the TransferQueue before the liveness check
-    // has passed on the owning thread. Capturing `this` alone would mean
-    // dereferencing a possibly-destroyed object just to reach the dispatcher.
-    struct CallbackContext {
-        Dispatcher                        post;
-        std::weak_ptr<std::atomic<bool>>  alive;
-        TransferQueue*                    self = nullptr;
-
-        bool Alive() const
-        {
-            const auto a = alive.lock();
-            return a && a->load(std::memory_order_acquire);
-        }
-    };
-
-    CallbackContext Context();
-
     // Advances the queue: starts the next non-terminal job, or reports idle.
     void Pump();
 
@@ -210,7 +180,7 @@ private:
     void NotifyChanged(JobId id);
 
     transport::IRemoteFileSystem& remote_;
-    Dispatcher                    dispatch_;
+    DispatchGuard                 guard_;
     ConflictPrompt                prompt_;
     ITransferQueueListener*       listener_ = nullptr;
 
@@ -221,10 +191,6 @@ private:
 
     // Transport handle for the in-flight transfer, so CancelJob can reach it.
     transport::TransferHandle activeHandle_ = transport::kInvalidTransferHandle;
-
-    // Cleared on destruction; callbacks in flight check it before touching
-    // this object. Shared rather than owned so a callback can hold a weak ref.
-    std::shared_ptr<std::atomic<bool>> alive_;
 };
 
 // Builds the nth alternative name for a colliding file: "notes.txt" becomes

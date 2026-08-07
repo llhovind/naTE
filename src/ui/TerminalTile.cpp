@@ -598,6 +598,20 @@ void TerminalTile::OnShowTileMenu()
     }, broadcastItem->GetId());
 
     menu.AppendSeparator();
+    // Read the capability off the active tab at menu-build time rather than
+    // caching a copy, so the item can never be stale.
+    const term::session::SessionId activeId = GetActiveSessionId();
+    const auto activeTab = std::find_if(
+        tabs_.begin(), tabs_.end(),
+        [activeId](const TabEntry& e) { return e.sessionId == activeId; });
+
+    auto* explorerItem = menu.Append(wxID_ANY, "File Explorer...");
+    explorerItem->Enable(activeTab != tabs_.end() && activeTab->supportsFileTransfer);
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        EmitTileAction(TileAction::OpenFileExplorer, GetActiveSessionId());
+    }, explorerItem->GetId());
+
+    menu.AppendSeparator();
     auto* newWindowItem = menu.Append(wxID_ANY, "Move to New Window");
     menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         EmitTileAction(TileAction::MoveAllToNewWindow, 0);

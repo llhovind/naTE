@@ -164,6 +164,16 @@ bool App::OnInit() {
 
     m_remoteEditManager = std::make_unique<ui::RemoteEditManager>(*m_sessionManager);
 
+    // Routes "open in editor" from the explorer back through the same
+    // remote-edit workflow the Terminal menu uses, so there is one
+    // implementation of "edit this remote file", not two.
+    m_fileExplorerManager = std::make_unique<ui::FileExplorerManager>(
+        *m_sessionManager, m_cfg,
+        [this](term::session::SessionId id, std::string remotePath) {
+            if (WindowContext* wc = FindContextForSession(id); wc && wc->uiManager)
+                wc->uiManager->OpenRemoteFileInEditor(id, remotePath);
+        });
+
     const std::string restorePath = InstanceRestorePath(m_instanceId);
     m_restoreRepo = std::make_unique<term::db::JsonSessionRestoreRepository>(restorePath);
     m_namedRepo   = std::make_unique<term::db::JsonNamedWorkspaceRepository>(NateDir() + "/workspaces");
@@ -268,6 +278,7 @@ MainFrame* App::CreateNewWindow()
 
     frame->SetUIManager(wc->uiManager.get());
     wc->uiManager->SetRemoteEditManager(m_remoteEditManager.get());
+    wc->uiManager->SetFileExplorerManager(m_fileExplorerManager.get());
 
     wc->uiManager->SetOnGridEmptyCallback([this, mgr = wc->uiManager.get(), frame]() {
         if (m_globalCloseInProgress)
@@ -296,7 +307,8 @@ MainFrame* App::CreateNewWindow()
     });
 
     wc->uiManager->SetOnSessionDestroyedCallback([this](term::session::SessionId id) {
-        if (m_remoteEditManager) m_remoteEditManager->OnSessionDestroyed(id);
+        if (m_remoteEditManager)    m_remoteEditManager->OnSessionDestroyed(id);
+        if (m_fileExplorerManager)  m_fileExplorerManager->OnSessionDestroyed(id);
     });
 
     wc->uiManager->SetSavePortForwardToProfileCallback(
@@ -570,6 +582,10 @@ void App::ApplyPreferences(const AppConfig& cfg)
         if (wc->uiManager) wc->uiManager->UpdateConfig(m_cfg);
         if (wc->frame)     wc->frame->UpdateConfig(m_cfg);
     }
+
+    // Explorer windows are app-global, not per-window, so they are updated
+    // once rather than inside the loop above.
+    if (m_fileExplorerManager) m_fileExplorerManager->UpdateConfig(m_cfg);
 }
 
 bool App::HasRestoreState() const

@@ -171,6 +171,9 @@ set(SOURCES
     src/ui/MainFrame.cpp
     src/ui/NewConnectionDialog.cpp
     src/ui/ConnectionManagerDialog.cpp
+    src/ui/FileExplorerFrame.cpp
+    src/ui/FileExplorerManager.cpp
+    src/ui/FilePropertiesDialog.cpp
     src/ui/TransferFilesDialog.cpp
     src/ui/KbdIntDialog.cpp
     src/ui/PasteConfirmDialog.cpp
@@ -198,6 +201,7 @@ set(SOURCES
     src/fs/RemotePath.cpp
     src/fs/DirModel.cpp
     src/fs/TransferQueue.cpp
+    src/fs/ExplorerController.cpp
     src/layout/DocLayout.cpp
     src/layout/UrlScanner.cpp
     src/layout/WordSelector.cpp

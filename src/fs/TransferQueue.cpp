@@ -65,22 +65,12 @@ std::string MakeUniqueCandidate(const std::string& name, int attempt)
 TransferQueue::TransferQueue(transport::IRemoteFileSystem& remote,
                              Dispatcher dispatch)
     : remote_(remote)
-    , dispatch_(std::move(dispatch))
-    , alive_(std::make_shared<std::atomic<bool>>(true))
+    , guard_(std::move(dispatch))
 {}
 
-TransferQueue::~TransferQueue()
-{
-    // Callbacks still held by the transport check this before touching us.
-    // Destruction must therefore happen on the owning thread, which is the
-    // same thread the dispatcher posts to.
-    alive_->store(false, std::memory_order_release);
-}
-
-TransferQueue::CallbackContext TransferQueue::Context()
-{
-    return CallbackContext{dispatch_, alive_, this};
-}
+// Callbacks still held by the transport check the guard before touching us,
+// so destruction must happen on the same thread the dispatcher posts to.
+TransferQueue::~TransferQueue() = default;
 
 // ---------------------------------------------------------------------------
 // Enqueueing
@@ -152,7 +142,7 @@ void TransferQueue::EnqueueDownloadTree(
     // Declared as a shared_ptr to a std::function so each step can re-enter it
     // without the recursion being visible in the type.
     auto step = std::make_shared<std::function<void()>>();
-    auto ctx  = Context();
+    auto ctx  = guard_.For(this);
 
     *step = [this, ctx, walk, step]() {
         if (walk->pending.empty()) {
@@ -173,11 +163,9 @@ void TransferQueue::EnqueueDownloadTree(
         remote_.List(dir.remote,
             [ctx, walk, step, dir](std::vector<transport::FileInfo> entries,
                                    transport::FsError err) {
-                ctx.post([ctx, walk, step, dir,
+                ctx.Post([walk, step, dir,
                           entries = std::move(entries),
-                          err = std::move(err)]() mutable {
-                    if (!ctx.Alive()) return;
-
+                          err = std::move(err)](TransferQueue& q) mutable {
                     // A directory that failed outright stops the walk; one
                     // that returned rows alongside an error contributes what
                     // it read and the error is reported at the end.
@@ -200,7 +188,7 @@ void TransferQueue::EnqueueDownloadTree(
                                 walk->pending.push_back(
                                     {remoteChild, localChild, dir.depth + 1});
                         } else {
-                            ctx.self->EnqueueDownload(remoteChild, localChild, e.size);
+                            q.EnqueueDownload(remoteChild, localChild, e.size);
                         }
                     }
                     (*step)();
@@ -282,7 +270,7 @@ void TransferQueue::EnqueueUploadTree(
     walk->onExpanded = std::move(onExpanded);
 
     auto step = std::make_shared<std::function<void()>>();
-    auto ctx  = Context();
+    auto ctx  = guard_.For(this);
 
     *step = [this, ctx, walk, step]() {
         while (walk->index < walk->entries.size()) {
@@ -300,8 +288,7 @@ void TransferQueue::EnqueueUploadTree(
             ++walk->index;
             remote_.MakeDirectory(remotePath, 0755,
                 [ctx, step](transport::FsError err) {
-                    ctx.post([ctx, step, err = std::move(err)]() mutable {
-                        if (!ctx.Alive()) return;
+                    ctx.Post([step, err = std::move(err)](TransferQueue&) mutable {
                         // A directory that is already there is not a failure —
                         // it is the normal case when merging into an existing
                         // tree. Any other error is left for the file transfers
@@ -371,25 +358,21 @@ void TransferQueue::BeginJob(JobId id)
         // It is still posted rather than used inline: a run of skipped jobs
         // would otherwise recurse once per job and could exhaust the stack.
         const bool exists = LocalExists(job->destPath);
-        auto ctx = Context();
-        ctx.post([ctx, id, exists] {
-            if (!ctx.Alive()) return;
-            ctx.self->OnConflictKnown(id, exists);
+        guard_.For(this).Post([id, exists](TransferQueue& q) {
+            q.OnConflictKnown(id, exists);
         });
         return;
     }
 
-    auto ctx = Context();
-    const std::string dest = job->destPath;
-    remote_.Stat(dest, [ctx, id](transport::FileInfo, transport::FsError err) {
-        ctx.post([ctx, id, err = std::move(err)]() mutable {
-            if (!ctx.Alive()) return;
+    auto ctx = guard_.For(this);
+    remote_.Stat(job->destPath, [ctx, id](transport::FileInfo, transport::FsError err) {
+        ctx.Post([id, err = std::move(err)](TransferQueue& q) mutable {
             // Only a definitive "not there" counts as no conflict. Any other
             // error (a permission problem on the parent, say) is left to the
             // transfer itself to report against the real operation, rather
             // than being second-guessed here.
             const bool exists = !(err.code == transport::FsErrorCode::NoSuchFile);
-            ctx.self->OnConflictKnown(id, exists);
+            q.OnConflictKnown(id, exists);
         });
     });
 }
@@ -427,11 +410,9 @@ void TransferQueue::OnConflictKnown(JobId id, bool exists)
     job->state = JobState::AwaitingResolution;
     NotifyChanged(id);
 
-    auto ctx = Context();
+    auto ctx = guard_.For(this);
     prompt_(*job, [ctx, id](ConflictResolution resolution, bool applyToAll) {
-        ctx.post([ctx, id, resolution, applyToAll] {
-            if (!ctx.Alive()) return;
-            TransferQueue& q = *ctx.self;
+        ctx.Post([id, resolution, applyToAll](TransferQueue& q) {
             TransferJob* j = q.Find(id);
             // The job may have been cancelled while the prompt was open.
             if (!j || j->state != JobState::AwaitingResolution) return;
@@ -485,12 +466,11 @@ void TransferQueue::ResolveFreeName(JobId id, int attempt)
         path::Join(path::Parent(job->destPath),
                    MakeUniqueCandidate(path::Leaf(job->destPath), attempt));
 
-    auto ctx = Context();
+    auto ctx = guard_.For(this);
     remote_.Stat(candidate,
         [ctx, id, candidate, attempt](transport::FileInfo, transport::FsError err) {
-            ctx.post([ctx, id, candidate, attempt, err = std::move(err)]() mutable {
-                if (!ctx.Alive()) return;
-                TransferQueue& q = *ctx.self;
+            ctx.Post([id, candidate, attempt,
+                      err = std::move(err)](TransferQueue& q) mutable {
                 if (err.code != transport::FsErrorCode::NoSuchFile) {
                     q.ResolveFreeName(id, attempt + 1);
                     return;
@@ -512,17 +492,13 @@ void TransferQueue::StartTransfer(JobId id)
     job->state = JobState::Active;
     NotifyChanged(id);
 
-    auto ctx = Context();
+    auto ctx = guard_.For(this);
     const auto onProgress = [ctx, id](uint64_t done, uint64_t total) {
-        ctx.post([ctx, id, done, total] {
-            if (!ctx.Alive()) return;
-            ctx.self->OnProgress(id, done, total);
-        });
+        ctx.Post([id, done, total](TransferQueue& q) { q.OnProgress(id, done, total); });
     };
     const auto onDone = [ctx, id](transport::FsError err) {
-        ctx.post([ctx, id, err = std::move(err)]() mutable {
-            if (!ctx.Alive()) return;
-            ctx.self->OnTransferDone(id, std::move(err));
+        ctx.Post([id, err = std::move(err)](TransferQueue& q) mutable {
+            q.OnTransferDone(id, std::move(err));
         });
     };
 

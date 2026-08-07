@@ -51,6 +51,7 @@ namespace {
     constexpr int ID_TILE_LAYOUT_ROW_FIRST   = wxID_HIGHEST + 35;
     constexpr int ID_TILE_LAYOUT_COL_FIRST   = wxID_HIGHEST + 36;
     constexpr int ID_EDIT_REMOTE_FILE        = wxID_HIGHEST + 37;
+    constexpr int ID_FILE_EXPLORER           = wxID_HIGHEST + 38;
 
     static bool IsValidWorkspaceName(const std::string& s)
     {
@@ -162,15 +163,20 @@ MainFrame::MainFrame(const AppConfig& cfg,
     termMenu->AppendSeparator();
     termMenu->Append(ID_TRANSFER_FILES,          "Transfer Files...");
     termMenu->Append(ID_EDIT_REMOTE_FILE,        "Edit Remote File...");
+    termMenu->Append(ID_FILE_EXPLORER,           "File Explorer...");
     Bind(wxEVT_MENU, &MainFrame::OnSaveSessionFileTerminal, this, ID_SAVE_SESSION_FILE_TERM);
     Bind(wxEVT_MENU, &MainFrame::OnTransferFiles,           this, ID_TRANSFER_FILES);
     Bind(wxEVT_MENU, &MainFrame::OnEditRemoteFile,          this, ID_EDIT_REMOTE_FILE);
+    Bind(wxEVT_MENU, &MainFrame::OnFileExplorer,            this, ID_FILE_EXPLORER);
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
         e.Enable(m_uiManager && m_uiManager->AnySessionSupportsFileTransfer());
     }, ID_TRANSFER_FILES);
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
         e.Enable(m_uiManager && m_uiManager->ActiveSessionSupportsFileTransfer());
     }, ID_EDIT_REMOTE_FILE);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
+        e.Enable(m_uiManager && m_uiManager->ActiveSessionSupportsFileTransfer());
+    }, ID_FILE_EXPLORER);
 
     termMenu->AppendSeparator();
     termMenu->Append(ID_OPEN_IN_NEW_TILE,        "Move to New Tile");
@@ -567,6 +573,11 @@ void MainFrame::OnTransferFiles(wxCommandEvent&)
 void MainFrame::OnEditRemoteFile(wxCommandEvent&)
 {
     if (m_uiManager) m_uiManager->EditRemoteFileForActive();
+}
+
+void MainFrame::OnFileExplorer(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->OpenFileExplorerForActive();
 }
 
 void MainFrame::OnOpenInNewTile(wxCommandEvent&)

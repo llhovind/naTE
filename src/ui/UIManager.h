@@ -103,8 +103,19 @@ public:
     void EditRemoteFileForActive();
     void EditRemoteFileForSession(term::session::SessionId id);
 
+    // Launches the remote-edit workflow for an already-chosen path. Shared by
+    // the Terminal menu (which picks the path with a browser dialog) and the
+    // file explorer (which already has one).
+    void OpenRemoteFileInEditor(term::session::SessionId id,
+                                const std::string& remotePath);
+
+    // Open the file explorer window for a session (SSH only).
+    void OpenFileExplorerForSession(term::session::SessionId id);
+    void OpenFileExplorerForActive();
+
     // Called by App after RemoteEditManager construction.
     void SetRemoteEditManager(class RemoteEditManager* mgr) { editMgr_ = mgr; }
+    void SetFileExplorerManager(class FileExplorerManager* mgr) { explorerMgr_ = mgr; }
 
     // Returns true when the active session supports remote file transfer (SSH).
     bool ActiveSessionSupportsFileTransfer() const;
@@ -302,6 +313,7 @@ private:
     term::input::InputRouter&      router_;
     MainFrame*                     frame_;
     class RemoteEditManager*       editMgr_ = nullptr;
+    class FileExplorerManager*     explorerMgr_ = nullptr;
     AppConfig                      cfg_;
     TerminalGrid*                  grid_ = nullptr;
 

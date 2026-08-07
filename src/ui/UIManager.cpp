@@ -5,6 +5,7 @@
 #include "ui/ResetAndClearDialog.h"
 #include "app/App.h"
 #include "ui/TransferFilesDialog.h"
+#include "ui/FileExplorerManager.h"
 #include "ui/RemoteEditManager.h"
 #include "ui/RemoteFileBrowserDialog.h"
 #include "ui/KbdIntDialog.h"
@@ -547,7 +548,14 @@ void UIManager::EditRemoteFileForSession(term::session::SessionId id)
 
     const auto& paths = dlg.GetSelectedPaths();
     if (paths.empty()) return;
-    const std::string remotePath = paths.front();
+
+    OpenRemoteFileInEditor(id, paths.front());
+}
+
+void UIManager::OpenRemoteFileInEditor(term::session::SessionId id,
+                                       const std::string& remotePath)
+{
+    if (!editMgr_ || !id) return;
 
     std::string editorCommand = cfg_.remoteEditorCommand;
     if (editorCommand.empty()) {
@@ -570,6 +578,17 @@ void UIManager::EditRemoteFileForSession(term::session::SessionId id)
                              "Edit Remote File", wxOK | wxICON_ERROR, frame_);
             }
         });
+}
+
+void UIManager::OpenFileExplorerForSession(term::session::SessionId id)
+{
+    if (!explorerMgr_ || !id) return;
+    explorerMgr_->OpenForSession(frame_, id);
+}
+
+void UIManager::OpenFileExplorerForActive()
+{
+    OpenFileExplorerForSession(activeId_);
 }
 
 void UIManager::EditRemoteFileForActive()
@@ -914,6 +933,9 @@ void UIManager::OnTileAction(TileActionEvent& evt)
             });
             break;
         }
+        case TileAction::OpenFileExplorer:
+            OpenFileExplorerForSession(evt.GetSessionId());
+            break;
         case TileAction::MoveAllToNewWindow: {
             TerminalTile* tile = evt.GetTile();
             std::vector<term::session::SessionId> ids;

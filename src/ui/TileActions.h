@@ -14,6 +14,7 @@ enum class TileAction {
     MoveToNewTile,      // move one tab's session to a new tile in the current window
     MoveToNewWindow,    // move one tab's session to a new window
     MoveAllToNewWindow, // move all sessions in this tile to a new window
+    OpenFileExplorer,   // open the remote file explorer for the active session
 };
 
 class TileActionEvent;
