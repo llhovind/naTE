@@ -1,5 +1,5 @@
 #pragma once
-#include "transport/Transport.hpp"   // RemoteDirEntry
+#include "transport/IRemoteFileSystem.h"
 
 #include <atomic>
 #include <chrono>
@@ -8,6 +8,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 struct _LIBSSH2_SESSION;
@@ -15,41 +16,52 @@ struct _LIBSSH2_SFTP;
 
 namespace term::transport {
 
-// Owns the lazily-initialised SFTP subsystem and the cooperative task queue.
-// File operations are submitted from the UI thread (enqueue methods touch only
+// SFTP adapter for IRemoteFileSystem: owns the lazily-initialised SFTP
+// subsystem and the cooperative task queue.
+//
+// Operations are submitted from the UI thread (the enqueue methods touch only
 // the queue under queueMutex_) and advanced one non-blocking step per
 // worker-loop iteration via Service(). Everything else is worker-thread-only.
 //
 // The session pointer is bound by reference: the transport creates the libssh2
 // session on the worker thread after this object is constructed, so the service
 // reads the live value rather than a stale snapshot.
-class SftpService {
+class SftpService final : public IRemoteFileSystem {
 public:
     SftpService(_LIBSSH2_SESSION*& session, const std::atomic<bool>& running);
 
     SftpService(const SftpService&)            = delete;
     SftpService& operator=(const SftpService&) = delete;
 
-    // --- UI-thread enqueue API (1:1 with the Transport SFTP methods) ---------
-    // SendFile/ReceiveFile derive the leaf filename and join it to the target
-    // directory; the *ToPath / *FromPath variants take exact remote/local paths.
-    void SendFile(const std::string& localPath, const std::string& remoteDir,
-                  std::function<void(bool, std::string)> onDone);
-    void ReceiveFile(const std::string& remotePath, const std::string& localDir,
-                     std::function<void(bool, std::string)> onDone);
-    void ListRemoteDirectory(
-        const std::string& remotePath,
-        std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone);
-    void DownloadToPath(const std::string& remotePath, const std::string& localPath,
-                        std::function<void(bool, std::string)> onDone);
-    void UploadFromPath(const std::string& localPath, const std::string& remotePath,
-                        std::function<void(bool, std::string)> onDone);
+    // --- IRemoteFileSystem (UI-thread safe; callbacks fire on the worker) ----
+    void List(const std::string& path, ListCallback onDone) override;
+    void RealPath(const std::string& path, PathCallback onDone) override;
+    void Stat(const std::string& path, StatCallback onDone) override;
+    void ReadLink(const std::string& path, PathCallback onDone) override;
+    void MakeDirectory(const std::string& path, uint32_t mode,
+                       DoneCallback onDone) override;
+    void Remove(const std::string& path, bool isDir, DoneCallback onDone) override;
+    void Rename(const std::string& from, const std::string& to,
+                DoneCallback onDone) override;
+    void SetPermissions(const std::string& path, uint32_t mode,
+                        DoneCallback onDone) override;
+    TransferHandle Download(const std::string& remotePath,
+                            const std::string& localPath,
+                            ProgressCallback onProgress,
+                            DoneCallback onDone) override;
+    TransferHandle Upload(const std::string& localPath,
+                          const std::string& remotePath,
+                          ProgressCallback onProgress,
+                          DoneCallback onDone) override;
+    void Cancel(TransferHandle handle) override;
 
     // --- Worker-thread API ---------------------------------------------------
-    // Advances the front task by one step; re-queues it if it returns true.
+    // Advances the front task by one step, then moves it to the back of the
+    // queue if it has more work. Round-robin rather than run-to-completion:
+    // a large transfer must not stall directory listings behind it.
     void Service();
     // Drains the queue, invoking each task once so it self-cancels (sees
-    // !running_ and fires onDone(false, "Session closed")). Call after clearing
+    // !running_ and reports FsErrorCode::NotConnected). Call after clearing
     // running_ during teardown.
     void CancelPending();
     // libssh2_sftp_shutdown if initialised; idempotent. Safe to call twice
@@ -60,6 +72,9 @@ private:
     struct ListDirTask;
     struct DownloadTask;
     struct UploadTask;
+    struct SimpleOpTask;
+    struct PathOpTask;
+    struct StatTask;
 
     using Task = std::function<bool()>;
 
@@ -73,7 +88,20 @@ private:
     // the channel but never complete the SFTP handshake (e.g. a missing
     // sftp-server binary), where libssh2_sftp_init would otherwise spin on
     // EAGAIN forever and the transfer would hang with no error surfaced.
-    InitResult EnsureSftp(std::string& err);
+    InitResult EnsureSftp(FsError& err);
+
+    // Worker-thread only. Translates the current libssh2/SFTP error state into
+    // a typed FsError, prefixing message with context.
+    FsError MakeError(const std::string& context) const;
+
+    // Enqueues an already-wrapped task. Thread-safe.
+    void Enqueue(Task task);
+
+    // Cancellation registry. Cancel() records a handle here; transfer tasks
+    // poll it each step and retire themselves. Kept separate from the queue so
+    // cancelling never has to walk or mutate in-flight tasks.
+    bool IsCancelled(TransferHandle handle) const;
+    void ForgetCancellation(TransferHandle handle);
 
     _LIBSSH2_SESSION*&       session_;
     const std::atomic<bool>& running_;
@@ -82,6 +110,10 @@ private:
     std::deque<Task>         queue_;
     // Set on the first EAGAIN of an init attempt; cleared once it resolves.
     std::optional<std::chrono::steady_clock::time_point> initDeadline_;
+
+    std::atomic<TransferHandle>      nextHandle_{1};
+    mutable std::mutex               cancelMutex_;
+    std::unordered_set<TransferHandle> cancelled_;
 };
 
 } // namespace term::transport

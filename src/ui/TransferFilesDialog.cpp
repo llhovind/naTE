@@ -1,5 +1,6 @@
 #include "ui/TransferFilesDialog.h"
 #include "ui/RemoteFileBrowserDialog.h"
+#include "ui/StringUtils.h"
 
 #include <wx/app.h>
 #include <wx/dirdlg.h>
@@ -274,20 +275,20 @@ void TransferFilesDialog::TransferNext()
     const term::session::SessionId dstId = SelectedDstId();
 
     std::weak_ptr<std::atomic<bool>> weakAlive = alive_;
-    const auto callback = [this, weakAlive, idx](bool success, std::string error) {
+    const auto callback = [this, weakAlive, idx](term::transport::FsError error) {
         wxTheApp->CallAfter(
-            [this, weakAlive, success, idx, err = std::move(error)]() mutable {
+            [this, weakAlive, idx, err = std::move(error)]() mutable {
             auto alive = weakAlive.lock();
             if (!alive || !alive->load(std::memory_order_acquire))
                 return;
-            if (!success) {
+            if (err.Failed()) {
                 statusLabel_->SetLabel("Transfer failed.");
                 transferBtn_->Enable();
                 wxMessageBox(
                     wxString::Format("Failed to transfer '%s':\n\n%s",
                                      fileList_->GetString(
                                          static_cast<unsigned int>(idx)),
-                                     wxString::FromUTF8(err)),
+                                     DecodeForDisplay(err.message)),
                     "Transfer Failed", wxOK | wxICON_ERROR, this);
                 return;
             }

@@ -194,6 +194,8 @@ set(SOURCES
     src/ui/DragGhost.cpp
     src/ui/TabStrip.cpp
     src/ui/TerminalGrid.cpp
+    src/fs/FileMode.cpp
+    src/fs/RemotePath.cpp
     src/layout/DocLayout.cpp
     src/layout/UrlScanner.cpp
     src/layout/WordSelector.cpp

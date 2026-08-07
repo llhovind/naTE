@@ -1,6 +1,7 @@
 #include "session/SessionManager.h"
 #include "db/IScrollbackRepository.h"
 #include "db/ScrollbackWriter.h"
+#include "fs/RemotePath.h"
 #include "transport/TransportError.h"
 #include <algorithm>
 #include <chrono>
@@ -373,10 +374,15 @@ SessionStatus SessionManager::GetSessionStatus(SessionId id) const
     return rec ? rec->session->GetStatus() : SessionStatus::Connected;
 }
 
-bool SessionManager::SupportsFileTransfer(SessionId id) const
+transport::IRemoteFileSystem* SessionManager::GetRemoteFileSystem(SessionId id) const
 {
     const SessionRecord* rec = FindRecord(id);
-    return rec && rec->session->SupportsFileTransfer();
+    return rec ? rec->session->GetRemoteFileSystem() : nullptr;
+}
+
+bool SessionManager::SupportsFileTransfer(SessionId id) const
+{
+    return GetRemoteFileSystem(id) != nullptr;
 }
 
 bool SessionManager::SupportsX11Forwarding(SessionId id) const
@@ -437,22 +443,66 @@ std::string SessionManager::GetRemoteDescription(SessionId id) const
     return rec ? rec->session->GetTransportRemoteDescription() : std::string{};
 }
 
+namespace {
+
+// Every wrapper below funnels its "no such session, or no filesystem on it"
+// case through here, so the failure reads identically wherever it surfaces.
+transport::FsError NoFileSystemError()
+{
+    return transport::FsError::Make(transport::FsErrorCode::NotConnected,
+                                    "Session has no remote filesystem");
+}
+
+} // namespace
+
+void SessionManager::ListRemoteDirectory(SessionId id,
+                                         const std::string& remotePath,
+                                         transport::ListCallback onDone)
+{
+    transport::IRemoteFileSystem* fs = GetRemoteFileSystem(id);
+    if (!fs) { onDone({}, NoFileSystemError()); return; }
+    fs->List(remotePath, std::move(onDone));
+}
+
+void SessionManager::DownloadFile(SessionId id,
+                                  const std::string& remotePath,
+                                  const std::string& localPath,
+                                  transport::DoneCallback onDone)
+{
+    transport::IRemoteFileSystem* fs = GetRemoteFileSystem(id);
+    if (!fs) { onDone(NoFileSystemError()); return; }
+    fs->Download(remotePath, localPath, nullptr, std::move(onDone));
+}
+
+void SessionManager::UploadFile(SessionId id,
+                                const std::string& localPath,
+                                const std::string& remotePath,
+                                transport::DoneCallback onDone)
+{
+    transport::IRemoteFileSystem* fs = GetRemoteFileSystem(id);
+    if (!fs) { onDone(NoFileSystemError()); return; }
+    fs->Upload(localPath, remotePath, nullptr, std::move(onDone));
+}
+
 void SessionManager::SendFile(SessionId id,
                               const std::string& localPath,
                               const std::string& remoteDir,
-                              std::function<void(bool, std::string)> onDone)
+                              transport::DoneCallback onDone)
 {
-    SessionRecord* rec = FindRecord(id);
-    if (rec) rec->session->SendFile(localPath, remoteDir, std::move(onDone));
+    // Each side keeps its own path rules: std::filesystem for the local leaf,
+    // POSIX arithmetic for the remote join.
+    const std::string leaf = std::filesystem::path(localPath).filename().string();
+    UploadFile(id, localPath, fs::path::Join(remoteDir, leaf), std::move(onDone));
 }
 
 void SessionManager::ReceiveFile(SessionId id,
                                  const std::string& remotePath,
                                  const std::string& localDir,
-                                 std::function<void(bool, std::string)> onDone)
+                                 transport::DoneCallback onDone)
 {
-    SessionRecord* rec = FindRecord(id);
-    if (rec) rec->session->ReceiveFile(remotePath, localDir, std::move(onDone));
+    const std::string leaf  = fs::path::Leaf(remotePath);
+    const std::string local = (std::filesystem::path(localDir) / leaf).string();
+    DownloadFile(id, remotePath, local, std::move(onDone));
 }
 
 void SessionManager::TransferFileBetweenSessions(
@@ -460,29 +510,29 @@ void SessionManager::TransferFileBetweenSessions(
     const std::string& srcPath,
     SessionId          dstId,
     const std::string& dstDir,
-    std::function<void(bool, std::string)> onDone)
+    transport::DoneCallback onDone)
 {
-    // Local → Remote
+    // Local -> Remote
     if (srcId == 0) {
         SendFile(dstId, srcPath, dstDir, std::move(onDone));
         return;
     }
-    // Remote → Local
+    // Remote -> Local
     if (dstId == 0) {
         ReceiveFile(srcId, srcPath, dstDir, std::move(onDone));
         return;
     }
-    // Remote → Remote: download to temp, upload, then clean up.
+    // Remote -> Remote: download to temp, upload, then clean up.
     std::filesystem::path tempDir;
     try {
-        tempDir = std::filesystem::temp_directory_path() / "nate_xfer_XXXXXXXX";
-        // Replace the X's with a unique suffix.
-        tempDir = std::filesystem::path(
-            std::string(tempDir) + std::to_string(
-                std::chrono::steady_clock::now().time_since_epoch().count()));
+        tempDir = std::filesystem::temp_directory_path() /
+                  ("nate_xfer_" + std::to_string(
+                      std::chrono::steady_clock::now().time_since_epoch().count()));
         std::filesystem::create_directories(tempDir);
     } catch (const std::exception& ex) {
-        onDone(false, std::string("Failed to create temp directory: ") + ex.what());
+        onDone(transport::FsError::Make(
+            transport::FsErrorCode::LocalIoError,
+            std::string("Failed to create temp directory: ") + ex.what()));
         return;
     }
 
@@ -490,52 +540,33 @@ void SessionManager::TransferFileBetweenSessions(
 
     ReceiveFile(srcId, srcPath, tempDirStr,
         [this, dstId, dstDir, tempDirStr, srcPath,
-         onDone = std::move(onDone)](bool ok, std::string err) mutable {
+         onDone = std::move(onDone)](transport::FsError err) mutable {
 
-            if (!ok) {
-                std::filesystem::remove_all(tempDirStr);
-                onDone(false, std::move(err));
+            // Best-effort cleanup: the transfer's own outcome is what the
+            // caller asked about, so a failure to remove the scratch directory
+            // must not overwrite it.
+            const auto cleanup = [&tempDirStr] {
+                std::error_code ec;
+                std::filesystem::remove_all(tempDirStr, ec);
+            };
+
+            if (err.Failed()) {
+                cleanup();
+                onDone(std::move(err));
                 return;
             }
 
-            const std::string filename =
-                std::filesystem::path(srcPath).filename().string();
+            const std::string leaf = fs::path::Leaf(srcPath);
             const std::string tempFile =
-                (std::filesystem::path(tempDirStr) / filename).string();
+                (std::filesystem::path(tempDirStr) / leaf).string();
 
             SendFile(dstId, tempFile, dstDir,
-                [tempDirStr, onDone = std::move(onDone)](bool ok2, std::string err2) {
-                    std::filesystem::remove_all(tempDirStr);
-                    onDone(ok2, std::move(err2));
+                [tempDirStr, onDone = std::move(onDone)](transport::FsError err2) {
+                    std::error_code ec;
+                    std::filesystem::remove_all(tempDirStr, ec);
+                    onDone(std::move(err2));
                 });
         });
-}
-
-void SessionManager::ListRemoteDirectory(
-    SessionId id,
-    const std::string& remotePath,
-    std::function<void(std::vector<transport::RemoteDirEntry>, std::string)> onDone)
-{
-    SessionRecord* rec = FindRecord(id);
-    if (rec) rec->session->ListRemoteDirectory(remotePath, std::move(onDone));
-}
-
-void SessionManager::SftpDownloadFile(SessionId id,
-                                      const std::string& remotePath,
-                                      const std::string& localPath,
-                                      std::function<void(bool, std::string)> onDone)
-{
-    SessionRecord* rec = FindRecord(id);
-    if (rec) rec->session->SftpDownloadFile(remotePath, localPath, std::move(onDone));
-}
-
-void SessionManager::SftpUploadFile(SessionId id,
-                                    const std::string& localPath,
-                                    const std::string& remotePath,
-                                    std::function<void(bool, std::string)> onDone)
-{
-    SessionRecord* rec = FindRecord(id);
-    if (rec) rec->session->SftpUploadFile(localPath, remotePath, std::move(onDone));
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "session/SessionManager.h"
-#include "transport/Transport.hpp"
+#include "transport/IRemoteFileSystem.h"
 
 #include <string>
 #include <vector>
@@ -33,7 +33,7 @@ public:
 
 private:
     void Navigate(const std::string& path);
-    void PopulateList(const std::vector<term::transport::RemoteDirEntry>& entries);
+    void PopulateList(const std::vector<term::transport::FileInfo>& entries);
     std::string FullPath(const std::string& name) const;
     std::string ParentPath() const;
 
@@ -53,7 +53,7 @@ private:
 
     BrowseMode  mode_;
     std::string currentPath_;
-    std::vector<term::transport::RemoteDirEntry> currentEntries_;
+    std::vector<term::transport::FileInfo> currentEntries_;
     std::vector<std::string> selectedPaths_;
 
     bool loading_ = false;

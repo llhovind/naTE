@@ -38,18 +38,18 @@ void RemoteEditManager::OpenRemoteFile(term::session::SessionId  id,
     }
 
     std::weak_ptr<std::atomic<bool>> weakAlive = alive_;
-    sm_.SftpDownloadFile(id, remotePath, localPath,
+    sm_.DownloadFile(id, remotePath, localPath,
         [this, weakAlive, id, remotePath, localPath, editorCommand, onReady = std::move(onReady)]
-        (bool ok, std::string err) mutable {
+        (term::transport::FsError err) mutable {
             wxTheApp->CallAfter(
                 [this, weakAlive, id, remotePath, localPath, editorCommand,
-                 ok, err = std::move(err), onReady = std::move(onReady)]() mutable {
+                 err = std::move(err), onReady = std::move(onReady)]() mutable {
                     auto alive = weakAlive.lock();
                     if (!alive || !alive->load(std::memory_order_acquire))
                         return;
 
-                    if (!ok) {
-                        if (onReady) onReady(false, err);
+                    if (err.Failed()) {
+                        if (onReady) onReady(false, err.message);
                         return;
                     }
 

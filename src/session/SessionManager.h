@@ -128,6 +128,11 @@ public:
 
     SessionStatus GetSessionStatus(SessionId id) const;
 
+    // The session's remote filesystem, or nullptr when the transport has none
+    // (PTY, Serial, Loopback) or the id is unknown.
+    transport::IRemoteFileSystem* GetRemoteFileSystem(SessionId id) const;
+
+    // Convenience over GetRemoteFileSystem() for UI enable/disable checks.
     bool        SupportsFileTransfer(SessionId id)    const;
     bool        SupportsX11Forwarding(SessionId id)   const;
     bool        IsX11ForwardingActive(SessionId id)   const;
@@ -142,14 +147,46 @@ public:
     std::vector<transport::PortForwardStatus> GetPortForwardStatus(SessionId id) const;
     std::vector<transport::PortForwardDesc>   GetPortForwardDescs(SessionId id)  const;
     std::string GetRemoteDescription(SessionId id) const;
+
+    // -------------------------------------------------------------------------
+    // Remote filesystem conveniences
+    //
+    // Thin wrappers over GetRemoteFileSystem() that resolve the id and report
+    // FsErrorCode::NotConnected when it names no session with a filesystem, so
+    // callers do not repeat that null check. Everything else — the threading
+    // contract in particular — is IRemoteFileSystem's: callbacks fire on the
+    // transport's worker thread and UI code must marshal via CallAfter.
+    //
+    // The one divergence: the NotConnected path has no worker to defer to, so
+    // its callback runs synchronously, before the call returns. Callers that
+    // marshal to the UI thread are unaffected; callers that mutate state after
+    // the call must not assume the callback has yet to fire.
+    // -------------------------------------------------------------------------
+
+    void        ListRemoteDirectory(SessionId id,
+                                    const std::string& remotePath,
+                                    transport::ListCallback onDone);
+
+    // Exact-path transfers, used by the remote-edit workflow.
+    void        DownloadFile(SessionId id,
+                             const std::string& remotePath,
+                             const std::string& localPath,
+                             transport::DoneCallback onDone);
+    void        UploadFile(SessionId id,
+                           const std::string& localPath,
+                           const std::string& remotePath,
+                           transport::DoneCallback onDone);
+
+    // Directory-targeted transfers: the source's leaf name is joined onto the
+    // destination directory.
     void        SendFile(SessionId id,
-                        const std::string& localPath,
-                        const std::string& remoteDir,
-                        std::function<void(bool, std::string)> onDone);
+                         const std::string& localPath,
+                         const std::string& remoteDir,
+                         transport::DoneCallback onDone);
     void        ReceiveFile(SessionId id,
                             const std::string& remotePath,
                             const std::string& localDir,
-                            std::function<void(bool, std::string)> onDone);
+                            transport::DoneCallback onDone);
 
     // Unified transfer between any two endpoints. Pass SessionId 0 for the
     // local filesystem. Routes to SendFile / ReceiveFile for local↔remote
@@ -159,20 +196,7 @@ public:
                     const std::string& srcPath,
                     SessionId          dstId,
                     const std::string& dstDir,
-                    std::function<void(bool, std::string)> onDone);
-    void        ListRemoteDirectory(
-                    SessionId id,
-                    const std::string& remotePath,
-                    std::function<void(std::vector<transport::RemoteDirEntry>,
-                                       std::string)> onDone);
-    void        SftpDownloadFile(SessionId id,
-                                 const std::string& remotePath,
-                                 const std::string& localPath,
-                                 std::function<void(bool, std::string)> onDone);
-    void        SftpUploadFile(SessionId id,
-                               const std::string& localPath,
-                               const std::string& remotePath,
-                               std::function<void(bool, std::string)> onDone);
+                    transport::DoneCallback onDone);
 
     term::input::InputTarget* GetInputTarget(SessionId id) const;
 

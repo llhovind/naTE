@@ -1,5 +1,9 @@
 #include "ui/RemoteFileBrowserDialog.h"
 
+#include "fs/FileMode.h"
+#include "fs/RemotePath.h"
+#include "ui/StringUtils.h"
+
 #include <algorithm>
 #include <cctype>
 #include <wx/app.h>
@@ -106,21 +110,28 @@ void RemoteFileBrowserDialog::Navigate(const std::string& path)
     statusLabel_->SetLabel("Loading...");
 
     sm_.ListRemoteDirectory(sessionId_, currentPath_,
-        [this](std::vector<term::transport::RemoteDirEntry> entries, std::string error) {
+        [this](std::vector<term::transport::FileInfo> entries,
+               term::transport::FsError err) {
             wxTheApp->CallAfter([this,
-                                 es  = std::move(entries),
-                                 err = std::move(error)]() mutable {
+                                 es = std::move(entries),
+                                 err = std::move(err)]() mutable {
                 loading_ = false;
-                if (!err.empty()) {
-                    statusLabel_->SetLabel(wxString::Format("Error: %s",
-                                           wxString::FromUTF8(err)));
-                    upBtn_->Enable(currentPath_ != "/");
+                upBtn_->Enable(currentPath_ != "/");
+
+                // A listing that failed partway still returns what it read.
+                // Showing those entries beside the error beats discarding
+                // them, so only a completely empty failure is fatal here.
+                if (err.Failed() && es.empty()) {
+                    statusLabel_->SetLabel(
+                        wxString::Format("Error: %s",
+                                         DecodeForDisplay(err.message)));
                     return;
                 }
+
                 currentEntries_ = std::move(es);
                 std::sort(currentEntries_.begin(), currentEntries_.end(),
-                    [](const term::transport::RemoteDirEntry& a,
-                       const term::transport::RemoteDirEntry& b) {
+                    [](const term::transport::FileInfo& a,
+                       const term::transport::FileInfo& b) {
                         if (a.isDir != b.isDir) return a.isDir > b.isDir;
                         std::string la = a.name, lb = b.name;
                         for (auto& c : la) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -128,7 +139,13 @@ void RemoteFileBrowserDialog::Navigate(const std::string& path)
                         return la < lb;
                     });
                 PopulateList(currentEntries_);
-                upBtn_->Enable(currentPath_ != "/");
+
+                if (err.Failed())
+                    statusLabel_->SetLabel(
+                        wxString::Format("%zu item(s) - partial: %s",
+                                         currentEntries_.size(),
+                                         DecodeForDisplay(err.message)));
+
                 if (mode_ == BrowseMode::Directory)
                     addBtn_->Enable();
             });
@@ -136,37 +153,34 @@ void RemoteFileBrowserDialog::Navigate(const std::string& path)
 }
 
 void RemoteFileBrowserDialog::PopulateList(
-    const std::vector<term::transport::RemoteDirEntry>& entries)
+    const std::vector<term::transport::FileInfo>& entries)
 {
     fileList_->DeleteAllItems();
     for (const auto& e : entries) {
         const long idx = fileList_->InsertItem(
             fileList_->GetItemCount(),
-            wxString::FromUTF8(e.isDir ? e.name + "/" : e.name));
+            DecodeForDisplay(e.isDir ? e.name + "/" : e.name));
         fileList_->SetItem(idx, 1,
             e.isDir ? wxString("-") : wxString::Format("%llu",
                 static_cast<unsigned long long>(e.size)));
-        fileList_->SetItem(idx, 2, wxString::FromUTF8(e.permissions));
+        fileList_->SetItem(idx, 2,
+            wxString::FromUTF8(term::fs::FormatPermissions(e.mode)));
     }
-    statusLabel_->SetLabel(wxString::Format("%zu item(s)",
-                                            entries.size()));
+    statusLabel_->SetLabel(wxString::Format("%zu item(s)", entries.size()));
 }
 
 std::string RemoteFileBrowserDialog::FullPath(const std::string& name) const
 {
-    if (currentPath_.empty() || currentPath_.back() == '/')
-        return currentPath_ + name;
-    return currentPath_ + "/" + name;
+    return term::fs::path::Join(currentPath_, name);
 }
 
 std::string RemoteFileBrowserDialog::ParentPath() const
 {
-    const auto& p = currentPath_;
-    if (p == "." || p == "/") return "/";
-    const auto pos = p.rfind('/');
-    if (pos == std::string::npos) return ".";
-    if (pos == 0) return "/";
-    return p.substr(0, pos);
+    // Appending ".." and normalising handles every case uniformly: "/" stays
+    // at the root, an absolute path loses a component, and a relative "."
+    // becomes ".." -- which the server resolves against the login directory.
+    return term::fs::path::Normalise(
+        term::fs::path::Join(currentPath_, ".."));
 }
 
 void RemoteFileBrowserDialog::OnGo(wxCommandEvent&)

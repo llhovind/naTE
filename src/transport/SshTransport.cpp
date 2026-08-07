@@ -1041,52 +1041,9 @@ std::string SshTransport::KnownHostsPath()
     return path;
 }
 
-// ---------------------------------------------------------------------------
-// File send/receive — public interface
-// ---------------------------------------------------------------------------
-
 std::string SshTransport::GetRemoteDescription() const
 {
     return desc_.username + "@" + desc_.host;
-}
-
-// ---------------------------------------------------------------------------
-// SFTP — thin delegation to SftpService (owns the queue + task machines)
-// ---------------------------------------------------------------------------
-
-void SshTransport::SendFile(const std::string& localPath,
-                            const std::string& remoteDir,
-                            std::function<void(bool, std::string)> onDone)
-{
-    sftpService_.SendFile(localPath, remoteDir, std::move(onDone));
-}
-
-void SshTransport::ReceiveFile(const std::string& remotePath,
-                               const std::string& localDir,
-                               std::function<void(bool, std::string)> onDone)
-{
-    sftpService_.ReceiveFile(remotePath, localDir, std::move(onDone));
-}
-
-void SshTransport::ListRemoteDirectory(
-    const std::string& remotePath,
-    std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone)
-{
-    sftpService_.ListRemoteDirectory(remotePath, std::move(onDone));
-}
-
-void SshTransport::SftpDownloadFile(const std::string& remotePath,
-                                    const std::string& localPath,
-                                    std::function<void(bool, std::string)> onDone)
-{
-    sftpService_.DownloadToPath(remotePath, localPath, std::move(onDone));
-}
-
-void SshTransport::SftpUploadFile(const std::string& localPath,
-                                  const std::string& remotePath,
-                                  std::function<void(bool, std::string)> onDone)
-{
-    sftpService_.UploadFromPath(localPath, remotePath, std::move(onDone));
 }
 
 // ---------------------------------------------------------------------------

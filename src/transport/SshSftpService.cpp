@@ -4,7 +4,6 @@
 #include <libssh2.h>
 #include <libssh2_sftp.h>
 
-#include <ctime>
 #include <fstream>
 #include <memory>
 
@@ -17,29 +16,101 @@ namespace {
 // without a working sftp-server fails with a clear message rather than hanging.
 constexpr auto kSftpInitTimeout = std::chrono::seconds(15);
 
-// Formats a POSIX permission bitmask as a "drwxr-xr-x" style string.
-std::string SftpFormatPermissions(unsigned long mode)
+// Minimum gap between progress callbacks for a single transfer. A transfer
+// yields to the poll loop many times a second on a fast link; without this
+// every yield would wake the UI thread for a few kilobytes of movement.
+constexpr auto kProgressInterval = std::chrono::milliseconds(100);
+
+// I/O chunk size for transfers, and the largest filename the server may return.
+constexpr size_t kTransferChunk   = 32768;
+constexpr size_t kMaxFilenameLen  = 512;
+constexpr size_t kMaxLongEntryLen = 1024;
+// Upper bound for a resolved path from realpath/readlink. PATH_MAX on Linux.
+constexpr size_t kMaxPathLen      = 4096;
+
+// Translates an SFTP status code into a typed category. Anything unrecognised
+// stays Protocol so a caller never mistakes an unknown failure for a specific
+// one it knows how to handle.
+FsErrorCode ClassifySftpStatus(unsigned long status)
 {
-    char buf[11];
-    buf[0] = LIBSSH2_SFTP_S_ISDIR(mode) ? 'd' :
-             LIBSSH2_SFTP_S_ISLNK(mode) ? 'l' : '-';
-    const unsigned long bits[9] = {0400, 0200, 0100, 0040, 0020, 0010, 0004, 0002, 0001};
-    const char         chars[3] = {'r', 'w', 'x'};
-    for (int i = 0; i < 9; ++i)
-        buf[1 + i] = (mode & bits[i]) ? chars[i % 3] : '-';
-    buf[10] = '\0';
-    return buf;
+    switch (status) {
+        case LIBSSH2_FX_NO_SUCH_FILE:
+        case LIBSSH2_FX_NO_SUCH_PATH:        return FsErrorCode::NoSuchFile;
+        case LIBSSH2_FX_PERMISSION_DENIED:
+        case LIBSSH2_FX_WRITE_PROTECT:       return FsErrorCode::PermissionDenied;
+        case LIBSSH2_FX_FILE_ALREADY_EXISTS: return FsErrorCode::AlreadyExists;
+        case LIBSSH2_FX_DIR_NOT_EMPTY:       return FsErrorCode::DirectoryNotEmpty;
+        case LIBSSH2_FX_NOT_A_DIRECTORY:     return FsErrorCode::NotADirectory;
+        case LIBSSH2_FX_NO_CONNECTION:
+        case LIBSSH2_FX_CONNECTION_LOST:     return FsErrorCode::NotConnected;
+        default:                             return FsErrorCode::Protocol;
+    }
 }
 
-// Formats a Unix timestamp as "YYYY-MM-DD HH:MM".
-std::string SftpFormatModTime(unsigned long mtime)
+// Copies libssh2 attributes into a FileInfo, honouring the presence flags:
+// a server that omits a field must leave the default in place rather than
+// having a garbage value read out of the union.
+void ApplyAttributes(const LIBSSH2_SFTP_ATTRIBUTES& attrs, FileInfo& info)
 {
-    char buf[32];
-    const time_t t = static_cast<time_t>(mtime);
-    struct tm tm{};
-    localtime_r(&t, &tm);
-    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &tm);
-    return buf;
+    if (attrs.flags & LIBSSH2_SFTP_ATTR_SIZE)
+        info.size = attrs.filesize;
+    if (attrs.flags & LIBSSH2_SFTP_ATTR_UIDGID) {
+        info.uid = static_cast<uint32_t>(attrs.uid);
+        info.gid = static_cast<uint32_t>(attrs.gid);
+    }
+    if (attrs.flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) {
+        info.mode      = static_cast<uint32_t>(attrs.permissions);
+        info.isDir     = LIBSSH2_SFTP_S_ISDIR(attrs.permissions)  != 0;
+        info.isSymlink = LIBSSH2_SFTP_S_ISLNK(attrs.permissions) != 0;
+    }
+    if (attrs.flags & LIBSSH2_SFTP_ATTR_ACMODTIME)
+        info.mtime = static_cast<int64_t>(attrs.mtime);
+}
+
+// Extracts owner and group names from an `ls -l` style long entry:
+//
+//   -rw-r--r--  1 root  wheel  1234 Jan  1 00:00 name
+//                 ^^^^  ^^^^^
+//
+// SFTP attributes carry numeric uid/gid only, so this is the sole source of
+// names. Only fields 2 and 3 are read — both precede the filename, so an entry
+// whose name contains spaces cannot corrupt them. A server that formats its
+// long entry differently simply yields no names, which is why FileInfo treats
+// them as optional rather than assuming they are always present.
+// Deliberately a hand-rolled scan rather than an istringstream: this runs once
+// per directory entry, and a directory with tens of thousands of files should
+// not pay for a stream construction each time.
+void ParseOwnerFromLongEntry(const char* longEntry, FileInfo& info)
+{
+    if (!longEntry || !*longEntry) return;
+
+    // Eight fields is the minimum a well-formed `ls -l` line can have. Stop
+    // there rather than scanning a potentially long filename.
+    constexpr int kMinFields   = 8;
+    constexpr int kOwnerField  = 2;
+    constexpr int kGroupField  = 3;
+
+    const char* p = longEntry;
+    std::string owner, group;
+    int found = 0;
+
+    while (*p && found < kMinFields) {
+        while (*p == ' ' || *p == '\t') ++p;
+        if (!*p) break;
+        const char* start = p;
+        while (*p && *p != ' ' && *p != '\t') ++p;
+
+        if (found == kOwnerField)      owner.assign(start, static_cast<size_t>(p - start));
+        else if (found == kGroupField) group.assign(start, static_cast<size_t>(p - start));
+        ++found;
+    }
+
+    // Only publish names from a line that actually has the expected shape; a
+    // server formatting its long entry differently must yield nothing rather
+    // than two arbitrary tokens.
+    if (found < kMinFields) return;
+    info.owner = std::move(owner);
+    info.group = std::move(group);
 }
 
 } // namespace
@@ -48,6 +119,132 @@ std::string SftpFormatModTime(unsigned long mtime)
 // SFTP task state machines (nested types — have access to SftpService privates)
 // ---------------------------------------------------------------------------
 
+// Shared shape for every operation that issues one libssh2 call returning an
+// int status: mkdir, rmdir, unlink, rename, setstat. The call itself is the
+// only thing that varies, so it is injected rather than duplicated five times.
+struct SftpService::SimpleOpTask {
+    SftpService* svc      = nullptr;
+    bool         initDone = false;
+    std::string  context;
+    // Attribute block for setstat. Lives here rather than in the operation
+    // lambda because libssh2 reads it on every EAGAIN retry, so it must
+    // outlive a single invocation.
+    LIBSSH2_SFTP_ATTRIBUTES attrs{};
+    std::function<int(SimpleOpTask&)> op;
+    DoneCallback onDone;
+
+    bool operator()()
+    {
+        if (!svc->running_) {
+            onDone(FsError::Make(FsErrorCode::NotConnected, "Session closed"));
+            return false;
+        }
+
+        if (!initDone) {
+            FsError err;
+            switch (svc->EnsureSftp(err)) {
+                case InitResult::Pending: return true;
+                case InitResult::Failed:  onDone(std::move(err)); return false;
+                case InitResult::Ready:   break;
+            }
+            initDone = true;
+        }
+
+        const int rc = op(*this);
+        if (rc == LIBSSH2_ERROR_EAGAIN) return true;
+        if (rc < 0) {
+            onDone(svc->MakeError(context));
+            return false;
+        }
+        onDone(FsError::Success());
+        return false;
+    }
+};
+
+// realpath and readlink: same libssh2 entry point, different flag, both
+// returning a resolved path.
+struct SftpService::PathOpTask {
+    SftpService* svc      = nullptr;
+    bool         initDone = false;
+    std::string  path;
+    std::string  context;
+    int          flag = 0;
+    PathCallback onDone;
+
+    bool operator()()
+    {
+        if (!svc->running_) {
+            onDone({}, FsError::Make(FsErrorCode::NotConnected, "Session closed"));
+            return false;
+        }
+
+        if (!initDone) {
+            FsError err;
+            switch (svc->EnsureSftp(err)) {
+                case InitResult::Pending: return true;
+                case InitResult::Failed:  onDone({}, std::move(err)); return false;
+                case InitResult::Ready:   break;
+            }
+            initDone = true;
+        }
+
+        char buf[kMaxPathLen];
+        const int rc = libssh2_sftp_symlink_ex(
+            svc->sftp_, path.c_str(), static_cast<unsigned>(path.size()),
+            buf, static_cast<unsigned>(sizeof(buf)), flag);
+        if (rc == LIBSSH2_ERROR_EAGAIN) return true;
+        if (rc < 0) {
+            onDone({}, svc->MakeError(context));
+            return false;
+        }
+        onDone(std::string(buf, static_cast<size_t>(rc)), FsError::Success());
+        return false;
+    }
+};
+
+struct SftpService::StatTask {
+    SftpService* svc      = nullptr;
+    bool         initDone = false;
+    std::string  path;
+    LIBSSH2_SFTP_ATTRIBUTES attrs{};
+    StatCallback onDone;
+
+    bool operator()()
+    {
+        if (!svc->running_) {
+            onDone({}, FsError::Make(FsErrorCode::NotConnected, "Session closed"));
+            return false;
+        }
+
+        if (!initDone) {
+            FsError err;
+            switch (svc->EnsureSftp(err)) {
+                case InitResult::Pending: return true;
+                case InitResult::Failed:  onDone({}, std::move(err)); return false;
+                case InitResult::Ready:   break;
+            }
+            initDone = true;
+        }
+
+        const int rc = libssh2_sftp_stat_ex(
+            svc->sftp_, path.c_str(), static_cast<unsigned>(path.size()),
+            LIBSSH2_SFTP_STAT, &attrs);
+        if (rc == LIBSSH2_ERROR_EAGAIN) return true;
+        if (rc < 0) {
+            onDone({}, svc->MakeError("Cannot stat '" + path + "'"));
+            return false;
+        }
+
+        // name is deliberately left empty: the caller supplied the path and
+        // already knows the leaf, and deriving it here would make transport/
+        // depend on the path helpers that consume FileInfo.
+        FileInfo info;
+        ApplyAttributes(attrs, info);
+        onDone(std::move(info), FsError::Success());
+        return false;
+    }
+};
+
 struct SftpService::ListDirTask {
     enum class State { InitSftp, OpenDir, ReadLoop };
 
@@ -55,30 +252,37 @@ struct SftpService::ListDirTask {
     State         state = State::InitSftp;
     std::string   path;
     LIBSSH2_SFTP_HANDLE* handle = nullptr;
-    std::vector<RemoteDirEntry> entries;
-    std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone;
+    std::vector<FileInfo> entries;
+    ListCallback  onDone;
 
     ListDirTask() = default;
-    ListDirTask(ListDirTask&&) = default;
-    ListDirTask& operator=(ListDirTask&&) = default;
     ListDirTask(const ListDirTask&) = delete;
     ListDirTask& operator=(const ListDirTask&) = delete;
 
     ~ListDirTask() { if (handle) libssh2_sftp_closedir(handle); }
 
+    // Hands back whatever was read alongside the outcome. A directory that
+    // fails partway is still useful, and discarding it would be a worse lie
+    // than showing it with the error attached.
+    bool Finish(FsError err)
+    {
+        if (handle) { libssh2_sftp_closedir(handle); handle = nullptr; }
+        auto cb   = std::move(onDone);
+        auto ents = std::move(entries);
+        cb(std::move(ents), std::move(err));
+        return false;
+    }
+
     bool operator()()
     {
-        if (!svc->running_) {
-            if (handle) { libssh2_sftp_closedir(handle); handle = nullptr; }
-            onDone({}, "Session closed");
-            return false;
-        }
+        if (!svc->running_)
+            return Finish(FsError::Make(FsErrorCode::NotConnected, "Session closed"));
 
         if (state == State::InitSftp) {
-            std::string err;
+            FsError err;
             switch (svc->EnsureSftp(err)) {
                 case InitResult::Pending: return true;
-                case InitResult::Failed:  onDone({}, std::move(err)); return false;
+                case InitResult::Failed:  return Finish(std::move(err));
                 case InitResult::Ready:   break;
             }
             state = State::OpenDir;
@@ -89,91 +293,100 @@ struct SftpService::ListDirTask {
             if (!h) {
                 if (libssh2_session_last_errno(svc->session_) == LIBSSH2_ERROR_EAGAIN)
                     return true;
-                onDone({}, "Cannot list '" + path + "': " + ssh::LastSshError(svc->session_));
-                return false;
+                return Finish(svc->MakeError("Cannot list '" + path + "'"));
             }
             handle = h;
             state  = State::ReadLoop;
         }
 
         // ReadLoop: drain all available entries this iteration.
-        char namebuf[512];
+        char namebuf[kMaxFilenameLen];
+        char longentry[kMaxLongEntryLen];
         LIBSSH2_SFTP_ATTRIBUTES attrs{};
         while (true) {
+            longentry[0] = '\0';
             const int rc = libssh2_sftp_readdir_ex(
-                handle, namebuf, sizeof(namebuf) - 1, nullptr, 0, &attrs);
+                handle, namebuf, sizeof(namebuf) - 1,
+                longentry, sizeof(longentry) - 1, &attrs);
             if (rc == LIBSSH2_ERROR_EAGAIN) return true;
-            if (rc == 0) {
-                libssh2_sftp_closedir(handle); handle = nullptr;
-                auto cb   = std::move(onDone);
-                auto ents = std::move(entries);
-                cb(std::move(ents), {});
-                return false;
-            }
-            if (rc < 0) {
-                libssh2_sftp_closedir(handle); handle = nullptr;
-                onDone({}, "Directory read error: " + ssh::LastSshError(svc->session_));
-                return false;
-            }
+            if (rc == 0) return Finish(FsError::Success());
+            if (rc < 0)  return Finish(svc->MakeError("Directory read error in '" + path + "'"));
+
             namebuf[rc] = '\0';
+            longentry[sizeof(longentry) - 1] = '\0';
+
             std::string name(namebuf, static_cast<size_t>(rc));
             if (name == "." || name == "..") continue;
 
-            RemoteDirEntry e;
+            FileInfo e;
             e.name = std::move(name);
-            if (attrs.flags & LIBSSH2_SFTP_ATTR_SIZE)
-                e.size = attrs.filesize;
-            if (attrs.flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) {
-                e.isDir       = LIBSSH2_SFTP_S_ISDIR(attrs.permissions) != 0;
-                e.isSymlink   = LIBSSH2_SFTP_S_ISLNK(attrs.permissions) != 0;
-                e.permissions = SftpFormatPermissions(attrs.permissions);
-            }
-            if (attrs.flags & LIBSSH2_SFTP_ATTR_ACMODTIME)
-                e.modTime = SftpFormatModTime(attrs.mtime);
+            ApplyAttributes(attrs, e);
+            ParseOwnerFromLongEntry(longentry, e);
             entries.push_back(std::move(e));
         }
     }
 };
 
 struct SftpService::DownloadTask {
-    enum class State { InitSftp, OpenHandle, ReadLoop };
+    enum class State { InitSftp, OpenHandle, FStat, ReadLoop };
 
     SftpService*  svc   = nullptr;
     State         state = State::InitSftp;
+    TransferHandle handle_id = kInvalidTransferHandle;
     std::string   remotePath;
     std::string   localPath;
     LIBSSH2_SFTP_HANDLE* handle = nullptr;
     std::ofstream out;
-    std::function<void(bool, std::string)> onDone;
+    uint64_t      transferred = 0;
+    uint64_t      total       = 0;
+    std::chrono::steady_clock::time_point lastProgress{};
+    ProgressCallback onProgress;
+    DoneCallback  onDone;
 
     DownloadTask() = default;
-    DownloadTask(DownloadTask&&) = default;
-    DownloadTask& operator=(DownloadTask&&) = default;
     DownloadTask(const DownloadTask&) = delete;
     DownloadTask& operator=(const DownloadTask&) = delete;
 
     ~DownloadTask() { if (handle) libssh2_sftp_close(handle); }
 
+    bool Finish(FsError err)
+    {
+        if (handle) { libssh2_sftp_close(handle); handle = nullptr; }
+        out.close();
+        svc->ForgetCancellation(handle_id);
+        if (err.Ok() && onProgress) onProgress(transferred, total);
+        onDone(std::move(err));
+        return false;
+    }
+
+    // Emits progress no more often than kProgressInterval.
+    void MaybeReportProgress()
+    {
+        if (!onProgress) return;
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastProgress < kProgressInterval) return;
+        lastProgress = now;
+        onProgress(transferred, total);
+    }
+
     bool operator()()
     {
-        if (!svc->running_) {
-            if (handle) { libssh2_sftp_close(handle); handle = nullptr; }
-            onDone(false, "Session closed");
-            return false;
-        }
+        if (!svc->running_)
+            return Finish(FsError::Make(FsErrorCode::NotConnected, "Session closed"));
+        if (svc->IsCancelled(handle_id))
+            return Finish(FsError::Make(FsErrorCode::Cancelled, "Transfer cancelled"));
 
         if (state == State::InitSftp) {
-            std::string err;
+            FsError err;
             switch (svc->EnsureSftp(err)) {
                 case InitResult::Pending: return true;
-                case InitResult::Failed:  onDone(false, std::move(err)); return false;
+                case InitResult::Failed:  return Finish(std::move(err));
                 case InitResult::Ready:   break;
             }
             out.open(localPath, std::ios::binary | std::ios::trunc);
-            if (!out) {
-                onDone(false, "Cannot create local file: " + localPath);
-                return false;
-            }
+            if (!out)
+                return Finish(FsError::Make(FsErrorCode::LocalIoError,
+                                            "Cannot create local file: " + localPath));
             state = State::OpenHandle;
         }
 
@@ -183,31 +396,39 @@ struct SftpService::DownloadTask {
             if (!h) {
                 if (libssh2_session_last_errno(svc->session_) == LIBSSH2_ERROR_EAGAIN)
                     return true;
-                onDone(false, "Cannot open '" + remotePath + "': " +
-                              ssh::LastSshError(svc->session_));
-                return false;
+                return Finish(svc->MakeError("Cannot open '" + remotePath + "'"));
             }
             handle = h;
-            state  = State::ReadLoop;
+            state  = State::FStat;
+        }
+
+        if (state == State::FStat) {
+            // Best-effort: the size drives the progress denominator, so a
+            // server that refuses fstat costs an indeterminate progress bar,
+            // not a failed transfer.
+            LIBSSH2_SFTP_ATTRIBUTES attrs{};
+            const int rc = libssh2_sftp_fstat_ex(handle, &attrs, 0);
+            if (rc == LIBSSH2_ERROR_EAGAIN) return true;
+            if (rc == 0 && (attrs.flags & LIBSSH2_SFTP_ATTR_SIZE))
+                total = attrs.filesize;
+            state = State::ReadLoop;
         }
 
         // ReadLoop: drain all available data this iteration.
-        char buf[32768];
+        char buf[kTransferChunk];
         while (true) {
             const ssize_t n = libssh2_sftp_read(handle, buf, sizeof(buf));
-            if (n == LIBSSH2_ERROR_EAGAIN) return true;
-            if (n < 0) {
-                libssh2_sftp_close(handle); handle = nullptr;
-                onDone(false, "Read error: " + ssh::LastSshError(svc->session_));
-                return false;
-            }
-            if (n == 0) {
-                libssh2_sftp_close(handle); handle = nullptr;
-                out.close();
-                onDone(true, localPath);
-                return false;
-            }
+            if (n == LIBSSH2_ERROR_EAGAIN) { MaybeReportProgress(); return true; }
+            if (n < 0)
+                return Finish(svc->MakeError("Read error on '" + remotePath + "'"));
+            if (n == 0)
+                return Finish(FsError::Success());
+
             out.write(buf, n);
+            if (!out)
+                return Finish(FsError::Make(FsErrorCode::LocalIoError,
+                                            "Write failed on local file: " + localPath));
+            transferred += static_cast<uint64_t>(n);
         }
     }
 };
@@ -217,43 +438,65 @@ struct SftpService::UploadTask {
 
     SftpService*  svc   = nullptr;
     State         state = State::InitSftp;
+    TransferHandle handle_id = kInvalidTransferHandle;
     std::string   localPath;
     std::string   remotePath;
     LIBSSH2_SFTP_HANDLE* handle  = nullptr;
     std::ifstream in;
-    char          buf[32768]{};
+    char          buf[kTransferChunk]{};
     size_t        bufLen  = 0;
     size_t        bufSent = 0;
-    std::function<void(bool, std::string)> onDone;
+    uint64_t      transferred = 0;
+    uint64_t      total       = 0;
+    std::chrono::steady_clock::time_point lastProgress{};
+    ProgressCallback onProgress;
+    DoneCallback  onDone;
 
     UploadTask() = default;
-    UploadTask(UploadTask&&) = default;
-    UploadTask& operator=(UploadTask&&) = default;
     UploadTask(const UploadTask&) = delete;
     UploadTask& operator=(const UploadTask&) = delete;
 
     ~UploadTask() { if (handle) libssh2_sftp_close(handle); }
 
+    bool Finish(FsError err)
+    {
+        if (handle) { libssh2_sftp_close(handle); handle = nullptr; }
+        in.close();
+        svc->ForgetCancellation(handle_id);
+        if (err.Ok() && onProgress) onProgress(transferred, total);
+        onDone(std::move(err));
+        return false;
+    }
+
+    void MaybeReportProgress()
+    {
+        if (!onProgress) return;
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastProgress < kProgressInterval) return;
+        lastProgress = now;
+        onProgress(transferred, total);
+    }
+
     bool operator()()
     {
-        if (!svc->running_) {
-            if (handle) { libssh2_sftp_close(handle); handle = nullptr; }
-            onDone(false, "Session closed");
-            return false;
-        }
+        if (!svc->running_)
+            return Finish(FsError::Make(FsErrorCode::NotConnected, "Session closed"));
+        if (svc->IsCancelled(handle_id))
+            return Finish(FsError::Make(FsErrorCode::Cancelled, "Transfer cancelled"));
 
         if (state == State::InitSftp) {
-            std::string err;
+            FsError err;
             switch (svc->EnsureSftp(err)) {
                 case InitResult::Pending: return true;
-                case InitResult::Failed:  onDone(false, std::move(err)); return false;
+                case InitResult::Failed:  return Finish(std::move(err));
                 case InitResult::Ready:   break;
             }
-            in.open(localPath, std::ios::binary);
-            if (!in) {
-                onDone(false, "Cannot open local file: " + localPath);
-                return false;
-            }
+            in.open(localPath, std::ios::binary | std::ios::ate);
+            if (!in)
+                return Finish(FsError::Make(FsErrorCode::LocalIoError,
+                                            "Cannot open local file: " + localPath));
+            total = static_cast<uint64_t>(in.tellg());
+            in.seekg(0, std::ios::beg);
             state = State::OpenHandle;
         }
 
@@ -266,9 +509,8 @@ struct SftpService::UploadTask {
             if (!h) {
                 if (libssh2_session_last_errno(svc->session_) == LIBSSH2_ERROR_EAGAIN)
                     return true;
-                onDone(false, "Cannot open remote '" + remotePath + "' for write: " +
-                              ssh::LastSshError(svc->session_));
-                return false;
+                return Finish(svc->MakeError("Cannot open remote '" + remotePath +
+                                             "' for write"));
             }
             handle = h;
             state  = State::WriteLoop;
@@ -281,19 +523,18 @@ struct SftpService::UploadTask {
                 bufLen  = static_cast<size_t>(in.gcount());
                 bufSent = 0;
                 if (bufLen == 0) {
-                    libssh2_sftp_close(handle); handle = nullptr;
-                    onDone(true, {});
-                    return false;
+                    if (in.bad())
+                        return Finish(FsError::Make(FsErrorCode::LocalIoError,
+                                                    "Read failed on local file: " + localPath));
+                    return Finish(FsError::Success());
                 }
             }
             const ssize_t n = libssh2_sftp_write(handle, buf + bufSent, bufLen - bufSent);
-            if (n == LIBSSH2_ERROR_EAGAIN) return true;
-            if (n < 0) {
-                libssh2_sftp_close(handle); handle = nullptr;
-                onDone(false, "Write error: " + ssh::LastSshError(svc->session_));
-                return false;
-            }
-            bufSent += static_cast<size_t>(n);
+            if (n == LIBSSH2_ERROR_EAGAIN) { MaybeReportProgress(); return true; }
+            if (n < 0)
+                return Finish(svc->MakeError("Write error on '" + remotePath + "'"));
+            bufSent     += static_cast<size_t>(n);
+            transferred += static_cast<uint64_t>(n);
         }
     }
 };
@@ -306,7 +547,7 @@ SftpService::SftpService(_LIBSSH2_SESSION*& session, const std::atomic<bool>& ru
     : session_(session), running_(running)
 {}
 
-SftpService::InitResult SftpService::EnsureSftp(std::string& err)
+SftpService::InitResult SftpService::EnsureSftp(FsError& err)
 {
     if (sftp_) return InitResult::Ready;
 
@@ -318,7 +559,8 @@ SftpService::InitResult SftpService::EnsureSftp(std::string& err)
 
     if (libssh2_session_last_errno(session_) != LIBSSH2_ERROR_EAGAIN) {
         initDeadline_.reset();
-        err = "SFTP unavailable: " + ssh::LastSshError(session_);
+        err = FsError::Make(FsErrorCode::Unsupported,
+                            "SFTP unavailable: " + ssh::LastSshError(session_));
         return InitResult::Failed;
     }
 
@@ -327,11 +569,33 @@ SftpService::InitResult SftpService::EnsureSftp(std::string& err)
     if (!initDeadline_) initDeadline_ = now + kSftpInitTimeout;
     if (now >= *initDeadline_) {
         initDeadline_.reset();
-        err = "SFTP unavailable: timed out starting the SFTP subsystem "
-              "(is sftp-server installed on the remote?)";
+        err = FsError::Make(FsErrorCode::Unsupported,
+                            "SFTP unavailable: timed out starting the SFTP subsystem "
+                            "(is sftp-server installed on the remote?)");
         return InitResult::Failed;
     }
     return InitResult::Pending;
+}
+
+FsError SftpService::MakeError(const std::string& context) const
+{
+    const std::string detail = ssh::LastSshError(session_);
+
+    // The SFTP status code is only meaningful when libssh2 is reporting a
+    // protocol-level failure; at any other time it holds a stale value from a
+    // previous operation.
+    if (sftp_ &&
+        libssh2_session_last_errno(session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
+        const unsigned long status = libssh2_sftp_last_error(sftp_);
+        return FsError::Make(ClassifySftpStatus(status), context + ": " + detail);
+    }
+    return FsError::Make(FsErrorCode::Protocol, context + ": " + detail);
+}
+
+void SftpService::Enqueue(Task task)
+{
+    std::lock_guard<std::mutex> lk(queueMutex_);
+    queue_.push_back(std::move(task));
 }
 
 void SftpService::Service()
@@ -345,8 +609,10 @@ void SftpService::Service()
     }
     const bool again = task();
     if (again) {
+        // Back of the queue, not the front: a long transfer must yield to a
+        // directory listing enqueued behind it rather than starving it.
         std::lock_guard<std::mutex> lk(queueMutex_);
-        queue_.push_front(std::move(task));
+        queue_.push_back(std::move(task));
     }
 }
 
@@ -358,7 +624,7 @@ void SftpService::CancelPending()
         pending.swap(queue_);
     }
     for (auto& task : pending)
-        task();  // task checks !running_, calls onDone(false,...), returns false
+        task();  // task checks !running_, reports NotConnected, returns false
 }
 
 void SftpService::Shutdown()
@@ -369,72 +635,169 @@ void SftpService::Shutdown()
     }
 }
 
-// ---------------------------------------------------------------------------
-// Enqueue API
-// ---------------------------------------------------------------------------
-
-void SftpService::SendFile(const std::string& localPath,
-                           const std::string& remoteDir,
-                           std::function<void(bool, std::string)> onDone)
+bool SftpService::IsCancelled(TransferHandle handle) const
 {
-    std::string filename = localPath;
-    if (const auto pos = filename.rfind('/'); pos != std::string::npos)
-        filename = filename.substr(pos + 1);
-    std::string remotePath = remoteDir;
-    if (!remotePath.empty() && remotePath.back() != '/') remotePath += '/';
-    remotePath += filename;
-    UploadFromPath(localPath, remotePath, std::move(onDone));
+    if (handle == kInvalidTransferHandle) return false;
+    std::lock_guard<std::mutex> lk(cancelMutex_);
+    return cancelled_.count(handle) != 0;
 }
 
-void SftpService::ReceiveFile(const std::string& remotePath,
-                              const std::string& localDir,
-                              std::function<void(bool, std::string)> onDone)
+void SftpService::ForgetCancellation(TransferHandle handle)
 {
-    std::string filename = remotePath;
-    if (const auto pos = filename.rfind('/'); pos != std::string::npos)
-        filename = filename.substr(pos + 1);
-    std::string localPath = localDir;
-    if (!localPath.empty() && localPath.back() != '/') localPath += '/';
-    localPath += filename;
-    DownloadToPath(remotePath, localPath, std::move(onDone));
+    if (handle == kInvalidTransferHandle) return;
+    std::lock_guard<std::mutex> lk(cancelMutex_);
+    cancelled_.erase(handle);
 }
 
-void SftpService::ListRemoteDirectory(
-    const std::string& remotePath,
-    std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone)
+void SftpService::Cancel(TransferHandle handle)
+{
+    if (handle == kInvalidTransferHandle) return;
+    std::lock_guard<std::mutex> lk(cancelMutex_);
+    cancelled_.insert(handle);
+}
+
+// ---------------------------------------------------------------------------
+// IRemoteFileSystem
+// ---------------------------------------------------------------------------
+
+void SftpService::List(const std::string& path, ListCallback onDone)
 {
     auto t = std::make_shared<ListDirTask>();
     t->svc    = this;
-    t->path   = remotePath;
+    t->path   = path;
     t->onDone = std::move(onDone);
-    std::lock_guard<std::mutex> lk(queueMutex_);
-    queue_.emplace_back([t]() mutable { return (*t)(); });
+    Enqueue([t]() { return (*t)(); });
 }
 
-void SftpService::DownloadToPath(const std::string& remotePath,
-                                 const std::string& localPath,
-                                 std::function<void(bool, std::string)> onDone)
+void SftpService::RealPath(const std::string& path, PathCallback onDone)
 {
+    auto t = std::make_shared<PathOpTask>();
+    t->svc     = this;
+    t->path    = path;
+    t->flag    = LIBSSH2_SFTP_REALPATH;
+    t->context = "Cannot resolve '" + path + "'";
+    t->onDone  = std::move(onDone);
+    Enqueue([t]() { return (*t)(); });
+}
+
+void SftpService::ReadLink(const std::string& path, PathCallback onDone)
+{
+    auto t = std::make_shared<PathOpTask>();
+    t->svc     = this;
+    t->path    = path;
+    t->flag    = LIBSSH2_SFTP_READLINK;
+    t->context = "Cannot read link '" + path + "'";
+    t->onDone  = std::move(onDone);
+    Enqueue([t]() { return (*t)(); });
+}
+
+void SftpService::Stat(const std::string& path, StatCallback onDone)
+{
+    auto t = std::make_shared<StatTask>();
+    t->svc    = this;
+    t->path   = path;
+    t->onDone = std::move(onDone);
+    Enqueue([t]() { return (*t)(); });
+}
+
+void SftpService::MakeDirectory(const std::string& path, uint32_t mode,
+                                DoneCallback onDone)
+{
+    auto t = std::make_shared<SimpleOpTask>();
+    t->svc     = this;
+    t->context = "Cannot create directory '" + path + "'";
+    t->onDone  = std::move(onDone);
+    t->op = [path, mode](SimpleOpTask& self) {
+        return libssh2_sftp_mkdir_ex(self.svc->sftp_, path.c_str(),
+                                     static_cast<unsigned>(path.size()),
+                                     static_cast<long>(mode));
+    };
+    Enqueue([t]() { return (*t)(); });
+}
+
+void SftpService::Remove(const std::string& path, bool isDir, DoneCallback onDone)
+{
+    auto t = std::make_shared<SimpleOpTask>();
+    t->svc     = this;
+    t->context = std::string("Cannot delete ") + (isDir ? "directory '" : "'") +
+                 path + "'";
+    t->onDone  = std::move(onDone);
+    t->op = [path, isDir](SimpleOpTask& self) {
+        const auto len = static_cast<unsigned>(path.size());
+        return isDir ? libssh2_sftp_rmdir_ex(self.svc->sftp_, path.c_str(), len)
+                     : libssh2_sftp_unlink_ex(self.svc->sftp_, path.c_str(), len);
+    };
+    Enqueue([t]() { return (*t)(); });
+}
+
+void SftpService::Rename(const std::string& from, const std::string& to,
+                         DoneCallback onDone)
+{
+    auto t = std::make_shared<SimpleOpTask>();
+    t->svc     = this;
+    t->context = "Cannot rename '" + from + "' to '" + to + "'";
+    t->onDone  = std::move(onDone);
+    // No OVERWRITE flag: a rename that would clobber an existing file must
+    // fail so the caller can ask, rather than destroying data silently.
+    t->op = [from, to](SimpleOpTask& self) {
+        return libssh2_sftp_rename_ex(self.svc->sftp_,
+                                      from.c_str(), static_cast<unsigned>(from.size()),
+                                      to.c_str(),   static_cast<unsigned>(to.size()),
+                                      LIBSSH2_SFTP_RENAME_ATOMIC |
+                                      LIBSSH2_SFTP_RENAME_NATIVE);
+    };
+    Enqueue([t]() { return (*t)(); });
+}
+
+void SftpService::SetPermissions(const std::string& path, uint32_t mode,
+                                 DoneCallback onDone)
+{
+    auto t = std::make_shared<SimpleOpTask>();
+    t->svc               = this;
+    t->context           = "Cannot set permissions on '" + path + "'";
+    t->attrs.flags       = LIBSSH2_SFTP_ATTR_PERMISSIONS;
+    t->attrs.permissions = mode;
+    t->onDone            = std::move(onDone);
+    t->op = [path](SimpleOpTask& self) {
+        return libssh2_sftp_stat_ex(self.svc->sftp_, path.c_str(),
+                                    static_cast<unsigned>(path.size()),
+                                    LIBSSH2_SFTP_SETSTAT, &self.attrs);
+    };
+    Enqueue([t]() { return (*t)(); });
+}
+
+TransferHandle SftpService::Download(const std::string& remotePath,
+                                     const std::string& localPath,
+                                     ProgressCallback onProgress,
+                                     DoneCallback onDone)
+{
+    const TransferHandle id = nextHandle_.fetch_add(1, std::memory_order_relaxed);
     auto t = std::make_shared<DownloadTask>();
     t->svc        = this;
+    t->handle_id  = id;
     t->remotePath = remotePath;
     t->localPath  = localPath;
+    t->onProgress = std::move(onProgress);
     t->onDone     = std::move(onDone);
-    std::lock_guard<std::mutex> lk(queueMutex_);
-    queue_.emplace_back([t]() mutable { return (*t)(); });
+    Enqueue([t]() { return (*t)(); });
+    return id;
 }
 
-void SftpService::UploadFromPath(const std::string& localPath,
-                                 const std::string& remotePath,
-                                 std::function<void(bool, std::string)> onDone)
+TransferHandle SftpService::Upload(const std::string& localPath,
+                                   const std::string& remotePath,
+                                   ProgressCallback onProgress,
+                                   DoneCallback onDone)
 {
+    const TransferHandle id = nextHandle_.fetch_add(1, std::memory_order_relaxed);
     auto t = std::make_shared<UploadTask>();
     t->svc        = this;
+    t->handle_id  = id;
     t->localPath  = localPath;
     t->remotePath = remotePath;
+    t->onProgress = std::move(onProgress);
     t->onDone     = std::move(onDone);
-    std::lock_guard<std::mutex> lk(queueMutex_);
-    queue_.emplace_back([t]() mutable { return (*t)(); });
+    Enqueue([t]() { return (*t)(); });
+    return id;
 }
 
 } // namespace term::transport

@@ -461,9 +461,9 @@ std::string Session::GetCurrentWorkingDir() const
     return transport_->GetCurrentWorkingDir();
 }
 
-bool Session::SupportsFileTransfer() const
+transport::IRemoteFileSystem* Session::GetRemoteFileSystem() const
 {
-    return transport_->SupportsFileTransfer();
+    return transport_->GetRemoteFileSystem();
 }
 
 bool Session::SupportsX11Forwarding() const
@@ -475,41 +475,6 @@ bool Session::SupportsX11Forwarding() const
 std::string Session::GetTransportRemoteDescription() const
 {
     return transport_->GetRemoteDescription();
-}
-
-void Session::SendFile(const std::string& localPath,
-                       const std::string& remoteDir,
-                       std::function<void(bool, std::string)> onDone)
-{
-    transport_->SendFile(localPath, remoteDir, std::move(onDone));
-}
-
-void Session::ReceiveFile(const std::string& remotePath,
-                          const std::string& localDir,
-                          std::function<void(bool, std::string)> onDone)
-{
-    transport_->ReceiveFile(remotePath, localDir, std::move(onDone));
-}
-
-void Session::ListRemoteDirectory(
-    const std::string& remotePath,
-    std::function<void(std::vector<transport::RemoteDirEntry>, std::string)> onDone)
-{
-    transport_->ListRemoteDirectory(remotePath, std::move(onDone));
-}
-
-void Session::SftpDownloadFile(const std::string& remotePath,
-                               const std::string& localPath,
-                               std::function<void(bool, std::string)> onDone)
-{
-    transport_->SftpDownloadFile(remotePath, localPath, std::move(onDone));
-}
-
-void Session::SftpUploadFile(const std::string& localPath,
-                             const std::string& remotePath,
-                             std::function<void(bool, std::string)> onDone)
-{
-    transport_->SftpUploadFile(localPath, remotePath, std::move(onDone));
 }
 
 } // namespace term::session

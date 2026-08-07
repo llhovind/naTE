@@ -153,8 +153,8 @@ void RemoteEditSession::TriggerUpload()
     const std::string local  = localPath_;
     const std::string remote = remotePath_;
 
-    sm_.SftpUploadFile(sessionId_, local, remote,
-        [this, weakAlive](bool /*ok*/, std::string /*err*/) {
+    sm_.UploadFile(sessionId_, local, remote,
+        [this, weakAlive](term::transport::FsError /*err*/) {
             auto strongAlive = weakAlive.lock();
             if (!strongAlive || !strongAlive->load(std::memory_order_acquire))
                 return;

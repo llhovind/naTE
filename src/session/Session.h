@@ -13,6 +13,7 @@
 #include "session/InputEncoder.h"
 #include "session/SessionStatus.h"
 #include "transport/DisconnectReason.h"
+#include "transport/IRemoteFileSystem.h"
 #include "transport/Transport.hpp"
 #include "transport/ITransportTarget.h"
 #include "transport/TransportError.h"
@@ -141,25 +142,12 @@ public:
     std::function<void()> onClearScrollback_;
 
     std::string GetCurrentWorkingDir() const;
-    bool        SupportsFileTransfer()   const;
     bool        SupportsX11Forwarding() const;
     std::string GetTransportRemoteDescription() const;
-    void        SendFile(const std::string& localPath,
-                        const std::string& remoteDir,
-                        std::function<void(bool, std::string)> onDone);
-    void        ReceiveFile(const std::string& remotePath,
-                            const std::string& localDir,
-                            std::function<void(bool, std::string)> onDone);
-    void        ListRemoteDirectory(
-                    const std::string& remotePath,
-                    std::function<void(std::vector<transport::RemoteDirEntry>,
-                                       std::string)> onDone);
-    void        SftpDownloadFile(const std::string& remotePath,
-                                 const std::string& localPath,
-                                 std::function<void(bool, std::string)> onDone);
-    void        SftpUploadFile(const std::string& localPath,
-                               const std::string& remotePath,
-                               std::function<void(bool, std::string)> onDone);
+
+    // The transport's remote filesystem, or nullptr when it has none.
+    // See IRemoteFileSystem for the threading and lifetime contract.
+    transport::IRemoteFileSystem* GetRemoteFileSystem() const;
 
 private:
     static std::unique_ptr<transport::Transport> MakeTransport(

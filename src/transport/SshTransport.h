@@ -67,7 +67,6 @@ public:
     // Enqueues a remote vpcolumns file update; worker writes it via exec channel.
     void OnViewportColsChanged(unsigned short cols) override;
 
-    bool        SupportsFileTransfer()    const noexcept override { return true; }
     bool        SupportsX11Forwarding()  const noexcept override { return true; }
     bool        SupportsPortForwarding() const noexcept override { return true; }
 
@@ -75,21 +74,10 @@ public:
     void AddPortForward(const PortForwardDesc& desc) override;
     void RemovePortForward(PortForwardId id) override;
     std::string GetRemoteDescription() const override;
-    void        SendFile(const std::string& localPath,
-                        const std::string& remoteDir,
-                        std::function<void(bool, std::string)> onDone) override;
-    void        ReceiveFile(const std::string& remotePath,
-                            const std::string& localDir,
-                            std::function<void(bool, std::string)> onDone) override;
-    void        ListRemoteDirectory(
-                    const std::string& remotePath,
-                    std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone) override;
-    void        SftpDownloadFile(const std::string& remotePath,
-                                 const std::string& localPath,
-                                 std::function<void(bool, std::string)> onDone) override;
-    void        SftpUploadFile(const std::string& localPath,
-                               const std::string& remotePath,
-                               std::function<void(bool, std::string)> onDone) override;
+
+    // SFTP over this session's connection. Non-null for the transport's whole
+    // lifetime — the subsystem itself is brought up lazily on first use.
+    IRemoteFileSystem* GetRemoteFileSystem() override { return &sftpService_; }
 
     // Called by the static X11 callback when the server opens an X11 channel.
     // Worker-thread-only; accesses x11_channels_ without locking.

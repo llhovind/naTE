@@ -16,11 +16,14 @@ add_executable(naTE_tests
     test_url_scanner.cpp
     test_word_selector.cpp
     test_dialog_placement.cpp
+    test_remote_path.cpp
     ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
     ${CMAKE_SOURCE_DIR}/src/config/ColorScheme.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/UrlScanner.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/WordSelector.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/FileMode.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/RemotePath.cpp
 )
 target_link_libraries(naTE_tests PRIVATE Catch2::Catch2)
 target_include_directories(naTE_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -53,6 +56,8 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/transport/SshAuthenticator.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshChannelProxy.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshTransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/FileMode.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/RemotePath.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/DocLayout.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/UrlScanner.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/WordSelector.cpp
@@ -67,6 +72,7 @@ add_executable(naTE_core_tests
     test_x11_utils.cpp
     test_cwd.cpp
     test_scrollback_repo.cpp
+    test_remote_fs.cpp
     ${CORE_SOURCES}
 )
 target_link_libraries(naTE_core_tests PRIVATE Catch2::Catch2WithMain ${NATE_LIBSSH2_LINK} nlohmann_json::nlohmann_json)
