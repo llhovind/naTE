@@ -1,39 +1,33 @@
 #pragma once
 
 #include "config/Config.h"
-#include "fs/ExplorerController.h"
-#include "fs/RemoteDeleter.h"
+#include "fs/TransferQueue.h"
+// Included rather than forward-declared: QueueOne takes the pane's nested
+// Item type, which a forward declaration cannot reach.
+#include "ui/FileExplorerPane.h"
 #include "session/SessionManager.h"
+#include "transport/LocalFileSystem.h"
 
 #include <functional>
 #include <memory>
 #include <string>
 
 #include <wx/button.h>
-#include <wx/checkbox.h>
 #include <wx/frame.h>
-#include <wx/listctrl.h>
-#include <wx/stattext.h>
+#include <wx/splitter.h>
 #include <wx/statusbr.h>
-#include <wx/textctrl.h>
 
 namespace ui {
 
-// Virtual list control backed by the controller's DirModel. Defined in the
-// implementation file — the frame only ever holds a pointer to it.
-class RemoteFileListCtrl;
+class TransferPanel;
 
-// Modeless per-session window onto a remote filesystem, riding the session's
-// existing SSH connection.
+// Modeless per-session window: the local filesystem beside a remote one, with
+// a transfer queue between them, riding the session's existing SSH connection.
 //
-// A view only: navigation, history and listing state live in
-// term::fs::ExplorerController, which is wx-free and unit-tested. This class
-// translates wx events into controller calls and controller notifications into
-// redraws.
-//
-// The list is virtual (wxLC_VIRTUAL): a directory can hold tens of thousands
-// of entries, and inserting an item per row would make such a listing unusable.
-class FileExplorerFrame : public wxFrame, private term::fs::IExplorerListener {
+// A coordinator, not a view. Each pane owns its own browsing and write
+// operations; this class owns the things that only make sense *between* them —
+// the transfer queue, the conflict policy, and the session's lifetime.
+class FileExplorerFrame : public wxFrame, private term::fs::ITransferQueueListener {
 public:
     // onOpenInEditor receives the absolute remote path of a file the user
     // asked to edit; the caller routes it to the remote-edit workflow.
@@ -47,91 +41,66 @@ public:
     term::session::SessionId SessionId() const noexcept { return sessionId_; }
 
     // Called when the underlying session goes away. The window survives so it
-    // does not vanish from under the user's cursor, but every operation that
-    // would need the connection is disabled and the listing is cleared.
-    void OnSessionEnded();
+    // does not vanish from under the user's cursor; the remote pane goes
+    // offline and queued transfers are cancelled.
+    // A session somewhere in the application has gone away. Panes showing it
+    // go offline and its queued transfers are cancelled; anything pointing
+    // elsewhere carries on, because a window can now span several sessions.
+    void OnSessionEnded(term::session::SessionId id);
 
     void ApplyConfig(const AppConfig& cfg);
 
-    // Invoked when the user closes the window, so the owner can forget it.
     void SetOnClosed(std::function<void()> cb) { onClosed_ = std::move(cb); }
 
 private:
-    // --- IExplorerListener ---------------------------------------------------
-    void OnExplorerLoadingChanged(bool loading) override;
-    void OnExplorerContentsChanged() override;
-    void OnExplorerPathChanged(const std::string& path) override;
+    // --- ITransferQueueListener ----------------------------------------------
+    void OnTransferJobAdded(term::fs::JobId id) override;
+    void OnTransferJobChanged(term::fs::JobId id) override;
+    void OnTransferQueueIdle() override;
 
-    // --- Event handlers ------------------------------------------------------
-    void OnGo(wxCommandEvent&);
-    void OnUp(wxCommandEvent&);
-    void OnBack(wxCommandEvent&);
-    void OnForward(wxCommandEvent&);
-    void OnRefresh(wxCommandEvent&);
-    void OnItemActivated(wxListEvent&);
-    void OnColumnClick(wxListEvent&);
-    void OnContextMenu(wxListEvent&);
-    void OnFilterChanged(wxCommandEvent&);
-    void OnShowHiddenToggled(wxCommandEvent&);
-    void OnListKeyDown(wxListEvent&);
+    void BuildLayout(std::function<void(std::string)> onOpenInEditor);
+    void UpdateTransferButtons();
+    void RefreshEndpointChoices();
+
+    // Every endpoint a pane may be pointed at, newest session state included.
+    std::vector<PaneEndpoint> AvailableEndpoints() const;
+    PaneEndpoint LocalEndpoint() const;
+    PaneEndpoint EndpointForSession(term::session::SessionId id) const;
+
+    void ShowSecondPane(bool show);
+    void CopyBetweenPanes(FileExplorerPane* from, FileExplorerPane* to);
+    // Queues one item, expanding directories recursively.
+    void QueueOne(const FileExplorerPane::Item& item,
+                  const term::fs::TransferEndpoint& source,
+                  const term::fs::TransferEndpoint& destination,
+                  const std::string& destinationDir);
+
     void OnDestroy(wxWindowDestroyEvent&);
-
-    // --- Helpers -------------------------------------------------------------
-    void BuildToolbar(wxWindow* parent, wxSizer* outer);
-    void BuildList(wxSizer* outer);
-    void RefreshRows();
-    void UpdateNavigationState();
-    void UpdateStatus();
-    void CopyPathOf(size_t row);
-    void ShowPropertiesFor(size_t row);
-    void EditRow(size_t row);
-
-    // --- Write operations ----------------------------------------------------
-    void NewFolder();
-    void RenameRow(size_t row);
-    void DeleteRow(size_t row);
-    // Confirms a planned deletion, naming what will go and admitting when the
-    // plan is incomplete. Returns true when the user chose to proceed.
-    bool ConfirmDeletion(const term::fs::DeletePlan& plan, const wxString& target);
-    // Reports the outcome of a write and re-reads the directory, leaving the
-    // cursor on focusName when it is present after the refresh.
-    void AfterWrite(const wxString& what, const term::transport::FsError& err,
-                    std::string focusName);
-    // True when a write can be attempted; reports why not when it cannot.
-    bool RequireLiveSession();
-    term::transport::IRemoteFileSystem* Remote();
-    void ReportError(const wxString& what, const term::transport::FsError& err);
 
     term::session::SessionId       sessionId_;
     term::session::SessionManager& sm_;
     AppConfig                      cfg_;
-    std::function<void(std::string)> onOpenInEditor_;
-    std::function<void()>            onClosed_;
+    std::function<void()>          onClosed_;
 
-    // Null once the session has ended, which is also the guard on every
-    // operation that would need the connection.
-    std::unique_ptr<term::fs::ExplorerController> controller_;
-    std::unique_ptr<term::fs::RemoteDeleter>      deleter_;
+    std::unique_ptr<term::fs::TransferQueue> queue_;
 
-    // Write callbacks come back from the transport's worker thread and must
-    // not touch a window the user has closed in the meantime.
-    term::fs::DispatchGuard guard_;
+    wxSplitterWindow* splitter_    = nullptr;
+    FileExplorerPane* leftPane_    = nullptr;
+    FileExplorerPane* rightPane_   = nullptr;
+    TransferPanel*    transfers_   = nullptr;
+    wxButton*         toRightBtn_  = nullptr;
+    wxButton*         toLeftBtn_   = nullptr;
+    wxButton*         splitBtn_    = nullptr;
+    wxStatusBar*      status_      = nullptr;
 
-    // Name to put the cursor back on after the next listing arrives, so a
-    // rename or a new folder leaves the user looking at what they just made.
-    std::string pendingFocusName_;
+    // The explorer opens as a single pane; the second appears when the user
+    // actually wants to compare or move something, which is the minority of
+    // the time an admin has this window open.
+    bool secondPaneShown_ = false;
 
-    wxTextCtrl* pathCtrl_    = nullptr;
-    wxTextCtrl* filterCtrl_  = nullptr;
-    wxStaticText* filterLabel_ = nullptr;
-    wxCheckBox* hiddenCheck_ = nullptr;
-    wxButton*   backBtn_     = nullptr;
-    wxButton*   forwardBtn_  = nullptr;
-    wxButton*   upBtn_       = nullptr;
-    wxButton*   refreshBtn_  = nullptr;
-    wxButton*   newFolderBtn_ = nullptr;
-    RemoteFileListCtrl* list_ = nullptr;
-    wxStatusBar* status_     = nullptr;
+    // True once a transfer has landed somewhere, so the idle notification
+    // knows whether a refresh is worth the round trip.
+    bool destinationDirty_ = false;
 };
 
 } // namespace ui

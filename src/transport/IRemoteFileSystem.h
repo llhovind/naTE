@@ -169,6 +169,15 @@ public:
                                   ProgressCallback onProgress,
                                   DoneCallback onDone) = 0;
 
+    // True only for the adapter that *is* the machine naTE runs on.
+    //
+    // Download and Upload are defined relative to the local disk — they are
+    // the primitives SFTP offers and cannot be expressed symmetrically. A
+    // caller moving bytes between two arbitrary endpoints therefore has to
+    // know which side, if either, is that disk: it decides whether one call
+    // suffices or the transfer must be staged through local storage.
+    virtual bool IsLocalDisk() const noexcept { return false; }
+
     // Requests cancellation. Safe to call from any thread, with an unknown or
     // already-finished handle, or more than once. The transfer's DoneCallback
     // still fires — with FsErrorCode::Cancelled if the request landed before

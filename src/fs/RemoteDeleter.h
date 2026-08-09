@@ -39,6 +39,18 @@ struct DeletePlan {
     bool Empty() const noexcept { return steps.empty(); }
 };
 
+// One thing the user asked to delete, as the listing described it.
+//
+// size carries the byte count the caller already has in hand, so a plan for a
+// plain file can report an honest total rather than zero — the confirmation
+// dialog quotes that number, and it must not understate what is about to go.
+struct DeleteTarget {
+    std::string path;
+    bool        isDir     = false;
+    bool        isSymlink = false;
+    uint64_t    size      = 0;
+};
+
 // Enumerates and removes remote files and directory trees.
 //
 // Recursive removal is composed here from single unlink/rmdir calls rather
@@ -56,10 +68,17 @@ public:
     RemoteDeleter(const RemoteDeleter&)            = delete;
     RemoteDeleter& operator=(const RemoteDeleter&) = delete;
 
-    // Builds the plan for removing path. isDir and isSymlink come from the
-    // listing the user is looking at, so a symlinked directory is planned as a
-    // single unlink rather than walked.
-    void Plan(const std::string& path, bool isDir, bool isSymlink,
+    // Builds the plan for removing one target. Its flags come from the listing
+    // the user is looking at, so a symlinked directory is planned as a single
+    // unlink rather than walked.
+    void Plan(const DeleteTarget& target, std::function<void(DeletePlan)> onDone);
+
+    // Plans several targets as one operation, so a multi-row selection
+    // produces a single count and a single confirmation rather than one
+    // dialog per file. Targets are enumerated in order and their steps
+    // concatenated; because the targets are siblings, finishing one before
+    // starting the next keeps every child ahead of its parent.
+    void Plan(std::vector<DeleteTarget> targets,
               std::function<void(DeletePlan)> onDone);
 
     // Executes a plan step by step, stopping at the first failure — a tree

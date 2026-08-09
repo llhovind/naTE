@@ -41,8 +41,9 @@ public:
     // only fight with the first over the shared connection.
     void OpenForSession(wxWindow* parent, term::session::SessionId id);
 
-    // Disables the window for a session that has gone away. The window is left
-    // on screen rather than destroyed, so it does not vanish mid-interaction.
+    // Tells every window that a session has gone away. Windows are left on
+    // screen rather than destroyed — a pane pointed elsewhere is still useful,
+    // and one that vanished mid-interaction would not be.
     void OnSessionDestroyed(term::session::SessionId id);
 
     void UpdateConfig(const AppConfig& cfg);

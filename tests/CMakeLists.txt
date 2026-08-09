@@ -21,6 +21,7 @@ add_executable(naTE_tests
     test_transfer_queue.cpp
     test_explorer_controller.cpp
     test_remote_deleter.cpp
+    test_local_filesystem.cpp
     ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
     ${CMAKE_SOURCE_DIR}/src/config/ColorScheme.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
@@ -32,6 +33,7 @@ add_executable(naTE_tests
     ${CMAKE_SOURCE_DIR}/src/fs/TransferQueue.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/ExplorerController.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/RemoteDeleter.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/LocalFileSystem.cpp
 )
 target_link_libraries(naTE_tests PRIVATE Catch2::Catch2)
 target_include_directories(naTE_tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
@@ -70,6 +72,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/fs/TransferQueue.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/ExplorerController.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/RemoteDeleter.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/LocalFileSystem.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/DocLayout.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/UrlScanner.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/WordSelector.cpp

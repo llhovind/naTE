@@ -54,9 +54,11 @@ void FileExplorerManager::OpenForSession(wxWindow* parent,
 
 void FileExplorerManager::OnSessionDestroyed(term::session::SessionId id)
 {
-    const auto it = frames_.find(id);
-    if (it == frames_.end() || !it->second) return;
-    it->second->OnSessionEnded();
+    // Broadcast rather than look up: a window opened for one session may have
+    // either of its panes pointed at another, so every frame has to decide for
+    // itself whether this one mattered to it.
+    for (auto& [openedFor, frame] : frames_)
+        if (frame) frame->OnSessionEnded(id);
 }
 
 void FileExplorerManager::UpdateConfig(const AppConfig& cfg)

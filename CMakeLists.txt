@@ -160,6 +160,7 @@ set(SOURCES
     src/transport/SshPortForwardEngine.cpp
     src/transport/SshPublicKey.cpp
     src/transport/X11Utils.cpp
+    src/transport/LocalFileSystem.cpp
     src/transport/LoopbackTransport.cpp
     src/transport/PtyTransport.cpp
     src/transport/SerialTransport.cpp
@@ -172,6 +173,9 @@ set(SOURCES
     src/ui/NewConnectionDialog.cpp
     src/ui/ConnectionManagerDialog.cpp
     src/ui/FileExplorerFrame.cpp
+    src/ui/FileExplorerPane.cpp
+    src/ui/TransferPanel.cpp
+    src/ui/ConflictDialog.cpp
     src/ui/FileExplorerManager.cpp
     src/ui/FilePropertiesDialog.cpp
     src/ui/TransferFilesDialog.cpp

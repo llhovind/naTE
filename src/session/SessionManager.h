@@ -200,6 +200,10 @@ public:
 
     term::input::InputTarget* GetInputTarget(SessionId id) const;
 
+    // Every live session id, ascending so callers that build a menu or a
+    // picker get a stable order rather than the hash map's.
+    std::vector<SessionId> GetSessionIds() const;
+
     // Returns a snapshot of the Connection used to create this session.
     // Returns a default-constructed Connection if the id is unknown.
     Connection GetConnection(SessionId id) const;

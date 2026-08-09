@@ -374,6 +374,15 @@ SessionStatus SessionManager::GetSessionStatus(SessionId id) const
     return rec ? rec->session->GetStatus() : SessionStatus::Connected;
 }
 
+std::vector<SessionId> SessionManager::GetSessionIds() const
+{
+    std::vector<SessionId> ids;
+    ids.reserve(sessions_.size());
+    for (const auto& [id, _] : sessions_) ids.push_back(id);
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
 transport::IRemoteFileSystem* SessionManager::GetRemoteFileSystem(SessionId id) const
 {
     const SessionRecord* rec = FindRecord(id);

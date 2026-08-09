@@ -21,15 +21,18 @@ RemoteDeleter::~RemoteDeleter() = default;
 // Planning
 // ---------------------------------------------------------------------------
 
-void RemoteDeleter::Plan(const std::string& path, bool isDir, bool isSymlink,
+void RemoteDeleter::Plan(const DeleteTarget& target,
                          std::function<void(DeletePlan)> onDone)
 {
+    const std::string path = target.path;
+
     // A symlink is one unlink whatever it points at, so there is nothing to
     // walk — and walking it would be the bug this rule exists to prevent.
-    if (!isDir || isSymlink) {
+    if (!target.isDir || target.isSymlink) {
         DeletePlan plan;
         plan.steps.push_back({path, false, 0});
-        plan.fileCount = 1;
+        plan.fileCount  = 1;
+        plan.totalBytes = target.size;
         if (onDone) onDone(std::move(plan));
         return;
     }
@@ -104,6 +107,52 @@ void RemoteDeleter::Plan(const std::string& path, bool isDir, bool isSymlink,
                 (*step)();
             });
         });
+    };
+
+    (*step)();
+}
+
+void RemoteDeleter::Plan(std::vector<DeleteTarget> targets,
+                         std::function<void(DeletePlan)> onDone)
+{
+    struct Batch {
+        std::vector<DeleteTarget>       targets;
+        size_t                          index = 0;
+        DeletePlan                      merged;
+        std::function<void(DeletePlan)> onDone;
+    };
+
+    auto batch = std::make_shared<Batch>();
+    batch->targets = std::move(targets);
+    batch->onDone  = std::move(onDone);
+
+    auto step = std::make_shared<std::function<void()>>();
+    auto ctx  = guard_.For(this);
+
+    *step = [this, ctx, batch, step]() {
+        if (batch->index >= batch->targets.size()) {
+            auto done = std::move(batch->onDone);
+            if (done) done(std::move(batch->merged));
+            return;
+        }
+
+        const DeleteTarget target = batch->targets[batch->index++];
+        Plan(target,
+             [ctx, batch, step](DeletePlan plan) {
+                 ctx.Post([batch, step, plan = std::move(plan)](RemoteDeleter&) mutable {
+                     auto& merged = batch->merged;
+                     merged.steps.insert(merged.steps.end(),
+                                         plan.steps.begin(), plan.steps.end());
+                     merged.fileCount  += plan.fileCount;
+                     merged.dirCount   += plan.dirCount;
+                     merged.totalBytes += plan.totalBytes;
+                     // Keep the first problem encountered; the confirmation
+                     // only needs to say that the count is incomplete.
+                     if (plan.error.Failed() && merged.error.Ok())
+                         merged.error = std::move(plan.error);
+                     (*step)();
+                 });
+             });
     };
 
     (*step)();

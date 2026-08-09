@@ -2,8 +2,10 @@
 #include "fs/RemotePath.h"
 
 #include <algorithm>
+#include <chrono>
 #include <deque>
 #include <filesystem>
+#include <memory>
 #include <system_error>
 
 namespace term::fs {
@@ -20,30 +22,16 @@ constexpr int kMaxTreeDepth = 64;
 // renaming will not fix.
 constexpr int kMaxRenameAttempts = 100;
 
-bool LocalExists(const std::string& path)
+// Scratch path for a transfer that has to be staged through this machine.
+std::string MakeStagingPath(JobId id, const std::string& leaf)
 {
     std::error_code ec;
-    return std::filesystem::exists(path, ec) && !ec;
-}
+    auto dir = std::filesystem::temp_directory_path(ec);
+    if (ec) dir = "/tmp";
 
-uint64_t LocalSize(const std::string& path)
-{
-    std::error_code ec;
-    const auto size = std::filesystem::file_size(path, ec);
-    return ec ? 0 : static_cast<uint64_t>(size);
-}
-
-// Creates a directory and its parents. Returns an empty error on success or
-// when it already exists.
-transport::FsError EnsureLocalDirectory(const std::string& path)
-{
-    std::error_code ec;
-    std::filesystem::create_directories(path, ec);
-    if (ec && !std::filesystem::is_directory(path))
-        return transport::FsError::Make(transport::FsErrorCode::LocalIoError,
-                                        "Cannot create local directory '" + path +
-                                        "': " + ec.message());
-    return {};
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    return (dir / ("nate_relay_" + std::to_string(id) + "_" +
+                   std::to_string(stamp) + "_" + leaf)).string();
 }
 
 } // namespace
@@ -62,14 +50,12 @@ std::string MakeUniqueCandidate(const std::string& name, int attempt)
 // Construction
 // ---------------------------------------------------------------------------
 
-TransferQueue::TransferQueue(transport::IRemoteFileSystem& remote,
-                             Dispatcher dispatch)
-    : remote_(remote)
-    , guard_(std::move(dispatch))
+TransferQueue::TransferQueue(Dispatcher dispatch)
+    : guard_(std::move(dispatch))
 {}
 
-// Callbacks still held by the transport check the guard before touching us,
-// so destruction must happen on the same thread the dispatcher posts to.
+// Callbacks still held by a transport check the guard before touching us, so
+// destruction must happen on the same thread the dispatcher posts to.
 TransferQueue::~TransferQueue() = default;
 
 // ---------------------------------------------------------------------------
@@ -86,65 +72,55 @@ JobId TransferQueue::AddJob(TransferJob job)
     return id;
 }
 
-JobId TransferQueue::EnqueueDownload(const std::string& remotePath,
-                                     const std::string& localPath,
-                                     uint64_t sizeHint)
+JobId TransferQueue::Enqueue(TransferEndpoint source, const std::string& sourcePath,
+                             TransferEndpoint destination, const std::string& destPath,
+                             uint64_t sizeHint)
 {
     TransferJob job;
-    job.direction  = TransferDirection::Download;
-    job.sourcePath = remotePath;
-    job.destPath   = localPath;
-    job.totalBytes = sizeHint;
+    job.source      = std::move(source);
+    job.destination = std::move(destination);
+    job.sourcePath  = sourcePath;
+    job.destPath    = destPath;
+    job.totalBytes  = sizeHint;
+
+    // Neither side is this machine, so the bytes must come down and go back
+    // up. They travel twice, and the denominator says so rather than leaving
+    // a progress bar apparently stuck halfway.
+    job.viaLocalStaging = job.source.Valid() && job.destination.Valid() &&
+                          !job.source.IsLocalDisk() && !job.destination.IsLocalDisk();
+    if (job.viaLocalStaging) job.totalBytes = sizeHint * 2;
+
     return AddJob(std::move(job));
 }
 
-JobId TransferQueue::EnqueueUpload(const std::string& localPath,
-                                   const std::string& remotePath,
-                                   uint64_t sizeHint)
-{
-    TransferJob job;
-    job.direction  = TransferDirection::Upload;
-    job.sourcePath = localPath;
-    job.destPath   = remotePath;
-    // The local size is free to read, so an omitted hint is filled in rather
-    // than leaving the aggregate denominator wrong.
-    job.totalBytes = sizeHint ? sizeHint : LocalSize(localPath);
-    return AddJob(std::move(job));
-}
-
-// ---------------------------------------------------------------------------
-// Recursive expansion
-// ---------------------------------------------------------------------------
-
-void TransferQueue::EnqueueDownloadTree(
-    const std::string& remoteDir,
-    const std::string& localDir,
-    std::function<void(transport::FsError)> onExpanded)
+void TransferQueue::EnqueueTree(TransferEndpoint source, const std::string& sourceDir,
+                                TransferEndpoint destination, const std::string& destDir,
+                                std::function<void(transport::FsError)> onExpanded)
 {
     struct PendingDir {
-        std::string remote;
-        std::string local;
+        std::string source;
+        std::string dest;
         int         depth = 0;
     };
 
-    // Heap state shared by the walk's continuations, mirroring how the SFTP
-    // adapter carries its own multi-step tasks.
     struct Walk {
+        TransferEndpoint                        source;
+        TransferEndpoint                        destination;
         std::deque<PendingDir>                  pending;
         transport::FsError                      firstError;
         std::function<void(transport::FsError)> onExpanded;
     };
 
     auto walk = std::make_shared<Walk>();
-    walk->pending.push_back({remoteDir, localDir, 0});
-    walk->onExpanded = std::move(onExpanded);
+    walk->source      = std::move(source);
+    walk->destination = std::move(destination);
+    walk->pending.push_back({sourceDir, destDir, 0});
+    walk->onExpanded  = std::move(onExpanded);
 
-    // Declared as a shared_ptr to a std::function so each step can re-enter it
-    // without the recursion being visible in the type.
     auto step = std::make_shared<std::function<void()>>();
     auto ctx  = guard_.For(this);
 
-    *step = [this, ctx, walk, step]() {
+    *step = [ctx, walk, step]() {
         if (walk->pending.empty()) {
             auto done = std::move(walk->onExpanded);
             if (done) done(walk->firstError);
@@ -154,154 +130,49 @@ void TransferQueue::EnqueueDownloadTree(
         const PendingDir dir = walk->pending.front();
         walk->pending.pop_front();
 
-        if (transport::FsError err = EnsureLocalDirectory(dir.local); err.Failed()) {
-            auto done = std::move(walk->onExpanded);
-            if (done) done(std::move(err));
-            return;
-        }
+        // The destination directory has to exist before anything lands in it,
+        // including the root of the tree — the listing below enumerates only
+        // its contents. An existing directory is the normal case when merging
+        // into a tree, so its error is not a failure.
+        walk->destination.fs->MakeDirectory(dir.dest, 0755,
+            [ctx, walk, step, dir](transport::FsError) {
+                ctx.Post([walk, step, dir](TransferQueue& q) {
+                    walk->source.fs->List(dir.source,
+                        [ctx = q.guard_.For(&q), walk, step, dir](
+                            std::vector<transport::FileInfo> entries,
+                            transport::FsError err) {
+                            ctx.Post([walk, step, dir, entries = std::move(entries),
+                                      err = std::move(err)](TransferQueue& qq) mutable {
+                                // A directory that failed outright stops the
+                                // walk; one that returned rows alongside an
+                                // error contributes what it read.
+                                if (err.Failed() && entries.empty()) {
+                                    auto done = std::move(walk->onExpanded);
+                                    if (done) done(std::move(err));
+                                    return;
+                                }
+                                if (err.Failed() && walk->firstError.Ok())
+                                    walk->firstError = std::move(err);
 
-        remote_.List(dir.remote,
-            [ctx, walk, step, dir](std::vector<transport::FileInfo> entries,
-                                   transport::FsError err) {
-                ctx.Post([walk, step, dir,
-                          entries = std::move(entries),
-                          err = std::move(err)](TransferQueue& q) mutable {
-                    // A directory that failed outright stops the walk; one
-                    // that returned rows alongside an error contributes what
-                    // it read and the error is reported at the end.
-                    if (err.Failed() && entries.empty()) {
-                        auto done = std::move(walk->onExpanded);
-                        if (done) done(std::move(err));
-                        return;
-                    }
-                    if (err.Failed() && walk->firstError.Ok())
-                        walk->firstError = std::move(err);
+                                for (const auto& e : entries) {
+                                    if (e.isSymlink) continue;   // never follow links
+                                    const std::string src = path::Join(dir.source, e.name);
+                                    const std::string dst = path::Join(dir.dest, e.name);
 
-                    for (const auto& e : entries) {
-                        if (e.isSymlink) continue;   // never follow links
-                        const std::string remoteChild = path::Join(dir.remote, e.name);
-                        const std::string localChild =
-                            (std::filesystem::path(dir.local) / e.name).string();
-
-                        if (e.isDir) {
-                            if (dir.depth + 1 < kMaxTreeDepth)
-                                walk->pending.push_back(
-                                    {remoteChild, localChild, dir.depth + 1});
-                        } else {
-                            q.EnqueueDownload(remoteChild, localChild, e.size);
-                        }
-                    }
-                    (*step)();
+                                    if (e.isDir) {
+                                        if (dir.depth + 1 < kMaxTreeDepth)
+                                            walk->pending.push_back(
+                                                {src, dst, dir.depth + 1});
+                                    } else {
+                                        qq.Enqueue(walk->source, src,
+                                                   walk->destination, dst, e.size);
+                                    }
+                                }
+                                (*step)();
+                            });
+                        });
                 });
             });
-    };
-
-    (*step)();
-}
-
-void TransferQueue::EnqueueUploadTree(
-    const std::string& localDir,
-    const std::string& remoteDir,
-    std::function<void(transport::FsError)> onExpanded)
-{
-    // The local side is walked synchronously — std::filesystem does not make
-    // us wait — so the only asynchronous part is creating the remote
-    // directories, which must complete before their files are queued.
-    struct Entry {
-        std::string relative;
-        bool        isDir = false;
-        uint64_t    size  = 0;
-    };
-
-    std::vector<Entry> entries;
-    std::error_code ec;
-
-    // recursive_directory_iterator does not descend into symlinked directories
-    // unless asked, which is the behaviour we want; symlinked *files* are
-    // skipped explicitly below.
-    std::filesystem::recursive_directory_iterator it(localDir, ec), end;
-    if (ec) {
-        if (onExpanded)
-            onExpanded(transport::FsError::Make(
-                transport::FsErrorCode::LocalIoError,
-                "Cannot read local directory '" + localDir + "': " + ec.message()));
-        return;
-    }
-
-    const std::filesystem::path root(localDir);
-    for (; it != end; it.increment(ec)) {
-        if (ec) break;
-        if (it.depth() >= kMaxTreeDepth) { it.disable_recursion_pending(); continue; }
-
-        const auto& entry = *it;
-        if (entry.is_symlink()) { it.disable_recursion_pending(); continue; }
-
-        Entry e;
-        e.relative = std::filesystem::relative(entry.path(), root, ec).string();
-        if (ec || e.relative.empty()) continue;
-        e.isDir = entry.is_directory();
-        e.size  = e.isDir ? 0 : LocalSize(entry.path().string());
-        entries.push_back(std::move(e));
-    }
-
-    // Shallower directories first, so a parent always exists before its child
-    // is created.
-    std::stable_sort(entries.begin(), entries.end(),
-        [](const Entry& a, const Entry& b) {
-            const auto depth = [](const std::string& s) {
-                return std::count(s.begin(), s.end(), '/');
-            };
-            if (a.isDir != b.isDir) return a.isDir;      // directories first
-            return depth(a.relative) < depth(b.relative);
-        });
-
-    struct Walk {
-        std::vector<Entry>                      entries;
-        size_t                                  index = 0;
-        std::string                             remoteRoot;
-        std::string                             localRoot;
-        std::function<void(transport::FsError)> onExpanded;
-    };
-
-    auto walk = std::make_shared<Walk>();
-    walk->entries    = std::move(entries);
-    walk->remoteRoot = remoteDir;
-    walk->localRoot  = localDir;
-    walk->onExpanded = std::move(onExpanded);
-
-    auto step = std::make_shared<std::function<void()>>();
-    auto ctx  = guard_.For(this);
-
-    *step = [this, ctx, walk, step]() {
-        while (walk->index < walk->entries.size()) {
-            const Entry& e = walk->entries[walk->index];
-            const std::string remotePath = path::Join(walk->remoteRoot, e.relative);
-
-            if (!e.isDir) {
-                const std::string localPath =
-                    (std::filesystem::path(walk->localRoot) / e.relative).string();
-                ++walk->index;
-                EnqueueUpload(localPath, remotePath, e.size);
-                continue;
-            }
-
-            ++walk->index;
-            remote_.MakeDirectory(remotePath, 0755,
-                [ctx, step](transport::FsError err) {
-                    ctx.Post([step, err = std::move(err)](TransferQueue&) mutable {
-                        // A directory that is already there is not a failure —
-                        // it is the normal case when merging into an existing
-                        // tree. Any other error is left for the file transfers
-                        // to surface against the specific path that fails.
-                        (void)err;
-                        (*step)();
-                    });
-                });
-            return;   // resume from the callback
-        }
-
-        auto done = std::move(walk->onExpanded);
-        if (done) done(transport::FsError::Success());
     };
 
     (*step)();
@@ -350,54 +221,44 @@ void TransferQueue::BeginJob(JobId id)
     TransferJob* job = Find(id);
     if (!job) { activeId_ = kInvalidJobId; Pump(); return; }
 
-    job->state = JobState::Checking;
-    NotifyChanged(id);
-
-    if (job->direction == TransferDirection::Download) {
-        // The destination is local, so the answer is available immediately.
-        // It is still posted rather than used inline: a run of skipped jobs
-        // would otherwise recurse once per job and could exhaust the stack.
-        const bool exists = LocalExists(job->destPath);
-        guard_.For(this).Post([id, exists](TransferQueue& q) {
-            q.OnConflictKnown(id, exists);
-        });
+    if (!job->source.Valid() || !job->destination.Valid()) {
+        FinishJob(id, JobState::Failed,
+                  transport::FsError::Make(transport::FsErrorCode::NotConnected,
+                                           "Transfer endpoint is no longer available"));
         return;
     }
 
+    job->state = JobState::Checking;
+    NotifyChanged(id);
+
+    // Uniform across endpoints: the destination filesystem is asked whether
+    // the path is already there, whether it is a disk or a server.
     auto ctx = guard_.For(this);
-    remote_.Stat(job->destPath, [ctx, id](transport::FileInfo, transport::FsError err) {
-        ctx.Post([id, err = std::move(err)](TransferQueue& q) mutable {
-            // Only a definitive "not there" counts as no conflict. Any other
-            // error (a permission problem on the parent, say) is left to the
-            // transfer itself to report against the real operation, rather
-            // than being second-guessed here.
-            const bool exists = !(err.code == transport::FsErrorCode::NoSuchFile);
-            q.OnConflictKnown(id, exists);
+    job->destination.fs->Stat(job->destPath,
+        [ctx, id](transport::FileInfo, transport::FsError err) {
+            ctx.Post([id, err = std::move(err)](TransferQueue& q) mutable {
+                // Only a definitive "not there" counts as no conflict. Any
+                // other error is left to the transfer itself to report against
+                // the real operation rather than being second-guessed here.
+                const bool exists = err.code != transport::FsErrorCode::NoSuchFile;
+                q.OnConflictKnown(id, exists);
+            });
         });
-    });
 }
 
 void TransferQueue::OnConflictKnown(JobId id, bool exists)
 {
     TransferJob* job = Find(id);
     if (!job) { activeId_ = kInvalidJobId; Pump(); return; }
-    // Cancelled while the check was in flight.
     if (job->state != JobState::Checking) { activeId_ = kInvalidJobId; Pump(); return; }
 
     if (!exists) { StartTransfer(id); return; }
 
     switch (policy_) {
-        case ConflictPolicy::Overwrite:
-            StartTransfer(id);
-            return;
-        case ConflictPolicy::Skip:
-            FinishJob(id, JobState::Skipped);
-            return;
-        case ConflictPolicy::Rename:
-            ResolveFreeName(id, 1);
-            return;
-        case ConflictPolicy::Ask:
-            break;
+        case ConflictPolicy::Overwrite: StartTransfer(id);                return;
+        case ConflictPolicy::Skip:      FinishJob(id, JobState::Skipped);  return;
+        case ConflictPolicy::Rename:    ResolveFreeName(id, 1);            return;
+        case ConflictPolicy::Ask:       break;
     }
 
     if (!prompt_) {
@@ -431,9 +292,9 @@ void TransferQueue::OnConflictKnown(JobId id, bool exists)
 void TransferQueue::ApplyResolution(JobId id, ConflictResolution resolution)
 {
     switch (resolution) {
-        case ConflictResolution::Overwrite: StartTransfer(id);              return;
+        case ConflictResolution::Overwrite: StartTransfer(id);               return;
         case ConflictResolution::Skip:      FinishJob(id, JobState::Skipped); return;
-        case ConflictResolution::Rename:    ResolveFreeName(id, 1);         return;
+        case ConflictResolution::Rename:    ResolveFreeName(id, 1);          return;
     }
 }
 
@@ -450,24 +311,12 @@ void TransferQueue::ResolveFreeName(JobId id, int attempt)
         return;
     }
 
-    if (job->direction == TransferDirection::Download) {
-        const std::filesystem::path dest(job->destPath);
-        const std::string candidate =
-            (dest.parent_path() /
-             MakeUniqueCandidate(dest.filename().string(), attempt)).string();
-        if (LocalExists(candidate)) { ResolveFreeName(id, attempt + 1); return; }
-        job->destPath = candidate;
-        NotifyChanged(id);
-        StartTransfer(id);
-        return;
-    }
-
     const std::string candidate =
         path::Join(path::Parent(job->destPath),
                    MakeUniqueCandidate(path::Leaf(job->destPath), attempt));
 
     auto ctx = guard_.For(this);
-    remote_.Stat(candidate,
+    job->destination.fs->Stat(candidate,
         [ctx, id, candidate, attempt](transport::FileInfo, transport::FsError err) {
             ctx.Post([id, candidate, attempt,
                       err = std::move(err)](TransferQueue& q) mutable {
@@ -496,38 +345,116 @@ void TransferQueue::StartTransfer(JobId id)
     const auto onProgress = [ctx, id](uint64_t done, uint64_t total) {
         ctx.Post([id, done, total](TransferQueue& q) { q.OnProgress(id, done, total); });
     };
+
+    // Download and Upload are defined relative to this machine, so the routing
+    // turns on which side — if either — is that machine.
+    if (job->destination.IsLocalDisk()) {
+        // Remote to here. Also the local-to-local case, which the local
+        // adapter declines rather than pretending to support.
+        const auto onDone = [ctx, id](transport::FsError err) {
+            ctx.Post([id, err = std::move(err)](TransferQueue& q) mutable {
+                q.OnLegDone(id, std::move(err), false);
+            });
+        };
+        activeHandleOwner_ = job->source.fs;
+        activeHandle_ = job->source.fs->Download(job->sourcePath, job->destPath,
+                                                 onProgress, onDone);
+        return;
+    }
+
+    if (job->source.IsLocalDisk()) {
+        const auto onDone = [ctx, id](transport::FsError err) {
+            ctx.Post([id, err = std::move(err)](TransferQueue& q) mutable {
+                q.OnLegDone(id, std::move(err), false);
+            });
+        };
+        activeHandleOwner_ = job->destination.fs;
+        activeHandle_ = job->destination.fs->Upload(job->sourcePath, job->destPath,
+                                                    onProgress, onDone);
+        return;
+    }
+
+    // Server to server: pull it down first. SFTP has no server-to-server copy,
+    // so the bytes pass through this machine whether or not the user thinks of
+    // it that way.
+    job->tempPath = MakeStagingPath(id, path::Leaf(job->sourcePath));
     const auto onDone = [ctx, id](transport::FsError err) {
         ctx.Post([id, err = std::move(err)](TransferQueue& q) mutable {
-            q.OnTransferDone(id, std::move(err));
+            q.OnLegDone(id, std::move(err), true);
+        });
+    };
+    activeHandleOwner_ = job->source.fs;
+    activeHandle_ = job->source.fs->Download(job->sourcePath, job->tempPath,
+                                             onProgress, onDone);
+}
+
+void TransferQueue::StartUploadLeg(JobId id)
+{
+    TransferJob* job = Find(id);
+    if (!job) { activeId_ = kInvalidJobId; Pump(); return; }
+
+    auto ctx = guard_.For(this);
+    const auto onProgress = [ctx, id](uint64_t done, uint64_t total) {
+        ctx.Post([id, done, total](TransferQueue& q) { q.OnProgress(id, done, total); });
+    };
+    const auto onDone = [ctx, id](transport::FsError err) {
+        ctx.Post([id, err = std::move(err)](TransferQueue& q) mutable {
+            q.OnLegDone(id, std::move(err), false);
         });
     };
 
-    activeHandle_ = (job->direction == TransferDirection::Download)
-        ? remote_.Download(job->sourcePath, job->destPath, onProgress, onDone)
-        : remote_.Upload(job->sourcePath, job->destPath, onProgress, onDone);
+    activeHandleOwner_ = job->destination.fs;
+    activeHandle_ = job->destination.fs->Upload(job->tempPath, job->destPath,
+                                                onProgress, onDone);
 }
 
 void TransferQueue::OnProgress(JobId id, uint64_t transferred, uint64_t total)
 {
     TransferJob* job = Find(id);
     if (!job || job->state != JobState::Active) return;
-    job->transferredBytes = transferred;
+
+    job->transferredBytes = job->completedLegBytes + transferred;
+
     // Trust the transport's figure once it has one: a size hint taken from a
     // directory listing can be stale by the time the bytes actually move.
-    if (total) job->totalBytes = total;
+    if (total) {
+        job->totalBytes = job->viaLocalStaging ? total * 2 : total;
+    }
     NotifyChanged(id);
 }
 
-void TransferQueue::OnTransferDone(JobId id, transport::FsError err)
+void TransferQueue::OnLegDone(JobId id, transport::FsError err, bool wasFirstLeg)
 {
-    if (err.Ok()) {
-        if (TransferJob* job = Find(id))
-            job->transferredBytes = job->totalBytes;
-        FinishJob(id, JobState::Completed);
+    TransferJob* job = Find(id);
+    if (!job) { activeId_ = kInvalidJobId; Pump(); return; }
+
+    if (err.Failed()) {
+        DiscardStagingFile(*job);
+        const bool cancelled = err.code == transport::FsErrorCode::Cancelled;
+        FinishJob(id, cancelled ? JobState::Cancelled : JobState::Failed,
+                  std::move(err));
         return;
     }
-    const bool cancelled = err.code == transport::FsErrorCode::Cancelled;
-    FinishJob(id, cancelled ? JobState::Cancelled : JobState::Failed, std::move(err));
+
+    if (wasFirstLeg) {
+        // Half the bytes are accounted for; the second leg counts from there.
+        job->completedLegBytes = job->totalBytes / 2;
+        job->transferredBytes  = job->completedLegBytes;
+        NotifyChanged(id);
+        StartUploadLeg(id);
+        return;
+    }
+
+    DiscardStagingFile(*job);
+    job->transferredBytes = job->totalBytes;
+    FinishJob(id, JobState::Completed);
+}
+
+void TransferQueue::DiscardStagingFile(const TransferJob& job)
+{
+    if (job.tempPath.empty()) return;
+    std::error_code ec;
+    std::filesystem::remove(job.tempPath, ec);
 }
 
 void TransferQueue::FinishJob(JobId id, JobState state, transport::FsError err)
@@ -535,11 +462,13 @@ void TransferQueue::FinishJob(JobId id, JobState state, transport::FsError err)
     if (TransferJob* job = Find(id)) {
         job->state = state;
         job->error = std::move(err);
+        job->tempPath.clear();
         NotifyChanged(id);
     }
     if (activeId_ == id) {
-        activeId_     = kInvalidJobId;
-        activeHandle_ = transport::kInvalidTransferHandle;
+        activeId_          = kInvalidJobId;
+        activeHandle_      = transport::kInvalidTransferHandle;
+        activeHandleOwner_ = nullptr;
     }
     Pump();
 }
@@ -553,10 +482,10 @@ void TransferQueue::CancelJob(JobId id)
     TransferJob* job = Find(id);
     if (!job || job->IsTerminal()) return;
 
-    if (job->state == JobState::Active && id == activeId_) {
+    if (job->state == JobState::Active && id == activeId_ && activeHandleOwner_) {
         // The transport owns the job now; it will report Cancelled through the
-        // normal completion path so there is exactly one place a job retires.
-        remote_.Cancel(activeHandle_);
+        // normal completion path, so there is exactly one place a job retires.
+        activeHandleOwner_->Cancel(activeHandle_);
         return;
     }
 
@@ -576,6 +505,29 @@ void TransferQueue::CancelAll()
 
     for (const JobId id : ids)
         CancelJob(id);
+}
+
+void TransferQueue::CancelJobsUsing(const transport::IRemoteFileSystem* fs)
+{
+    if (!fs) return;
+
+    std::vector<JobId> ids;
+    for (const auto& job : jobs_)
+        if (!job.IsTerminal() && job.Uses(fs)) ids.push_back(job.id);
+
+    for (const JobId id : ids) {
+        // The filesystem is going away, so its handle cannot be asked to stop
+        // politely; retire the job directly rather than waiting for a
+        // confirmation that will never arrive.
+        if (TransferJob* job = Find(id)) {
+            DiscardStagingFile(*job);
+            if (job->source.fs == fs)      job->source.fs = nullptr;
+            if (job->destination.fs == fs) job->destination.fs = nullptr;
+        }
+        FinishJob(id, JobState::Cancelled,
+                  transport::FsError::Make(transport::FsErrorCode::NotConnected,
+                                           "The session for this transfer closed"));
+    }
 }
 
 size_t TransferQueue::ClearFinished()

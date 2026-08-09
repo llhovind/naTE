@@ -30,10 +30,11 @@ void SeedTree(FakeRemoteFileSystem& fs)
 }
 
 DeletePlan PlanFor(RemoteDeleter& deleter, ManualExecutor& exec,
-                   const std::string& path, bool isDir, bool isSymlink = false)
+                   const std::string& path, bool isDir, bool isSymlink = false,
+                   uint64_t size = 0)
 {
     DeletePlan captured;
-    deleter.Plan(path, isDir, isSymlink,
+    deleter.Plan(DeleteTarget{path, isDir, isSymlink, size},
                  [&](DeletePlan p) { captured = std::move(p); });
     exec.RunAll();
     return captured;
@@ -279,9 +280,82 @@ TEST_CASE("given an enumeration in flight when the deleter is destroyed then the
 
     {
         RemoteDeleter d(fs, exec.AsDispatcher());
-        d.Plan("/top", true, false, [](DeletePlan) {});
+        d.Plan(DeleteTarget{"/top", true, false, 0}, [](DeletePlan) {});
         REQUIRE_FALSE(exec.Empty());
     }
 
     REQUIRE_NOTHROW(exec.RunAll());
+}
+
+// ---------------------------------------------------------------------------
+// Multiple targets
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given several targets when planned together then one plan covers them all") {
+    FakeRemoteFileSystem fs;
+    SeedTree(fs);
+    fs.AddFile("/loose.txt", "loose.txt", 7);
+
+    ManualExecutor exec;
+    RemoteDeleter d(fs, exec.AsDispatcher());
+
+    DeletePlan plan;
+    d.Plan(std::vector<DeleteTarget>{{"/top", true, false, 0},
+                                     {"/loose.txt", false, false, 7}},
+           [&](DeletePlan p) { plan = std::move(p); });
+    exec.RunAll();
+
+    REQUIRE(plan.fileCount == 4);          // 3 in the tree plus the loose file
+    REQUIRE(plan.dirCount == 3);
+    REQUIRE(plan.totalBytes == 67);
+    REQUIRE(plan.steps.size() == 7);
+    // Each target's own subtree stays correctly ordered within the merge.
+    REQUIRE(IsPostOrder(plan));
+}
+
+TEST_CASE("given no targets when planned then the plan is empty") {
+    FakeRemoteFileSystem fs;
+    ManualExecutor exec;
+    RemoteDeleter d(fs, exec.AsDispatcher());
+
+    std::optional<DeletePlan> plan;
+    d.Plan(std::vector<DeleteTarget>{}, [&](DeletePlan p) { plan = std::move(p); });
+    exec.RunAll();
+
+    REQUIRE(plan.has_value());
+    REQUIRE(plan->Empty());
+}
+
+TEST_CASE("given one unreadable target among several when planned then the merge reports it") {
+    FakeRemoteFileSystem fs;
+    SeedTree(fs);
+    fs.AddDirectory("/secret", "secret");
+    fs.listErrors["/secret"] = FsError::Make(FsErrorCode::PermissionDenied, "denied");
+
+    ManualExecutor exec;
+    RemoteDeleter d(fs, exec.AsDispatcher());
+
+    DeletePlan plan;
+    d.Plan(std::vector<DeleteTarget>{{"/secret", true, false, 0},
+                                     {"/top", true, false, 0}},
+           [&](DeletePlan p) { plan = std::move(p); });
+    exec.RunAll();
+
+    REQUIRE(plan.error.Failed());
+    // The readable target is still fully enumerated.
+    REQUIRE(plan.fileCount == 3);
+}
+
+TEST_CASE("given a plain file when planned then its size is carried into the total") {
+    // The confirmation dialog quotes this number, so a file must not be
+    // counted as zero bytes just because no directory walk produced it.
+    FakeRemoteFileSystem fs;
+    SeedTree(fs);
+    ManualExecutor exec;
+    RemoteDeleter d(fs, exec.AsDispatcher());
+
+    const DeletePlan plan = PlanFor(d, exec, "/top/a.txt", false, false, 10);
+
+    REQUIRE(plan.totalBytes == 10);
+    REQUIRE(plan.fileCount == 1);
 }

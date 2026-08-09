@@ -1,4 +1,6 @@
 #pragma once
+#include <cstdint>
+#include <iterator>
 #include <string>
 #include <wx/string.h>
 
@@ -47,4 +49,20 @@ inline wxString DecodeForDisplay(const std::string& bytes)
     if (wxString decoded = wxString::FromUTF8(bytes); !decoded.empty())
         return decoded;
     return wxString::From8BitData(bytes.data(), bytes.size());
+}
+
+// Formats a byte count the way a person reads it. Binary units, because these
+// are file sizes on a POSIX filesystem and that is what `ls -h` reports.
+inline wxString FormatByteSize(uint64_t bytes)
+{
+    constexpr const char* units[] = {"B", "KiB", "MiB", "GiB", "TiB", "PiB"};
+    double value = static_cast<double>(bytes);
+    size_t unit  = 0;
+    while (value >= 1024.0 && unit + 1 < std::size(units)) {
+        value /= 1024.0;
+        ++unit;
+    }
+    if (unit == 0)
+        return wxString::Format("%llu B", static_cast<unsigned long long>(bytes));
+    return wxString::Format("%.1f %s", value, units[unit]);
 }
