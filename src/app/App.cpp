@@ -173,15 +173,13 @@ bool App::OnInit() {
             if (WindowContext* wc = FindContextForSession(id); wc && wc->uiManager)
                 wc->uiManager->OpenRemoteFileInEditor(id, remotePath);
         },
-        [this](int width, int height, int sash) {
+        [this](int width, int height) {
             if (m_cfg.fileExplorerWidth  == width &&
-                m_cfg.fileExplorerHeight == height &&
-                m_cfg.fileExplorerSash   == sash)
+                m_cfg.fileExplorerHeight == height)
                 return;   // the same shape reported twice is not worth a write
 
             m_cfg.fileExplorerWidth  = width;
             m_cfg.fileExplorerHeight = height;
-            m_cfg.fileExplorerSash   = sash;
             m_cfg.save(m_configPath);
         });
 

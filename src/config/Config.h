@@ -83,10 +83,11 @@ struct AppConfig {
     // wants that size the next time whatever the session happens to be.
     //
     // The mode is deliberately absent. Both menu entries name the mode they
-    // open in, so a stored value would have no reader.
-    int         fileExplorerWidth      = 1180;
+    // open in, so a stored value would have no reader. Neither is the sash:
+    // the window is sized in whole panes, and Transfer mode splits its width
+    // in two, so there is no independent split to remember.
+    int         fileExplorerWidth      = 720;    // one pane; Transfer mode doubles it
     int         fileExplorerHeight     = 700;
-    int         fileExplorerSash       = 0;      // 0 = centre the split
     std::string remoteEditorCommand    = "";     // empty = $EDITOR; e.g. "code --wait"
 
     // [Session] defaults — applied to every new session, overridable per profile

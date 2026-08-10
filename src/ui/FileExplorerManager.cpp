@@ -9,7 +9,7 @@ FileExplorerManager::FileExplorerManager(
     term::session::SessionManager& sm,
     const AppConfig& cfg,
     std::function<void(term::session::SessionId, std::string)> onOpenInEditor,
-    std::function<void(int, int, int)> onGeometryChanged)
+    std::function<void(int, int)> onGeometryChanged)
     : sm_(sm)
     , cfg_(cfg)
     , onOpenInEditor_(std::move(onOpenInEditor))
@@ -60,13 +60,12 @@ void FileExplorerManager::OpenForSession(wxWindow* parent,
     // then no-ops, so merely opening a window never rewrites config.ini.
     frame->SetMode(mode);
     frame->SetOnGeometryChanged(
-        [this](int width, int height, int sash) {
+        [this](int width, int height) {
             // Mirror it locally too, so a window opened later this session
             // starts the same shape without waiting for a config reload.
             cfg_.fileExplorerWidth  = width;
             cfg_.fileExplorerHeight = height;
-            cfg_.fileExplorerSash   = sash;
-            if (onGeometryChanged_) onGeometryChanged_(width, height, sash);
+            if (onGeometryChanged_) onGeometryChanged_(width, height);
         });
     frames_[id] = frame;
     frame->Show();

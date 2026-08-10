@@ -6,9 +6,11 @@
 #include "ui/StringUtils.h"
 #include "ui/TransferPanel.h"
 
+#include <algorithm>
 #include <filesystem>
 
 #include <wx/app.h>
+#include <wx/display.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 
@@ -16,11 +18,17 @@ namespace ui {
 
 namespace {
 
-constexpr int kInitialWidth   = 1180;
-constexpr int kInitialHeight  = 700;
-constexpr int kMinWidth       = 620;
-constexpr int kMinHeight      = 420;
+// The width is a *one-pane* width throughout: Transfer mode derives its own
+// width by doubling it, so the two modes cannot drift apart.
+constexpr int kInitialWidth    = 720;
+constexpr int kInitialHeight   = 700;
+constexpr int kMinWidth        = 620;
+constexpr int kMinHeight       = 420;
 constexpr int kSplitterMinPane = 280;
+// The margin the outer sizer puts either side of the splitter.
+constexpr int kSplitterMargin  = 4;
+// wx reads a sash position of zero as "down the middle".
+constexpr int kCentredSash     = 0;
 
 // Where the local pane opens. The user's home directory is the only defensible
 // default: the process working directory is wherever naTE happened to be
@@ -66,7 +74,6 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
     , sessionId_(sessionId)
     , sm_(sm)
     , cfg_(cfg)
-    , sashPosition_(cfg.fileExplorerSash)
 {
     // Two fields: the first carries one-shot messages, the second the live
     // queue. Sharing one would let per-tick progress stamp on a message the
@@ -95,11 +102,11 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
     // when the user has finished choosing it.
     splitter_->Bind(wxEVT_SPLITTER_SASH_POS_CHANGED,
                     [this](wxSplitterEvent& evt) {
-                        // wx emits this during a programmatic split/unsplit
-                        // too, and an unsplit can report position 0 — which
-                        // would silently reset the user's split to centred.
+                        // Dragging the sash changes the leading pane's width,
+                        // which is the width the window remembers. wx emits
+                        // this during a programmatic split/unsplit too, where
+                        // the shape is mid-flight and must not be recorded.
                         if (applyingMode_ || !splitter_->IsSplit()) { evt.Skip(); return; }
-                        sashPosition_ = evt.GetSashPosition();
                         PersistGeometry();
                         evt.Skip();
                     });
@@ -234,6 +241,11 @@ void FileExplorerFrame::BuildLayout(std::function<void(std::string)> onOpenInEdi
     controls_->Show(toRightBtn_, false);
     controls_->Show(toLeftBtn_,  false);
     outer->Show(transfers_, false);
+
+    // Lay out now rather than at first paint: the owner may switch the window
+    // into Transfer mode before showing it, and the mode arithmetic measures
+    // the pane it is doubling.
+    Layout();
 }
 
 void FileExplorerFrame::SetMode(FileExplorerMode mode)
@@ -246,25 +258,41 @@ void FileExplorerFrame::SetMode(FileExplorerMode mode)
 void FileExplorerFrame::ApplyMode()
 {
     const bool transfer = mode_ == FileExplorerMode::Transfer;
+    const int  panes    = transfer ? 2 : 1;
 
     // One paint for the whole reshape. Without this the split, the panel
     // appearing and the relayout each draw separately, which reads as a flicker.
     Freeze();
     applyingMode_ = true;
 
+    // The shape the listing has right now, in both axes. The width target is
+    // arithmetic — a pane is a pane — but the height the queue panel will take
+    // is the sizer's business, so it is measured afterwards rather than
+    // predicted here.
+    const int listingHeight = splitter_ ? splitter_->GetSize().y : 0;
+    const int frameHeight   = GetSize().y;
+    const int targetWidth   = FrameWidthForPanes(panes);
+
+    // Lowered before the frame shrinks, or it would block its own shrink. The
+    // mode's real floor is set at the end, once the queue's height is known.
+    SetMinSize(wxSize(MinFrameWidthForPanes(panes), kMinHeight));
+
     if (transfer) {
         // Unsplit hid it; wx will not show it again on its own.
         rightPane_->Show();
-        splitter_->SplitVertically(leftPane_, rightPane_, sashPosition_);
+        splitter_->SplitVertically(leftPane_, rightPane_, kCentredSash);
+        SetFrameSize(targetWidth, frameHeight);
+        // Sash gravity keeps a centred split centred as the frame grows, but
+        // the grow may land after this call on some platforms. Centring again
+        // makes the outcome independent of that ordering.
+        CentreSash();
         // The listing may have gone stale while hidden, and the endpoint list
         // certainly may have.
         rightPane_->RefreshEndpointChoices();
         rightPane_->Refresh();
     } else {
-        // Read the sash back before tearing the split down — afterwards there
-        // is nothing to read it from.
-        if (splitter_->IsSplit()) sashPosition_ = splitter_->GetSashPosition();
         splitter_->Unsplit(rightPane_);
+        SetFrameSize(targetWidth, frameHeight);
     }
 
     // Tell the *sizer*, not just the window: a sizer item keeps its own show
@@ -279,9 +307,119 @@ void FileExplorerFrame::ApplyMode()
     UpdateTransferButtons();
     Layout();
 
+    // Give the listing back exactly what the queue panel took, or reclaim
+    // exactly what it freed. Measured, not predicted: the height the sizer
+    // grants that panel is not a figure the panel itself can be asked for.
+    RestoreListingHeight(listingHeight);
+
+    // The frame moved by however much that turned out to be — the figure
+    // Explore mode has to subtract to describe itself.
+    if (transfer) transferHeightDelta_ = GetSize().y - frameHeight;
+
+    SetMinSize(wxSize(MinFrameWidthForPanes(panes),
+                      kMinHeight + (transfer ? transferHeightDelta_ : 0)));
+
     applyingMode_ = false;
     Thaw();
     PersistGeometry();
+}
+
+// ---------------------------------------------------------------------------
+// Geometry
+// ---------------------------------------------------------------------------
+// The window is measured in panes. Explore mode is one pane wide, Transfer
+// mode two panes plus a sash, and a mode switch is nothing but that arithmetic
+// applied to the pane the user can already see. No sash position or window
+// size is carried across a switch, so there is nothing to go stale.
+
+int FileExplorerFrame::FrameChromeWidth() const
+{
+    // Window border plus the sizer margin either side of the splitter. Both
+    // are theme-dependent, so they are measured off the live window; the
+    // fallback covers the moment before the first layout has run.
+    if (splitter_) {
+        const int splitterWidth = splitter_->GetSize().x;
+        if (splitterWidth > 0) return GetSize().x - splitterWidth;
+    }
+    return (GetSize().x - GetClientSize().x) + 2 * kSplitterMargin;
+}
+
+int FileExplorerFrame::PaneWidth() const
+{
+    if (!splitter_) return 0;
+    // While split, the leading pane is the unit — so a sash the user has
+    // dragged is carried over exactly when the second pane goes away, rather
+    // than being averaged into something they did not choose.
+    if (splitter_->IsSplit() && leftPane_) return leftPane_->GetSize().x;
+    return splitter_->GetSize().x;
+}
+
+PaneMetrics FileExplorerFrame::Metrics() const
+{
+    return {FrameChromeWidth(),
+            splitter_ ? splitter_->GetSashSize() : 0,
+            kSplitterMinPane};
+}
+
+int FileExplorerFrame::FrameWidthForPanes(int panes) const
+{
+    return ui::FrameWidthForPanes(panes, PaneWidth(), Metrics());
+}
+
+int FileExplorerFrame::MinFrameWidthForPanes(int panes) const
+{
+    // Two panes need room for two: without this the frame minimum would let
+    // the user squeeze the window until wx started stealing width from one
+    // pane to keep the other above its own minimum.
+    return ui::MinFrameWidthForPanes(panes, Metrics(), kMinWidth);
+}
+
+void FileExplorerFrame::RestoreListingHeight(int wanted)
+{
+    // Called after the reshape has been laid out, so the drift below is what
+    // the queue panel actually cost — the panel's own best size excludes the
+    // minimum it sets on itself, so asking it would understate the answer and
+    // leave the listings a different height in each mode.
+    if (!splitter_ || wanted <= 0) return;
+
+    const int drift = wanted - splitter_->GetSize().y;
+    if (drift == 0) return;
+
+    SetFrameSize(GetSize().x, GetSize().y + drift);
+    Layout();
+}
+
+void FileExplorerFrame::SetFrameSize(int width, int height)
+{
+    // A maximised or full-screen window has no size of its own to change; the
+    // panes simply share whatever the screen gives them.
+    if (IsMaximized() || IsFullScreen()) return;
+
+    const int index = wxDisplay::GetFromWindow(this);
+    const wxRect area =
+        wxDisplay(index == wxNOT_FOUND ? 0u : static_cast<unsigned>(index))
+            .GetClientArea();
+
+    width  = std::min(width,  area.GetWidth());
+    height = std::min(height, area.GetHeight());
+    if (width == GetSize().x && height == GetSize().y) return;
+    SetSize(width, height);
+
+    // Growing from near an edge would otherwise push the pane it grew for off
+    // the screen.
+    const wxPoint at = GetPosition();
+    const int overhangX = at.x + width  - (area.GetX() + area.GetWidth());
+    const int overhangY = at.y + height - (area.GetY() + area.GetHeight());
+    if (overhangX > 0 || overhangY > 0)
+        Move(std::max(area.GetX(), at.x - std::max(0, overhangX)),
+             std::max(area.GetY(), at.y - std::max(0, overhangY)));
+}
+
+void FileExplorerFrame::CentreSash()
+{
+    if (!splitter_ || !splitter_->IsSplit()) return;
+    splitter_->SetSashPosition(
+        (splitter_->GetClientSize().x - splitter_->GetSashSize()) / 2);
 }
 
 void FileExplorerFrame::PersistGeometry()
@@ -292,12 +430,12 @@ void FileExplorerFrame::PersistGeometry()
     // must not overwrite the size they did choose.
     if (IsMaximized() || IsIconized()) return;
 
-    // sashPosition_ rather than the splitter: in Explore mode there is no
-    // split to read, and the member already holds what the user last chose.
-    if (splitter_->IsSplit()) sashPosition_ = splitter_->GetSashPosition();
-
-    const wxSize size = GetSize();
-    onGeometryChanged_(size.x, size.y, sashPosition_);
+    // Always the Explore-mode shape, whatever mode is showing: that is what a
+    // window opens at, and Transfer mode derives its own from it. Recording the
+    // two-pane width would reopen an Explore window at twice the size.
+    const int height = GetSize().y - (mode_ == FileExplorerMode::Transfer
+                                          ? transferHeightDelta_ : 0);
+    onGeometryChanged_(FrameWidthForPanes(1), height);
 }
 
 void FileExplorerFrame::OnFilesDropped(FileExplorerPane* target,

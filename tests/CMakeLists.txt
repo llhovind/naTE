@@ -16,6 +16,7 @@ add_executable(naTE_tests
     test_url_scanner.cpp
     test_word_selector.cpp
     test_dialog_placement.cpp
+    test_pane_geometry.cpp
     test_remote_path.cpp
     test_dir_model.cpp
     test_transfer_queue.cpp

@@ -5,6 +5,7 @@
 // Included rather than forward-declared: QueueOne takes the pane's nested
 // Item type, which a forward declaration cannot reach.
 #include "ui/FileExplorerPane.h"
+#include "ui/PaneGeometry.h"
 #include "session/SessionManager.h"
 #include "transport/LocalFileSystem.h"
 
@@ -58,10 +59,11 @@ public:
 
     void SetOnClosed(std::function<void()> cb) { onClosed_ = std::move(cb); }
 
-    // Reports size and sash position when they change, so the owner can save
-    // them. Writing configuration is the owner's job.
-    void SetOnGeometryChanged(
-        std::function<void(int width, int height, int sash)> cb)
+    // Reports the window's remembered shape when it changes, so the owner can
+    // save it. The width reported is always the *one-pane* width, whatever
+    // mode is showing — see the geometry section below. Writing configuration
+    // is the owner's job.
+    void SetOnGeometryChanged(std::function<void(int width, int height)> cb)
     {
         onGeometryChanged_ = std::move(cb);
     }
@@ -83,6 +85,20 @@ private:
 
     // The single place that knows what each mode looks like.
     void ApplyMode();
+
+    // --- Geometry -------------------------------------------------------------
+    // The window is measured in *panes*: one pane wide in Explore mode, two
+    // equal panes wide in Transfer mode. Every figure is derived from what is
+    // on screen right now rather than from a remembered number, so switching
+    // mode is a pure widen/narrow and a resize survives the round trip.
+    PaneMetrics Metrics() const;                // live measurements for the policy
+    int  FrameChromeWidth() const;              // border + sizer margins
+    int  PaneWidth() const;                     // width of the leading pane
+    int  FrameWidthForPanes(int panes) const;
+    int  MinFrameWidthForPanes(int panes) const;
+    void RestoreListingHeight(int wanted);      // undo what the queue panel cost
+    void SetFrameSize(int width, int height);
+    void CentreSash();
     void UpdateQueueStatus();
     // Uploads files dropped from the desktop onto a pane. Dropping onto the
     // local pane is a no-op the user is told about rather than a silent one.
@@ -103,7 +119,7 @@ private:
     std::function<void()>          onClosed_;
     // Invoked with the window's remembered geometry so the owner can persist
     // it. The frame does not write configuration itself.
-    std::function<void(int width, int height, int sash)> onGeometryChanged_;
+    std::function<void(int width, int height)> onGeometryChanged_;
 
     std::unique_ptr<term::fs::TransferQueue> queue_;
 
@@ -122,13 +138,15 @@ private:
     // of the time an admin has this window open.
     FileExplorerMode mode_ = FileExplorerMode::Explore;
 
-    // The authority for where the split sits. Read back from the splitter
-    // whenever the user moves it and before the split is torn down, so a
-    // round trip through Explore mode cannot lose it.
-    int  sashPosition_ = 0;          // 0 = let wx centre the split
-    // Suppresses the sash events wx emits during a programmatic split or
-    // unsplit, which would otherwise overwrite sashPosition_ with garbage.
+    // Suppresses the sash events wx emits during a programmatic split, unsplit
+    // or resize, which would otherwise persist a shape mid-reshape.
     bool applyingMode_ = false;
+
+    // How much taller the frame is in Transfer mode, learned by measuring the
+    // last switch rather than assumed. Explore mode subtracts it to describe
+    // the shape a window should reopen at. 0 until the first switch, which is
+    // correct: a window that has never shown the queue owes nothing for it.
+    int transferHeightDelta_ = 0;
 
     // Last text written to the queue status field, so a per-chunk progress
     // callback does not repaint the status bar on every SFTP block.

@@ -33,8 +33,7 @@ public:
         term::session::SessionManager& sm,
         const AppConfig& cfg,
         std::function<void(term::session::SessionId, std::string)> onOpenInEditor,
-        std::function<void(int width, int height, int sash)>
-            onGeometryChanged = {});
+        std::function<void(int width, int height)> onGeometryChanged = {});
 
     ~FileExplorerManager();
 
@@ -59,7 +58,7 @@ private:
     term::session::SessionManager& sm_;
     AppConfig                      cfg_;
     std::function<void(term::session::SessionId, std::string)> onOpenInEditor_;
-    std::function<void(int, int, int)> onGeometryChanged_;
+    std::function<void(int, int)> onGeometryChanged_;
 
     // Non-owning: wx owns its frames. Entries are removed when a frame reports
     // that it closed.
