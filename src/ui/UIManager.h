@@ -95,10 +95,6 @@ public:
     void SaveSessionToFile(term::session::SessionId id);
     void SaveActiveSessionToFile();
 
-    // Open the unified transfer dialog, pre-selecting the given session as source.
-    void TransferFilesForSession(term::session::SessionId preSelectedSrc);
-    void TransferFilesForActive();
-
     // Open the remote file browser and launch a remote-edit session (SSH only).
     void EditRemoteFileForActive();
     void EditRemoteFileForSession(term::session::SessionId id);
@@ -109,9 +105,11 @@ public:
     void OpenRemoteFileInEditor(term::session::SessionId id,
                                 const std::string& remotePath);
 
-    // Open the file explorer window for a session (SSH only).
-    void OpenFileExplorerForSession(term::session::SessionId id);
-    void OpenFileExplorerForActive();
+    // Open the file explorer window for a session (SSH only) in the given
+    // mode. Transfer mode is what the "Transfer Files..." entry points reach.
+    void OpenFileExplorerForSession(term::session::SessionId id,
+                                    FileExplorerMode mode);
+    void OpenFileExplorerForActive(FileExplorerMode mode);
 
     // Called by App after RemoteEditManager construction.
     void SetRemoteEditManager(class RemoteEditManager* mgr) { editMgr_ = mgr; }
@@ -119,8 +117,6 @@ public:
 
     // Returns true when the active session supports remote file transfer (SSH).
     bool ActiveSessionSupportsFileTransfer() const;
-    // Returns true when at least one open session supports file transfer.
-    bool AnySessionSupportsFileTransfer() const;
 
 
     // Toggle broadcast mode on/off.

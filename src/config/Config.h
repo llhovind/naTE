@@ -14,6 +14,12 @@ enum class TileLayout  { RowFirst, ColumnFirst };
 enum class CursorStyle { Block, Bar, Underline };
 enum class BellMode    { None, Visual, Audible };
 
+// The two shapes the file explorer window takes. Explore gives the whole
+// window to one listing for routine browsing; Transfer adds the second pane,
+// the copy buttons and the transfer queue. Named rather than a bool because
+// "true" would have to be read as two panes *and* buttons *and* queue panel.
+enum class FileExplorerMode { Explore, Transfer };
+
 struct AppConfig {
     int columns         = 80;
     int rows            = 24;
@@ -71,6 +77,16 @@ struct AppConfig {
     BellMode    bellMode           = BellMode::Visual;
     bool        copyOnSelect           = true;   // copy to X11 primary selection on mouseup
     bool        confirmCloseWindow     = true;   // false = suppress all close-confirmation dialogs
+
+    // File explorer window geometry, remembered application-wide rather than
+    // per session: the window is about a task, and a user who sizes it once
+    // wants that size the next time whatever the session happens to be.
+    //
+    // The mode is deliberately absent. Both menu entries name the mode they
+    // open in, so a stored value would have no reader.
+    int         fileExplorerWidth      = 1180;
+    int         fileExplorerHeight     = 700;
+    int         fileExplorerSash       = 0;      // 0 = centre the split
     std::string remoteEditorCommand    = "";     // empty = $EDITOR; e.g. "code --wait"
 
     // [Session] defaults — applied to every new session, overridable per profile

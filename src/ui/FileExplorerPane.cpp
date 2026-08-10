@@ -4,9 +4,8 @@
 #include "fs/RemotePath.h"
 #include "ui/ColorUtils.h"
 #include "ui/FilePropertiesDialog.h"
+#include "ui/RemoteFileListCtrl.h"
 #include "ui/StringUtils.h"
-
-#include <ctime>
 
 #include <wx/app.h>
 #include <wx/clipbrd.h>
@@ -14,25 +13,12 @@
 #include <wx/menu.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
+#include <wx/dnd.h>
 #include <wx/textdlg.h>
 
 namespace ui {
 
 namespace {
-
-// Column order in the listing.
-enum Column { ColName = 0, ColSize, ColModified, ColPermissions, ColOwner, ColCount };
-
-wxString FormatTime(int64_t unixSeconds)
-{
-    if (unixSeconds == 0) return {};
-    const std::time_t t = static_cast<std::time_t>(unixSeconds);
-    std::tm tm{};
-    localtime_r(&t, &tm);
-    char buf[32];
-    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &tm);
-    return wxString::FromUTF8(buf);
-}
 
 // wxButton does not inherit its foreground from the parent panel on GTK, so
 // every button needs both colours set explicitly or it goes invisible against
@@ -43,55 +29,36 @@ void StyleButton(wxButton* btn, const wxColour& bg, const wxColour& fg)
     btn->SetForegroundColour(fg);
 }
 
-} // namespace
-
-// ---------------------------------------------------------------------------
-// RemoteFileListCtrl
-// ---------------------------------------------------------------------------
-
-// Rows are rendered on demand from whatever the provider returns, so the
-// control holds no copy of the listing to fall out of step with the model.
-class RemoteFileListCtrl : public wxListCtrl {
+// Receives files dragged in from the desktop.
+//
+// Only inbound drops are handled. Dragging *out* of a virtual wxListCtrl to
+// the desktop needs a drag source that can materialise remote files on demand,
+// which GTK does not make workable without downloading them first — and
+// downloading on hover is not a thing to do behind a user's back.
+class PaneFileDropTarget : public wxFileDropTarget {
 public:
-    using ModelProvider = std::function<const term::fs::DirModel*()>;
+    using Handler = std::function<void(std::vector<std::string>)>;
 
-    RemoteFileListCtrl(wxWindow* parent, ModelProvider provider)
-        : wxListCtrl(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
-                     wxLC_REPORT | wxLC_VIRTUAL | wxLC_SINGLE_SEL)
-        , provider_(std::move(provider))
-    {}
+    explicit PaneFileDropTarget(Handler handler) : handler_(std::move(handler)) {}
 
-protected:
-    wxString OnGetItemText(long item, long column) const override
+    bool OnDropFiles(wxCoord, wxCoord, const wxArrayString& filenames) override
     {
-        const term::fs::DirModel* model = provider_ ? provider_() : nullptr;
-        if (!model || item < 0) return {};
-        const auto row = static_cast<size_t>(item);
-        if (row >= model->VisibleCount()) return {};
+        if (!handler_ || filenames.IsEmpty()) return false;
 
-        const term::transport::FileInfo& e = model->At(row);
-        switch (column) {
-            case ColName:
-                // Remote names are opaque bytes; a non-UTF-8 name must stay
-                // visible rather than silently rendering as empty.
-                return DecodeForDisplay(e.isDir ? e.name + "/" : e.name);
-            case ColSize:
-                return e.isDir ? wxString("-") : FormatByteSize(e.size);
-            case ColModified:
-                return FormatTime(e.mtime);
-            case ColPermissions:
-                return wxString::FromUTF8(term::fs::FormatPermissions(e.mode));
-            case ColOwner:
-                return DecodeForDisplay(e.group.empty() ? e.owner
-                                                        : e.owner + ":" + e.group);
-            default:
-                return {};
-        }
+        std::vector<std::string> paths;
+        paths.reserve(filenames.GetCount());
+        for (const wxString& name : filenames)
+            paths.push_back(std::string(name.ToUTF8()));
+
+        handler_(std::move(paths));
+        return true;
     }
 
 private:
-    ModelProvider provider_;
+    Handler handler_;
 };
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Construction
@@ -227,6 +194,32 @@ void FileExplorerPane::BuildToolbar(wxSizer* outer)
         RefreshRows();
         UpdateStatus();
     });
+    // Alt-arrow history and Ctrl shortcuts are bound here rather than on the
+    // list: wxListEvent carries no modifier state, so the plain key events are
+    // the only place the combination is visible.
+    Bind(wxEVT_CHAR_HOOK, [this](wxKeyEvent& evt) {
+        if (evt.GetModifiers() == wxMOD_ALT && controller_) {
+            if (evt.GetKeyCode() == WXK_LEFT)  { controller_->GoBack();    return; }
+            if (evt.GetKeyCode() == WXK_RIGHT) { controller_->GoForward(); return; }
+        }
+        if (evt.GetModifiers() == wxMOD_CONTROL) {
+            switch (evt.GetKeyCode()) {
+                case 'L': pathCtrl_->SetFocus();   pathCtrl_->SelectAll();  return;
+                case 'F': filterCtrl_->SetFocus(); filterCtrl_->SelectAll(); return;
+                case 'H':
+                    hiddenCheck_->SetValue(!hiddenCheck_->GetValue());
+                    if (controller_) {
+                        controller_->Model().SetShowHidden(hiddenCheck_->GetValue());
+                        RefreshRows();
+                        UpdateStatus();
+                    }
+                    return;
+                default: break;
+            }
+        }
+        evt.Skip();
+    });
+
     hiddenCheck_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
         if (!controller_) return;
         controller_->Model().SetShowHidden(hiddenCheck_->GetValue());
@@ -241,12 +234,8 @@ void FileExplorerPane::BuildList(wxSizer* outer)
     // forcing one round trip per file would make the pane tedious to use.
     list_ = new RemoteFileListCtrl(this, [this]() -> const term::fs::DirModel* {
         return controller_ ? &controller_->Model() : nullptr;
-    });
-    list_->InsertColumn(ColName,        "Name",        wxLIST_FORMAT_LEFT,  240);
-    list_->InsertColumn(ColSize,        "Size",        wxLIST_FORMAT_RIGHT,  90);
-    list_->InsertColumn(ColModified,    "Modified",    wxLIST_FORMAT_LEFT,  130);
-    list_->InsertColumn(ColPermissions, "Permissions", wxLIST_FORMAT_LEFT,  105);
-    list_->InsertColumn(ColOwner,       "Owner",       wxLIST_FORMAT_LEFT,  110);
+    }, 0 /* multi-select: transfers and deletions act on several rows */);
+    list_->InsertStandardColumns();
     outer->Add(list_, 1, wxEXPAND | wxLEFT | wxRIGHT, 6);
 
     list_->Bind(wxEVT_LIST_ITEM_ACTIVATED,   &FileExplorerPane::OnItemActivated,   this);
@@ -255,6 +244,12 @@ void FileExplorerPane::BuildList(wxSizer* outer)
     list_->Bind(wxEVT_LIST_KEY_DOWN,         &FileExplorerPane::OnListKeyDown,     this);
     list_->Bind(wxEVT_LIST_ITEM_SELECTED,    &FileExplorerPane::OnSelectionChanged, this);
     list_->Bind(wxEVT_LIST_ITEM_DESELECTED,  &FileExplorerPane::OnSelectionChanged, this);
+
+    // wx takes ownership of the drop target.
+    list_->SetDropTarget(new PaneFileDropTarget(
+        [this](std::vector<std::string> paths) {
+            if (onLocalFilesDropped_) onLocalFilesDropped_(std::move(paths));
+        }));
 }
 
 void FileExplorerPane::ApplyConfig(const AppConfig& cfg)
@@ -482,13 +477,13 @@ void FileExplorerPane::OnColumnClick(wxListEvent& evt)
     using term::fs::SortKey;
     using term::fs::SortOrder;
 
-    static constexpr SortKey kColumnKeys[ColCount] = {
+    static constexpr SortKey kColumnKeys[FileColumnCount] = {
         SortKey::Name, SortKey::Size, SortKey::Modified,
         SortKey::Permissions, SortKey::Owner,
     };
 
     const int col = evt.GetColumn();
-    if (col < 0 || col >= ColCount) return;
+    if (col < 0 || col >= FileColumnCount) return;
 
     auto& model = controller_->Model();
     const SortKey key = kColumnKeys[col];
@@ -501,14 +496,21 @@ void FileExplorerPane::OnColumnClick(wxListEvent& evt)
     RefreshRows();
 }
 
+void FileExplorerPane::FocusList()
+{
+    if (list_) list_->SetFocus();
+}
+
 void FileExplorerPane::OnListKeyDown(wxListEvent& evt)
 {
     const size_t row = static_cast<size_t>(evt.GetIndex());
     switch (evt.GetKeyCode()) {
-        case WXK_DELETE: DeleteSelection(); break;
-        case WXK_F2:     RenameRow(row);    break;
-        case WXK_F5:     if (controller_) controller_->Refresh(); break;
-        default:         evt.Skip(); break;
+        case WXK_DELETE:    DeleteSelection(); break;
+        case WXK_F2:        RenameRow(row);    break;
+        case WXK_F5:        if (controller_) controller_->Refresh(); break;
+        // Backspace goes up a level, as in every file manager.
+        case WXK_BACK:      if (controller_) controller_->NavigateUp(); break;
+        default:            evt.Skip(); break;
     }
 }
 

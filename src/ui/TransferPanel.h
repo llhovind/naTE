@@ -14,6 +14,12 @@ namespace ui {
 
 class TransferJobListCtrl;
 
+// One-line summary of a queue's state, e.g. "3 of 7 remaining - 4.2 MiB of
+// 40.1 MiB". Shared by the panel's own header and the explorer's status bar,
+// which shows it while the panel itself is hidden in Explore mode — two copies
+// of this sentence would drift.
+wxString DescribeTransferQueue(const term::fs::TransferQueue& queue);
+
 // The transfer queue's face: one row per job, with progress, and the controls
 // to stop them.
 //

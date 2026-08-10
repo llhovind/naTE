@@ -19,9 +19,9 @@
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
 
-namespace ui {
+#include "ui/RemoteFileListCtrl.h"
 
-class RemoteFileListCtrl;
+namespace ui {
 
 // A filesystem a pane can be pointed at: this computer, or any session that
 // has one. sessionId is 0 for the local machine, which is also how a pane
@@ -34,6 +34,7 @@ struct PaneEndpoint {
     std::string                         defaultPath;
 
     bool Valid() const noexcept { return fs != nullptr; }
+    bool IsLocalDisk() const noexcept { return fs && fs->IsLocalDisk(); }
 };
 
 // One browsable filesystem: toolbar, listing, filter and the write operations
@@ -89,6 +90,17 @@ public:
     // Fired when the selection or the current directory changes, so the owner
     // can re-evaluate what the transfer buttons should say.
     void SetOnStateChanged(std::function<void()> cb) { onStateChanged_ = std::move(cb); }
+
+    // Invoked with local paths dropped onto this pane from the desktop. The
+    // pane cannot queue transfers itself — it has one endpoint, and a transfer
+    // needs two — so the owner decides what to do with them.
+    void SetOnLocalFilesDropped(std::function<void(std::vector<std::string>)> cb)
+    {
+        onLocalFilesDropped_ = std::move(cb);
+    }
+
+    // Moves keyboard focus onto the listing, for shortcuts owned by the frame.
+    void FocusList();
 
     const std::string& CurrentPath() const;
     std::vector<Item>  SelectedItems() const;
@@ -148,6 +160,7 @@ private:
     std::function<void(std::string)>    onOpenInEditor_;
     std::function<void()>               onStateChanged_;
     std::function<void()>               onEndpointChanged_;
+    std::function<void(std::vector<std::string>)> onLocalFilesDropped_;
 
     std::unique_ptr<term::fs::ExplorerController> controller_;
     std::unique_ptr<term::fs::RemoteDeleter>      deleter_;

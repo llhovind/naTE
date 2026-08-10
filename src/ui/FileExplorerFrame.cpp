@@ -60,12 +60,20 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
                   ? wxString("File Explorer")
                   : wxString::Format("Files - %s",
                                      wxString::FromUTF8(remoteDescription)),
-              wxDefaultPosition, wxSize(kInitialWidth, kInitialHeight))
+              wxDefaultPosition,
+              wxSize(cfg.fileExplorerWidth  > 0 ? cfg.fileExplorerWidth  : kInitialWidth,
+                     cfg.fileExplorerHeight > 0 ? cfg.fileExplorerHeight : kInitialHeight))
     , sessionId_(sessionId)
     , sm_(sm)
     , cfg_(cfg)
+    , sashPosition_(cfg.fileExplorerSash)
 {
-    status_ = CreateStatusBar();
+    // Two fields: the first carries one-shot messages, the second the live
+    // queue. Sharing one would let per-tick progress stamp on a message the
+    // user has not read yet.
+    status_ = CreateStatusBar(2);
+    const int widths[2] = {-1, 260};
+    status_->SetStatusWidths(2, widths);
     Bind(wxEVT_DESTROY, &FileExplorerFrame::OnDestroy, this);
 
     // Sessions open and close in the main window while this one is up, so the
@@ -78,7 +86,23 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
     BuildLayout(std::move(onOpenInEditor));
     SetMinSize(wxSize(kMinWidth, kMinHeight));
     ApplyConfig(cfg_);
+
     UpdateTransferButtons();
+
+    // Deliberately not bound to wxEVT_SIZE: a single window drag emits dozens
+    // of those, and each one would rewrite config.ini. The shape is captured
+    // when the sash settles, when the mode changes, and on close — which is
+    // when the user has finished choosing it.
+    splitter_->Bind(wxEVT_SPLITTER_SASH_POS_CHANGED,
+                    [this](wxSplitterEvent& evt) {
+                        // wx emits this during a programmatic split/unsplit
+                        // too, and an unsplit can report position 0 — which
+                        // would silently reset the user's split to centred.
+                        if (applyingMode_ || !splitter_->IsSplit()) { evt.Skip(); return; }
+                        sashPosition_ = evt.GetSashPosition();
+                        PersistGeometry();
+                        evt.Skip();
+                    });
 }
 
 // ---------------------------------------------------------------------------
@@ -157,17 +181,17 @@ void FileExplorerFrame::BuildLayout(std::function<void(std::string)> onOpenInEdi
         respond(dlg.Resolution(), dlg.ApplyToAll());
     });
 
-    auto* controls = new wxBoxSizer(wxHORIZONTAL);
-    splitBtn_   = new wxButton(this, wxID_ANY, "Show Second Pane");
+    controls_   = new wxBoxSizer(wxHORIZONTAL);
+    modeBtn_    = new wxButton(this, wxID_ANY, "Transfer Mode");
     toRightBtn_ = new wxButton(this, wxID_ANY, "Copy  >");
     toLeftBtn_  = new wxButton(this, wxID_ANY, "<  Copy");
 
-    controls->Add(splitBtn_, 0, wxRIGHT, 16);
-    controls->AddStretchSpacer();
-    controls->Add(toRightBtn_, 0, wxRIGHT, 8);
-    controls->Add(toLeftBtn_,  0);
-    controls->AddStretchSpacer();
-    outer->Add(controls, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
+    controls_->Add(modeBtn_, 0, wxRIGHT, 16);
+    controls_->AddStretchSpacer();
+    controls_->Add(toRightBtn_, 0, wxRIGHT, 8);
+    controls_->Add(toLeftBtn_,  0);
+    controls_->AddStretchSpacer();
+    outer->Add(controls_, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
 
     transfers_ = new TransferPanel(this, cfg_, *queue_);
     transfers_->SetOnCancelJob([this](term::fs::JobId id) { queue_->CancelJob(id); });
@@ -178,8 +202,9 @@ void FileExplorerFrame::BuildLayout(std::function<void(std::string)> onOpenInEdi
     });
     outer->Add(transfers_, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 4);
 
-    splitBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-        ShowSecondPane(!secondPaneShown_);
+    modeBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        SetMode(mode_ == FileExplorerMode::Transfer ? FileExplorerMode::Explore
+                                                    : FileExplorerMode::Transfer);
     });
     toRightBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
         CopyBetweenPanes(leftPane_, rightPane_);
@@ -194,28 +219,134 @@ void FileExplorerFrame::BuildLayout(std::function<void(std::string)> onOpenInEdi
     leftPane_->SetOnEndpointChanged(onState);
     rightPane_->SetOnEndpointChanged(onState);
 
+    leftPane_->SetOnLocalFilesDropped([this](std::vector<std::string> paths) {
+        OnFilesDropped(leftPane_, std::move(paths));
+    });
+    rightPane_->SetOnLocalFilesDropped([this](std::vector<std::string> paths) {
+        OnFilesDropped(rightPane_, std::move(paths));
+    });
+
     SetSizer(outer);
+
+    // Born in Explore mode: the panes are already built that way, but the
+    // transfer chrome has to be hidden or the window would open as Explore
+    // panes wearing Transfer controls.
+    controls_->Show(toRightBtn_, false);
+    controls_->Show(toLeftBtn_,  false);
+    outer->Show(transfers_, false);
 }
 
-void FileExplorerFrame::ShowSecondPane(bool show)
+void FileExplorerFrame::SetMode(FileExplorerMode mode)
 {
-    if (show == secondPaneShown_) return;
-    secondPaneShown_ = show;
+    if (mode == mode_) return;
+    mode_ = mode;
+    ApplyMode();
+}
 
-    if (show) {
+void FileExplorerFrame::ApplyMode()
+{
+    const bool transfer = mode_ == FileExplorerMode::Transfer;
+
+    // One paint for the whole reshape. Without this the split, the panel
+    // appearing and the relayout each draw separately, which reads as a flicker.
+    Freeze();
+    applyingMode_ = true;
+
+    if (transfer) {
+        // Unsplit hid it; wx will not show it again on its own.
         rightPane_->Show();
-        splitter_->SplitVertically(leftPane_, rightPane_, GetClientSize().x / 2);
-        // The list may have gone stale while hidden, and the endpoints
+        splitter_->SplitVertically(leftPane_, rightPane_, sashPosition_);
+        // The listing may have gone stale while hidden, and the endpoint list
         // certainly may have.
         rightPane_->RefreshEndpointChoices();
         rightPane_->Refresh();
     } else {
+        // Read the sash back before tearing the split down — afterwards there
+        // is nothing to read it from.
+        if (splitter_->IsSplit()) sashPosition_ = splitter_->GetSashPosition();
         splitter_->Unsplit(rightPane_);
     }
 
-    splitBtn_->SetLabel(show ? "Hide Second Pane" : "Show Second Pane");
+    // Tell the *sizer*, not just the window: a sizer item keeps its own show
+    // flag, and hiding the window alone leaves its space reserved as an empty
+    // strip.
+    controls_->Show(toRightBtn_, transfer);
+    controls_->Show(toLeftBtn_,  transfer);
+    GetSizer()->Show(transfers_, transfer);
+
+    modeBtn_->SetLabel(transfer ? "Explore Mode" : "Transfer Mode");
+
     UpdateTransferButtons();
     Layout();
+
+    applyingMode_ = false;
+    Thaw();
+    PersistGeometry();
+}
+
+void FileExplorerFrame::PersistGeometry()
+{
+    // Null once the owner has gone; the window may still be torn down after it.
+    if (!onGeometryChanged_ || !splitter_) return;
+    // A maximised or minimised window's size is not what the user chose, so it
+    // must not overwrite the size they did choose.
+    if (IsMaximized() || IsIconized()) return;
+
+    // sashPosition_ rather than the splitter: in Explore mode there is no
+    // split to read, and the member already holds what the user last chose.
+    if (splitter_->IsSplit()) sashPosition_ = splitter_->GetSashPosition();
+
+    const wxSize size = GetSize();
+    onGeometryChanged_(size.x, size.y, sashPosition_);
+}
+
+void FileExplorerFrame::OnFilesDropped(FileExplorerPane* target,
+                                       std::vector<std::string> paths)
+{
+    if (!queue_ || !target || paths.empty()) return;
+
+    if (!target->IsLive()) return;
+    if (target->CurrentEndpoint().IsLocalDisk()) {
+        // Dropping desktop files onto the local pane would be a local copy,
+        // which this window does not do. Say so rather than doing nothing.
+        wxMessageBox("Dropped files can only be sent to a remote session.\n\n"
+                     "Point this pane at a session, or drop onto one that "
+                     "already is.",
+                     "Copy", wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+
+    const term::fs::TransferEndpoint source{&SharedLocalFileSystem(),
+                                            "This computer"};
+    const auto destination = ToTransferEndpoint(target->CurrentEndpoint());
+    const std::string destDir = target->CurrentPath();
+
+    size_t queued = 0;
+    for (const std::string& path : paths) {
+        std::error_code ec;
+        const bool isDir = std::filesystem::is_directory(path, ec);
+        if (ec) continue;
+
+        FileExplorerPane::Item item;
+        item.path = path;
+        item.name = std::filesystem::path(path).filename().string();
+        item.isDir = isDir;
+        if (!isDir) {
+            const auto size = std::filesystem::file_size(path, ec);
+            item.size = ec ? 0 : static_cast<uint64_t>(size);
+        }
+        QueueOne(item, source, destination, destDir);
+        ++queued;
+    }
+
+    if (queued) {
+        destinationDirty_ = true;
+        if (status_)
+            status_->SetStatusText(
+                wxString::Format("Queued %zu dropped item%s for %s",
+                                 queued, queued == 1 ? "" : "s",
+                                 DecodeForDisplay(destination.label)));
+    }
 }
 
 void FileExplorerFrame::ApplyConfig(const AppConfig& cfg)
@@ -230,7 +361,7 @@ void FileExplorerFrame::ApplyConfig(const AppConfig& cfg)
     const wxColour btnBg = toWx(cfg_.uiColors.tileInactive);
     const wxColour btnFg = pickContrasting(btnBg, toWx(cfg_.ansiColors[0]),
                                            toWx(cfg_.ansiColors[7]));
-    for (wxButton* b : {toRightBtn_, toLeftBtn_, splitBtn_}) {
+    for (wxButton* b : {toRightBtn_, toLeftBtn_, modeBtn_}) {
         if (!b) continue;
         b->SetBackgroundColour(btnBg);
         b->SetForegroundColour(btnFg);
@@ -244,7 +375,8 @@ void FileExplorerFrame::ApplyConfig(const AppConfig& cfg)
 
 void FileExplorerFrame::UpdateTransferButtons()
 {
-    const bool paired = secondPaneShown_ && leftPane_ && rightPane_ &&
+    const bool paired = mode_ == FileExplorerMode::Transfer &&
+                        leftPane_ && rightPane_ &&
                         leftPane_->IsLive() && rightPane_->IsLive();
 
     if (!paired) {
@@ -329,27 +461,46 @@ void FileExplorerFrame::CopyBetweenPanes(FileExplorerPane* from, FileExplorerPan
 // Queue notifications
 // ---------------------------------------------------------------------------
 
+void FileExplorerFrame::UpdateQueueStatus()
+{
+    if (!status_ || !queue_) return;
+
+    const wxString text = queue_->Jobs().empty() ? wxString()
+                                                 : DescribeTransferQueue(*queue_);
+    // OnTransferJobChanged fires per progress callback; repainting the status
+    // bar on every SFTP block would be gratuitous.
+    if (text == lastQueueStatus_) return;
+    lastQueueStatus_ = text;
+    status_->SetStatusText(text, 1);
+}
+
 void FileExplorerFrame::OnTransferJobAdded(term::fs::JobId)
 {
     if (transfers_) transfers_->RefreshFromQueue();
+    UpdateQueueStatus();
 }
 
 void FileExplorerFrame::OnTransferJobChanged(term::fs::JobId)
 {
     if (transfers_) transfers_->RefreshFromQueue();
+    UpdateQueueStatus();
 }
 
 void FileExplorerFrame::OnTransferQueueIdle()
 {
     if (transfers_) transfers_->RefreshFromQueue();
+    UpdateQueueStatus();
     if (!destinationDirty_) return;
     destinationDirty_ = false;
 
     // Both panes are re-read rather than only the destination: work may have
     // been queued in either direction before this batch drained, and guessing
     // which side changed would sometimes leave a stale listing.
+    // A hidden pane costs a round trip nobody sees; ApplyMode refreshes it
+    // when it comes back.
     if (leftPane_  && leftPane_->IsLive())  leftPane_->Refresh();
-    if (rightPane_ && rightPane_->IsLive()) rightPane_->Refresh();
+    if (rightPane_ && rightPane_->IsShown() && rightPane_->IsLive())
+        rightPane_->Refresh();
 
     if (status_) status_->SetStatusText("Transfers finished.");
 }
@@ -383,6 +534,8 @@ void FileExplorerFrame::OnDestroy(wxWindowDestroyEvent& evt)
     // Destroy events from this frame's own children propagate up to here, so
     // only the frame's own destruction should notify the owner.
     if (evt.GetWindow() != this) { evt.Skip(); return; }
+
+    PersistGeometry();
 
     // The queue holds callbacks into this frame; retiring it first means
     // nothing can fire into a half-destroyed window.

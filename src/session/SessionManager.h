@@ -188,16 +188,6 @@ public:
                             const std::string& localDir,
                             transport::DoneCallback onDone);
 
-    // Unified transfer between any two endpoints. Pass SessionId 0 for the
-    // local filesystem. Routes to SendFile / ReceiveFile for local↔remote
-    // cases; uses a temp file for remote↔remote.
-    void        TransferFileBetweenSessions(
-                    SessionId          srcId,
-                    const std::string& srcPath,
-                    SessionId          dstId,
-                    const std::string& dstDir,
-                    transport::DoneCallback onDone);
-
     term::input::InputTarget* GetInputTarget(SessionId id) const;
 
     // Every live session id, ascending so callers that build a menu or a

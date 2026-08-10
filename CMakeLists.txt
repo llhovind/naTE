@@ -174,11 +174,11 @@ set(SOURCES
     src/ui/ConnectionManagerDialog.cpp
     src/ui/FileExplorerFrame.cpp
     src/ui/FileExplorerPane.cpp
+    src/ui/RemoteFileListCtrl.cpp
     src/ui/TransferPanel.cpp
     src/ui/ConflictDialog.cpp
     src/ui/FileExplorerManager.cpp
     src/ui/FilePropertiesDialog.cpp
-    src/ui/TransferFilesDialog.cpp
     src/ui/KbdIntDialog.cpp
     src/ui/PasteConfirmDialog.cpp
     src/ui/RemoteFileBrowserDialog.cpp

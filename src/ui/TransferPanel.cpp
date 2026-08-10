@@ -149,24 +149,29 @@ void TransferPanel::RefreshFromQueue()
     UpdateSummary();
 }
 
+wxString DescribeTransferQueue(const term::fs::TransferQueue& queue)
+{
+    const size_t pending = queue.PendingCount();
+    const size_t total   = queue.Jobs().size();
+
+    if (total == 0)
+        return "No transfers.";
+    if (pending == 0)
+        return wxString::Format("%zu transfer%s finished  -  %s moved",
+                                total, total == 1 ? "" : "s",
+                                FormatByteSize(queue.TransferredBytes()));
+    return wxString::Format("%zu of %zu remaining  -  %s of %s",
+                            pending, total,
+                            FormatByteSize(queue.TransferredBytes()),
+                            FormatByteSize(queue.TotalBytes()));
+}
+
 void TransferPanel::UpdateSummary()
 {
     const size_t pending = queue_.PendingCount();
     const size_t total   = queue_.Jobs().size();
 
-    if (total == 0) {
-        summary_->SetLabel("No transfers.");
-    } else if (pending == 0) {
-        summary_->SetLabel(wxString::Format("%zu transfer%s finished  -  %s moved",
-                                            total, total == 1 ? "" : "s",
-                                            FormatByteSize(queue_.TransferredBytes())));
-    } else {
-        summary_->SetLabel(wxString::Format(
-            "%zu of %zu remaining  -  %s of %s",
-            pending, total,
-            FormatByteSize(queue_.TransferredBytes()),
-            FormatByteSize(queue_.TotalBytes())));
-    }
+    summary_->SetLabel(DescribeTransferQueue(queue_));
 
     cancelAllBtn_->Enable(pending > 0);
     cancelBtn_->Enable(pending > 0);

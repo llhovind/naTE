@@ -109,6 +109,9 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
             else if (key == "WordSelectRegex"  && !val.empty()) cfg.wordSelectRegex = val;
             else if (key == "CopyOnSelect")          cfg.copyOnSelect          = (val == "true" || val == "1");
             else if (key == "ConfirmCloseWindow")    cfg.confirmCloseWindow    = (val == "true" || val == "1");
+            else if (key == "FileExplorerWidth")     cfg.fileExplorerWidth     = std::stoi(val);
+            else if (key == "FileExplorerHeight")    cfg.fileExplorerHeight    = std::stoi(val);
+            else if (key == "FileExplorerSash")      cfg.fileExplorerSash      = std::stoi(val);
             else if (key == "RemoteEditorCommand")   cfg.remoteEditorCommand   = val;
             else if (key == "BellMode") {
                 if      (val == "None")    cfg.bellMode = BellMode::None;
@@ -206,6 +209,9 @@ void AppConfig::save(const std::string& configPath) const
       << "BellMode="        << bellModeStr                       << "\n"
       << "CopyOnSelect="          << (copyOnSelect       ? "true" : "false") << "\n"
       << "ConfirmCloseWindow="    << (confirmCloseWindow ? "true" : "false") << "\n"
+      << "FileExplorerWidth="     << fileExplorerWidth                        << "\n"
+      << "FileExplorerHeight="    << fileExplorerHeight                       << "\n"
+      << "FileExplorerSash="      << fileExplorerSash                         << "\n"
       << "RemoteEditorCommand="   << remoteEditorCommand                      << "\n"
       << "\n"
       << "[Panel]\n"

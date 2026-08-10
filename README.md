@@ -87,10 +87,24 @@ for you.
 - Verification dialog confirms connectivity before closing the panel, so you know the tunnel is up before you depend on it
 - **Forward health detection** — when a local (`-L`) forward is created, naTE probes it immediately rather than waiting until first use. A forward refused by server policy (`AllowTcpForwarding no`) shows a **red** error with the reason ("administratively prohibited") instead of failing silently; a forward whose target host is not yet reachable shows an **amber** warning that clears automatically once the first connection succeeds. The tile title-bar indicator reflects the same state at a glance
 
-### File transfer
-- Unified **Transfer Files** dialog (**Terminal → Transfer Files...**) — choose source and destination independently: local machine or any active SSH session
-- Upload, download, or transfer between two remote sessions from a single dialog; remote-to-remote transfers stage through a temporary local file automatically
-- Browse the remote filesystem to pick source files or set the destination directory
+### File explorer and transfer
+The **File Explorer** browses remote filesystems over the SSH connection a session
+already has — no sshfs, no second login. It opens in one of two modes:
+
+- **Explore** (**Terminal → File Explorer...**) — a single pane filling the window, for
+  navigating and one-off administration. Sort by any column, filter by glob (`*.conf`) or
+  substring, toggle hidden files, and act on a file from the context menu: open in your
+  editor, copy its path, inspect or change its permissions, rename, or delete
+- **Transfer** (**Terminal → Transfer Files...**) — two panes side by side with a transfer
+  queue below. Point either pane at the local machine or at any active SSH session, so
+  uploads, downloads and **server-to-server** copies all work the same way; remote-to-remote
+  transfers stage through a temporary local file automatically
+- The queue shows per-file progress and route, and every transfer can be cancelled
+  individually or all at once. Directories transfer recursively; symlinks are never followed.
+  When a destination file already exists you are asked whether to overwrite, skip or keep both
+- Files dragged from your desktop onto a remote pane are queued for upload
+- Transfers keep running when you switch back to Explore mode — progress stays visible in the
+  status bar
 - **Edit remote file** — open a remote file in your local editor (**Terminal → Edit Remote File**); naTE downloads it to a temp path, watches for saves via inotify, and re-uploads automatically on each write. Supports direct-save editors (vim, nano) and atomic-rename editors (VSCode, gedit). Configure the editor command in **Edit → Preferences → Behavior** or via the `$EDITOR` environment variable.
 
 ### Appearance

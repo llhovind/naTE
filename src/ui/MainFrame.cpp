@@ -169,7 +169,10 @@ MainFrame::MainFrame(const AppConfig& cfg,
     Bind(wxEVT_MENU, &MainFrame::OnEditRemoteFile,          this, ID_EDIT_REMOTE_FILE);
     Bind(wxEVT_MENU, &MainFrame::OnFileExplorer,            this, ID_FILE_EXPLORER);
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
-        e.Enable(m_uiManager && m_uiManager->AnySessionSupportsFileTransfer());
+        // The active session's, not any session's: both items now open the
+        // explorer for *this* session, which must have a filesystem or the
+        // window would only be able to say so in a message box.
+        e.Enable(m_uiManager && m_uiManager->ActiveSessionSupportsFileTransfer());
     }, ID_TRANSFER_FILES);
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
         e.Enable(m_uiManager && m_uiManager->ActiveSessionSupportsFileTransfer());
@@ -567,7 +570,7 @@ void MainFrame::OnSaveSessionFileTerminal(wxCommandEvent&)
 
 void MainFrame::OnTransferFiles(wxCommandEvent&)
 {
-    if (m_uiManager) m_uiManager->TransferFilesForActive();
+    if (m_uiManager) m_uiManager->OpenFileExplorerForActive(FileExplorerMode::Transfer);
 }
 
 void MainFrame::OnEditRemoteFile(wxCommandEvent&)
@@ -577,7 +580,7 @@ void MainFrame::OnEditRemoteFile(wxCommandEvent&)
 
 void MainFrame::OnFileExplorer(wxCommandEvent&)
 {
-    if (m_uiManager) m_uiManager->OpenFileExplorerForActive();
+    if (m_uiManager) m_uiManager->OpenFileExplorerForActive(FileExplorerMode::Explore);
 }
 
 void MainFrame::OnOpenInNewTile(wxCommandEvent&)

@@ -128,7 +128,7 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& cfg)
             menu.AppendSeparator();
             const bool sshTab = tabs_[tabIdx].supportsFileTransfer;
             auto* xferItem = menu.Append(wxID_ANY, "Transfer Files...");
-            xferItem->Enable(fileTransferAvailableCb_ && fileTransferAvailableCb_());
+            xferItem->Enable(sshTab);
             menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
                 TerminalActionEvent evt(TerminalAction::TransferFiles, sid);
                 ProcessWindowEvent(evt);

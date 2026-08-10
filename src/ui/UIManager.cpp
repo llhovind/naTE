@@ -4,7 +4,6 @@
 #include "ui/DialogPlacement.h"
 #include "ui/ResetAndClearDialog.h"
 #include "app/App.h"
-#include "ui/TransferFilesDialog.h"
 #include "ui/FileExplorerManager.h"
 #include "ui/RemoteEditManager.h"
 #include "ui/RemoteFileBrowserDialog.h"
@@ -300,9 +299,6 @@ void UIManager::WireTileCallbacks(TerminalTile* tile)
         [this](std::span<const term::session::SessionId> ids, TerminalTile* dstTile) -> bool {
             return static_cast<App&>(wxGetApp()).DropSession(ids, frame_, dstTile);
         });
-    tile->SetFileTransferAvailableCallback([this] {
-        return AnySessionSupportsFileTransfer();
-    });
     tile->SetStatusProvider([this](term::session::SessionId id) {
         return sm_.GetSessionStatus(id);
     });
@@ -503,35 +499,12 @@ void UIManager::ResetAndClearSession(term::session::SessionId id)
     sm_.ResetTerminal(id, true);
 }
 
-void UIManager::TransferFilesForSession(term::session::SessionId preSelectedSrc)
-{
-    auto all = GetSessionList();
-    std::vector<std::pair<term::session::SessionId, std::string>> eligible;
-    for (auto& [id, label] : all) {
-        if (sm_.SupportsFileTransfer(id))
-            eligible.emplace_back(id, label);
-    }
-    ui::TransferFilesDialog dlg(frame_, sm_, std::move(eligible), preSelectedSrc);
-    if (SessionUI* sui = FindSessionUI(preSelectedSrc); sui && sui->tile)
-        CentreDialogOnTile(dlg, sui->tile);
-    dlg.ShowModal();
-}
-
 void UIManager::ResetActiveTerminal()         { ResetTerminalForSession(activeId_); }
 void UIManager::ResetAndClearActiveTerminal() { ResetAndClearSession(activeId_); }
-void UIManager::TransferFilesForActive()      { TransferFilesForSession(activeId_); }
 
 bool UIManager::ActiveSessionSupportsFileTransfer() const
 {
     return activeId_ && sm_.SupportsFileTransfer(activeId_);
-}
-
-bool UIManager::AnySessionSupportsFileTransfer() const
-{
-    for (const auto& [id, _] : sessions_) {
-        if (sm_.SupportsFileTransfer(id)) return true;
-    }
-    return false;
 }
 
 
@@ -546,10 +519,8 @@ void UIManager::EditRemoteFileForSession(term::session::SessionId id)
         CentreDialogOnTile(dlg, sui->tile);
     if (dlg.ShowModal() != wxID_OK) return;
 
-    const auto& paths = dlg.GetSelectedPaths();
-    if (paths.empty()) return;
-
-    OpenRemoteFileInEditor(id, paths.front());
+    if (dlg.GetSelectedPath().empty()) return;
+    OpenRemoteFileInEditor(id, dlg.GetSelectedPath());
 }
 
 void UIManager::OpenRemoteFileInEditor(term::session::SessionId id,
@@ -580,15 +551,16 @@ void UIManager::OpenRemoteFileInEditor(term::session::SessionId id,
         });
 }
 
-void UIManager::OpenFileExplorerForSession(term::session::SessionId id)
+void UIManager::OpenFileExplorerForSession(term::session::SessionId id,
+                                           FileExplorerMode mode)
 {
     if (!explorerMgr_ || !id) return;
-    explorerMgr_->OpenForSession(frame_, id);
+    explorerMgr_->OpenForSession(frame_, id, mode);
 }
 
-void UIManager::OpenFileExplorerForActive()
+void UIManager::OpenFileExplorerForActive(FileExplorerMode mode)
 {
-    OpenFileExplorerForSession(activeId_);
+    OpenFileExplorerForSession(activeId_, mode);
 }
 
 void UIManager::EditRemoteFileForActive()
@@ -896,7 +868,10 @@ void UIManager::OnTerminalAction(TerminalActionEvent& evt)
             SaveSessionToFile(evt.GetSessionId());
             break;
         case TerminalAction::TransferFiles:
-            TransferFilesForSession(evt.GetSessionId());
+            // The old modal dialog's entry point now opens the explorer
+            // already in the shape that job needs.
+            OpenFileExplorerForSession(evt.GetSessionId(),
+                                       FileExplorerMode::Transfer);
             break;
         case TerminalAction::EditRemoteFile:
             EditRemoteFileForSession(evt.GetSessionId());
@@ -934,7 +909,8 @@ void UIManager::OnTileAction(TileActionEvent& evt)
             break;
         }
         case TileAction::OpenFileExplorer:
-            OpenFileExplorerForSession(evt.GetSessionId());
+            OpenFileExplorerForSession(evt.GetSessionId(),
+                                       FileExplorerMode::Explore);
             break;
         case TileAction::MoveAllToNewWindow: {
             TerminalTile* tile = evt.GetTile();

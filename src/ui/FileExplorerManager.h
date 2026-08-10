@@ -26,20 +26,27 @@ public:
     // onOpenInEditor is invoked with (session, absolute remote path) when a
     // user asks to edit a file; the caller routes it to the remote-edit
     // workflow, which this class deliberately knows nothing about.
+    // onGeometryChanged is invoked when a window's remembered shape changes,
+    // so the owner can fold it into AppConfig and save. Kept as a callback
+    // because writing configuration belongs to App, not to a UI manager.
     FileExplorerManager(
         term::session::SessionManager& sm,
         const AppConfig& cfg,
-        std::function<void(term::session::SessionId, std::string)> onOpenInEditor);
+        std::function<void(term::session::SessionId, std::string)> onOpenInEditor,
+        std::function<void(int width, int height, int sash)>
+            onGeometryChanged = {});
 
     ~FileExplorerManager();
 
     FileExplorerManager(const FileExplorerManager&)            = delete;
     FileExplorerManager& operator=(const FileExplorerManager&) = delete;
 
-    // Opens the explorer for a session, or raises the existing window when one
-    // is already open — a second window onto the same directory tree would
-    // only fight with the first over the shared connection.
-    void OpenForSession(wxWindow* parent, term::session::SessionId id);
+    // Opens the explorer for a session in the requested mode, or switches and
+    // raises the existing window when one is already open — a second window
+    // onto the same tree would only fight with the first over the connection.
+    // The menu item the user clicked names the mode, so it always wins.
+    void OpenForSession(wxWindow* parent, term::session::SessionId id,
+                        FileExplorerMode mode);
 
     // Tells every window that a session has gone away. Windows are left on
     // screen rather than destroyed — a pane pointed elsewhere is still useful,
@@ -52,6 +59,7 @@ private:
     term::session::SessionManager& sm_;
     AppConfig                      cfg_;
     std::function<void(term::session::SessionId, std::string)> onOpenInEditor_;
+    std::function<void(int, int, int)> onGeometryChanged_;
 
     // Non-owning: wx owns its frames. Entries are removed when a frame reports
     // that it closed.

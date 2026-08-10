@@ -8,27 +8,34 @@ namespace ui {
 FileExplorerManager::FileExplorerManager(
     term::session::SessionManager& sm,
     const AppConfig& cfg,
-    std::function<void(term::session::SessionId, std::string)> onOpenInEditor)
+    std::function<void(term::session::SessionId, std::string)> onOpenInEditor,
+    std::function<void(int, int, int)> onGeometryChanged)
     : sm_(sm)
     , cfg_(cfg)
     , onOpenInEditor_(std::move(onOpenInEditor))
+    , onGeometryChanged_(std::move(onGeometryChanged))
 {}
 
 FileExplorerManager::~FileExplorerManager()
 {
-    // Clear each frame's closed-callback before it can fire: the frames are
-    // owned by wx and may outlive this object during application teardown, and
-    // a callback into a destroyed manager would be a use-after-free.
-    for (auto& [id, frame] : frames_)
-        if (frame) frame->SetOnClosed(nullptr);
+    // Clear every callback back into this object before it can fire: the
+    // frames are owned by wx and may outlive this manager during application
+    // teardown, and either callback would then touch a destroyed manager.
+    for (auto& [id, frame] : frames_) {
+        if (!frame) continue;
+        frame->SetOnClosed(nullptr);
+        frame->SetOnGeometryChanged(nullptr);
+    }
 }
 
 void FileExplorerManager::OpenForSession(wxWindow* parent,
-                                         term::session::SessionId id)
+                                         term::session::SessionId id,
+                                         FileExplorerMode mode)
 {
     if (!id) return;
 
     if (const auto it = frames_.find(id); it != frames_.end() && it->second) {
+        it->second->SetMode(mode);
         it->second->Raise();
         it->second->SetFocus();
         return;
@@ -48,6 +55,19 @@ void FileExplorerManager::OpenForSession(wxWindow* parent,
         });
 
     frame->SetOnClosed([this, id] { frames_.erase(id); });
+
+    // Mode before the geometry callback: the PersistGeometry inside ApplyMode
+    // then no-ops, so merely opening a window never rewrites config.ini.
+    frame->SetMode(mode);
+    frame->SetOnGeometryChanged(
+        [this](int width, int height, int sash) {
+            // Mirror it locally too, so a window opened later this session
+            // starts the same shape without waiting for a config reload.
+            cfg_.fileExplorerWidth  = width;
+            cfg_.fileExplorerHeight = height;
+            cfg_.fileExplorerSash   = sash;
+            if (onGeometryChanged_) onGeometryChanged_(width, height, sash);
+        });
     frames_[id] = frame;
     frame->Show();
 }
