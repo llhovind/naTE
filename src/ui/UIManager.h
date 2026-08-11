@@ -99,11 +99,15 @@ public:
     void EditRemoteFileForActive();
     void EditRemoteFileForSession(term::session::SessionId id);
 
-    // Launches the remote-edit workflow for an already-chosen path. Shared by
-    // the Terminal menu (which picks the path with a browser dialog) and the
-    // file explorer (which already has one).
-    void OpenRemoteFileInEditor(term::session::SessionId id,
-                                const std::string& remotePath);
+    // Opens an already-chosen path in the configured editor. Shared by the
+    // Terminal menu (which picks the path with a browser dialog) and the file
+    // explorer (which already has one).
+    //
+    // id names the session the file lives on, or 0 for this computer. A local
+    // file is handed to the editor directly: the download/watch/upload
+    // round-trip exists to give a remote file a local presence, and a file
+    // that is already local has nothing to gain from a copy of itself.
+    void OpenFileInEditor(term::session::SessionId id, const std::string& path);
 
     // Open the file explorer window for a session (SSH only) in the given
     // mode. Transfer mode is what the "Transfer Files..." entry points reach.
@@ -270,6 +274,10 @@ private:
     void             UpdateTileMinSize(SessionUI& ui, unsigned short cols, unsigned short rows);
     bool             HasActiveSelection() const;
     std::u32string   GetFullActiveSelectedText() const;
+
+    // The configured editor, falling back to $EDITOR. Returns nullopt after
+    // telling the user none is set, so callers can simply bail.
+    std::optional<std::string> ResolveEditorCommand();
 
     void ResetTerminalForSession(term::session::SessionId id);
     void ResetAndClearSession(term::session::SessionId id);

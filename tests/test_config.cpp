@@ -279,6 +279,34 @@ TEST_CASE("given AppConfig with copyOnSelect=true when saved and reloaded then f
     REQUIRE(loaded.copyOnSelect == true);
 }
 
+TEST_CASE("given ini with ExternalEditorCommand when loaded then externalEditorCommand is set")
+{
+    const TempIni ini{"[Behavior]\nExternalEditorCommand=code --wait\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.externalEditorCommand == "code --wait");
+}
+
+TEST_CASE("given ini with legacy RemoteEditorCommand when loaded then externalEditorCommand is set")
+{
+    const TempIni ini{"[Behavior]\nRemoteEditorCommand=vim\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.externalEditorCommand == "vim");
+}
+
+TEST_CASE("given AppConfig with externalEditorCommand when saved and reloaded then field round-trips")
+{
+    AppConfig original;
+    original.externalEditorCommand = "nano";
+
+    const auto savePath = (std::filesystem::temp_directory_path()
+                           / "nate_test_externaleditor.ini").string();
+    original.save(savePath);
+    const auto loaded = AppConfig::load(savePath);
+    std::filesystem::remove(savePath);
+
+    REQUIRE(loaded.externalEditorCommand == "nano");
+}
+
 TEST_CASE("given ini with ConfirmCloseWindow=false when loaded then confirmCloseWindow is false")
 {
     const TempIni ini{"[Behavior]\nConfirmCloseWindow=false\n"};

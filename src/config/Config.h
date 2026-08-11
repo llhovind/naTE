@@ -88,7 +88,7 @@ struct AppConfig {
     // in two, so there is no independent split to remember.
     int         fileExplorerWidth      = 720;    // one pane; Transfer mode doubles it
     int         fileExplorerHeight     = 700;
-    std::string remoteEditorCommand    = "";     // empty = $EDITOR; e.g. "code --wait"
+    std::string externalEditorCommand  = "";     // empty = $EDITOR; e.g. "code --wait"
 
     // [Session] defaults — applied to every new session, overridable per profile
     std::string                        defaultShell;        // empty = $SHELL → /bin/sh

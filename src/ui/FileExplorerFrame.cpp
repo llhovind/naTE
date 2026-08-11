@@ -62,7 +62,7 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
                                      term::session::SessionManager& sm,
                                      const AppConfig& cfg,
                                      std::string remoteDescription,
-                                     std::function<void(std::string)> onOpenInEditor)
+                                     OpenInEditorFn onOpenInEditor)
     : wxFrame(parent, wxID_ANY,
               remoteDescription.empty()
                   ? wxString("File Explorer")
@@ -155,7 +155,13 @@ void FileExplorerFrame::RefreshEndpointChoices()
 // Layout
 // ---------------------------------------------------------------------------
 
-void FileExplorerFrame::BuildLayout(std::function<void(std::string)> onOpenInEditor)
+void FileExplorerFrame::SetOnOpenInEditor(OpenInEditorFn cb)
+{
+    if (leftPane_)  leftPane_->SetOnOpenInEditor(cb);
+    if (rightPane_) rightPane_->SetOnOpenInEditor(std::move(cb));
+}
+
+void FileExplorerFrame::BuildLayout(OpenInEditorFn onOpenInEditor)
 {
     auto* outer = new wxBoxSizer(wxVERTICAL);
 

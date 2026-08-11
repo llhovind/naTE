@@ -2,6 +2,7 @@
 #include "ui/ClipboardUtils.h"
 #include "ui/ColorUtils.h"
 #include "ui/DialogPlacement.h"
+#include "ui/EditorLauncher.h"
 #include "ui/ResetAndClearDialog.h"
 #include "app/App.h"
 #include "ui/FileExplorerManager.h"
@@ -520,29 +521,41 @@ void UIManager::EditRemoteFileForSession(term::session::SessionId id)
     if (dlg.ShowModal() != wxID_OK) return;
 
     if (dlg.GetSelectedPath().empty()) return;
-    OpenRemoteFileInEditor(id, dlg.GetSelectedPath());
+    OpenFileInEditor(id, dlg.GetSelectedPath());
 }
 
-void UIManager::OpenRemoteFileInEditor(term::session::SessionId id,
-                                       const std::string& remotePath)
+std::optional<std::string> UIManager::ResolveEditorCommand()
 {
-    if (!editMgr_ || !id) return;
-
-    std::string editorCommand = cfg_.remoteEditorCommand;
-    if (editorCommand.empty()) {
-        const char* envEditor = std::getenv("EDITOR");
-        if (envEditor) editorCommand = envEditor;
+    std::string command = cfg_.externalEditorCommand;
+    if (command.empty()) {
+        if (const char* envEditor = std::getenv("EDITOR")) command = envEditor;
     }
-    if (editorCommand.empty()) {
-        wxMessageBox(
-            wxString::FromUTF8(
-                "No remote editor configured.\n\n"
-                "Set one in Edit \xe2\x86\x92 Preferences \xe2\x86\x92 Behavior \xe2\x86\x92 Remote editor."),
-            "Edit Remote File", wxOK | wxICON_INFORMATION, frame_);
+    if (!command.empty()) return command;
+
+    wxMessageBox(
+        wxString::FromUTF8(
+            "No editor configured.\n\n"
+            "Set one in Edit \xe2\x86\x92 Preferences \xe2\x86\x92 Behavior \xe2\x86\x92 External editor."),
+        "Open in Editor", wxOK | wxICON_INFORMATION, frame_);
+    return std::nullopt;
+}
+
+void UIManager::OpenFileInEditor(term::session::SessionId id,
+                                 const std::string& path)
+{
+    const auto command = ResolveEditorCommand();
+    if (!command) return;
+
+    // This computer: the editor writes the real file, so there is no copy to
+    // download, no watch to run and no upload to schedule.
+    if (!id) {
+        LaunchEditor(*command, path);
         return;
     }
 
-    editMgr_->OpenRemoteFile(id, remotePath, editorCommand,
+    if (!editMgr_) return;
+
+    editMgr_->OpenRemoteFile(id, path, *command,
         [this](bool ok, std::string err) {
             if (!ok) {
                 wxMessageBox(wxString::FromUTF8("Remote edit failed: " + err),

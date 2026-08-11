@@ -81,9 +81,11 @@ public:
         onEndpointChanged_ = std::move(cb);
     }
 
-    // Optional: offered in the context menu only when set, so the local pane
-    // does not advertise a remote-edit workflow it cannot run.
-    void SetOnOpenInEditor(std::function<void(std::string)> cb)
+    // Invoked with the endpoint the path belongs to and the path itself. The
+    // pane reports its own endpoint rather than letting the owner assume one:
+    // both panes can be pointed at any filesystem, so a path is meaningless
+    // without the machine it came from. sessionId is 0 for this computer.
+    void SetOnOpenInEditor(std::function<void(term::session::SessionId, std::string)> cb)
     {
         onOpenInEditor_ = std::move(cb);
     }
@@ -157,7 +159,7 @@ private:
     PaneEndpoint                        endpoint_;
     std::vector<PaneEndpoint>           choices_;
     AppConfig                           cfg_;
-    std::function<void(std::string)>    onOpenInEditor_;
+    std::function<void(term::session::SessionId, std::string)> onOpenInEditor_;
     std::function<void()>               onStateChanged_;
     std::function<void()>               onEndpointChanged_;
     std::function<void(std::vector<std::string>)> onLocalFilesDropped_;

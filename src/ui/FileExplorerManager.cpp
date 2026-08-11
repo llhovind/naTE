@@ -25,6 +25,7 @@ FileExplorerManager::~FileExplorerManager()
         if (!frame) continue;
         frame->SetOnClosed(nullptr);
         frame->SetOnGeometryChanged(nullptr);
+        frame->SetOnOpenInEditor(nullptr);
     }
 }
 
@@ -48,10 +49,14 @@ void FileExplorerManager::OpenForSession(wxWindow* parent,
         return;
     }
 
+    // The endpoint comes from the pane that raised it, not from the session
+    // this window was opened for: either pane may be showing another session
+    // or this computer, and routing a path to the wrong machine silently edits
+    // the wrong file when both happen to have it.
     auto* frame = new FileExplorerFrame(
         parent, id, sm_, cfg_, sm_.GetRemoteDescription(id),
-        [this, id](std::string remotePath) {
-            if (onOpenInEditor_) onOpenInEditor_(id, std::move(remotePath));
+        [this](term::session::SessionId endpoint, std::string path) {
+            if (onOpenInEditor_) onOpenInEditor_(endpoint, std::move(path));
         });
 
     frame->SetOnClosed([this, id] { frames_.erase(id); });

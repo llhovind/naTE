@@ -164,14 +164,19 @@ bool App::OnInit() {
 
     m_remoteEditManager = std::make_unique<ui::RemoteEditManager>(*m_sessionManager);
 
-    // Routes "open in editor" from the explorer back through the same
-    // remote-edit workflow the Terminal menu uses, so there is one
-    // implementation of "edit this remote file", not two.
+    // Routes "open in editor" from the explorer back through the same edit
+    // workflow the Terminal menu uses, so there is one implementation of
+    // "edit this file", not two.
     m_fileExplorerManager = std::make_unique<ui::FileExplorerManager>(
         *m_sessionManager, m_cfg,
-        [this](term::session::SessionId id, std::string remotePath) {
-            if (WindowContext* wc = FindContextForSession(id); wc && wc->uiManager)
-                wc->uiManager->OpenRemoteFileInEditor(id, remotePath);
+        [this](term::session::SessionId endpoint, std::string path) {
+            // Endpoint 0 is this computer, which no window hosts: any context
+            // can run the launch, since it needs only the config and a parent
+            // window for error reporting.
+            WindowContext* wc =
+                endpoint ? FindContextForSession(endpoint)
+                         : (m_windows.empty() ? nullptr : m_windows.front().get());
+            if (wc && wc->uiManager) wc->uiManager->OpenFileInEditor(endpoint, path);
         },
         [this](int width, int height) {
             if (m_cfg.fileExplorerWidth  == width &&

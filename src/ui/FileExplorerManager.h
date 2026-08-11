@@ -23,9 +23,10 @@ namespace ui {
 // All methods must be called on the UI thread.
 class FileExplorerManager {
 public:
-    // onOpenInEditor is invoked with (session, absolute remote path) when a
-    // user asks to edit a file; the caller routes it to the remote-edit
-    // workflow, which this class deliberately knows nothing about.
+    // onOpenInEditor is invoked with (endpoint, absolute path) when a user asks
+    // to edit a file, where the endpoint is the session the file lives on or 0
+    // for this computer; the caller routes it to the edit workflow, which this
+    // class deliberately knows nothing about.
     // onGeometryChanged is invoked when a window's remembered shape changes,
     // so the owner can fold it into AppConfig and save. Kept as a callback
     // because writing configuration belongs to App, not to a UI manager.

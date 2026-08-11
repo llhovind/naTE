@@ -23,6 +23,10 @@ namespace ui {
 
 class TransferPanel;
 
+// Reports a file the user asked to edit: the endpoint it lives on (0 for this
+// computer) and its absolute path on that endpoint.
+using OpenInEditorFn = std::function<void(term::session::SessionId, std::string)>;
+
 // Modeless per-session window: the local filesystem beside a remote one, with
 // a transfer queue between them, riding the session's existing SSH connection.
 //
@@ -31,14 +35,16 @@ class TransferPanel;
 // the transfer queue, the conflict policy, and the session's lifetime.
 class FileExplorerFrame : public wxFrame, private term::fs::ITransferQueueListener {
 public:
-    // onOpenInEditor receives the absolute remote path of a file the user
-    // asked to edit; the caller routes it to the remote-edit workflow.
+    // onOpenInEditor receives the endpoint a file lives on and its absolute
+    // path; the caller routes it to the edit workflow. The window does not
+    // supply the endpoint itself — either pane may be pointed anywhere,
+    // including at this computer, so only the pane knows.
     FileExplorerFrame(wxWindow* parent,
                       term::session::SessionId sessionId,
                       term::session::SessionManager& sm,
                       const AppConfig& cfg,
                       std::string remoteDescription,
-                      std::function<void(std::string)> onOpenInEditor);
+                      OpenInEditorFn onOpenInEditor);
 
     term::session::SessionId SessionId() const noexcept { return sessionId_; }
 
@@ -59,6 +65,11 @@ public:
 
     void SetOnClosed(std::function<void()> cb) { onClosed_ = std::move(cb); }
 
+    // Repoints (or, with nullptr, detaches) the edit callback on both panes.
+    // The owner detaches during teardown: wx may destroy this window after the
+    // manager that the callback reaches back into has gone.
+    void SetOnOpenInEditor(OpenInEditorFn cb);
+
     // Reports the window's remembered shape when it changes, so the owner can
     // save it. The width reported is always the *one-pane* width, whatever
     // mode is showing — see the geometry section below. Writing configuration
@@ -74,7 +85,7 @@ private:
     void OnTransferJobChanged(term::fs::JobId id) override;
     void OnTransferQueueIdle() override;
 
-    void BuildLayout(std::function<void(std::string)> onOpenInEditor);
+    void BuildLayout(OpenInEditorFn onOpenInEditor);
     void UpdateTransferButtons();
     void RefreshEndpointChoices();
 

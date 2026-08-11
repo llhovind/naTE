@@ -1,8 +1,7 @@
 #include "ui/RemoteEditManager.h"
-#include "transport/EnvUtils.h"
+#include "ui/EditorLauncher.h"
 #include <filesystem>
 #include <wx/app.h>
-#include <wx/utils.h>
 #include <algorithm>
 
 namespace ui {
@@ -58,9 +57,7 @@ void RemoteEditManager::OpenRemoteFile(term::session::SessionId  id,
                     session->Start();
                     sessions_.push_back(std::move(session));
 
-                    wxExecute(wxString::FromUTF8(editorCommand + " "
-                                  + term::transport::ShellQuote(localPath)),
-                              wxEXEC_ASYNC);
+                    LaunchEditor(editorCommand, localPath);
 
                     if (onReady) onReady(true, "");
                 });

@@ -460,7 +460,8 @@ void FileExplorerPane::OnItemActivated(wxListEvent& evt)
                 case term::fs::ActivationResult::Navigated:
                     break;
                 case term::fs::ActivationResult::IsFile:
-                    if (onOpenInEditor_) onOpenInEditor_(std::move(path));
+                    if (onOpenInEditor_)
+                        onOpenInEditor_(endpoint_.sessionId, std::move(path));
                     break;
                 case term::fs::ActivationResult::Failed:
                     SetStatus(wxString::Format("Cannot open '%s': %s",
@@ -581,7 +582,7 @@ void FileExplorerPane::EditRow(size_t row)
     if (!controller_ || !onOpenInEditor_) return;
     if (row >= controller_->Model().VisibleCount()) return;
     if (controller_->Model().At(row).isDir) return;
-    onOpenInEditor_(controller_->PathOf(row));
+    onOpenInEditor_(endpoint_.sessionId, controller_->PathOf(row));
 }
 
 void FileExplorerPane::CopyPathOf(size_t row)
