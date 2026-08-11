@@ -31,8 +31,11 @@ constexpr int kSplitterMinPane = 280;
 // to say what happens — and, once a destination is known, where it lands.
 constexpr char kCopyLabel[]         = "Copy";
 constexpr char kCopyToLabelFormat[] = "Copy to %s";
-// The margin the outer sizer puts either side of the splitter.
-constexpr int kSplitterMargin  = 4;
+// The margin the outer sizer puts around the splitter and the transfer panel.
+// FrameChromeWidth() derives the frame's non-listing width from the horizontal
+// pair, so every sizer call that contributes to it must use this constant
+// rather than repeating the number.
+constexpr int kOuterMargin     = 4;
 // wx reads a sash position of zero as "down the middle".
 constexpr int kCentredSash     = 0;
 
@@ -60,6 +63,11 @@ constexpr int kMinCopyPairGap  = 8;
 constexpr const char* kTitleApp         = "naFX";
 constexpr const char* kTitleEndpointSep = " ";
 constexpr const char* kTitlePairSep     = " <-> ";
+
+// How this machine names itself as an endpoint. Every place that builds a local
+// endpoint uses it, so the choice column, the copy buttons, the window title and
+// the transfer queue all say the same thing about the same machine.
+constexpr char kLocalEndpointLabel[] = "This computer";
 
 // Where the local pane opens. The user's home directory is the only defensible
 // default: the process working directory is wherever naTE happened to be
@@ -168,7 +176,7 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
 
 PaneEndpoint FileExplorerFrame::LocalEndpoint() const
 {
-    return {"This computer", &SharedLocalFileSystem(), 0, DefaultLocalPath()};
+    return {kLocalEndpointLabel, &SharedLocalFileSystem(), 0, DefaultLocalPath()};
 }
 
 PaneEndpoint FileExplorerFrame::EndpointForSession(term::session::SessionId id) const
@@ -233,7 +241,7 @@ void FileExplorerFrame::BuildLayout(OpenInEditorFn onOpenInEditor)
 
     splitter_->Initialize(leftPane_);
     rightPane_->Hide();
-    outer->Add(splitter_, 1, wxEXPAND | wxALL, 4);
+    outer->Add(splitter_, 1, wxEXPAND | wxALL, kOuterMargin);
 
     queue_ = std::make_unique<term::fs::TransferQueue>(
         [](std::function<void()> fn) { wxTheApp->CallAfter(std::move(fn)); });
@@ -267,7 +275,7 @@ void FileExplorerFrame::BuildLayout(OpenInEditorFn onOpenInEditor)
         queue_->ClearFinished();
         transfers_->RefreshFromQueue();
     });
-    outer->Add(transfers_, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 4);
+    outer->Add(transfers_, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, kOuterMargin);
 
     modeBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
         SetMode(mode_ == FileExplorerMode::Transfer ? FileExplorerMode::Explore
@@ -402,7 +410,7 @@ int FileExplorerFrame::FrameChromeWidth() const
         const int splitterWidth = splitter_->GetSize().x;
         if (splitterWidth > 0) return GetSize().x - splitterWidth;
     }
-    return (GetSize().x - GetClientSize().x) + 2 * kSplitterMargin;
+    return (GetSize().x - GetClientSize().x) + 2 * kOuterMargin;
 }
 
 int FileExplorerFrame::PaneWidth() const
@@ -555,7 +563,7 @@ void FileExplorerFrame::OnFilesDropped(FileExplorerPane* target,
     }
 
     const term::fs::TransferEndpoint source{&SharedLocalFileSystem(),
-                                            "This computer"};
+                                            kLocalEndpointLabel};
     const auto destination = ToTransferEndpoint(target->CurrentEndpoint());
     const std::string destDir = target->CurrentPath();
 

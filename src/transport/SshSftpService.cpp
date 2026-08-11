@@ -332,7 +332,7 @@ struct SftpService::DownloadTask {
 
     SftpService*  svc   = nullptr;
     State         state = State::InitSftp;
-    TransferHandle handle_id = kInvalidTransferHandle;
+    TransferHandle handleId = kInvalidTransferHandle;
     std::string   remotePath;
     std::string   localPath;
     LIBSSH2_SFTP_HANDLE* handle = nullptr;
@@ -353,7 +353,7 @@ struct SftpService::DownloadTask {
     {
         if (handle) { libssh2_sftp_close(handle); handle = nullptr; }
         out.close();
-        svc->ForgetCancellation(handle_id);
+        svc->ForgetCancellation(handleId);
         if (err.Ok() && onProgress) onProgress(transferred, total);
         onDone(std::move(err));
         return false;
@@ -373,7 +373,7 @@ struct SftpService::DownloadTask {
     {
         if (!svc->running_)
             return Finish(FsError::Make(FsErrorCode::NotConnected, "Session closed"));
-        if (svc->IsCancelled(handle_id))
+        if (svc->IsCancelled(handleId))
             return Finish(FsError::Make(FsErrorCode::Cancelled, "Transfer cancelled"));
 
         if (state == State::InitSftp) {
@@ -438,7 +438,7 @@ struct SftpService::UploadTask {
 
     SftpService*  svc   = nullptr;
     State         state = State::InitSftp;
-    TransferHandle handle_id = kInvalidTransferHandle;
+    TransferHandle handleId = kInvalidTransferHandle;
     std::string   localPath;
     std::string   remotePath;
     LIBSSH2_SFTP_HANDLE* handle  = nullptr;
@@ -462,7 +462,7 @@ struct SftpService::UploadTask {
     {
         if (handle) { libssh2_sftp_close(handle); handle = nullptr; }
         in.close();
-        svc->ForgetCancellation(handle_id);
+        svc->ForgetCancellation(handleId);
         if (err.Ok() && onProgress) onProgress(transferred, total);
         onDone(std::move(err));
         return false;
@@ -481,7 +481,7 @@ struct SftpService::UploadTask {
     {
         if (!svc->running_)
             return Finish(FsError::Make(FsErrorCode::NotConnected, "Session closed"));
-        if (svc->IsCancelled(handle_id))
+        if (svc->IsCancelled(handleId))
             return Finish(FsError::Make(FsErrorCode::Cancelled, "Transfer cancelled"));
 
         if (state == State::InitSftp) {
@@ -635,6 +635,13 @@ void SftpService::Shutdown()
     }
 }
 
+void SftpService::RegisterTransfer(TransferHandle handle)
+{
+    if (handle == kInvalidTransferHandle) return;
+    std::lock_guard<std::mutex> lk(cancelMutex_);
+    live_.insert(handle);
+}
+
 bool SftpService::IsCancelled(TransferHandle handle) const
 {
     if (handle == kInvalidTransferHandle) return false;
@@ -646,6 +653,7 @@ void SftpService::ForgetCancellation(TransferHandle handle)
 {
     if (handle == kInvalidTransferHandle) return;
     std::lock_guard<std::mutex> lk(cancelMutex_);
+    live_.erase(handle);
     cancelled_.erase(handle);
 }
 
@@ -653,6 +661,11 @@ void SftpService::Cancel(TransferHandle handle)
 {
     if (handle == kInvalidTransferHandle) return;
     std::lock_guard<std::mutex> lk(cancelMutex_);
+    // Only a transfer that is still running can be asked to stop. A handle that
+    // has already finished — or never existed — is dropped here rather than
+    // recorded, because nothing will come back to clear it. The port promises
+    // both calls are harmless, and this is what makes the second one so.
+    if (live_.count(handle) == 0) return;
     cancelled_.insert(handle);
 }
 
@@ -772,9 +785,12 @@ TransferHandle SftpService::Download(const std::string& remotePath,
                                      DoneCallback onDone)
 {
     const TransferHandle id = nextHandle_.fetch_add(1, std::memory_order_relaxed);
+    // Registered before the task is queued, so a Cancel() racing this call is
+    // recorded rather than discarded as unknown.
+    RegisterTransfer(id);
     auto t = std::make_shared<DownloadTask>();
     t->svc        = this;
-    t->handle_id  = id;
+    t->handleId   = id;
     t->remotePath = remotePath;
     t->localPath  = localPath;
     t->onProgress = std::move(onProgress);
@@ -789,9 +805,10 @@ TransferHandle SftpService::Upload(const std::string& localPath,
                                    DoneCallback onDone)
 {
     const TransferHandle id = nextHandle_.fetch_add(1, std::memory_order_relaxed);
+    RegisterTransfer(id);
     auto t = std::make_shared<UploadTask>();
     t->svc        = this;
-    t->handle_id  = id;
+    t->handleId   = id;
     t->localPath  = localPath;
     t->remotePath = remotePath;
     t->onProgress = std::move(onProgress);

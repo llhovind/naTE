@@ -1,4 +1,5 @@
 #include "fs/TransferQueue.h"
+#include "fs/FileMode.h"
 #include "fs/RemotePath.h"
 
 #include <algorithm>
@@ -21,6 +22,61 @@ constexpr int kMaxTreeDepth = 64;
 // A collision that survives this many attempts means something is wrong that
 // renaming will not fix.
 constexpr int kMaxRenameAttempts = 100;
+
+// --- Recursive tree expansion ----------------------------------------------
+// State for EnqueueTree's walk, at namespace scope so the continuation chain
+// below stays a sequence of short steps rather than one deeply nested lambda.
+
+struct PendingDir {
+    std::string source;
+    std::string dest;
+    int         depth = 0;
+};
+
+struct TreeWalk {
+    TransferEndpoint                        source;
+    TransferEndpoint                        destination;
+    std::deque<PendingDir>                  pending;
+    transport::FsError                      firstError;
+    std::function<void(transport::FsError)> onExpanded;
+
+    // Hands the walk's outcome back exactly once.
+    void Finish(transport::FsError err)
+    {
+        auto done = std::move(onExpanded);
+        onExpanded = nullptr;
+        if (done) done(std::move(err));
+    }
+};
+
+// Turns one directory's listing into queued file jobs and further directories
+// to visit. Returns false when the walk should stop, having already reported.
+bool AbsorbListing(TransferQueue& queue, TreeWalk& walk, const PendingDir& dir,
+                   const std::vector<transport::FileInfo>& entries,
+                   transport::FsError err)
+{
+    // A directory that failed outright stops the walk; one that returned rows
+    // alongside an error contributes what it read.
+    if (err.Failed() && entries.empty()) {
+        walk.Finish(std::move(err));
+        return false;
+    }
+    if (err.Failed() && walk.firstError.Ok()) walk.firstError = std::move(err);
+
+    for (const auto& e : entries) {
+        if (e.isSymlink) continue;   // never follow links
+        const std::string src = path::Join(dir.source, e.name);
+        const std::string dst = path::Join(dir.dest, e.name);
+
+        if (e.isDir) {
+            if (dir.depth + 1 < kMaxTreeDepth)
+                walk.pending.push_back({src, dst, dir.depth + 1});
+        } else {
+            queue.Enqueue(walk.source, src, walk.destination, dst, e.size);
+        }
+    }
+    return true;
+}
 
 // Scratch path for a transfer that has to be staged through this machine.
 std::string MakeStagingPath(JobId id, const std::string& leaf)
@@ -97,21 +153,7 @@ void TransferQueue::EnqueueTree(TransferEndpoint source, const std::string& sour
                                 TransferEndpoint destination, const std::string& destDir,
                                 std::function<void(transport::FsError)> onExpanded)
 {
-    struct PendingDir {
-        std::string source;
-        std::string dest;
-        int         depth = 0;
-    };
-
-    struct Walk {
-        TransferEndpoint                        source;
-        TransferEndpoint                        destination;
-        std::deque<PendingDir>                  pending;
-        transport::FsError                      firstError;
-        std::function<void(transport::FsError)> onExpanded;
-    };
-
-    auto walk = std::make_shared<Walk>();
+    auto walk = std::make_shared<TreeWalk>();
     walk->source      = std::move(source);
     walk->destination = std::move(destination);
     walk->pending.push_back({sourceDir, destDir, 0});
@@ -120,10 +162,11 @@ void TransferQueue::EnqueueTree(TransferEndpoint source, const std::string& sour
     auto step = std::make_shared<std::function<void()>>();
     auto ctx  = guard_.For(this);
 
+    // One directory per turn: create it, list it, absorb what came back, and
+    // come round again for whatever that added to the queue.
     *step = [ctx, walk, step]() {
         if (walk->pending.empty()) {
-            auto done = std::move(walk->onExpanded);
-            if (done) done(walk->firstError);
+            walk->Finish(walk->firstError);
             return;
         }
 
@@ -134,41 +177,18 @@ void TransferQueue::EnqueueTree(TransferEndpoint source, const std::string& sour
         // including the root of the tree — the listing below enumerates only
         // its contents. An existing directory is the normal case when merging
         // into a tree, so its error is not a failure.
-        walk->destination.fs->MakeDirectory(dir.dest, 0755,
+        walk->destination.fs->MakeDirectory(dir.dest, kDefaultDirectoryMode,
             [ctx, walk, step, dir](transport::FsError) {
-                ctx.Post([walk, step, dir](TransferQueue& q) {
+                ctx.Post([ctx, walk, step, dir](TransferQueue&) {
                     walk->source.fs->List(dir.source,
-                        [ctx = q.guard_.For(&q), walk, step, dir](
+                        [ctx, walk, step, dir](
                             std::vector<transport::FileInfo> entries,
                             transport::FsError err) {
                             ctx.Post([walk, step, dir, entries = std::move(entries),
-                                      err = std::move(err)](TransferQueue& qq) mutable {
-                                // A directory that failed outright stops the
-                                // walk; one that returned rows alongside an
-                                // error contributes what it read.
-                                if (err.Failed() && entries.empty()) {
-                                    auto done = std::move(walk->onExpanded);
-                                    if (done) done(std::move(err));
-                                    return;
-                                }
-                                if (err.Failed() && walk->firstError.Ok())
-                                    walk->firstError = std::move(err);
-
-                                for (const auto& e : entries) {
-                                    if (e.isSymlink) continue;   // never follow links
-                                    const std::string src = path::Join(dir.source, e.name);
-                                    const std::string dst = path::Join(dir.dest, e.name);
-
-                                    if (e.isDir) {
-                                        if (dir.depth + 1 < kMaxTreeDepth)
-                                            walk->pending.push_back(
-                                                {src, dst, dir.depth + 1});
-                                    } else {
-                                        qq.Enqueue(walk->source, src,
-                                                   walk->destination, dst, e.size);
-                                    }
-                                }
-                                (*step)();
+                                      err = std::move(err)](TransferQueue& q) mutable {
+                                if (AbsorbListing(q, *walk, dir, entries,
+                                                  std::move(err)))
+                                    (*step)();
                             });
                         });
                 });
@@ -357,8 +377,8 @@ void TransferQueue::StartTransfer(JobId id)
             });
         };
         activeHandleOwner_ = job->source.fs;
-        activeHandle_ = job->source.fs->Download(job->sourcePath, job->destPath,
-                                                 onProgress, onDone);
+        RecordHandle(id, job->source.fs->Download(job->sourcePath, job->destPath,
+                                                  onProgress, onDone));
         return;
     }
 
@@ -369,8 +389,8 @@ void TransferQueue::StartTransfer(JobId id)
             });
         };
         activeHandleOwner_ = job->destination.fs;
-        activeHandle_ = job->destination.fs->Upload(job->sourcePath, job->destPath,
-                                                    onProgress, onDone);
+        RecordHandle(id, job->destination.fs->Upload(job->sourcePath, job->destPath,
+                                                     onProgress, onDone));
         return;
     }
 
@@ -384,8 +404,18 @@ void TransferQueue::StartTransfer(JobId id)
         });
     };
     activeHandleOwner_ = job->source.fs;
-    activeHandle_ = job->source.fs->Download(job->sourcePath, job->tempPath,
-                                             onProgress, onDone);
+    RecordHandle(id, job->source.fs->Download(job->sourcePath, job->tempPath,
+                                              onProgress, onDone));
+}
+
+// The port allows an adapter to answer inline, in which case the job has
+// already retired by the time the handle comes back and the fields describing
+// the active transfer belong to whatever runs next. Recording it unconditionally
+// would hand a cancel request a handle its owner has long since forgotten.
+void TransferQueue::RecordHandle(JobId id, transport::TransferHandle handle)
+{
+    if (activeId_ != id) return;
+    activeHandle_ = handle;
 }
 
 void TransferQueue::StartUploadLeg(JobId id)
@@ -404,8 +434,8 @@ void TransferQueue::StartUploadLeg(JobId id)
     };
 
     activeHandleOwner_ = job->destination.fs;
-    activeHandle_ = job->destination.fs->Upload(job->tempPath, job->destPath,
-                                                onProgress, onDone);
+    RecordHandle(id, job->destination.fs->Upload(job->tempPath, job->destPath,
+                                                 onProgress, onDone));
 }
 
 void TransferQueue::OnProgress(JobId id, uint64_t transferred, uint64_t total)

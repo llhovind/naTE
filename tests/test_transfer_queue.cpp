@@ -778,3 +778,49 @@ TEST_CASE("given a job whose endpoint vanished before it started then it fails r
     REQUIRE(q.FindJob(orphan)->error.code == FsErrorCode::NotConnected);
     REQUIRE(q.IsIdle());
 }
+
+// ---------------------------------------------------------------------------
+// Adapters that answer inline
+// ---------------------------------------------------------------------------
+// IRemoteFileSystem lets a callback fire before the call that started it has
+// returned — the local-disk adapter does exactly that. Paired with a dispatcher
+// that runs work immediately, a whole job can retire inside StartTransfer, and
+// the handle the adapter eventually returns then describes a job that is over.
+
+TEST_CASE("given an adapter that completes inline when a later job is active "
+          "then cancelling reaches the right transfer") {
+    TempDir tmp("inline_handle");
+
+    // Runs posted work at once, which is what a dispatcher does when the caller
+    // already sits on the owning thread.
+    TransferQueue q([](std::function<void()> fn) { fn(); });
+
+    FakeRemoteFileSystem pending;                       // transfers stay in flight
+    FakeRemoteFileSystem inlineFs;
+    inlineFs.completeTransfersInline = true;
+
+    // Downloads: the destination is the local disk, so the source moves bytes.
+    const JobId first  = q.Enqueue(Remote(pending), "/remote/a.bin",
+                                   Local(), tmp.Sub("a.bin"));
+    // Queued behind `first`, and finishes the instant it starts.
+    q.Enqueue(Remote(inlineFs), "/remote/b.bin", Local(), tmp.Sub("b.bin"));
+    // Queued behind that, and is the job left running at the end.
+    const JobId last   = q.Enqueue(Remote(pending), "/remote/c.bin",
+                                   Local(), tmp.Sub("c.bin"));
+
+    REQUIRE(StateOf(q, first) == JobState::Active);
+
+    // Retiring the first lets the inline job run and finish within the same
+    // call that then starts `last`.
+    pending.CompleteActive();
+
+    REQUIRE(StateOf(q, first) == JobState::Completed);
+    REQUIRE(StateOf(q, last)  == JobState::Active);
+
+    // The handle recorded for the active job must be its own. If the inline
+    // job's handle overwrote it on the way out, this cancel goes to a transfer
+    // that no longer exists and `last` never retires.
+    q.CancelJob(last);
+    REQUIRE(StateOf(q, last) == JobState::Cancelled);
+    REQUIRE(q.IsIdle());
+}

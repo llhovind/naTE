@@ -77,6 +77,12 @@ public:
     std::vector<PendingTransfer> transfers;
 
     // --- Test controls -------------------------------------------------------
+    // When set, Download and Upload finish before they return, as an adapter
+    // over a local disk does. The port permits this, so anything driving the
+    // port has to stay correct when a completion arrives during the call that
+    // started it.
+    bool completeTransfersInline = false;
+
     PendingTransfer* Active()
     {
         for (auto& t : transfers)
@@ -215,6 +221,7 @@ public:
         const TransferHandle h = nextHandle_++;
         transfers.push_back({h, false, remotePath, localPath,
                              std::move(onProgress), std::move(onDone), false});
+        if (completeTransfersInline) CompleteActive();
         return h;
     }
 
@@ -226,6 +233,7 @@ public:
         const TransferHandle h = nextHandle_++;
         transfers.push_back({h, true, localPath, remotePath,
                              std::move(onProgress), std::move(onDone), false});
+        if (completeTransfersInline) CompleteActive();
         return h;
     }
 

@@ -30,8 +30,8 @@ more robust one is warranted.
 - Identify and isolate **side effects** — pure functions are the default,
   impure is the exception
 - Apply **bounded contexts**: never let one domain's models bleed into another
-- **Layer ownership rule**: `Transport` is a replaceable port (SSH, PTY, Serial, Loopback all satisfy the same interface); `Session` is the domain core; `INamedWorkspaceRepository` / `ConnectionManager` are persistence adapters; wx UI is an outer adapter. When adding a feature, ask "which layer owns this?" before writing a line of code. A change that reaches across two layers (e.g. Session touching a wx type, or Transport knowing about Document) is a boundary violation — flag it and restructure
-- **wx-free boundary**: `transport/`, `session/`, `document/`, `parser/`, `layout/`, and `config/` must never include wx headers — this is what makes headless unit and integration tests possible; a wx dependency in these layers is an architectural violation
+- **Layer ownership rule**: `Transport` is a replaceable port (SSH, PTY, Serial, Loopback all satisfy the same interface); `Session` is the domain core; `INamedWorkspaceRepository` / `ConnectionManager` are persistence adapters; `IRemoteFileSystem` is a replaceable port over remote storage (SFTP, local disk and the test fake all satisfy it), with `fs/` as the domain logic built on it; wx UI is an outer adapter. When adding a feature, ask "which layer owns this?" before writing a line of code. A change that reaches across two layers (e.g. Session touching a wx type, or Transport knowing about Document) is a boundary violation — flag it and restructure
+- **wx-free boundary**: `transport/`, `session/`, `document/`, `parser/`, `layout/`, `fs/`, and `config/` must never include wx headers — this is what makes headless unit and integration tests possible; a wx dependency in these layers is an architectural violation
 - **Interface naming**: pure abstract interfaces use the `I`-prefix (`ISessionObserver`, `IDocumentListener`, `INamedWorkspaceRepository`); concrete types do not
 
 ---
@@ -144,6 +144,7 @@ respecting that the human makes the final call.
 | `session/` | Session lifecycle, orchestration | wx types, JSON files |
 | `document/` | Terminal buffer: lines, cells, scroll | wx headers, Parser internals |
 | `layout/` | Viewport presentation model: wrap math, selection, search/URL highlighting, dirty tracking (`DocLayout`, `SearchMatch`, `UrlScanner`, `WordSelector`) | wx headers, Session, Transport |
+| `fs/` | Remote filesystem domain: directory model, navigation, transfer queue, recursive delete planning (`DirModel`, `ExplorerController`, `TransferQueue`, `RemoteDeleter`, `RemotePath`, `FileMode`) | wx headers, Session, libssh2 |
 | `parser/` | ANSI/VT sequence parsing | wx headers, direct Document mutation |
 | `config/` | AppConfig, color schemes, enums | wx types |
 | `db/` | JSON persistence: connections, workspaces | Session, Transport, wx |

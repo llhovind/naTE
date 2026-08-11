@@ -21,6 +21,13 @@ inline constexpr uint32_t kTypeRegular   = 0100000;
 // Mask selecting the nine rwxrwxrwx permission bits.
 inline constexpr uint32_t kPermissionMask = 0777;
 
+// Permissions for a directory naTE creates — whether the user asked for it in
+// the explorer or a recursive copy needed it on the way. rwxr-xr-x is what
+// mkdir(1) produces under the conventional 022 umask, so a directory made here
+// is indistinguishable from one the user made at a shell. Servers apply their
+// own umask on top, which is theirs to decide.
+inline constexpr uint32_t kDefaultDirectoryMode = 0755;
+
 constexpr bool IsDirectory(uint32_t mode) noexcept
 {
     return (mode & kFileTypeMask) == kTypeDirectory;

@@ -21,6 +21,10 @@ namespace ui {
 
 namespace {
 
+// wx has no positive flag for multi-selection: it is the default, and
+// wxLC_SINGLE_SEL is the opt-out. Named so the style argument is not a bare 0.
+constexpr long kMultiSelect = 0;
+
 // Receives files dragged in from the desktop.
 //
 // Only inbound drops are handled. Dragging *out* of a virtual wxListCtrl to
@@ -229,7 +233,7 @@ void FileExplorerPane::BuildList(wxSizer* outer)
     // forcing one round trip per file would make the pane tedious to use.
     list_ = new RemoteFileListCtrl(this, [this]() -> const term::fs::DirModel* {
         return controller_ ? &controller_->Model() : nullptr;
-    }, 0 /* multi-select: transfers and deletions act on several rows */);
+    }, kMultiSelect);
     list_->InsertStandardColumns();
     outer->Add(list_, 1, wxEXPAND | wxLEFT | wxRIGHT, 6);
 
@@ -455,22 +459,29 @@ void FileExplorerPane::OnItemActivated(wxListEvent& evt)
     if (!controller_) return;
     const auto row = static_cast<size_t>(evt.GetIndex());
 
+    // Guarded like every other asynchronous call here. Activating a symlink
+    // costs a stat round trip, and the pane can be repointed or torn down
+    // before it answers.
+    auto ctx = guard_.For(this);
     controller_->Activate(row,
-        [this](term::fs::ActivationResult result, std::string path,
-               term::transport::FsError err) {
-            switch (result) {
-                case term::fs::ActivationResult::Navigated:
-                    break;
-                case term::fs::ActivationResult::IsFile:
-                    if (onOpenInEditor_)
-                        onOpenInEditor_(endpoint_.sessionId, std::move(path));
-                    break;
-                case term::fs::ActivationResult::Failed:
-                    SetStatus(wxString::Format("Cannot open '%s': %s",
-                                               DecodeForDisplay(path),
-                                               DecodeForDisplay(err.message)));
-                    break;
-            }
+        [ctx](term::fs::ActivationResult result, std::string path,
+              term::transport::FsError err) {
+            ctx.Post([result, path = std::move(path), err = std::move(err)](
+                         FileExplorerPane& p) mutable {
+                switch (result) {
+                    case term::fs::ActivationResult::Navigated:
+                        break;
+                    case term::fs::ActivationResult::IsFile:
+                        if (p.onOpenInEditor_)
+                            p.onOpenInEditor_(p.endpoint_.sessionId, std::move(path));
+                        break;
+                    case term::fs::ActivationResult::Failed:
+                        p.SetStatus(wxString::Format("Cannot open '%s': %s",
+                                                     DecodeForDisplay(path),
+                                                     DecodeForDisplay(err.message)));
+                        break;
+                }
+            });
         });
 }
 
@@ -524,6 +535,10 @@ void FileExplorerPane::OnContextMenu(wxListEvent& evt)
     if (row >= controller_->Model().VisibleCount()) return;
 
     const bool isDir = controller_->Model().At(row).isDir;
+    // The name, not the index: PopupMenu below runs a nested event loop, so a
+    // listing that refreshes while the menu is open would leave the index
+    // pointing at a different file than the one under the cursor.
+    const std::string name = controller_->Model().At(row).name;
     const size_t selectionCount = SelectedItems().size();
 
     wxMenu menu;
@@ -544,13 +559,25 @@ void FileExplorerPane::OnContextMenu(wxListEvent& evt)
     // rather than silently acting on one of several selected rows.
     renameItem->Enable(selectionCount <= 1);
 
-    menu.Bind(wxEVT_MENU, [this, row](wxCommandEvent&) { EditRow(row); }, editItem->GetId());
-    menu.Bind(wxEVT_MENU, [this, row](wxCommandEvent&) { CopyPathOf(row); }, copyItem->GetId());
+    // Each row action re-finds its target by name when it runs, and does
+    // nothing if the file has since gone.
+    const auto bindRowAction = [this, &menu, &name](wxMenuItem* item,
+                                                    std::function<void(size_t)> action) {
+        menu.Bind(wxEVT_MENU, [this, name, action = std::move(action)](wxCommandEvent&) {
+            const size_t target = RowForName(name);
+            if (target != kNoRow) action(target);
+        }, item->GetId());
+    };
+
+    bindRowAction(editItem,   [this](size_t r) { EditRow(r); });
+    bindRowAction(copyItem,   [this](size_t r) { CopyPathOf(r); });
+    bindRowAction(renameItem, [this](size_t r) { RenameRow(r); });
+    bindRowAction(propsItem,  [this](size_t r) { ShowPropertiesFor(r); });
+
+    // These two read live state rather than a row, so there is nothing to
+    // re-resolve.
     menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) { NewFolder(); }, newItem->GetId());
-    menu.Bind(wxEVT_MENU, [this, row](wxCommandEvent&) { RenameRow(row); }, renameItem->GetId());
     menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) { DeleteSelection(); }, deleteItem->GetId());
-    menu.Bind(wxEVT_MENU, [this, row](wxCommandEvent&) { ShowPropertiesFor(row); },
-              propsItem->GetId());
 
     PopupMenu(&menu);
 }
@@ -558,6 +585,13 @@ void FileExplorerPane::OnContextMenu(wxListEvent& evt)
 // ---------------------------------------------------------------------------
 // Operations
 // ---------------------------------------------------------------------------
+
+size_t FileExplorerPane::RowForName(const std::string& name) const
+{
+    if (!controller_) return kNoRow;
+    const size_t row = controller_->Model().IndexOfName(name);
+    return row < controller_->Model().VisibleCount() ? row : kNoRow;
+}
 
 bool FileExplorerPane::RequireLive()
 {
@@ -609,6 +643,10 @@ void FileExplorerPane::ShowPropertiesFor(size_t row)
                              *endpoint_.fs);
     if (dlg.ShowModal() != wxID_OK || !dlg.PermissionsChanged()) return;
 
+    // The dialog pumped events, so the session may have ended while it was open
+    // and endpoint_.fs be gone.
+    if (!RequireLive()) return;
+
     auto ctx = guard_.For(this);
     endpoint_.fs->SetPermissions(path, dlg.SelectedMode(),
         [ctx, name](term::transport::FsError err) {
@@ -622,6 +660,12 @@ void FileExplorerPane::NewFolder()
 {
     if (!RequireLive()) return;
 
+    // The directory the user is looking at *now*. ShowModal below pumps events,
+    // so a navigation still in flight can land while the dialog is open; taking
+    // the path afterwards would create the folder somewhere the user was not
+    // looking when they named it.
+    const std::string dir = controller_->CurrentPath();
+
     wxTextEntryDialog dlg(this, "Name for the new folder:", "New Folder");
     if (dlg.ShowModal() != wxID_OK) return;
 
@@ -633,9 +677,12 @@ void FileExplorerPane::NewFolder()
         return;
     }
 
-    const std::string path = term::fs::path::Join(controller_->CurrentPath(), name);
+    // The session can also have ended while the dialog was open.
+    if (!RequireLive()) return;
+
+    const std::string path = term::fs::path::Join(dir, name);
     auto ctx = guard_.For(this);
-    endpoint_.fs->MakeDirectory(path, 0755,
+    endpoint_.fs->MakeDirectory(path, term::fs::kDefaultDirectoryMode,
         [ctx, name](term::transport::FsError err) {
             ctx.Post([name, err = std::move(err)](FileExplorerPane& p) mutable {
                 p.AfterWrite("Create folder", err, name);
@@ -648,8 +695,13 @@ void FileExplorerPane::RenameRow(size_t row)
     if (!RequireLive()) return;
     if (row >= controller_->Model().VisibleCount()) return;
 
+    // Both paths are anchored to the directory as it is now. ShowModal below
+    // pumps events, so a navigation still in flight can land while the dialog
+    // is open — and reading the destination directory afterwards would turn a
+    // rename into a move out of the file's own directory.
+    const std::string dir     = controller_->CurrentPath();
     const std::string oldName = controller_->Model().At(row).name;
-    const std::string oldPath = controller_->PathOf(row);
+    const std::string oldPath = term::fs::path::Join(dir, oldName);
 
     wxTextEntryDialog dlg(this, "New name:", "Rename", DecodeForDisplay(oldName));
     if (dlg.ShowModal() != wxID_OK) return;
@@ -662,8 +714,10 @@ void FileExplorerPane::RenameRow(size_t row)
         return;
     }
 
-    const std::string newPath =
-        term::fs::path::Join(controller_->CurrentPath(), newName);
+    // The session can also have ended while the dialog was open.
+    if (!RequireLive()) return;
+
+    const std::string newPath = term::fs::path::Join(dir, newName);
 
     // Check the destination first rather than trusting the filesystem to
     // refuse. POSIX rename() replaces silently, and the SFTP servers that do

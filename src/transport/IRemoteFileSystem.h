@@ -103,15 +103,25 @@ using StatCallback = std::function<void(FileInfo, FsError)>;
 // SSH session is the only adapter today; a local-filesystem adapter and a test
 // fake satisfy the same contract.
 //
-// Threading contract, identical for every method:
-//   - Calls are non-blocking. They enqueue work and return immediately, and
-//     are safe to make from the UI thread.
-//   - Callbacks fire on the adapter's worker thread, NOT the caller's. UI code
-//     must marshal via wxTheApp->CallAfter(). This is deliberate: the port has
-//     no way to know what event loop, if any, the caller lives on.
+// Threading contract, identical for every method. It is deliberately the
+// weakest of what the adapters guarantee, because a caller has to be correct
+// against any of them:
+//   - A callback may fire on ANY thread, including the caller's own before the
+//     call has returned. An adapter reaching a remote host defers to a worker
+//     thread; one reading a local disk answers inline. Callers must therefore
+//     marshal — UI code via wxTheApp->CallAfter() — and must never assume a
+//     callback is deferred. In particular, do not rely on a method returning
+//     before its callback runs: assign a returned TransferHandle before it can
+//     be observed, or the completion path may see a stale one.
+//   - A call may block for as long as the underlying medium takes. Adapters
+//     that reach the network do not block; the local-disk adapter does, and on
+//     an unresponsive mount that stall lands on the calling thread.
 //   - Every callback is invoked exactly once, including when the session dies
 //     mid-operation (FsErrorCode::NotConnected) or the caller cancels
 //     (FsErrorCode::Cancelled). Callers can rely on being told.
+//
+// Adapters are free to be stronger — SftpService is fully non-blocking and
+// always defers — but no caller may depend on it.
 //
 // Lifetime: an instance is owned by its transport and dies with it. Callers
 // must not retain the pointer across a session teardown.

@@ -100,6 +100,12 @@ private:
     // Cancellation registry. Cancel() records a handle here; transfer tasks
     // poll it each step and retire themselves. Kept separate from the queue so
     // cancelling never has to walk or mutate in-flight tasks.
+    //
+    // Registration is what bounds it. The port lets a caller cancel an unknown
+    // or already-finished handle, so without a record of which handles are
+    // still live, every such call would leave an entry no task will ever come
+    // back to clear.
+    void RegisterTransfer(TransferHandle handle);
     bool IsCancelled(TransferHandle handle) const;
     void ForgetCancellation(TransferHandle handle);
 
@@ -112,7 +118,10 @@ private:
     std::optional<std::chrono::steady_clock::time_point> initDeadline_;
 
     std::atomic<TransferHandle>      nextHandle_{1};
+    // Both sets are bounded by the number of transfers in flight: a handle
+    // enters live_ when it is issued and leaves both when its task finishes.
     mutable std::mutex               cancelMutex_;
+    std::unordered_set<TransferHandle> live_;
     std::unordered_set<TransferHandle> cancelled_;
 };
 

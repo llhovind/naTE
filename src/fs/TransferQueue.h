@@ -199,6 +199,9 @@ private:
     void StartTransfer(JobId id);
     // Second leg of a staged remote-to-remote transfer.
     void StartUploadLeg(JobId id);
+    // Records the handle an adapter returned, unless the job it belongs to has
+    // already retired.
+    void RecordHandle(JobId id, transport::TransferHandle handle);
     void OnProgress(JobId id, uint64_t transferred, uint64_t total);
     void OnLegDone(JobId id, transport::FsError err, bool wasFirstLeg);
     void FinishJob(JobId id, JobState state, transport::FsError err = {});

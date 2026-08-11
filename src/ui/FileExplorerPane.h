@@ -144,6 +144,17 @@ private:
     void SetStatus(const wxString& text);
 
     // --- Operations ----------------------------------------------------------
+    // No row. Returned when a name no longer appears in the listing.
+    static constexpr size_t kNoRow = static_cast<size_t>(-1);
+
+    // Re-resolves a row that was identified before a nested event loop ran.
+    //
+    // A context menu and a modal dialog both pump events, so a listing can be
+    // rebuilt between the user picking a row and the action running. An index
+    // captured beforehand would then point at whatever row happens to sit there
+    // now; the name is what the user actually chose.
+    size_t RowForName(const std::string& name) const;
+
     void CopyPathOf(size_t row);
     void ShowPropertiesFor(size_t row);
     void EditRow(size_t row);
