@@ -5,6 +5,7 @@
 #include "ui/ColorUtils.h"
 #include "ui/ConflictDialog.h"
 #include "ui/StringUtils.h"
+#include "ui/ToolButton.h"
 #include "ui/TransferPanel.h"
 
 #include <algorithm>
@@ -26,6 +27,10 @@ constexpr int kInitialHeight   = 700;
 constexpr int kMinWidth        = 620;
 constexpr int kMinHeight       = 420;
 constexpr int kSplitterMinPane = 280;
+// Copy direction is carried by the button's arrow glyph, so the label only has
+// to say what happens — and, once a destination is known, where it lands.
+constexpr char kCopyLabel[]         = "Copy";
+constexpr char kCopyToLabelFormat[] = "Copy to %s";
 // The margin the outer sizer puts either side of the splitter.
 constexpr int kSplitterMargin  = 4;
 // wx reads a sash position of zero as "down the middle".
@@ -213,9 +218,12 @@ void FileExplorerFrame::BuildLayout(OpenInEditorFn onOpenInEditor)
     });
 
     controls_   = new wxBoxSizer(wxHORIZONTAL);
+    // These three keep their words. A copy is not undoable once the bytes land
+    // and the destination is named in the label, so the glyph here reinforces
+    // the direction rather than standing in for the sentence.
     modeBtn_    = new wxButton(this, wxID_ANY, "Transfer Mode");
-    toRightBtn_ = new wxButton(this, wxID_ANY, "Copy  >");
-    toLeftBtn_  = new wxButton(this, wxID_ANY, "<  Copy");
+    toRightBtn_ = new wxButton(this, wxID_ANY, kCopyLabel);
+    toLeftBtn_  = new wxButton(this, wxID_ANY, kCopyLabel);
 
     controls_->Add(modeBtn_, 0, wxRIGHT, 16);
     controls_->AddStretchSpacer();
@@ -524,11 +532,13 @@ void FileExplorerFrame::ApplyConfig(const AppConfig& cfg)
     const wxColour btnBg = toWx(cfg_.uiColors.tileInactive);
     const wxColour btnFg = pickContrasting(btnBg, toWx(cfg_.ansiColors[0]),
                                            toWx(cfg_.ansiColors[7]));
-    for (wxButton* b : {toRightBtn_, toLeftBtn_, modeBtn_}) {
-        if (!b) continue;
-        b->SetBackgroundColour(btnBg);
-        b->SetForegroundColour(btnFg);
-    }
+    StyleToolButton(modeBtn_,    Icon::SplitPanes, btnBg, btnFg);
+    // The arrow sits on the side it points to, so the button reads as the
+    // movement it performs rather than as a label with decoration.
+    StyleToolButton(toRightBtn_, Icon::CopyRight,  btnBg, btnFg, wxRIGHT);
+    StyleToolButton(toLeftBtn_,  Icon::CopyLeft,   btnBg, btnFg, wxLEFT);
+
+    Layout();
     wxFrame::Refresh();
 }
 
@@ -543,18 +553,18 @@ void FileExplorerFrame::UpdateTransferButtons()
                         leftPane_->IsLive() && rightPane_->IsLive();
 
     if (!paired) {
-        if (toRightBtn_) { toRightBtn_->Enable(false); toRightBtn_->SetLabel("Copy  >"); }
-        if (toLeftBtn_)  { toLeftBtn_->Enable(false);  toLeftBtn_->SetLabel("<  Copy"); }
+        if (toRightBtn_) { toRightBtn_->Enable(false); toRightBtn_->SetLabel(kCopyLabel); }
+        if (toLeftBtn_)  { toLeftBtn_->Enable(false);  toLeftBtn_->SetLabel(kCopyLabel); }
         return;
     }
 
     // Label the buttons with where the bytes would actually land, so the
     // direction is unambiguous once a pane can point anywhere.
     toRightBtn_->SetLabel(
-        wxString::Format("Copy to %s  >",
+        wxString::Format(kCopyToLabelFormat,
                          DecodeForDisplay(rightPane_->CurrentEndpoint().label)));
     toLeftBtn_->SetLabel(
-        wxString::Format("<  Copy to %s",
+        wxString::Format(kCopyToLabelFormat,
                          DecodeForDisplay(leftPane_->CurrentEndpoint().label)));
 
     toRightBtn_->Enable(!leftPane_->SelectedItems().empty());

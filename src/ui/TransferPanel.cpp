@@ -3,6 +3,7 @@
 #include "fs/RemotePath.h"
 #include "ui/ColorUtils.h"
 #include "ui/StringUtils.h"
+#include "ui/ToolButton.h"
 
 #include <wx/sizer.h>
 
@@ -102,9 +103,9 @@ TransferPanel::TransferPanel(wxWindow* parent, const AppConfig& cfg,
 
     auto* header = new wxBoxSizer(wxHORIZONTAL);
     summary_ = new wxStaticText(this, wxID_ANY, "No transfers.");
-    cancelBtn_    = new wxButton(this, wxID_ANY, "Cancel", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
-    cancelAllBtn_ = new wxButton(this, wxID_ANY, "Cancel All", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
-    clearBtn_     = new wxButton(this, wxID_ANY, "Clear Finished", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+    cancelBtn_    = new wxButton(this, wxID_ANY, "Cancel", wxDefaultPosition, wxDefaultSize);
+    cancelAllBtn_ = new wxButton(this, wxID_ANY, "Cancel All", wxDefaultPosition, wxDefaultSize);
+    clearBtn_     = new wxButton(this, wxID_ANY, "Clear Finished", wxDefaultPosition, wxDefaultSize);
 
     header->Add(summary_, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
     header->Add(cancelBtn_,    0, wxRIGHT, 4);
@@ -193,12 +194,16 @@ void TransferPanel::ApplyConfig(const AppConfig& cfg)
     }
     if (summary_) summary_->SetForegroundColour(pickContrasting(paneBg, bg, fg));
 
+    // Words kept: all three act on a queue the user cannot get back, and
+    // "Cancel" versus "Cancel All" is a distinction no pair of glyphs makes
+    // safely at 16px. The icon is here to group them, not to replace the text.
     const wxColour btnBg = toWx(cfg_.uiColors.tileInactive);
-    for (wxButton* b : {cancelBtn_, cancelAllBtn_, clearBtn_}) {
-        if (!b) continue;
-        b->SetBackgroundColour(btnBg);
-        b->SetForegroundColour(pickContrasting(btnBg, bg, fg));
-    }
+    const wxColour btnFg = pickContrasting(btnBg, bg, fg);
+    StyleToolButton(cancelBtn_,    Icon::Cancel,        btnBg, btnFg);
+    StyleToolButton(cancelAllBtn_, Icon::CancelAll,     btnBg, btnFg);
+    StyleToolButton(clearBtn_,     Icon::ClearFinished, btnBg, btnFg);
+
+    Layout();
     wxPanel::Refresh();
 }
 

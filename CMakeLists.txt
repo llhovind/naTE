@@ -170,6 +170,7 @@ set(SOURCES
     src/parser/Parser.cpp
     src/ui/wxKeyAdapter.cpp
     src/ui/AppIconBundle.cpp
+    src/ui/IconSet.cpp
     src/ui/MainFrame.cpp
     src/ui/NewConnectionDialog.cpp
     src/ui/ConnectionManagerDialog.cpp

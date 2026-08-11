@@ -6,6 +6,7 @@
 #include "ui/FilePropertiesDialog.h"
 #include "ui/RemoteFileListCtrl.h"
 #include "ui/StringUtils.h"
+#include "ui/ToolButton.h"
 
 #include <wx/app.h>
 #include <wx/clipbrd.h>
@@ -19,15 +20,6 @@
 namespace ui {
 
 namespace {
-
-// wxButton does not inherit its foreground from the parent panel on GTK, so
-// every button needs both colours set explicitly or it goes invisible against
-// a dark theme.
-void StyleButton(wxButton* btn, const wxColour& bg, const wxColour& fg)
-{
-    btn->SetBackgroundColour(bg);
-    btn->SetForegroundColour(fg);
-}
 
 // Receives files dragged in from the desktop.
 //
@@ -154,14 +146,17 @@ void FileExplorerPane::BuildToolbar(wxSizer* outer)
     endpointChoice_->Bind(wxEVT_CHOICE, &FileExplorerPane::OnEndpointSelected, this);
     outer->Add(endpointChoice_, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 6);
 
+    // The toolbar is glyph-only: these five actions are the ones every file
+    // manager draws the same way, so a picture says as much as the word did
+    // and says it in every language. Each button's name lives in its tooltip.
     auto* row = new wxBoxSizer(wxHORIZONTAL);
-    backBtn_      = new wxButton(this, wxID_ANY, "<",  wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
-    forwardBtn_   = new wxButton(this, wxID_ANY, ">",  wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
-    upBtn_        = new wxButton(this, wxID_ANY, "Up", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+    backBtn_      = MakeIconButton(this, "Back");
+    forwardBtn_   = MakeIconButton(this, "Forward");
+    upBtn_        = MakeIconButton(this, "Up one level");
     pathCtrl_     = new wxTextCtrl(this, wxID_ANY, wxEmptyString,
                                    wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
-    refreshBtn_   = new wxButton(this, wxID_ANY, "Refresh", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
-    newFolderBtn_ = new wxButton(this, wxID_ANY, "New Folder", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+    refreshBtn_   = MakeIconButton(this, "Refresh");
+    newFolderBtn_ = MakeIconButton(this, "New folder");
 
     row->Add(backBtn_,      0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 2);
     row->Add(forwardBtn_,   0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 2);
@@ -284,9 +279,16 @@ void FileExplorerPane::ApplyConfig(const AppConfig& cfg)
     }
 
     const wxColour btnBg = toWx(cfg_.uiColors.tileInactive);
-    for (wxButton* btn : {backBtn_, forwardBtn_, upBtn_, refreshBtn_, newFolderBtn_})
-        if (btn) StyleButton(btn, btnBg, pickContrasting(btnBg, bg, fg));
+    const wxColour btnFg = pickContrasting(btnBg, bg, fg);
+    StyleToolButton(backBtn_,      Icon::Back,      btnBg, btnFg);
+    StyleToolButton(forwardBtn_,   Icon::Forward,   btnBg, btnFg);
+    StyleToolButton(upBtn_,        Icon::Up,        btnBg, btnFg);
+    StyleToolButton(refreshBtn_,   Icon::Refresh,   btnBg, btnFg);
+    StyleToolButton(newFolderBtn_, Icon::NewFolder, btnBg, btnFg);
 
+    // The glyphs are what the buttons are measured by, so the row has to be
+    // re-laid out against the ones just installed rather than the previous set.
+    Layout();
     wxPanel::Refresh();
 }
 
