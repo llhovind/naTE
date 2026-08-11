@@ -54,7 +54,7 @@ void FileExplorerManager::OpenForSession(wxWindow* parent,
     // or this computer, and routing a path to the wrong machine silently edits
     // the wrong file when both happen to have it.
     auto* frame = new FileExplorerFrame(
-        parent, id, sm_, cfg_, sm_.GetRemoteDescription(id),
+        parent, id, sm_, cfg_,
         [this](term::session::SessionId endpoint, std::string path) {
             if (onOpenInEditor_) onOpenInEditor_(endpoint, std::move(path));
         });

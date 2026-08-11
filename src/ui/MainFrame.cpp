@@ -8,16 +8,12 @@
 #include "ui/TerminalTile.h"
 #include "config/ColorScheme.h"
 #include "ui/WorkspaceManagerDialog.h"
+#include "ui/AppIconBundle.h"
 #include "ui/UIManager.h"
-#include "ui/resources/AppIcon.h"
 #include "db/ConnectionProfile.h"
 #include "db/ConnectionStore.h"
 #include "app/App.h"
 #include <wx/fontdlg.h>
-#include <wx/icon.h>
-#include <wx/iconbndl.h>
-#include <wx/image.h>
-#include <wx/mstream.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/textdlg.h>
@@ -87,20 +83,7 @@ MainFrame::MainFrame(const AppConfig& cfg,
 {
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
 
-    {
-        wxIconBundle icons;
-        for (const auto& entry : kAppIcons) {
-            wxMemoryInputStream stream(entry.data, entry.len);
-            wxImage img(stream, wxBITMAP_TYPE_PNG);
-            if (img.IsOk()) {
-                wxBitmap bmp(img);
-                wxIcon icon;
-                icon.CopyFromBitmap(bmp);
-                icons.AddIcon(icon);
-            }
-        }
-        SetIcons(icons);
-    }
+    SetIcons(ui::AppIconBundle());
 
     // ---- Edit menu (populated by UIManager) ----------------------------------
     m_editMenu = new wxMenu;

@@ -43,7 +43,6 @@ public:
                       term::session::SessionId sessionId,
                       term::session::SessionManager& sm,
                       const AppConfig& cfg,
-                      std::string remoteDescription,
                       OpenInEditorFn onOpenInEditor);
 
     term::session::SessionId SessionId() const noexcept { return sessionId_; }
@@ -87,6 +86,9 @@ private:
 
     void BuildLayout(OpenInEditorFn onOpenInEditor);
     void UpdateTransferButtons();
+    // Names the endpoints currently on show, so the window is identifiable
+    // from a taskbar. Pulled from live pane state; safe to call at any time.
+    void UpdateTitle();
     void RefreshEndpointChoices();
 
     // Every endpoint a pane may be pointed at, newest session state included.

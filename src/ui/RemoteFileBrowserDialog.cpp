@@ -25,8 +25,7 @@ RemoteFileBrowserDialog::RemoteFileBrowserDialog(
     : wxDialog(parent, wxID_ANY,
                remoteDescription.empty()
                    ? wxString("Browse Remote Files")
-                   : wxString::Format("Browse %s",
-                                      wxString::FromUTF8(remoteDescription)),
+                   : "Browse " + DecodeForDisplay(remoteDescription),
                wxDefaultPosition, wxSize(kInitialWidth, kInitialHeight),
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
     , sm_(sm)

@@ -1,6 +1,7 @@
 #include "ui/FileExplorerFrame.h"
 
 #include "fs/RemotePath.h"
+#include "ui/AppIconBundle.h"
 #include "ui/ColorUtils.h"
 #include "ui/ConflictDialog.h"
 #include "ui/StringUtils.h"
@@ -29,6 +30,23 @@ constexpr int kSplitterMinPane = 280;
 constexpr int kSplitterMargin  = 4;
 // wx reads a sash position of zero as "down the middle".
 constexpr int kCentredSash     = 0;
+
+// "naFX" — *not another File eXplorer*, in the spirit of naTE itself. The
+// explorer gets its own name rather than the application's because a taskbar
+// otherwise shows "naTE 1:2" beside "naTE root@prod", where a shared prefix
+// has to be read past before the two are told apart.
+//
+// Nothing else is renamed: this window belongs to naTE and still says so
+// where it counts — it wears naTE's icon, and the desktop groups it under
+// naTE's WM_CLASS. Menu entries and message boxes stay "File Explorer", which
+// is how a user looks the feature up.
+//
+// The prefix is kept short for the same reason it is no longer "naTE: Files":
+// the endpoints are the only thing distinguishing two explorer windows, and
+// they have to survive the truncation a taskbar applies.
+constexpr const char* kTitleApp         = "naFX";
+constexpr const char* kTitleEndpointSep = " ";
+constexpr const char* kTitlePairSep     = " <-> ";
 
 // Where the local pane opens. The user's home directory is the only defensible
 // default: the process working directory is wherever naTE happened to be
@@ -61,13 +79,10 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
                                      term::session::SessionId sessionId,
                                      term::session::SessionManager& sm,
                                      const AppConfig& cfg,
-                                     std::string remoteDescription,
                                      OpenInEditorFn onOpenInEditor)
-    : wxFrame(parent, wxID_ANY,
-              remoteDescription.empty()
-                  ? wxString("File Explorer")
-                  : wxString::Format("Files - %s",
-                                     wxString::FromUTF8(remoteDescription)),
+    // A bare title only until the panes exist; UpdateTitle names the endpoints
+    // as soon as there are panes to read them from.
+    : wxFrame(parent, wxID_ANY, kTitleApp,
               wxDefaultPosition,
               wxSize(cfg.fileExplorerWidth  > 0 ? cfg.fileExplorerWidth  : kInitialWidth,
                      cfg.fileExplorerHeight > 0 ? cfg.fileExplorerHeight : kInitialHeight))
@@ -78,6 +93,8 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
     // Two fields: the first carries one-shot messages, the second the live
     // queue. Sharing one would let per-tick progress stamp on a message the
     // user has not read yet.
+    SetIcons(AppIconBundle());
+
     status_ = CreateStatusBar(2);
     const int widths[2] = {-1, 260};
     status_->SetStatusWidths(2, widths);
@@ -95,6 +112,7 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
     ApplyConfig(cfg_);
 
     UpdateTransferButtons();
+    UpdateTitle();
 
     // Deliberately not bound to wxEVT_SIZE: a single window drag emits dozens
     // of those, and each one would rewrite config.ini. The shape is captured
@@ -226,7 +244,7 @@ void FileExplorerFrame::BuildLayout(OpenInEditorFn onOpenInEditor)
         CopyBetweenPanes(rightPane_, leftPane_);
     });
 
-    const auto onState = [this] { UpdateTransferButtons(); };
+    const auto onState = [this] { UpdateTransferButtons(); UpdateTitle(); };
     leftPane_->SetOnStateChanged(onState);
     rightPane_->SetOnStateChanged(onState);
     leftPane_->SetOnEndpointChanged(onState);
@@ -311,6 +329,7 @@ void FileExplorerFrame::ApplyMode()
     modeBtn_->SetLabel(transfer ? "Explore Mode" : "Transfer Mode");
 
     UpdateTransferButtons();
+    UpdateTitle();
     Layout();
 
     // Give the listing back exactly what the queue panel took, or reclaim
@@ -541,6 +560,30 @@ void FileExplorerFrame::UpdateTransferButtons()
     toRightBtn_->Enable(!leftPane_->SelectedItems().empty());
     toLeftBtn_->Enable(!rightPane_->SelectedItems().empty());
     Layout();
+}
+
+void FileExplorerFrame::UpdateTitle()
+{
+    // Read off the panes at the moment of the change rather than caching what
+    // the window was opened for: either pane may be repointed at any endpoint,
+    // from the endpoint choice, a mode switch or a session ending, and a
+    // remembered description would name the wrong machine after any of them.
+    if (!leftPane_) return;
+
+    // Endpoint labels, not paths. The endpoint is what distinguishes two
+    // explorer windows in a taskbar, whereas the path changes on every
+    // double-click and is already on screen in the pane's own path control.
+    wxString title = wxString(kTitleApp) + kTitleEndpointSep +
+                     DecodeForDisplay(leftPane_->CurrentEndpoint().label);
+
+    if (mode_ == FileExplorerMode::Transfer && rightPane_) {
+        title += kTitlePairSep;
+        title += DecodeForDisplay(rightPane_->CurrentEndpoint().label);
+    }
+
+    // The state callback also fires on every navigation, and the title only
+    // moves when an endpoint or the mode does.
+    if (GetTitle() != title) SetTitle(title);
 }
 
 void FileExplorerFrame::QueueOne(const FileExplorerPane::Item& item,
