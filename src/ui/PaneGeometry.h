@@ -33,4 +33,40 @@ inline int MinFrameWidthForPanes(int panes, PaneMetrics m, int frameMinimum)
     return std::max(frameMinimum, FrameWidthForPanes(panes, m.minPane, m));
 }
 
+// The controls row beneath the panes, measured for one job: putting the seam
+// between the two copy buttons directly under the sash. Each button then sits
+// over the pane it copies *out of*, and its arrow points across the sash at the
+// pane it copies into — so the row reads as the movement it performs, and it
+// keeps reading that way after the user drags the sash off centre.
+//
+// Widths are the buttons' own; the row does not stretch them.
+struct ControlsRowMetrics {
+    int contentLeft    = 0;  // x the first item in the row starts at
+    int contentRight   = 0;  // x the row must not spill past
+    int leading        = 0;  // everything before the gap (mode button + its margin)
+    int sourceButton   = 0;  // the button left of the seam
+    int destButton     = 0;  // the button right of the seam
+    int betweenButtons = 0;  // margin separating the two
+    int minGap         = 0;  // closest the pair may come to the leading items
+};
+
+// Width of the spacer between the leading items and the copy pair that lands
+// the seam on `sashCentre`. Both bounds are honoured over the alignment: a
+// window narrow enough — or labels long enough — that the pair cannot reach
+// the sash gets the nearest legal position rather than a button hidden under
+// its neighbour or off the right edge.
+inline int LeadingGapForSashAlignedPair(int sashCentre, ControlsRowMetrics m)
+{
+    // The seam is the centre of the margin between the buttons, not the edge of
+    // either one: an odd margin would otherwise bias the pair one pixel left.
+    const int wanted = sashCentre - m.contentLeft - m.leading - m.sourceButton
+                     - m.betweenButtons / 2;
+
+    const int widest = m.contentRight - m.contentLeft - m.leading - m.sourceButton
+                     - m.betweenButtons - m.destButton;
+
+    const int upper = std::max(0, widest);
+    return std::clamp(wanted, std::min(m.minGap, upper), upper);
+}
+
 } // namespace ui

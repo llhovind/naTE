@@ -1,7 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include "ui/PaneGeometry.h"
 
+using ui::ControlsRowMetrics;
 using ui::FrameWidthForPanes;
+using ui::LeadingGapForSashAlignedPair;
 using ui::MinFrameWidthForPanes;
 using ui::PaneMetrics;
 
@@ -69,4 +71,70 @@ TEST_CASE("given one pane when computing the minimum then the frame floor wins")
 {
     // One pane at its minimum is narrower than the window is usable at.
     CHECK(MinFrameWidthForPanes(1, kMetrics, 620) == 620);
+}
+
+// ---------------------------------------------------------------------------
+// Copy buttons aligned to the sash
+// ---------------------------------------------------------------------------
+
+// A representative controls row in a 1000px-wide window: 6px margins, a mode
+// button 120 wide with 16 after it, and two copy buttons whose labels name
+// their destination and so differ in width.
+static constexpr ControlsRowMetrics kRow{ 6, 994, 136, 150, 190, 8, 8 };
+
+// Where the seam between the two buttons ends up for a given spacer.
+static int Seam(int gap, ControlsRowMetrics m)
+{
+    return m.contentLeft + m.leading + gap + m.sourceButton + m.betweenButtons / 2;
+}
+
+TEST_CASE("given a centred sash when placing the copy pair then the seam is on the sash")
+{
+    const int sashCentre = 500;
+    CHECK(Seam(LeadingGapForSashAlignedPair(sashCentre, kRow), kRow) == sashCentre);
+}
+
+TEST_CASE("given a dragged sash when placing the copy pair then the seam follows it")
+{
+    // The alignment is the sash's, not the window's: a sash the user pulled
+    // left takes the buttons with it.
+    for (const int sashCentre : {350, 400, 500, 640, 700})
+        CHECK(Seam(LeadingGapForSashAlignedPair(sashCentre, kRow), kRow) == sashCentre);
+}
+
+TEST_CASE("given relabelled buttons when placing the copy pair then the seam holds")
+{
+    // Repointing a pane rewrites both labels, and each button changes width by
+    // a different amount. The seam is what stays put.
+    ControlsRowMetrics wider = kRow;
+    wider.sourceButton = 260;
+    wider.destButton   = 110;
+
+    CHECK(Seam(LeadingGapForSashAlignedPair(500, wider), wider) == 500);
+}
+
+TEST_CASE("given a sash far left when placing the copy pair then the mode button is not overlapped")
+{
+    // The pair cannot reach a sash this far left without climbing over the
+    // mode button, so it stops at its minimum distance from it.
+    CHECK(LeadingGapForSashAlignedPair(100, kRow) == kRow.minGap);
+}
+
+TEST_CASE("given a sash far right when placing the copy pair then the pair stays in the row")
+{
+    const int gap = LeadingGapForSashAlignedPair(980, kRow);
+
+    // Flush with the right edge of the row, not spilling past it.
+    CHECK(kRow.contentLeft + kRow.leading + gap + kRow.sourceButton +
+          kRow.betweenButtons + kRow.destButton == kRow.contentRight);
+}
+
+TEST_CASE("given a row too narrow for the pair when placing it then the gap closes entirely")
+{
+    // Long labels in a small window: there is no legal position, and the pair
+    // gives up its spacer rather than being pushed off either end.
+    ControlsRowMetrics cramped = kRow;
+    cramped.contentRight = 400;
+
+    CHECK(LeadingGapForSashAlignedPair(200, cramped) == 0);
 }

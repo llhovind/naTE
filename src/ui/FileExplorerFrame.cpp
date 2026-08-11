@@ -36,6 +36,14 @@ constexpr int kSplitterMargin  = 4;
 // wx reads a sash position of zero as "down the middle".
 constexpr int kCentredSash     = 0;
 
+// The controls row: its own margin either side, the space after the mode
+// button, the margin between the two copy buttons, and how close the pair may
+// come to the mode button before it stops chasing the sash.
+constexpr int kControlsMargin  = 6;
+constexpr int kModeButtonGap   = 16;
+constexpr int kCopyButtonGap   = 8;
+constexpr int kMinCopyPairGap  = 8;
+
 // "naFX" — *not another File eXplorer*, in the spirit of naTE itself. The
 // explorer gets its own name rather than the application's because a taskbar
 // otherwise shows "naTE 1:2" beside "naTE root@prod", where a shared prefix
@@ -125,6 +133,7 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
     // when the user has finished choosing it.
     splitter_->Bind(wxEVT_SPLITTER_SASH_POS_CHANGED,
                     [this](wxSplitterEvent& evt) {
+                        AlignCopyButtonsToSash(evt.GetSashPosition());
                         // Dragging the sash changes the leading pane's width,
                         // which is the width the window remembers. wx emits
                         // this during a programmatic split/unsplit too, where
@@ -133,6 +142,24 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
                         PersistGeometry();
                         evt.Skip();
                     });
+
+    // Live update means the sash is already under the cursor before it settles;
+    // the buttons follow it there rather than jumping when the drag ends. The
+    // event carries the position wx is about to apply, which the splitter has
+    // not been told about yet.
+    splitter_->Bind(wxEVT_SPLITTER_SASH_POS_CHANGING,
+                    [this](wxSplitterEvent& evt) {
+                        AlignCopyButtonsToSash(evt.GetSashPosition());
+                        evt.Skip();
+                    });
+
+    // Sash gravity moves the sash as the frame is resized. Deferred rather than
+    // handled inline: this runs before the frame lays out, so the splitter has
+    // not yet applied the gravity that this alignment depends on.
+    Bind(wxEVT_SIZE, [this](wxSizeEvent& evt) {
+        CallAfter([this] { AlignCopyButtonsToSash(); });
+        evt.Skip();
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -225,12 +252,13 @@ void FileExplorerFrame::BuildLayout(OpenInEditorFn onOpenInEditor)
     toRightBtn_ = new wxButton(this, wxID_ANY, kCopyLabel);
     toLeftBtn_  = new wxButton(this, wxID_ANY, kCopyLabel);
 
-    controls_->Add(modeBtn_, 0, wxRIGHT, 16);
-    controls_->AddStretchSpacer();
-    controls_->Add(toRightBtn_, 0, wxRIGHT, 8);
+    controls_->Add(modeBtn_, 0, wxRIGHT, kModeButtonGap);
+    // Not a stretch spacer: the pair is positioned against the sash, which is
+    // wherever the user left it, rather than centred in what is left of the row.
+    copyPairGap_ = controls_->AddSpacer(0);
+    controls_->Add(toRightBtn_, 0, wxRIGHT, kCopyButtonGap);
     controls_->Add(toLeftBtn_,  0);
-    controls_->AddStretchSpacer();
-    outer->Add(controls_, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
+    outer->Add(controls_, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, kControlsMargin);
 
     transfers_ = new TransferPanel(this, cfg_, *queue_);
     transfers_->SetOnCancelJob([this](term::fs::JobId id) { queue_->CancelJob(id); });
@@ -455,6 +483,45 @@ void FileExplorerFrame::CentreSash()
         (splitter_->GetClientSize().x - splitter_->GetSashSize()) / 2);
 }
 
+void FileExplorerFrame::AlignCopyButtonsToSash()
+{
+    if (splitter_) AlignCopyButtonsToSash(splitter_->GetSashPosition());
+}
+
+void FileExplorerFrame::AlignCopyButtonsToSash(int sashPosition)
+{
+    // Explore mode has neither a sash nor the buttons that follow it.
+    if (!copyPairGap_ || !splitter_ || !splitter_->IsSplit()) return;
+
+    // Sash position is relative to the splitter's client area, and the row is
+    // laid out in the frame's — so the splitter's own offset has to be added.
+    const int sashCentre = splitter_->GetPosition().x + sashPosition
+                         + splitter_->GetSashSize() / 2;
+
+    // Effective minimums, not current sizes: the labels name their destination
+    // and change width as the panes are repointed, and this runs before the
+    // row has been laid out at the new widths.
+    const ControlsRowMetrics metrics{
+        kControlsMargin,
+        GetClientSize().x - kControlsMargin,
+        modeBtn_->GetEffectiveMinSize().x + kModeButtonGap,
+        toRightBtn_->GetEffectiveMinSize().x,
+        toLeftBtn_->GetEffectiveMinSize().x,
+        kCopyButtonGap,
+        kMinCopyPairGap};
+
+    const int gap = LeadingGapForSashAlignedPair(sashCentre, metrics);
+    // A live sash drag emits these by the dozen and most land on the same
+    // pixel, so the relayout is skipped unless the answer actually moved.
+    if (gap == copyPairGap_->GetMinSize().x) return;
+
+    copyPairGap_->AssignSpacer(gap, 0);
+    // The row only, not the frame: this fires mid-drag, and re-laying out the
+    // splitter while it is applying a sash position it has not committed yet
+    // would have the two fighting over the same pixel.
+    controls_->Layout();
+}
+
 void FileExplorerFrame::PersistGeometry()
 {
     // Null once the owner has gone; the window may still be torn down after it.
@@ -539,6 +606,8 @@ void FileExplorerFrame::ApplyConfig(const AppConfig& cfg)
     StyleToolButton(toLeftBtn_,  Icon::CopyLeft,   btnBg, btnFg, wxLEFT);
 
     Layout();
+    // Glyphs widen the buttons, so the alignment is re-derived after styling.
+    AlignCopyButtonsToSash();
     wxFrame::Refresh();
 }
 
@@ -570,6 +639,9 @@ void FileExplorerFrame::UpdateTransferButtons()
     toRightBtn_->Enable(!leftPane_->SelectedItems().empty());
     toLeftBtn_->Enable(!rightPane_->SelectedItems().empty());
     Layout();
+    // A relabelled button is a differently sized one, and the seam has to stay
+    // on the sash across the change.
+    AlignCopyButtonsToSash();
 }
 
 void FileExplorerFrame::UpdateTitle()

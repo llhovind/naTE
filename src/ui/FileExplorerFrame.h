@@ -112,6 +112,12 @@ private:
     void RestoreListingHeight(int wanted);      // undo what the queue panel cost
     void SetFrameSize(int width, int height);
     void CentreSash();
+    // Lands the seam between the two copy buttons on the sash, so each button
+    // sits over the pane it copies out of. The overload taking a position is
+    // for the events that carry a sash wx has not applied yet; the other reads
+    // the sash where it stands.
+    void AlignCopyButtonsToSash();
+    void AlignCopyButtonsToSash(int sashPosition);
     void UpdateQueueStatus();
     // Uploads files dropped from the desktop onto a pane. Dropping onto the
     // local pane is a no-op the user is told about rather than a silent one.
@@ -137,6 +143,9 @@ private:
     std::unique_ptr<term::fs::TransferQueue> queue_;
 
     wxBoxSizer*       controls_    = nullptr;
+    // The spacer that positions the copy pair against the sash. Owned by
+    // controls_; held only to resize it.
+    wxSizerItem*      copyPairGap_ = nullptr;
     wxSplitterWindow* splitter_    = nullptr;
     FileExplorerPane* leftPane_    = nullptr;
     FileExplorerPane* rightPane_   = nullptr;
