@@ -121,6 +121,38 @@
       </table>
     </div>
 
+    <h3 id="ssh-port-forwards">Port Forwards</h3>
+    <p>The SSH tab carries a <strong>Port Forwards</strong> box listing the tunnels this connection should open. Forwards added here are saved with the profile and set up automatically on every connect, so a tunnel you always need is never something you have to remember. Click <strong>Add...</strong> to define one; select an entry and click <strong>Remove</strong> to drop it. <strong>Remove</strong> stays disabled until something is selected.</p>
+
+    <figure>
+      <img src="img/new-connection-ssh-port-foward.png" alt="The Add Port Forward dialog: a Direction dropdown reading Local (-L localPort:remoteHost:remotePort), Local Port 8080, Remote Host localhost, Remote Port 80, Bind Address 127.0.0.1, and a Label field reading www-dev, with Cancel and Add buttons.">
+      <figcaption>Add Port Forward — the same dialog used by the in-session port-forward panel</figcaption>
+    </figure>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Direction</strong></td><td><strong>Local (-L)</strong> binds a port on your machine and tunnels it to a host reachable from the remote side. <strong>Remote (-R)</strong> binds a port on the remote host and tunnels it back to a host reachable from yours. The dropdown spells out the <code>ssh</code> argument order for each.</td></tr>
+          <tr><td><strong>Local Port</strong></td><td>For <strong>-L</strong>, the port naTE opens on your machine. For <strong>-R</strong>, the port naTE connects <em>to</em> when traffic arrives back through the tunnel.</td></tr>
+          <tr><td><strong>Remote Host</strong> / <strong>Connect Host</strong></td><td>Where the tunnel terminates. For <strong>-L</strong> this is <strong>Remote Host</strong>, resolved from the remote side — <code>localhost</code> means the server you are connected to. For <strong>-R</strong> the label changes to <strong>Connect Host</strong> and it is resolved from <em>your</em> side, so <code>localhost</code> means your own machine.</td></tr>
+          <tr><td><strong>Remote Port</strong></td><td>For <strong>-L</strong>, the port on the remote host that the tunnel connects to. For <strong>-R</strong>, the port the SSH server listens on.</td></tr>
+          <tr><td><strong>Bind Address</strong></td><td>Which interface the listening port binds to — your machine for <strong>-L</strong>, the remote host for <strong>-R</strong>. The default <code>127.0.0.1</code> keeps the tunnel reachable only from the machine holding the listener; use <code>0.0.0.0</code> to expose it to that machine's network.</td></tr>
+          <tr><td><strong>Label</strong></td><td>Optional name, shown in the list and in the in-session panel. Useful once you have several forwards on one host.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Saved forwards appear in the list in a short form — <code>L 8080 → localhost:80&nbsp; [www-dev]</code> for a local forward, <code>R</code> with the arrow reversed for a remote one.</p>
+
+    <div class="callout callout-note">
+      <p><strong>Forwards can also be added mid-session</strong> from the <strong>PFW</strong> button in the tile title bar, without reconnecting — including on connections that were not started from a profile. That panel is also where you see live status and any errors, such as a forward refused by the server's <code>AllowTcpForwarding</code> policy. See <a href="features.html#port-forwarding">Port Forwarding</a> for the full picture.</p>
+    </div>
+
+    <div class="callout callout-note">
+      <p><strong>Remote forwards depend on the server.</strong> For <strong>-R</strong>, the bind address is honoured only if the SSH server allows it — OpenSSH ignores anything but the loopback interface unless <code>GatewayPorts</code> is enabled in <code>sshd_config</code>. If a remote forward binds but is unreachable from other machines, that setting is the usual reason.</p>
+    </div>
+
     <h3 id="session-init-ssh">Session Initialization</h3>
     <p>These options are shared between SSH and PTY and control the environment the shell starts in:</p>
     <div class="table-wrap">

@@ -84,28 +84,74 @@ for you.
 - **Local port forwarding (`-L`)** — bind a local port and tunnel traffic through the SSH connection to any host reachable from the remote side
 - **Remote port forwarding (`-R`)** — expose a local port on the remote host so remote-side processes can reach it
 - Click the port-forward button in the tile title bar to open an inline panel showing all active tunnels with their local/remote endpoints and live status; add new forwards or stop existing ones without reconnecting
+- Forwards can be **saved to a connection profile** in the New Connection dialog's SSH tab, so a tunnel you always need is opened automatically on every connect
 - Verification dialog confirms connectivity before closing the panel, so you know the tunnel is up before you depend on it
 - **Forward health detection** — when a local (`-L`) forward is created, naTE probes it immediately rather than waiting until first use. A forward refused by server policy (`AllowTcpForwarding no`) shows a **red** error with the reason ("administratively prohibited") instead of failing silently; a forward whose target host is not yet reachable shows an **amber** warning that clears automatically once the first connection succeeds. The tile title-bar indicator reflects the same state at a glance
 
 ### File explorer and transfer
-The **File Explorer** browses remote filesystems over the SSH connection a session
-already has — no sshfs, no second login. It opens in one of two modes:
 
-- **Explore** (**Terminal → File Explorer...**) — a single pane filling the window, for
-  navigating and one-off administration. Sort by any column, filter by glob (`*.conf`) or
-  substring, toggle hidden files, and act on a file from the context menu: open in your
-  editor, copy its path, inspect or change its permissions, rename, or delete
-- **Transfer** (**Terminal → Transfer Files...**) — two panes side by side with a transfer
-  queue below. Point either pane at the local machine or at any active SSH session, so
-  uploads, downloads and **server-to-server** copies all work the same way; remote-to-remote
+The **File Explorer** browses remote filesystems over the SSH connection a session
+already has — no sshfs, no second login, and no interruption to the shell running in
+the tile. It opens in its own window (titled **naFX**, after the endpoints it is
+pointed at) in one of two modes, and the same window switches between them.
+
+#### Explore mode
+
+**Terminal → File Explorer...**, or right-click a tile or tab. A single pane fills the
+window, for navigating and one-off administration.
+
+![File Explorer in Explore mode](docs/img/file-explorer.png)
+
+- Sort by any column — name, size, modified, permissions, owner — by clicking its header
+- Filter by glob (`*.conf`) or plain substring, and toggle hidden files
+- Act on a selection from the context menu: **Open in Editor**, **Copy Path**,
+  **New Folder...**, **Rename...**, **Delete**, or **Properties...** to inspect and
+  change the file's permission bits
+- The status line reports what the directory holds and how much of it the filter hid
+
+#### Transfer mode
+
+**Terminal → Transfer Files...**, or the **Transfer Mode** button. Two panes sit side by
+side with a transfer queue below.
+
+![File Explorer in Transfer mode](docs/img/file-transfer.png)
+
+- Point either pane at **This computer** or at any active SSH session, so uploads,
+  downloads and **server-to-server** copies all work the same way; remote-to-remote
   transfers stage through a temporary local file automatically
-- The queue shows per-file progress and route, and every transfer can be cancelled
-  individually or all at once. Directories transfer recursively; symlinks are never followed.
-  When a destination file already exists you are asked whether to overwrite, skip or keep both
-- Files dragged from your desktop onto a remote pane are queued for upload
-- Transfers keep running when you switch back to Explore mode — progress stays visible in the
+- The **Copy to ...** buttons name their destination rather than a direction, and sit
+  over the pane they copy out of so the target is never ambiguous
+- The queue shows per-file progress and route; cancel one transfer, cancel all, or clear
+  what has finished
+- Directories transfer recursively and symlinks are never followed. When a destination
+  file already exists you are asked whether to **overwrite**, **keep both**, or **skip**,
+  and can apply that answer to the rest of the transfer. Skip is the default button, and a
+  queue with no one to ask skips too — nothing is overwritten by an unread dialog or an
+  unattended run
+- Files dragged from your desktop onto a pane are queued for upload
+- Transfers keep running when you switch back to Explore mode — progress stays in the
   status bar
-- **Edit remote file** — open a remote file in your local editor (**Terminal → Edit Remote File**); naTE downloads it to a temp path, watches for saves via inotify, and re-uploads automatically on each write. Supports direct-save editors (vim, nano) and atomic-rename editors (VSCode, gedit). Configure the editor command in **Edit → Preferences → Behavior** or via the `$EDITOR` environment variable.
+
+#### Keyboard
+
+| Key | Action |
+|---|---|
+| `Alt+←` / `Alt+→` | Back / forward through visited directories |
+| `Backspace` | Up one directory |
+| `Ctrl+L` | Focus the path bar |
+| `Ctrl+F` | Focus the filter |
+| `Ctrl+H` | Toggle hidden files |
+| `F2` | Rename |
+| `F5` | Refresh |
+| `Delete` | Delete selection |
+
+#### Edit remote file
+
+**Terminal → Edit Remote File...** opens a remote file in your local editor: naTE
+downloads it to a temp path, watches for saves via inotify, and re-uploads automatically
+on each write. Supports direct-save editors (vim, nano) and atomic-rename editors
+(VS Code, gedit). Configure the editor command in **Edit → Preferences → Behavior**
+or via the `$EDITOR` environment variable.
 
 ### Appearance
 - Built-in themes: Solarized Dark, Solarized Light, xterm
@@ -270,7 +316,7 @@ ctest --preset debug
 ```
 
 Tests are written with [Catch2](https://github.com/catchorg/Catch2). The suite
-currently covers 356 scenarios across all major subsystems.
+currently covers 521 scenarios across all major subsystems.
 
 ### Packaging (AppImage)
 
