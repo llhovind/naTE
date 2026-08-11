@@ -139,6 +139,14 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& cfg)
                 TerminalActionEvent evt(TerminalAction::EditRemoteFile, sid);
                 ProcessWindowEvent(evt);
             }, editRemoteItem->GetId());
+            // Scoped to the right-clicked tab, not the active one: this is the
+            // only path that can open the explorer for a session without
+            // switching to it first.
+            auto* explorerItem = menu.Append(wxID_ANY, "File Explorer...");
+            explorerItem->Enable(sshTab);
+            menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
+                EmitTileAction(TileAction::OpenFileExplorer, sid);
+            }, explorerItem->GetId());
             PopupMenu(&menu);
         } else {
             // Tile context menu — background area, no specific tab.
