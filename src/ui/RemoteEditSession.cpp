@@ -29,7 +29,6 @@ RemoteEditSession::RemoteEditSession(term::session::SessionId     sessionId,
     , remotePath_(std::move(remotePath))
     , localPath_(std::move(localPath))
     , sm_(sm)
-    , alive_(std::make_shared<std::atomic<bool>>(true))
 {}
 
 RemoteEditSession::~RemoteEditSession()
@@ -68,7 +67,9 @@ void RemoteEditSession::Start()
 
 void RemoteEditSession::Stop()
 {
-    alive_->store(false, std::memory_order_release);
+    // First: everything below can block, and no callback may reach this session
+    // while it is being taken apart.
+    guard_.Retire();
 
     if (stopPipe_[1] >= 0) {
         char b = 1;
@@ -132,11 +133,7 @@ void RemoteEditSession::WatchLoop()
             continue;
 
         // Marshal to UI thread for upload (all wx and manager calls must be UI-thread).
-        wxTheApp->CallAfter([this] {
-            if (!alive_->load(std::memory_order_acquire))
-                return;
-            TriggerUpload();
-        });
+        guard_.For(this).Post([](RemoteEditSession& s) { s.TriggerUpload(); });
     }
 }
 
@@ -149,25 +146,18 @@ void RemoteEditSession::TriggerUpload()
         return;
     }
 
-    std::weak_ptr<std::atomic<bool>> weakAlive = alive_;
     const std::string local  = localPath_;
     const std::string remote = remotePath_;
 
+    // One liveness check, on the thread that acts on it. The old outer check on
+    // the transport's thread could only ever be a stale hint.
+    auto ctx = guard_.For(this);
     sm_.UploadFile(sessionId_, local, remote,
-        [this, weakAlive](term::transport::FsError /*err*/) {
-            auto strongAlive = weakAlive.lock();
-            if (!strongAlive || !strongAlive->load(std::memory_order_acquire))
-                return;
-
-            wxTheApp->CallAfter([this, weakAlive] {
-                auto sa = weakAlive.lock();
-                if (!sa || !sa->load(std::memory_order_acquire))
-                    return;
-
-                uploadInFlight_.store(false, std::memory_order_relaxed);
-
-                if (pendingUpload_.exchange(false))
-                    TriggerUpload();
+        [ctx](term::transport::FsError /*err*/) {
+            ctx.Post([](RemoteEditSession& s) {
+                s.uploadInFlight_.store(false, std::memory_order_relaxed);
+                if (s.pendingUpload_.exchange(false))
+                    s.TriggerUpload();
             });
         });
 }

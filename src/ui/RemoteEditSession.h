@@ -1,10 +1,12 @@
 #pragma once
+#include "fs/Dispatcher.h"
 #include "session/SessionManager.h"
 #include <atomic>
 #include <functional>
-#include <memory>
 #include <string>
 #include <thread>
+
+#include <wx/app.h>
 
 namespace ui {
 
@@ -24,7 +26,7 @@ public:
                       term::session::SessionManager& sm);
     ~RemoteEditSession();
 
-    // Non-copyable, non-movable: shared_ptr to alive_ is held by callbacks.
+    // Non-copyable, non-movable: the dispatch guard is held by callbacks.
     RemoteEditSession(const RemoteEditSession&)            = delete;
     RemoteEditSession& operator=(const RemoteEditSession&) = delete;
 
@@ -53,8 +55,11 @@ private:
     std::string                    localPath_;
     term::session::SessionManager& sm_;
 
-    // Shared with the upload callback so it can detect destruction safely.
-    std::shared_ptr<std::atomic<bool>> alive_;
+    // Retires the watch and upload callbacks. Retired by Stop() rather than
+    // only by destruction: a stopped session lingers until its owner erases it,
+    // and an upload continuation must not fire in that window.
+    term::fs::DispatchGuard guard_{
+        [](std::function<void()> fn) { wxTheApp->CallAfter(std::move(fn)); }};
 
     std::atomic<bool> uploadInFlight_{false};
     std::atomic<bool> pendingUpload_{false};

@@ -1,11 +1,13 @@
 #pragma once
+#include "fs/Dispatcher.h"
 #include "session/SessionManager.h"
 #include "ui/RemoteEditSession.h"
-#include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include <wx/app.h>
 
 namespace ui {
 
@@ -38,8 +40,11 @@ public:
 
 private:
     term::session::SessionManager&                  sm_;
-    std::shared_ptr<std::atomic<bool>>              alive_;
     std::vector<std::unique_ptr<RemoteEditSession>> sessions_;
+    // Declared last so it is destroyed first: the download continuation it
+    // guards touches sessions_, which must still exist when the guard retires.
+    term::fs::DispatchGuard                         guard_{
+        [](std::function<void()> fn) { wxTheApp->CallAfter(std::move(fn)); }};
 };
 
 } // namespace ui

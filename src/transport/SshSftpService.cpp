@@ -135,7 +135,7 @@ struct SftpService::SimpleOpTask {
 
     bool operator()()
     {
-        if (!svc->running_) {
+        if (svc->Stopped()) {
             onDone(FsError::Make(FsErrorCode::NotConnected, "Session closed"));
             return false;
         }
@@ -173,7 +173,7 @@ struct SftpService::PathOpTask {
 
     bool operator()()
     {
-        if (!svc->running_) {
+        if (svc->Stopped()) {
             onDone({}, FsError::Make(FsErrorCode::NotConnected, "Session closed"));
             return false;
         }
@@ -211,7 +211,7 @@ struct SftpService::StatTask {
 
     bool operator()()
     {
-        if (!svc->running_) {
+        if (svc->Stopped()) {
             onDone({}, FsError::Make(FsErrorCode::NotConnected, "Session closed"));
             return false;
         }
@@ -275,7 +275,7 @@ struct SftpService::ListDirTask {
 
     bool operator()()
     {
-        if (!svc->running_)
+        if (svc->Stopped())
             return Finish(FsError::Make(FsErrorCode::NotConnected, "Session closed"));
 
         if (state == State::InitSftp) {
@@ -371,7 +371,7 @@ struct SftpService::DownloadTask {
 
     bool operator()()
     {
-        if (!svc->running_)
+        if (svc->Stopped())
             return Finish(FsError::Make(FsErrorCode::NotConnected, "Session closed"));
         if (svc->IsCancelled(handleId))
             return Finish(FsError::Make(FsErrorCode::Cancelled, "Transfer cancelled"));
@@ -479,7 +479,7 @@ struct SftpService::UploadTask {
 
     bool operator()()
     {
-        if (!svc->running_)
+        if (svc->Stopped())
             return Finish(FsError::Make(FsErrorCode::NotConnected, "Session closed"));
         if (svc->IsCancelled(handleId))
             return Finish(FsError::Make(FsErrorCode::Cancelled, "Transfer cancelled"));
@@ -533,6 +533,10 @@ struct SftpService::UploadTask {
             if (n == LIBSSH2_ERROR_EAGAIN) { MaybeReportProgress(); return true; }
             if (n < 0)
                 return Finish(svc->MakeError("Write error on '" + remotePath + "'"));
+            // A zero-length write is neither an error nor progress. Yielding
+            // treats it as the EAGAIN it behaves like; looping on it would spin
+            // this thread — which also drives the terminal session — forever.
+            if (n == 0) { MaybeReportProgress(); return true; }
             bufSent     += static_cast<size_t>(n);
             transferred += static_cast<uint64_t>(n);
         }
@@ -618,13 +622,18 @@ void SftpService::Service()
 
 void SftpService::CancelPending()
 {
+    // Latched before the queue is taken, so every task below — and anything
+    // enqueued while this runs — sees the stop on its first check and retires
+    // in one step rather than asking to be resumed.
+    cancelling_.store(true, std::memory_order_release);
+
     std::deque<Task> pending;
     {
         std::lock_guard<std::mutex> lk(queueMutex_);
         pending.swap(queue_);
     }
     for (auto& task : pending)
-        task();  // task checks !running_, reports NotConnected, returns false
+        task();  // sees Stopped(), reports NotConnected, returns false
 }
 
 void SftpService::Shutdown()

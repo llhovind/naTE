@@ -1,12 +1,13 @@
 #pragma once
 
 #include "config/Config.h"
+#include "fs/Dispatcher.h"
 #include "transport/IRemoteFileSystem.h"
 
-#include <atomic>
-#include <memory>
+#include <functional>
 #include <string>
 
+#include <wx/app.h>
 #include <wx/checkbox.h>
 #include <wx/dialog.h>
 #include <wx/stattext.h>
@@ -31,8 +32,6 @@ public:
                          const term::transport::FileInfo& info,
                          const std::string& fullPath,
                          term::transport::IRemoteFileSystem& remote);
-
-    ~FilePropertiesDialog() override;
 
     // The permission bits the user selected. Meaningful after wxID_OK.
     uint32_t SelectedMode() const noexcept { return selectedMode_; }
@@ -63,9 +62,11 @@ private:
     uint32_t    selectedMode_ = 0;
     bool        syncing_      = false;
 
-    // Cleared on destruction; the readlink continuation checks it before
-    // touching this dialog, which may have been closed in the meantime.
-    std::shared_ptr<std::atomic<bool>> alive_;
+    // Retires the readlink continuation if the dialog closed before the answer
+    // arrived. The same guard every other asynchronous call in the explorer
+    // uses, rather than a second liveness scheme private to this dialog.
+    term::fs::DispatchGuard guard_{
+        [](std::function<void()> fn) { wxTheApp->CallAfter(std::move(fn)); }};
 };
 
 } // namespace ui

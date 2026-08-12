@@ -21,6 +21,15 @@ inline constexpr uint32_t kTypeRegular   = 0100000;
 // Mask selecting the nine rwxrwxrwx permission bits.
 inline constexpr uint32_t kPermissionMask = 0777;
 
+// setuid/setgid/sticky, in the order they modify the x column of each triad,
+// and the mask selecting all three. Public rather than file-private because a
+// chmod path has to preserve them, and a caller that cannot name them ends up
+// respelling 07000 by hand.
+inline constexpr uint32_t kSetUid = 04000;
+inline constexpr uint32_t kSetGid = 02000;
+inline constexpr uint32_t kSticky = 01000;
+inline constexpr uint32_t kSpecialModeMask = kSetUid | kSetGid | kSticky;
+
 // Permissions for a directory naTE creates — whether the user asked for it in
 // the explorer or a recursive copy needed it on the way. rwxr-xr-x is what
 // mkdir(1) produces under the conventional 022 umask, so a directory made here

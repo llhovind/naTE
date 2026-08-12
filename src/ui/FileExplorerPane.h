@@ -108,9 +108,14 @@ public:
     std::vector<Item>  SelectedItems() const;
     bool               IsLive() const noexcept { return controller_ != nullptr; }
 
-    void Refresh();
+    // Re-reads the current directory from the remote.
+    //
+    // Deliberately not called Refresh(): on a wxWindow that name means "repaint",
+    // and a signature of our own would hide wxWindow::Refresh(bool, const wxRect*)
+    // — leaving a plain repaint to issue a network round trip instead.
+    void Reload();
     // Re-reads and then puts the cursor on focusName if it is present.
-    void RefreshFocusing(std::string focusName);
+    void ReloadFocusing(std::string focusName);
 
     // Drops the controller: every operation becomes a no-op and the listing is
     // cleared. Used when the session behind a remote pane goes away.

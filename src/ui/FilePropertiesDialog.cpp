@@ -63,7 +63,6 @@ FilePropertiesDialog::FilePropertiesDialog(
     : wxDialog(parent, wxID_ANY, "Properties",
                wxDefaultPosition, wxDefaultSize,
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
-    , alive_(std::make_shared<std::atomic<bool>>(true))
 {
     // Text colours are measured against the surface each control actually sits
     // on. uiColors.tabText is the tempting shortcut and the wrong one here: it
@@ -98,7 +97,8 @@ FilePropertiesDialog::FilePropertiesDialog(
 
     termBg_ = termBg;
     termFg_ = termFg;
-    originalMode_ = info.mode & (term::fs::kPermissionMask | 07000);
+    originalMode_ = info.mode & (term::fs::kPermissionMask |
+                                 term::fs::kSpecialModeMask);
     selectedMode_ = originalMode_;
     BuildPermissionEditor(outer);
 
@@ -123,27 +123,21 @@ FilePropertiesDialog::FilePropertiesDialog(
 
     if (!info.isSymlink) return;
 
-    std::weak_ptr<std::atomic<bool>> weakAlive = alive_;
-    remote.ReadLink(fullPath, [this, weakAlive](std::string target,
-                                                term::transport::FsError err) {
-        wxTheApp->CallAfter([this, weakAlive, target = std::move(target),
-                             err = std::move(err)]() mutable {
-            const auto alive = weakAlive.lock();
-            if (!alive || !alive->load(std::memory_order_acquire)) return;
-            if (!linkTargetValue_) return;
-            linkTargetValue_->SetLabel(err.Failed()
-                                           ? "Unreadable: " + DecodeForDisplay(err.message)
-                                           : DecodeForDisplay(target));
-            Layout();
+    // The guard retires this if the dialog closed first; being a wx window, it
+    // is destroyed on the same thread the dispatcher posts to, which is what
+    // makes the check sufficient.
+    auto ctx = guard_.For(this);
+    remote.ReadLink(fullPath, [ctx](std::string target,
+                                    term::transport::FsError err) {
+        ctx.Post([target = std::move(target), err = std::move(err)](
+                     FilePropertiesDialog& dlg) mutable {
+            if (!dlg.linkTargetValue_) return;
+            dlg.linkTargetValue_->SetLabel(
+                err.Failed() ? "Unreadable: " + DecodeForDisplay(err.message)
+                             : DecodeForDisplay(target));
+            dlg.Layout();
         });
     });
-}
-
-// The readlink continuation checks this before touching the dialog, so the
-// dialog must be destroyed on the UI thread — which it is, being a wx window.
-FilePropertiesDialog::~FilePropertiesDialog()
-{
-    alive_->store(false, std::memory_order_release);
 }
 
 void FilePropertiesDialog::BuildPermissionEditor(wxSizer* outer)

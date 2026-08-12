@@ -357,7 +357,7 @@ void FileExplorerFrame::ApplyMode()
         // The listing may have gone stale while hidden, and the endpoint list
         // certainly may have.
         rightPane_->RefreshEndpointChoices();
-        rightPane_->Refresh();
+        rightPane_->Reload();
     } else {
         splitter_->Unsplit(rightPane_);
         SetFrameSize(targetWidth, frameHeight);
@@ -775,9 +775,9 @@ void FileExplorerFrame::OnTransferQueueIdle()
     // which side changed would sometimes leave a stale listing.
     // A hidden pane costs a round trip nobody sees; ApplyMode refreshes it
     // when it comes back.
-    if (leftPane_  && leftPane_->IsLive())  leftPane_->Refresh();
+    if (leftPane_  && leftPane_->IsLive())  leftPane_->Reload();
     if (rightPane_ && rightPane_->IsShown() && rightPane_->IsLive())
-        rightPane_->Refresh();
+        rightPane_->Reload();
 
     if (status_) status_->SetStatusText("Transfers finished.");
 }

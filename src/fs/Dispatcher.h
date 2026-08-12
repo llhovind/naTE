@@ -59,7 +59,15 @@ public:
         , alive_(std::make_shared<std::atomic<bool>>(true))
     {}
 
-    ~DispatchGuard() { alive_->store(false, std::memory_order_release); }
+    ~DispatchGuard() { Retire(); }
+
+    // Retires outstanding callbacks now, rather than at destruction.
+    //
+    // For an owner that can be stopped and then linger — one told to quit but
+    // still being joined, or still held by whoever is about to delete it — the
+    // callbacks have to go dead at the stop, not at the eventual destruction.
+    // Idempotent, and safe from any thread: the flag is the only thing touched.
+    void Retire() noexcept { alive_->store(false, std::memory_order_release); }
 
     DispatchGuard(const DispatchGuard&)            = delete;
     DispatchGuard& operator=(const DispatchGuard&) = delete;

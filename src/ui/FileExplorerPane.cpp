@@ -416,15 +416,15 @@ std::vector<FileExplorerPane::Item> FileExplorerPane::SelectedItems() const
     return items;
 }
 
-void FileExplorerPane::Refresh()
+void FileExplorerPane::Reload()
 {
     if (controller_) controller_->Refresh();
 }
 
-void FileExplorerPane::RefreshFocusing(std::string focusName)
+void FileExplorerPane::ReloadFocusing(std::string focusName)
 {
     pendingFocusName_ = std::move(focusName);
-    Refresh();
+    Reload();
 }
 
 void FileExplorerPane::GoOffline(const wxString& reason)
@@ -610,7 +610,7 @@ void FileExplorerPane::AfterWrite(const wxString& what,
                      "File Explorer", wxOK | wxICON_ERROR, this);
         return;
     }
-    RefreshFocusing(std::move(focusName));
+    ReloadFocusing(std::move(focusName));
 }
 
 void FileExplorerPane::EditRow(size_t row)

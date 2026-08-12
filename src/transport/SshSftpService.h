@@ -60,9 +60,14 @@ public:
     // queue if it has more work. Round-robin rather than run-to-completion:
     // a large transfer must not stall directory listings behind it.
     void Service();
-    // Drains the queue, invoking each task once so it self-cancels (sees
-    // !running_ and reports FsErrorCode::NotConnected). Call after clearing
-    // running_ during teardown.
+    // Drains the queue, invoking each task once so it retires itself with
+    // FsErrorCode::NotConnected.
+    //
+    // A task is only run once here and is not re-queued, so one that did not
+    // retire would have its callback dropped — breaking the port's promise that
+    // every callback fires exactly once. Rather than depend on the caller having
+    // cleared running_ first, this latches a stop of its own that the tasks also
+    // honour, so draining is correct whatever the caller did.
     void CancelPending();
     // libssh2_sftp_shutdown if initialised; idempotent. Safe to call twice
     // (orderly path then dead-socket fallback), matching the prior teardown.
@@ -80,6 +85,15 @@ private:
 
     // Outcome of a single non-blocking attempt to bring up the SFTP subsystem.
     enum class InitResult { Ready, Pending, Failed };
+
+    // True once the service must stop issuing work: either the session went
+    // away or CancelPending latched a drain. Every task checks this first, so
+    // both routes retire a task the same way.
+    bool Stopped() const noexcept
+    {
+        return !running_.load(std::memory_order_acquire) ||
+               cancelling_.load(std::memory_order_acquire);
+    }
 
     // Worker-thread only. Lazily initialises sftp_ one non-blocking step at a
     // time. Returns Pending while libssh2 reports EAGAIN, Ready once the
@@ -111,6 +125,9 @@ private:
 
     _LIBSSH2_SESSION*&       session_;
     const std::atomic<bool>& running_;
+    // One-way latch set by CancelPending. Teardown never resumes, so it is
+    // never cleared.
+    std::atomic<bool>        cancelling_{false};
     _LIBSSH2_SFTP*           sftp_ = nullptr;
     std::mutex               queueMutex_;
     std::deque<Task>         queue_;

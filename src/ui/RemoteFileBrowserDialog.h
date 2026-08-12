@@ -1,8 +1,11 @@
 #pragma once
 
+#include "fs/Dispatcher.h"
 #include "fs/ExplorerController.h"
 #include "session/SessionManager.h"
 #include "ui/RemoteFileListCtrl.h"
+
+#include <wx/app.h>
 
 #include <memory>
 #include <string>
@@ -56,6 +59,10 @@ private:
 
     std::unique_ptr<term::fs::ExplorerController> controller_;
     std::string                                   selectedPath_;
+    // Retires callbacks that outlive the dialog. Activating a symlink costs a
+    // stat round trip, which can land after the user has closed this.
+    term::fs::DispatchGuard                       guard_{
+        [](std::function<void()> fn) { wxTheApp->CallAfter(std::move(fn)); }};
 
     wxTextCtrl*         pathCtrl_    = nullptr;
     RemoteFileListCtrl* fileList_    = nullptr;

@@ -4,11 +4,6 @@ namespace term::fs {
 
 namespace {
 
-// setuid/setgid/sticky, in the order they modify the x column of each triad.
-constexpr uint32_t kSetUid  = 04000;
-constexpr uint32_t kSetGid  = 02000;
-constexpr uint32_t kSticky  = 01000;
-
 char TypeChar(uint32_t mode)
 {
     switch (mode & kFileTypeMask) {
@@ -69,7 +64,7 @@ bool ParseOctal(const std::string& text, uint32_t& outMode)
 
     // Mask to permission plus setuid/setgid/sticky so file-type bits can never
     // be injected through this path.
-    outMode = value & (kPermissionMask | kSetUid | kSetGid | kSticky);
+    outMode = value & (kPermissionMask | kSpecialModeMask);
     return true;
 }
 

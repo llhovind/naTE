@@ -165,24 +165,28 @@ void RemoteFileBrowserDialog::OnItemActivated(wxListEvent& evt)
 
     // The controller decides what activation means, including resolving a
     // symlink to find out whether it is a doorway or a file.
+    auto ctx = guard_.For(this);
     controller_->Activate(row,
-        [this](term::fs::ActivationResult result, std::string path,
-               term::transport::FsError err) {
-            switch (result) {
-                case term::fs::ActivationResult::Navigated:
-                    break;
-                case term::fs::ActivationResult::IsFile:
-                    // Double-clicking a file picks it outright.
-                    selectedPath_ = std::move(path);
-                    EndModal(wxID_OK);
-                    break;
-                case term::fs::ActivationResult::Failed:
-                    statusLabel_->SetLabel(
-                        wxString::Format("Cannot open '%s': %s",
-                                         DecodeForDisplay(path),
-                                         DecodeForDisplay(err.message)));
-                    break;
-            }
+        [ctx](term::fs::ActivationResult result, std::string path,
+              term::transport::FsError err) {
+            ctx.Post([result, path = std::move(path), err = std::move(err)](
+                         RemoteFileBrowserDialog& dlg) mutable {
+                switch (result) {
+                    case term::fs::ActivationResult::Navigated:
+                        break;
+                    case term::fs::ActivationResult::IsFile:
+                        // Double-clicking a file picks it outright.
+                        dlg.selectedPath_ = std::move(path);
+                        dlg.EndModal(wxID_OK);
+                        break;
+                    case term::fs::ActivationResult::Failed:
+                        dlg.statusLabel_->SetLabel(
+                            wxString::Format("Cannot open '%s': %s",
+                                             DecodeForDisplay(path),
+                                             DecodeForDisplay(err.message)));
+                        break;
+                }
+            });
         });
 }
 

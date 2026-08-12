@@ -8,13 +8,14 @@ namespace ui {
 
 RemoteEditManager::RemoteEditManager(term::session::SessionManager& sm)
     : sm_(sm)
-    , alive_(std::make_shared<std::atomic<bool>>(true))
 {}
 
 RemoteEditManager::~RemoteEditManager()
 {
-    // Invalidate before joining so any in-flight CallAfter callbacks no-op.
-    alive_->store(false, std::memory_order_release);
+    // Retire before joining, so an in-flight continuation cannot land on a
+    // half-torn-down manager. The guard would do this on destruction anyway,
+    // but that is after this body has run.
+    guard_.Retire();
     for (auto& s : sessions_)
         s->Stop();
     sessions_.clear();
@@ -36,31 +37,27 @@ void RemoteEditManager::OpenRemoteFile(term::session::SessionId  id,
         return;
     }
 
-    std::weak_ptr<std::atomic<bool>> weakAlive = alive_;
+    auto ctx = guard_.For(this);
     sm_.DownloadFile(id, remotePath, localPath,
-        [this, weakAlive, id, remotePath, localPath, editorCommand, onReady = std::move(onReady)]
+        [ctx, id, remotePath, localPath, editorCommand, onReady = std::move(onReady)]
         (term::transport::FsError err) mutable {
-            wxTheApp->CallAfter(
-                [this, weakAlive, id, remotePath, localPath, editorCommand,
-                 err = std::move(err), onReady = std::move(onReady)]() mutable {
-                    auto alive = weakAlive.lock();
-                    if (!alive || !alive->load(std::memory_order_acquire))
-                        return;
+            ctx.Post([id, remotePath, localPath, editorCommand,
+                      err = std::move(err), onReady = std::move(onReady)]
+                     (RemoteEditManager& mgr) mutable {
+                if (err.Failed()) {
+                    if (onReady) onReady(false, err.message);
+                    return;
+                }
 
-                    if (err.Failed()) {
-                        if (onReady) onReady(false, err.message);
-                        return;
-                    }
+                auto session = std::make_unique<RemoteEditSession>(
+                    id, remotePath, localPath, mgr.sm_);
+                session->Start();
+                mgr.sessions_.push_back(std::move(session));
 
-                    auto session = std::make_unique<RemoteEditSession>(
-                        id, remotePath, localPath, sm_);
-                    session->Start();
-                    sessions_.push_back(std::move(session));
+                LaunchEditor(editorCommand, localPath);
 
-                    LaunchEditor(editorCommand, localPath);
-
-                    if (onReady) onReady(true, "");
-                });
+                if (onReady) onReady(true, "");
+            });
         });
 }
 
