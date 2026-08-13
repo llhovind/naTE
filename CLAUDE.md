@@ -140,7 +140,7 @@ respecting that the human makes the final call.
 
 | Directory | Owns | Must not contain |
 |---|---|---|
-| `transport/` | Raw I/O: SSH, PTY, Serial, Loopback — including the transport descriptors (`TransportDesc.h`, `EnvVar`, `AppSessionDefaults`) | wx headers, Document, Session |
+| `transport/` | Raw I/O: SSH, PTY, Serial, Loopback — including the transport descriptors (`TransportDesc.h`, `EnvVar`, `AppSessionDefaults`) and SFTP operation scheduling (`SftpTaskQueue.h`: one libssh2 op per state slot per session) | wx headers, Document, Session |
 | `session/` | Session lifecycle, orchestration | wx types, JSON files |
 | `document/` | Terminal buffer: lines, cells, scroll | wx headers, Parser internals |
 | `layout/` | Viewport presentation model: wrap math, selection, search/URL highlighting, dirty tracking (`DocLayout`, `SearchMatch`, `UrlScanner`, `WordSelector`) | wx headers, Session, Transport |
