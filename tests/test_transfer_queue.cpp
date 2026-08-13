@@ -519,22 +519,45 @@ TEST_CASE("given a remote tree when expanded then every file becomes a job and d
     REQUIRE(std::filesystem::is_directory(tmp.Sub("dest/sub")));
 }
 
-TEST_CASE("given a symlink in a remote tree when expanded then it is not followed") {
-    // Following links is how a recursive copy turns into an infinite one.
+TEST_CASE("given a symlink in a remote tree when expanded then it is never descended into") {
+    // Descending is how a recursive copy turns into an infinite one, and no
+    // policy changes that: a link is dealt with where it stands. What differs
+    // between policies is whether it is reproduced or left out, not whether
+    // the walk goes through it.
     FakeRemoteFileSystem fs;
     TempDir tmp("download_tree_symlink");
     fs.AddDirectory("/remote/top", "top");
     fs.AddFile("/remote/top/real.txt", "real.txt", 10, "/remote/top");
     fs.AddSymlink("/remote/top/loop", "loop", "/remote/top");
 
-    ManualExecutor exec;
-    TransferQueue q(exec.AsDispatcher());
+    SECTION("preserved") {
+        ManualExecutor exec;
+        TransferQueue q(exec.AsDispatcher());
+        q.SetSymlinkPolicy(SymlinkPolicy::Preserve);
 
-    q.EnqueueTree(Remote(fs), "/remote/top", Local(), tmp.Sub("dest"), nullptr);
-    exec.RunAll();
+        q.EnqueueTree(Remote(fs), "/remote/top", Local(), tmp.Sub("dest"), nullptr);
+        exec.RunAll();
 
-    REQUIRE(q.Jobs().size() == 1);
-    REQUIRE(q.Jobs().front().sourcePath == "/remote/top/real.txt");
+        REQUIRE(q.Jobs().size() == 2);
+        REQUIRE(q.Jobs()[0].sourcePath == "/remote/top/real.txt");
+        REQUIRE(q.Jobs()[1].sourcePath == "/remote/top/loop");
+        REQUIRE(q.Jobs()[1].kind == JobKind::Link);
+        // The link was listed as an entry, never opened as a directory.
+        REQUIRE(fs.listCalls == std::vector<std::string>{"/remote/top"});
+    }
+
+    SECTION("skipped") {
+        ManualExecutor exec;
+        TransferQueue q(exec.AsDispatcher());
+        q.SetSymlinkPolicy(SymlinkPolicy::Skip);
+
+        q.EnqueueTree(Remote(fs), "/remote/top", Local(), tmp.Sub("dest"), nullptr);
+        exec.RunAll();
+
+        REQUIRE(q.Jobs().size() == 2);
+        REQUIRE(q.Jobs()[1].state == JobState::Skipped);
+        REQUIRE(fs.listCalls == std::vector<std::string>{"/remote/top"});
+    }
 }
 
 TEST_CASE("given a partially readable remote tree when expanded then readable files are still queued") {
@@ -823,4 +846,196 @@ TEST_CASE("given an adapter that completes inline when a later job is active "
     q.CancelJob(last);
     REQUIRE(StateOf(q, last) == JobState::Cancelled);
     REQUIRE(q.IsIdle());
+}
+
+// ---------------------------------------------------------------------------
+// Item routing
+//
+// What a picked item means — one transfer or a whole walk — is policy, and it
+// lives here rather than in whichever view did the picking.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given a picked file when queued as an item then it becomes one transfer") {
+    TempDir tmp("item_file");
+    FakeRemoteFileSystem fs;
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+
+    const TransferItem item{tmp.File("a.txt", "hello"), "a.txt", false, false, 5};
+    bool expanded = false;
+    q.EnqueueItem(Local(), item, Remote(fs), "/remote",
+                  [&](FsError err) { expanded = err.Ok(); });
+    exec.RunAll();
+
+    REQUIRE(expanded);
+    REQUIRE(q.Jobs().size() == 1);
+    REQUIRE(q.Jobs()[0].destPath == "/remote/a.txt");
+    REQUIRE(fs.mkdirCalls.empty());     // a file needs no directory made for it
+}
+
+TEST_CASE("given a picked directory when queued as an item then it is walked") {
+    TempDir tmp("item_dir");
+    tmp.File("tree/one.txt", "1");
+    tmp.File("tree/two.txt", "22");
+
+    FakeRemoteFileSystem fs;
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+
+    const TransferItem item{tmp.Sub("tree"), "tree", true, false, 0};
+    bool expanded = false;
+    q.EnqueueItem(Local(), item, Remote(fs), "/remote",
+                  [&](FsError err) { expanded = err.Ok(); });
+    exec.RunAll();
+
+    REQUIRE(expanded);
+    REQUIRE(q.Jobs().size() == 2);
+    REQUIRE(fs.mkdirCalls == std::vector<std::string>{"/remote/tree"});
+}
+
+
+// ---------------------------------------------------------------------------
+// Symlinks
+//
+// There is no right answer here, which is why it is a policy and not a rule.
+// What these pin down is that the choice is honoured and that a link is never
+// quietly dropped or silently turned into something else.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given a local path when described for transfer then a link is reported as a link") {
+    // The question the two construction sites used to answer differently.
+    // std::filesystem::is_directory follows the link and would say "directory";
+    // a listing says "symlink", and this has to agree with the listing.
+    TempDir tmp("describe_local");
+    tmp.File("real/inside.txt", "x");
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(tmp.Sub("real"), tmp.Sub("link"), ec);
+    if (ec) return;   // no symlink support here; nothing to assert
+
+    const TransferItem link = ItemForLocalPath(tmp.Sub("link"));
+    REQUIRE(link.name == "link");
+    REQUIRE(link.isSymlink);
+    REQUIRE_FALSE(link.isDir);        // the link, not what it points at
+
+    const TransferItem dir = ItemForLocalPath(tmp.Sub("real"));
+    REQUIRE(dir.isDir);
+    REQUIRE_FALSE(dir.isSymlink);
+
+    const TransferItem file = ItemForLocalPath(tmp.File("plain.txt", "hello"));
+    REQUIRE_FALSE(file.isDir);
+    REQUIRE_FALSE(file.isSymlink);
+    REQUIRE(file.size == 5);
+}
+
+TEST_CASE("given the preserve policy when a link is copied then it is reproduced not followed") {
+    FakeRemoteFileSystem src;
+    FakeRemoteFileSystem dst;
+    src.AddFile("/src/latest", "latest", 0);
+    src.existing["/src/latest"].isSymlink = true;
+
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+    q.SetSymlinkPolicy(SymlinkPolicy::Preserve);
+
+    TransferItem item;
+    item.path = "/src/latest";
+    item.name = "latest";
+    item.isSymlink = true;
+
+    q.EnqueueItem(Remote(src), item, Remote(dst), "/dst", {});
+    exec.RunAll();
+
+    // Read from the source, written verbatim at the destination. No transfer
+    // was started for it, because there are no bytes to move.
+    REQUIRE(dst.symlinkCalls.size() == 1);
+    REQUIRE(dst.symlinkCalls[0].linkPath == "/dst/latest");
+    REQUIRE(dst.symlinkCalls[0].target == "/src/latest-target");
+    REQUIRE(src.transfers.empty());
+    REQUIRE(dst.transfers.empty());
+    REQUIRE(q.Jobs().size() == 1);
+    REQUIRE(q.Jobs()[0].state == JobState::Completed);
+}
+
+TEST_CASE("given the skip policy when a link is copied then it is recorded rather than dropped") {
+    FakeRemoteFileSystem src;
+    FakeRemoteFileSystem dst;
+
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+    q.SetSymlinkPolicy(SymlinkPolicy::Skip);
+
+    TransferItem item;
+    item.path = "/src/latest";
+    item.name = "latest";
+    item.isSymlink = true;
+
+    q.EnqueueItem(Remote(src), item, Remote(dst), "/dst", {});
+    exec.RunAll();
+
+    // Visible in the queue, so a copy never silently omits something.
+    REQUIRE(q.Jobs().size() == 1);
+    REQUIRE(q.Jobs()[0].state == JobState::Skipped);
+    REQUIRE(dst.symlinkCalls.empty());
+    REQUIRE(q.IsIdle());
+}
+
+TEST_CASE("given a tree containing links when expanded then each link follows the policy") {
+    FakeRemoteFileSystem src;
+    FakeRemoteFileSystem dst;
+    src.AddDirectory("/src/tree", "tree");
+    src.AddFile("/src/tree/real.txt", "real.txt", 4, "/src/tree");
+    src.AddFile("/src/tree/link", "link", 0, "/src/tree");
+    src.listings["/src/tree"][1].isSymlink = true;
+
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+    q.SetSymlinkPolicy(SymlinkPolicy::Preserve);
+
+    TransferItem item;
+    item.path  = "/src/tree";
+    item.name  = "tree";
+    item.isDir = true;
+
+    q.EnqueueItem(Remote(src), item, Remote(dst), "/dst", {});
+    exec.RunAll();
+
+    // The file is queued first and holds the queue while its bytes move; the
+    // link waits its turn like any other job. Server-to-server stages through
+    // here, so both legs have to finish.
+    src.CompleteActive();
+    exec.RunAll();
+    dst.CompleteActive();
+    exec.RunAll();
+
+    // One byte-moving job for the file, one link reproduced. The walk never
+    // descended into the link, which is what keeps it free of cycles.
+    REQUIRE(q.Jobs().size() == 2);
+    REQUIRE(dst.symlinkCalls.size() == 1);
+    REQUIRE(dst.symlinkCalls[0].linkPath == "/dst/tree/link");
+    REQUIRE(src.listCalls == std::vector<std::string>{"/src/tree"});
+}
+
+TEST_CASE("given a server that cannot create links when one is preserved then the job fails plainly") {
+    FakeRemoteFileSystem src;
+    FakeRemoteFileSystem dst;
+    dst.symlinkUnsupported = true;
+    src.AddFile("/src/latest", "latest", 0);
+
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+    q.SetSymlinkPolicy(SymlinkPolicy::Preserve);
+
+    TransferItem item;
+    item.path = "/src/latest";
+    item.name = "latest";
+    item.isSymlink = true;
+
+    q.EnqueueItem(Remote(src), item, Remote(dst), "/dst", {});
+    exec.RunAll();
+
+    // Reported, not silently downgraded to copying the target: guessing what
+    // the user wanted instead is exactly what the policy exists to avoid.
+    REQUIRE(q.Jobs().size() == 1);
+    REQUIRE(q.Jobs()[0].state == JobState::Failed);
+    REQUIRE(q.Jobs()[0].error.code == FsErrorCode::Unsupported);
 }

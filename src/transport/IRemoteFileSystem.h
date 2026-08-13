@@ -24,6 +24,11 @@ enum class FsErrorCode {
     AlreadyExists,
     DirectoryNotEmpty,
     LocalIoError,      // failure on the client side, not the server
+    // A name the caller supplied could not be used — empty, containing a
+    // separator, or one of the directory entries every directory already has.
+    // Rejected before anything reaches the server, so it is the one code no
+    // adapter ever produces.
+    InvalidName,
     Cancelled,
     Protocol,
 };
@@ -144,6 +149,24 @@ public:
     // Reads a symlink's target without following it. The result is returned
     // verbatim and may be relative to the link's own directory.
     virtual void ReadLink(const std::string& path, PathCallback onDone) = 0;
+
+    // Creates a symbolic link at linkPath pointing at target.
+    //
+    // The arguments are in that order for a reason worth stating: SFTP's
+    // SSH_FXP_SYMLINK is a known interoperability wart. The draft specifies
+    // (linkpath, target); OpenSSH implemented it reversed and documents the
+    // deviation, and libssh2 matches OpenSSH. So this works against OpenSSH —
+    // which is very nearly everything — and may produce a reversed link on a
+    // server that follows the draft strictly.
+    //
+    // target is stored verbatim and is NOT resolved or validated. A link whose
+    // target does not exist on this filesystem is a legal thing to create, and
+    // whether that is wanted is the caller's business.
+    //
+    // Servers that do not implement it report FsErrorCode::Unsupported.
+    virtual void CreateSymlink(const std::string& target,
+                               const std::string& linkPath,
+                               DoneCallback onDone) = 0;
 
     // Creates a single directory. Parents must already exist; failing when
     // they do not is the server's POSIX behaviour and is reported as-is.

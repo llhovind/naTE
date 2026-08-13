@@ -980,3 +980,40 @@ TEST_CASE("given ColorScheme with palette when computeAnsiColors called then ANS
     CHECK(scheme.ansiColors[9]  == (Rgb{220,  50,  47}));  // br.red = base08
     CHECK(scheme.ansiColors[15] == (Rgb{253, 246, 227}));  // br.wht = base07
 }
+
+// ---------------------------------------------------------------------------
+// Symlink policy
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given a default config when constructed then links are preserved")
+{
+    const AppConfig cfg;
+    REQUIRE(cfg.symlinkPolicy == term::fs::SymlinkPolicy::Preserve);
+}
+
+TEST_CASE("given ini with SymlinkPolicy=skip when loaded then links are skipped")
+{
+    const TempIni ini{"[Behavior]\nSymlinkPolicy=skip\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.symlinkPolicy == term::fs::SymlinkPolicy::Skip);
+}
+
+TEST_CASE("given ini naming a policy nothing implements when loaded then the default stands")
+{
+    // "follow" is reserved in the enum but unimplemented. Accepting it would
+    // mean silently doing something other than what the file asked for.
+    const TempIni ini{"[Behavior]\nSymlinkPolicy=follow\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+    REQUIRE(cfg.symlinkPolicy == term::fs::SymlinkPolicy::Preserve);
+}
+
+TEST_CASE("given a symlink policy when saved and reloaded then it survives the round trip")
+{
+    const TempIni ini{""};
+    AppConfig cfg;
+    cfg.symlinkPolicy = term::fs::SymlinkPolicy::Skip;
+    cfg.save(ini.stdPath());
+
+    const auto reloaded = AppConfig::load(ini.stdPath());
+    REQUIRE(reloaded.symlinkPolicy == term::fs::SymlinkPolicy::Skip);
+}

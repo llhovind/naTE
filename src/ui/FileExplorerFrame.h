@@ -14,6 +14,7 @@
 #include <string>
 
 #include <wx/button.h>
+#include <wx/choice.h>
 #include <wx/frame.h>
 #include <wx/sizer.h>
 #include <wx/splitter.h>
@@ -153,6 +154,10 @@ private:
     wxButton*         toRightBtn_  = nullptr;
     wxButton*         toLeftBtn_   = nullptr;
     wxButton*         modeBtn_     = nullptr;
+    // How copies treat symlinks. Lives on the frame rather than a pane because
+    // it governs the queue, which the frame owns, exactly as the conflict
+    // policy does — and because it applies to a transfer, not to browsing.
+    wxChoice*         symlinkChoice_ = nullptr;
     wxStatusBar*      status_      = nullptr;
 
     // The explorer opens in Explore mode; the second pane appears when the

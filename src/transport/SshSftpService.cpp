@@ -43,6 +43,10 @@ FsErrorCode ClassifySftpStatus(unsigned long status)
         case LIBSSH2_FX_NOT_A_DIRECTORY:     return FsErrorCode::NotADirectory;
         case LIBSSH2_FX_NO_CONNECTION:
         case LIBSSH2_FX_CONNECTION_LOST:     return FsErrorCode::NotConnected;
+        // The server understood and declined — most often a symlink request to
+        // an implementation that has none. A caller can offer an alternative
+        // rather than showing a protocol error.
+        case LIBSSH2_FX_OP_UNSUPPORTED:      return FsErrorCode::Unsupported;
         default:                             return FsErrorCode::Protocol;
     }
 }
@@ -748,6 +752,30 @@ void SftpService::Remove(const std::string& path, bool isDir, DoneCallback onDon
         const auto len = static_cast<unsigned>(path.size());
         return isDir ? libssh2_sftp_rmdir_ex(self.svc->sftp_, path.c_str(), len)
                      : libssh2_sftp_unlink_ex(self.svc->sftp_, path.c_str(), len);
+    };
+    Enqueue([t]() { return (*t)(); });
+}
+
+void SftpService::CreateSymlink(const std::string& target,
+                                const std::string& linkPath,
+                                DoneCallback onDone)
+{
+    auto t = std::make_shared<SimpleOpTask>();
+    t->svc     = this;
+    t->context = "Cannot create link '" + linkPath + "'";
+    t->onDone  = std::move(onDone);
+    // Same entry point as realpath and readlink, third flag value. Note the
+    // argument roles differ from those two: here `target` is an input, not an
+    // output buffer, which is why this is a SimpleOpTask rather than a
+    // PathOpTask. The const_cast is libssh2's signature, not our intent — the
+    // parameter is char* for the readlink case and is only read for this one.
+    t->op = [target, linkPath](SimpleOpTask& self) {
+        return libssh2_sftp_symlink_ex(
+            self.svc->sftp_,
+            target.c_str(),   static_cast<unsigned>(target.size()),
+            const_cast<char*>(linkPath.c_str()),
+            static_cast<unsigned>(linkPath.size()),
+            LIBSSH2_SFTP_SYMLINK);
     };
     Enqueue([t]() { return (*t)(); });
 }

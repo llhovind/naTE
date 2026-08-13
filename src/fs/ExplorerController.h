@@ -31,6 +31,9 @@ enum class ActivationResult {
 using ActivationCallback =
     std::function<void(ActivationResult, std::string fullPath, transport::FsError)>;
 
+// Outcome of a write. Fires exactly once, on the owning thread.
+using WriteCallback = std::function<void(transport::FsError)>;
+
 // Navigation state for one remote directory view: where we are, how we got
 // here, and what is in it.
 //
@@ -73,10 +76,43 @@ public:
     // Absolute path of a visible row. Empty when the index is out of range.
     std::string PathOf(size_t visibleIndex) const;
 
+    // -------------------------------------------------------------------------
+    // Writes
+    //
+    // Every one takes a *leaf name*, never a path, and anchors it against the
+    // directory currently being shown. That is deliberate: a caller cannot
+    // name the wrong directory, so an operation can never land somewhere the
+    // user was not looking — including when a navigation completes while a
+    // dialog asking for the name is still open.
+    //
+    // None of them reload; the caller decides what to do with the outcome,
+    // because whether a refresh is worth a round trip is a view's business.
+    // -------------------------------------------------------------------------
+
+    void CreateDirectory(const std::string& name, WriteCallback onDone);
+
+    // Renames within the current directory.
+    //
+    // The destination is checked before the rename is issued. POSIX rename()
+    // replaces an existing file without a word and only some SFTP servers
+    // decline, so without this a rename onto an existing name is silent data
+    // loss. Reports AlreadyExists instead.
+    void RenameEntry(const std::string& oldName, const std::string& newName,
+                     WriteCallback onDone);
+
+    void SetEntryPermissions(const std::string& name, uint32_t mode,
+                             WriteCallback onDone);
+
     // True when path needs the server's realpath before it can be listed.
     // Exposed for testing; a clean absolute path can be listed directly, which
     // halves the round trips for ordinary click-through browsing.
     static bool NeedsCanonicalisation(const std::string& path);
+
+    // Checks a name the user typed for one directory entry. Rejects the empty
+    // string, anything containing '/', and "." / ".." — all of which a server
+    // would either refuse or, worse, quietly reinterpret as a different path.
+    // Returns FsErrorCode::InvalidName with a displayable message, or success.
+    static transport::FsError ValidateLeafName(const std::string& name);
 
 private:
     // Where a completed navigation should leave the history cursor.
@@ -91,6 +127,11 @@ private:
     void OnListed(uint64_t generation, std::string path, HistoryIntent intent,
                   std::vector<transport::FileInfo> entries, transport::FsError err);
     void SetLoading(bool loading);
+
+    // Wraps a WriteCallback so the adapter's answer arrives back on the owning
+    // thread, guarded. Every write funnels through it rather than repeating the
+    // same four-line bounce.
+    transport::DoneCallback Bounce(WriteCallback onDone);
 
     transport::IRemoteFileSystem& remote_;
     DispatchGuard                 guard_;

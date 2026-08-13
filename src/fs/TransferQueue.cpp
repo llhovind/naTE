@@ -14,8 +14,9 @@ namespace term::fs {
 namespace {
 
 // Guards against a pathologically deep tree, and against a server that reports
-// a directory containing itself. Symlinks are already skipped, so this is a
-// backstop rather than the primary cycle defence.
+// a directory containing itself. A walk never descends into a symlink whatever
+// the policy says to do with it, so cycles are already impossible by
+// construction and this is a backstop rather than the primary defence.
 constexpr int kMaxTreeDepth = 64;
 
 // How many alternative names a Rename resolution will try before giving up.
@@ -64,9 +65,21 @@ bool AbsorbListing(TransferQueue& queue, TreeWalk& walk, const PendingDir& dir,
     if (err.Failed() && walk.firstError.Ok()) walk.firstError = std::move(err);
 
     for (const auto& e : entries) {
-        if (e.isSymlink) continue;   // never follow links
         const std::string src = path::Join(dir.source, e.name);
         const std::string dst = path::Join(dir.dest, e.name);
+
+        // A link inside the tree gets the same treatment as one the user
+        // picked directly, and it is never descended into — which is what
+        // keeps a walk free of cycles by construction.
+        if (e.isSymlink) {
+            TransferItem link;
+            link.path      = src;
+            link.name      = e.name;
+            link.isSymlink = true;
+            link.isDir     = e.isDir;
+            queue.EnqueueItem(walk.source, link, walk.destination, dir.dest);
+            continue;
+        }
 
         if (e.isDir) {
             if (dir.depth + 1 < kMaxTreeDepth)
@@ -91,6 +104,26 @@ std::string MakeStagingPath(JobId id, const std::string& leaf)
 }
 
 } // namespace
+
+TransferItem ItemForLocalPath(const std::string& path)
+{
+    TransferItem item;
+    item.path = path;
+    item.name = std::filesystem::path(path).filename().string();
+
+    std::error_code ec;
+    const auto status = std::filesystem::symlink_status(path, ec);
+    if (ec) return item;   // unreadable: reported as a plain file and left to fail visibly
+
+    item.isSymlink = std::filesystem::is_symlink(status);
+    item.isDir     = std::filesystem::is_directory(status);
+
+    if (!item.isDir && !item.isSymlink) {
+        const auto size = std::filesystem::file_size(path, ec);
+        if (!ec) item.size = static_cast<uint64_t>(size);
+    }
+    return item;
+}
 
 std::string MakeUniqueCandidate(const std::string& name, int attempt)
 {
@@ -147,6 +180,62 @@ JobId TransferQueue::Enqueue(TransferEndpoint source, const std::string& sourceP
     if (job.viaLocalStaging) job.totalBytes = sizeHint * 2;
 
     return AddJob(std::move(job));
+}
+
+void TransferQueue::EnqueueItem(TransferEndpoint source, const TransferItem& item,
+                                TransferEndpoint destination,
+                                const std::string& destinationDir,
+                                std::function<void(transport::FsError)> onExpanded)
+{
+    const std::string dest = path::Join(destinationDir, item.name);
+
+    // A link is decided by policy before anything else is considered — whether
+    // it points at a directory is not this code's business under Preserve or
+    // Skip, and asking would cost a round trip to answer a question nobody has.
+    if (item.isSymlink) {
+        EnqueueSymlink(std::move(source), item, std::move(destination), dest);
+        if (onExpanded) onExpanded(transport::FsError::Success());
+        return;
+    }
+
+    if (item.isDir) {
+        EnqueueTree(std::move(source), item.path, std::move(destination), dest,
+                    std::move(onExpanded));
+        return;
+    }
+
+    Enqueue(std::move(source), item.path, std::move(destination), dest, item.size);
+    // Nothing to expand, but the caller is told either way so it does not have
+    // to know which shape it queued.
+    if (onExpanded) onExpanded(transport::FsError::Success());
+}
+
+void TransferQueue::EnqueueSymlink(TransferEndpoint source, const TransferItem& item,
+                                   TransferEndpoint destination,
+                                   const std::string& destPath)
+{
+    TransferJob job;
+    job.kind        = JobKind::Link;
+    job.source      = std::move(source);
+    job.destination = std::move(destination);
+    job.sourcePath  = item.path;
+    job.destPath    = destPath;
+
+    if (symlinks_ == SymlinkPolicy::Skip) {
+        // Recorded rather than dropped. A copy that silently omits things is
+        // indistinguishable from one that lost them.
+        job.state = JobState::Skipped;
+        job.error = transport::FsError::Make(
+            transport::FsErrorCode::Cancelled,
+            "Skipped: links are not being copied");
+        AddJob(std::move(job));
+        return;
+    }
+
+    // Preserve. Follow is reserved and unreachable — no UI offers it and the
+    // config parser will not produce it — so it is deliberately not a case
+    // here rather than being quietly treated as one of the others.
+    AddJob(std::move(job));
 }
 
 void TransferQueue::EnqueueTree(TransferEndpoint source, const std::string& sourceDir,
@@ -274,6 +363,8 @@ void TransferQueue::OnConflictKnown(JobId id, bool exists)
 
     if (!exists) { StartTransfer(id); return; }
 
+    job->destExisted = true;
+
     switch (policy_) {
         case ConflictPolicy::Overwrite: StartTransfer(id);                return;
         case ConflictPolicy::Skip:      FinishJob(id, JobState::Skipped);  return;
@@ -346,6 +437,9 @@ void TransferQueue::ResolveFreeName(JobId id, int attempt)
                 }
                 if (TransferJob* j = q.Find(id)) {
                     j->destPath = candidate;
+                    // The name it settled on is free by construction, so
+                    // nothing is being replaced any more.
+                    j->destExisted = false;
                     q.NotifyChanged(id);
                 }
                 q.StartTransfer(id);
@@ -360,6 +454,8 @@ void TransferQueue::StartTransfer(JobId id)
 
     job->state = JobState::Active;
     NotifyChanged(id);
+
+    if (job->kind == JobKind::Link) { StartLink(id); return; }
 
     auto ctx = guard_.For(this);
     const auto onProgress = [ctx, id](uint64_t done, uint64_t total) {
@@ -416,6 +512,67 @@ void TransferQueue::RecordHandle(JobId id, transport::TransferHandle handle)
 {
     if (activeId_ != id) return;
     activeHandle_ = handle;
+}
+
+void TransferQueue::StartLink(JobId id)
+{
+    TransferJob* job = Find(id);
+    if (!job) { activeId_ = kInvalidJobId; Pump(); return; }
+
+    const std::string destPath   = job->destPath;
+    const bool        mustUnlink = job->destExisted;
+
+    // Read the target from the source, then write the same text at the
+    // destination. The target is never resolved: reproducing a link means
+    // reproducing where it points, not where it currently lands.
+    auto ctx = guard_.For(this);
+    job->source.fs->ReadLink(job->sourcePath,
+        [ctx, id, destPath, mustUnlink](std::string target, transport::FsError err) {
+            ctx.Post([id, destPath, mustUnlink, target = std::move(target),
+                      err = std::move(err)](TransferQueue& q) mutable {
+                if (err.Failed()) { q.FinishJob(id, JobState::Failed, std::move(err)); return; }
+
+                TransferJob* j = q.Find(id);
+                if (!j) { q.activeId_ = kInvalidJobId; q.Pump(); return; }
+
+                auto write = [id, destPath, target](TransferQueue& qq) {
+                    TransferJob* jj = qq.Find(id);
+                    if (!jj) { qq.activeId_ = kInvalidJobId; qq.Pump(); return; }
+
+                    auto inner = qq.guard_.For(&qq);
+                    jj->destination.fs->CreateSymlink(target, destPath,
+                        [inner, id](transport::FsError linkErr) {
+                            inner.Post([id, linkErr = std::move(linkErr)](
+                                           TransferQueue& q3) mutable {
+                                if (linkErr.Failed()) {
+                                    q3.FinishJob(id, JobState::Failed, std::move(linkErr));
+                                    return;
+                                }
+                                q3.FinishJob(id, JobState::Completed);
+                            });
+                        });
+                };
+
+                if (!mustUnlink) { write(q); return; }
+
+                // Overwriting: a symlink cannot be created over an existing
+                // path, so the old entry goes first. Its removal failing is
+                // this job's failure — the link would fail next anyway, and
+                // reporting the cause is more use than reporting the symptom.
+                auto inner = q.guard_.For(&q);
+                j->destination.fs->Remove(destPath, false,
+                    [inner, id, write](transport::FsError rmErr) {
+                        inner.Post([id, write, rmErr = std::move(rmErr)](
+                                       TransferQueue& q2) mutable {
+                            if (rmErr.Failed()) {
+                                q2.FinishJob(id, JobState::Failed, std::move(rmErr));
+                                return;
+                            }
+                            write(q2);
+                        });
+                    });
+            });
+        });
 }
 
 void TransferQueue::StartUploadLeg(JobId id)

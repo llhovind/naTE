@@ -32,6 +32,8 @@ public:
     void MakeDirectory(const std::string& path, uint32_t mode,
                        DoneCallback onDone) override;
     void Remove(const std::string& path, bool isDir, DoneCallback onDone) override;
+    void CreateSymlink(const std::string& target, const std::string& linkPath,
+                       DoneCallback onDone) override;
     void Rename(const std::string& from, const std::string& to,
                 DoneCallback onDone) override;
     void SetPermissions(const std::string& path, uint32_t mode,

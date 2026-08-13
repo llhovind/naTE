@@ -246,6 +246,7 @@ void FileExplorerFrame::BuildLayout(OpenInEditorFn onOpenInEditor)
     queue_ = std::make_unique<term::fs::TransferQueue>(
         [](std::function<void()> fn) { wxTheApp->CallAfter(std::move(fn)); });
     queue_->SetListener(this);
+    queue_->SetSymlinkPolicy(cfg_.symlinkPolicy);
     queue_->SetConflictPrompt([this](const term::fs::TransferJob& job, auto respond) {
         ConflictDialog dlg(this, cfg_, job);
         dlg.ShowModal();
@@ -260,7 +261,22 @@ void FileExplorerFrame::BuildLayout(OpenInEditorFn onOpenInEditor)
     toRightBtn_ = new wxButton(this, wxID_ANY, kCopyLabel);
     toLeftBtn_  = new wxButton(this, wxID_ANY, kCopyLabel);
 
-    controls_->Add(modeBtn_, 0, wxRIGHT, kModeButtonGap);
+    // Named for what happens to the link, not for a mechanism: "Keep links"
+    // says what the user gets. Follow is deliberately absent — it is reserved
+    // in the enum but nothing implements it, and offering a choice that does
+    // something else would be worse than not offering it.
+    symlinkChoice_ = new wxChoice(this, wxID_ANY);
+    symlinkChoice_->Append("Keep links");
+    symlinkChoice_->Append("Skip links");
+    symlinkChoice_->SetSelection(
+        cfg_.symlinkPolicy == term::fs::SymlinkPolicy::Skip ? 1 : 0);
+    symlinkChoice_->SetToolTip(
+        "Keep links: copy a symbolic link as a link, pointing where it "
+        "already points.\nSkip links: leave them out of the copy.");
+
+    controls_->Add(modeBtn_, 0, wxRIGHT, kControlsMargin);
+    controls_->Add(symlinkChoice_, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
+                   kModeButtonGap);
     // Not a stretch spacer: the pair is positioned against the sash, which is
     // wherever the user left it, rather than centred in what is left of the row.
     copyPairGap_ = controls_->AddSpacer(0);
@@ -276,6 +292,16 @@ void FileExplorerFrame::BuildLayout(OpenInEditorFn onOpenInEditor)
         transfers_->RefreshFromQueue();
     });
     outer->Add(transfers_, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, kOuterMargin);
+
+    symlinkChoice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) {
+        if (queue_)
+            queue_->SetSymlinkPolicy(symlinkChoice_->GetSelection() == 1
+                                         ? term::fs::SymlinkPolicy::Skip
+                                         : term::fs::SymlinkPolicy::Preserve);
+        // A relabelled row is a differently sized one, and the copy pair has to
+        // stay on the sash across the change.
+        AlignCopyButtonsToSash();
+    });
 
     modeBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
         SetMode(mode_ == FileExplorerMode::Transfer ? FileExplorerMode::Explore
@@ -509,10 +535,16 @@ void FileExplorerFrame::AlignCopyButtonsToSash(int sashPosition)
     // Effective minimums, not current sizes: the labels name their destination
     // and change width as the panes are repointed, and this runs before the
     // row has been laid out at the new widths.
+    // Leading covers everything before the gap: the mode button, the symlink
+    // choice, and the margins between them.
+    const int leading = modeBtn_->GetEffectiveMinSize().x + kControlsMargin +
+                        (symlinkChoice_ ? symlinkChoice_->GetEffectiveMinSize().x : 0) +
+                        kModeButtonGap;
+
     const ControlsRowMetrics metrics{
         kControlsMargin,
         GetClientSize().x - kControlsMargin,
-        modeBtn_->GetEffectiveMinSize().x + kModeButtonGap,
+        leading,
         toRightBtn_->GetEffectiveMinSize().x,
         toLeftBtn_->GetEffectiveMinSize().x,
         kCopyButtonGap,
@@ -567,23 +599,12 @@ void FileExplorerFrame::OnFilesDropped(FileExplorerPane* target,
     const auto destination = ToTransferEndpoint(target->CurrentEndpoint());
     const std::string destDir = target->CurrentPath();
 
-    size_t queued = 0;
-    for (const std::string& path : paths) {
-        std::error_code ec;
-        const bool isDir = std::filesystem::is_directory(path, ec);
-        if (ec) continue;
+    // Described by fs/, with the same link-not-target semantics a listing uses,
+    // so a dropped file and a picked one mean the same thing to the queue.
+    for (const std::string& path : paths)
+        QueueOne(term::fs::ItemForLocalPath(path), source, destination, destDir);
 
-        FileExplorerPane::Item item;
-        item.path = path;
-        item.name = std::filesystem::path(path).filename().string();
-        item.isDir = isDir;
-        if (!isDir) {
-            const auto size = std::filesystem::file_size(path, ec);
-            item.size = ec ? 0 : static_cast<uint64_t>(size);
-        }
-        QueueOne(item, source, destination, destDir);
-        ++queued;
-    }
+    const size_t queued = paths.size();
 
     if (queued) {
         destinationDirty_ = true;
@@ -607,6 +628,14 @@ void FileExplorerFrame::ApplyConfig(const AppConfig& cfg)
     const wxColour btnBg = toWx(cfg_.uiColors.tileInactive);
     const wxColour btnFg = pickContrasting(btnBg, toWx(cfg_.ansiColors[0]),
                                            toWx(cfg_.ansiColors[7]));
+    if (symlinkChoice_) {
+        symlinkChoice_->SetBackgroundColour(toWx(cfg_.ansiColors[0]));
+        symlinkChoice_->SetForegroundColour(toWx(cfg_.ansiColors[7]));
+    }
+    // The window's own symlink choice is deliberately not reset here: the
+    // preference sets what a *new* window starts with, and overwriting a
+    // choice the user made in this window would be the setting reaching
+    // somewhere it was not asked to.
     StyleToolButton(modeBtn_,    Icon::SplitPanes, btnBg, btnFg);
     // The arrow sits on the side it points to, so the button reads as the
     // movement it performs rather than as a label with decoration.
@@ -681,24 +710,17 @@ void FileExplorerFrame::QueueOne(const FileExplorerPane::Item& item,
                                  const term::fs::TransferEndpoint& destination,
                                  const std::string& destinationDir)
 {
-    const std::string dest = term::fs::path::Join(destinationDir, item.name);
-
-    // A symlink is copied as whatever it points at rather than reproduced as a
-    // link: the target may not exist on the other side, and a dangling link is
-    // a worse outcome than a real file.
-    if (item.isDir && !item.isSymlink) {
-        queue_->EnqueueTree(source, item.path, destination, dest,
-            [this, name = item.name](term::transport::FsError err) {
-                if (err.Failed() && status_)
-                    status_->SetStatusText(
-                        wxString::Format("Could not fully read '%s': %s",
-                                         DecodeForDisplay(name),
-                                         DecodeForDisplay(err.message)));
-            });
-        return;
-    }
-
-    queue_->Enqueue(source, item.path, destination, dest, item.size);
+    // What the item *is* decides how it travels, and that decision lives with
+    // the queue — a view that got the symlink rule wrong would leave dangling
+    // links on the far side. All that is left here is saying so on failure.
+    queue_->EnqueueItem(source, item, destination, destinationDir,
+        [this, name = item.name](term::transport::FsError err) {
+            if (err.Failed() && status_)
+                status_->SetStatusText(
+                    wxString::Format("Could not fully read '%s': %s",
+                                     DecodeForDisplay(name),
+                                     DecodeForDisplay(err.message)));
+        });
 }
 
 void FileExplorerFrame::CopyBetweenPanes(FileExplorerPane* from, FileExplorerPane* to)

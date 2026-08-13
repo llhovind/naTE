@@ -408,3 +408,178 @@ TEST_CASE("given a navigation in flight when the controller is destroyed then th
 
     REQUIRE_NOTHROW(exec.RunAll());
 }
+
+// ---------------------------------------------------------------------------
+// Writes
+//
+// These moved out of the wx pane so they could be tested at all. The rename
+// path in particular carries an invariant that fails silently when it is wrong:
+// POSIX rename() replaces its destination without a word.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given a name the server would reinterpret when validated then it is rejected") {
+    using term::transport::FsErrorCode;
+
+    REQUIRE(ExplorerController::ValidateLeafName("notes.txt").Ok());
+    REQUIRE(ExplorerController::ValidateLeafName(".bashrc").Ok());
+    REQUIRE(ExplorerController::ValidateLeafName("with space").Ok());
+
+    for (const char* bad : {"", "a/b", "/", ".", ".."}) {
+        const auto err = ExplorerController::ValidateLeafName(bad);
+        REQUIRE(err.Failed());
+        REQUIRE(err.code == FsErrorCode::InvalidName);
+        REQUIRE_FALSE(err.message.empty());
+    }
+}
+
+TEST_CASE("given an invalid name when a directory is created then the server is never asked") {
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    std::optional<term::transport::FsError> result;
+    c.CreateDirectory("../escape", [&](term::transport::FsError err) {
+        result = std::move(err);
+    });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->code == term::transport::FsErrorCode::InvalidName);
+    REQUIRE(fs.mkdirCalls.empty());
+}
+
+TEST_CASE("given a directory being shown when a folder is created then it lands in that directory") {
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    std::optional<term::transport::FsError> result;
+    c.CreateDirectory("nginx.d", [&](term::transport::FsError err) {
+        result = std::move(err);
+    });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->Ok());
+    REQUIRE(fs.mkdirCalls == std::vector<std::string>{"/etc/nginx.d"});
+}
+
+TEST_CASE("given a free destination when an entry is renamed then it is renamed in place") {
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    std::optional<term::transport::FsError> result;
+    c.RenameEntry("hosts", "hosts.bak", [&](term::transport::FsError err) {
+        result = std::move(err);
+    });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->Ok());
+    REQUIRE(fs.renameCalls == std::vector<std::string>{"/etc/hosts -> /etc/hosts.bak"});
+}
+
+TEST_CASE("given an occupied destination when an entry is renamed then nothing is overwritten") {
+    // The invariant this whole path exists for: POSIX rename() would replace
+    // the existing file silently, so the check has to happen before the call.
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    fs.AddFile("/etc/hosts.bak", "hosts.bak", 10, "/etc");
+
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    std::optional<term::transport::FsError> result;
+    c.RenameEntry("hosts", "hosts.bak", [&](term::transport::FsError err) {
+        result = std::move(err);
+    });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->code == term::transport::FsErrorCode::AlreadyExists);
+    REQUIRE(fs.renameCalls.empty());
+}
+
+TEST_CASE("given a navigation landing mid-rename then the rename stays in its own directory") {
+    // The reason writes take names rather than paths. A view that read the
+    // current directory after its dialog closed would turn this into a move.
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    fs.AddDirectory("/var", "var");
+    fs.listings["/var"] = {};
+
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    // Rename issued against /etc, then the user's pending navigation arrives
+    // before the destination check comes back.
+    c.RenameEntry("hosts", "hosts.bak", [](term::transport::FsError) {});
+    c.NavigateTo("/var");
+    exec.RunAll();
+
+    REQUIRE(c.CurrentPath() == "/var");
+    REQUIRE(fs.renameCalls == std::vector<std::string>{"/etc/hosts -> /etc/hosts.bak"});
+}
+
+TEST_CASE("given an unchanged name when an entry is renamed then no round trip is made") {
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+    fs.statCalls.clear();
+
+    std::optional<term::transport::FsError> result;
+    c.RenameEntry("hosts", "hosts", [&](term::transport::FsError err) {
+        result = std::move(err);
+    });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->Ok());
+    REQUIRE(fs.statCalls.empty());
+    REQUIRE(fs.renameCalls.empty());
+}
+
+TEST_CASE("given a directory being shown when permissions are set then they apply to that entry") {
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    std::optional<term::transport::FsError> result;
+    c.SetEntryPermissions("hosts", 0640, [&](term::transport::FsError err) {
+        result = std::move(err);
+    });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->Ok());
+    REQUIRE(fs.chmodCalls.size() == 1);
+    REQUIRE(fs.chmodCalls[0].path == "/etc/hosts");
+    REQUIRE(fs.chmodCalls[0].mode == 0640u);
+}

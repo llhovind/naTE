@@ -151,23 +151,23 @@ public:
     // -------------------------------------------------------------------------
     // Remote filesystem conveniences
     //
-    // Thin wrappers over GetRemoteFileSystem() that resolve the id and report
-    // FsErrorCode::NotConnected when it names no session with a filesystem, so
-    // callers do not repeat that null check. Everything else — the threading
-    // contract in particular — is IRemoteFileSystem's: callbacks fire on the
-    // transport's worker thread and UI code must marshal via CallAfter.
+    // Exact-path transfers for the remote-edit workflow, which knows both paths
+    // and wants neither a queue nor progress. Everything richer than this — the
+    // explorer, recursive copies, conflicts, cancellation — talks to
+    // GetRemoteFileSystem() directly, through fs/ExplorerController and
+    // fs/TransferQueue; there is deliberately no facade over those here.
     //
-    // The one divergence: the NotConnected path has no worker to defer to, so
-    // its callback runs synchronously, before the call returns. Callers that
-    // marshal to the UI thread are unaffected; callers that mutate state after
-    // the call must not assume the callback has yet to fire.
+    // These resolve the id and report FsErrorCode::NotConnected when it names no
+    // session with a filesystem, so the two callers do not repeat that check.
+    // Everything else — the threading contract in particular — is
+    // IRemoteFileSystem's: callbacks may fire on any thread, and UI code must
+    // marshal via CallAfter.
+    //
+    // The NotConnected path has no worker to defer to, so its callback runs
+    // before the call returns — which the port's contract permits, and which
+    // callers must not assume away.
     // -------------------------------------------------------------------------
 
-    void        ListRemoteDirectory(SessionId id,
-                                    const std::string& remotePath,
-                                    transport::ListCallback onDone);
-
-    // Exact-path transfers, used by the remote-edit workflow.
     void        DownloadFile(SessionId id,
                              const std::string& remotePath,
                              const std::string& localPath,
@@ -176,17 +176,6 @@ public:
                            const std::string& localPath,
                            const std::string& remotePath,
                            transport::DoneCallback onDone);
-
-    // Directory-targeted transfers: the source's leaf name is joined onto the
-    // destination directory.
-    void        SendFile(SessionId id,
-                         const std::string& localPath,
-                         const std::string& remoteDir,
-                         transport::DoneCallback onDone);
-    void        ReceiveFile(SessionId id,
-                            const std::string& remotePath,
-                            const std::string& localDir,
-                            transport::DoneCallback onDone);
 
     term::input::InputTarget* GetInputTarget(SessionId id) const;
 

@@ -196,6 +196,21 @@ void LocalFileSystem::Remove(const std::string& path, bool isDir,
     onDone(FsError::Success());
 }
 
+void LocalFileSystem::CreateSymlink(const std::string& target,
+                                    const std::string& linkPath,
+                                    DoneCallback onDone)
+{
+    // target is not expanded: it is stored in the link verbatim, and a leading
+    // "~" is a literal character to the kernel. Expanding it here would write a
+    // different link than the one asked for.
+    const std::string link = ExpandTilde(linkPath);
+    if (::symlink(target.c_str(), link.c_str()) != 0) {
+        onDone(ErrnoError("Cannot create link '" + link + "'", errno));
+        return;
+    }
+    onDone(FsError::Success());
+}
+
 void LocalFileSystem::Rename(const std::string& from, const std::string& to,
                              DoneCallback onDone)
 {

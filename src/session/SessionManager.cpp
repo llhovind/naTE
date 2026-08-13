@@ -1,12 +1,10 @@
 #include "session/SessionManager.h"
 #include "db/IScrollbackRepository.h"
 #include "db/ScrollbackWriter.h"
-#include "fs/RemotePath.h"
 #include "transport/TransportError.h"
 #include <algorithm>
 #include <chrono>
 #include <ctime>
-#include <filesystem>
 #include <iomanip>
 #include <random>
 #include <sstream>
@@ -464,15 +462,6 @@ transport::FsError NoFileSystemError()
 
 } // namespace
 
-void SessionManager::ListRemoteDirectory(SessionId id,
-                                         const std::string& remotePath,
-                                         transport::ListCallback onDone)
-{
-    transport::IRemoteFileSystem* fs = GetRemoteFileSystem(id);
-    if (!fs) { onDone({}, NoFileSystemError()); return; }
-    fs->List(remotePath, std::move(onDone));
-}
-
 void SessionManager::DownloadFile(SessionId id,
                                   const std::string& remotePath,
                                   const std::string& localPath,
@@ -491,27 +480,6 @@ void SessionManager::UploadFile(SessionId id,
     transport::IRemoteFileSystem* fs = GetRemoteFileSystem(id);
     if (!fs) { onDone(NoFileSystemError()); return; }
     fs->Upload(localPath, remotePath, nullptr, std::move(onDone));
-}
-
-void SessionManager::SendFile(SessionId id,
-                              const std::string& localPath,
-                              const std::string& remoteDir,
-                              transport::DoneCallback onDone)
-{
-    // Each side keeps its own path rules: std::filesystem for the local leaf,
-    // POSIX arithmetic for the remote join.
-    const std::string leaf = std::filesystem::path(localPath).filename().string();
-    UploadFile(id, localPath, fs::path::Join(remoteDir, leaf), std::move(onDone));
-}
-
-void SessionManager::ReceiveFile(SessionId id,
-                                 const std::string& remotePath,
-                                 const std::string& localDir,
-                                 transport::DoneCallback onDone)
-{
-    const std::string leaf  = fs::path::Leaf(remotePath);
-    const std::string local = (std::filesystem::path(localDir) / leaf).string();
-    DownloadFile(id, remotePath, local, std::move(onDone));
 }
 
 // ---------------------------------------------------------------------------

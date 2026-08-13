@@ -1,4 +1,5 @@
 #include "fs/ExplorerController.h"
+#include "fs/FileMode.h"
 #include "fs/RemotePath.h"
 
 namespace term::fs {
@@ -172,6 +173,7 @@ void ExplorerController::Activate(size_t visibleIndex, ActivationCallback onDone
         return;
     }
 
+
     if (!entry.isSymlink) {
         if (onDone) onDone(ActivationResult::IsFile, full, {});
         return;
@@ -196,6 +198,97 @@ void ExplorerController::Activate(size_t visibleIndex, ActivationCallback onDone
             if (onDone) onDone(ActivationResult::IsFile, full, {});
         });
     });
+}
+
+// ---------------------------------------------------------------------------
+// Writes
+// ---------------------------------------------------------------------------
+
+transport::FsError ExplorerController::ValidateLeafName(const std::string& name)
+{
+    const auto reject = [](std::string message) {
+        return transport::FsError::Make(transport::FsErrorCode::InvalidName,
+                                        std::move(message));
+    };
+
+    if (name.empty())
+        return reject("A name cannot be empty.");
+    if (name.find('/') != std::string::npos)
+        return reject("A name cannot contain '/'.");
+    // Every directory already has these two, and a server would resolve them
+    // rather than treat them as the name the user meant.
+    if (name == "." || name == "..")
+        return reject("'" + name + "' is not a name a file can have.");
+
+    return transport::FsError::Success();
+}
+
+transport::DoneCallback ExplorerController::Bounce(WriteCallback onDone)
+{
+    auto ctx = guard_.For(this);
+    return [ctx, onDone = std::move(onDone)](transport::FsError err) {
+        ctx.Post([onDone, err = std::move(err)](ExplorerController&) mutable {
+            if (onDone) onDone(std::move(err));
+        });
+    };
+}
+
+void ExplorerController::CreateDirectory(const std::string& name, WriteCallback onDone)
+{
+    if (const transport::FsError err = ValidateLeafName(name); err.Failed()) {
+        if (onDone) onDone(err);
+        return;
+    }
+
+    remote_.MakeDirectory(path::Join(currentPath_, name), kDefaultDirectoryMode,
+                          Bounce(std::move(onDone)));
+}
+
+void ExplorerController::RenameEntry(const std::string& oldName,
+                                     const std::string& newName,
+                                     WriteCallback onDone)
+{
+    if (const transport::FsError err = ValidateLeafName(newName); err.Failed()) {
+        if (onDone) onDone(err);
+        return;
+    }
+    // Renaming something to what it is already called is not a failure, and is
+    // not worth a round trip either.
+    if (newName == oldName) {
+        if (onDone) onDone(transport::FsError::Success());
+        return;
+    }
+
+    // Both ends anchored to the directory as it is now, so a navigation that
+    // lands mid-operation cannot turn this into a move.
+    const std::string from = path::Join(currentPath_, oldName);
+    const std::string to   = path::Join(currentPath_, newName);
+
+    auto ctx = guard_.For(this);
+    remote_.Stat(to, [ctx, from, to, newName, onDone](transport::FileInfo,
+                                                      transport::FsError statErr) {
+        ctx.Post([from, to, newName, onDone,
+                  statErr = std::move(statErr)](ExplorerController& c) mutable {
+            // Only a definite "nothing there" clears the way. Any other error
+            // is the destination telling us something, and renaming onto it
+            // would be guessing with the user's data.
+            if (statErr.code != transport::FsErrorCode::NoSuchFile) {
+                if (onDone)
+                    onDone(transport::FsError::Make(
+                        transport::FsErrorCode::AlreadyExists,
+                        "'" + newName + "' already exists in this directory."));
+                return;
+            }
+            c.remote_.Rename(from, to, c.Bounce(std::move(onDone)));
+        });
+    });
+}
+
+void ExplorerController::SetEntryPermissions(const std::string& name, uint32_t mode,
+                                             WriteCallback onDone)
+{
+    remote_.SetPermissions(path::Join(currentPath_, name), mode,
+                           Bounce(std::move(onDone)));
 }
 
 } // namespace term::fs

@@ -94,9 +94,8 @@ private:
     // Connection sub-steps.  Each returns false and calls NotifyError on failure.
     int  ConnectSocket();
     bool PerformHandshake(int fd);
-    // Accepts an explicit session so it can be shared with the SCP transfer path.
     // Returns false and sets outError on failure; does NOT call NotifyError.
-    bool VerifyHostKey(_LIBSSH2_SESSION* session, std::string& outError);
+    bool VerifyHostKey(std::string& outError);
     bool OpenChannel();
     bool RequestPty();
     bool SetupX11Forwarding();

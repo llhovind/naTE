@@ -144,7 +144,7 @@ respecting that the human makes the final call.
 | `session/` | Session lifecycle, orchestration | wx types, JSON files |
 | `document/` | Terminal buffer: lines, cells, scroll | wx headers, Parser internals |
 | `layout/` | Viewport presentation model: wrap math, selection, search/URL highlighting, dirty tracking (`DocLayout`, `SearchMatch`, `UrlScanner`, `WordSelector`) | wx headers, Session, Transport |
-| `fs/` | Remote filesystem domain: directory model, navigation, transfer queue, recursive delete planning (`DirModel`, `ExplorerController`, `TransferQueue`, `RemoteDeleter`, `RemotePath`, `FileMode`) | wx headers, Session, libssh2 |
+| `fs/` | Remote filesystem domain: directory model, navigation, transfer queue, recursive delete planning, copy policies (`DirModel`, `ExplorerController`, `TransferQueue`, `RemoteDeleter`, `RemotePath`, `FileMode`, `SymlinkPolicy`) | wx headers, Session, libssh2 |
 | `parser/` | ANSI/VT sequence parsing | wx headers, direct Document mutation |
 | `config/` | AppConfig, color schemes, enums | wx types |
 | `db/` | JSON persistence: connections, workspaces | Session, Transport, wx |

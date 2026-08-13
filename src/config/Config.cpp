@@ -116,6 +116,9 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
             // written, so it disappears on the next save.
             else if (key == "ExternalEditorCommand" ||
                      key == "RemoteEditorCommand")   cfg.externalEditorCommand = val;
+            else if (key == "SymlinkPolicy") {
+                cfg.symlinkPolicy = term::fs::SymlinkPolicyFromString(val);
+            }
             else if (key == "BellMode") {
                 if      (val == "None")    cfg.bellMode = BellMode::None;
                 else if (val == "Audible") cfg.bellMode = BellMode::Audible;
@@ -210,6 +213,7 @@ void AppConfig::save(const std::string& configPath) const
       << "WebSearchUrl="    << webSearchUrl                      << "\n"
       << "WordSelectRegex=" << wordSelectRegex                   << "\n"
       << "BellMode="        << bellModeStr                       << "\n"
+      << "SymlinkPolicy="   << term::fs::ToString(symlinkPolicy)  << "\n"
       << "CopyOnSelect="          << (copyOnSelect       ? "true" : "false") << "\n"
       << "ConfirmCloseWindow="    << (confirmCloseWindow ? "true" : "false") << "\n"
       << "FileExplorerWidth="     << fileExplorerWidth                        << "\n"

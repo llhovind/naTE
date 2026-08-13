@@ -48,27 +48,6 @@ TEST_CASE("given an unknown session id when queried then the port is null") {
 // tests exist to prevent.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("given a session with no filesystem when a listing is requested then it reports not connected") {
-    SessionManager sm;
-    const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
-
-    std::optional<FsError> result;
-    std::vector<FileInfo>  entries{FileInfo{}};  // seeded to prove it is cleared
-
-    sm.ListRemoteDirectory(id, "/etc",
-        [&](std::vector<FileInfo> es, FsError err) {
-            entries = std::move(es);
-            result  = std::move(err);
-        });
-
-    REQUIRE(result.has_value());
-    REQUIRE(result->code == FsErrorCode::NotConnected);
-    REQUIRE_FALSE(result->message.empty());
-    REQUIRE(entries.empty());
-
-    sm.CloseSession(id);
-}
-
 TEST_CASE("given a session with no filesystem when a transfer is requested then it reports not connected") {
     SessionManager sm;
     const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
@@ -87,22 +66,7 @@ TEST_CASE("given a session with no filesystem when a transfer is requested then 
                       [&](FsError err) { result = std::move(err); });
         REQUIRE(result.has_value());
         REQUIRE(result->code == FsErrorCode::NotConnected);
-    }
-
-    SECTION("send into a directory") {
-        std::optional<FsError> result;
-        sm.SendFile(id, "/tmp/hosts", "/etc",
-                    [&](FsError err) { result = std::move(err); });
-        REQUIRE(result.has_value());
-        REQUIRE(result->code == FsErrorCode::NotConnected);
-    }
-
-    SECTION("receive into a directory") {
-        std::optional<FsError> result;
-        sm.ReceiveFile(id, "/etc/hosts", "/tmp",
-                       [&](FsError err) { result = std::move(err); });
-        REQUIRE(result.has_value());
-        REQUIRE(result->code == FsErrorCode::NotConnected);
+        REQUIRE_FALSE(result->message.empty());
     }
 
     sm.CloseSession(id);

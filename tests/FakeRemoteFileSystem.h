@@ -65,6 +65,21 @@ public:
     std::vector<std::string> listCalls;
     std::vector<TransferHandle> cancelCalls;
 
+    struct ChmodCall {
+        std::string path;
+        uint32_t    mode = 0;
+    };
+    std::vector<ChmodCall> chmodCalls;
+
+    // Recorded as (target, linkPath) — the order the port declares.
+    struct SymlinkCall {
+        std::string target;
+        std::string linkPath;
+    };
+    std::vector<SymlinkCall> symlinkCalls;
+    // Stands in for a server whose SFTP implementation has no SSH_FXP_SYMLINK.
+    bool symlinkUnsupported = false;
+
     struct PendingTransfer {
         TransferHandle handle = 0;
         bool           isUpload = false;
@@ -207,9 +222,26 @@ public:
         onDone(FsError::Success());
     }
 
-    void SetPermissions(const std::string&, uint32_t,
+    void CreateSymlink(const std::string& target, const std::string& linkPath,
+                       term::transport::DoneCallback onDone) override
+    {
+        if (symlinkUnsupported) {
+            onDone(FsError::Make(FsErrorCode::Unsupported,
+                                 "This server cannot create links"));
+            return;
+        }
+        symlinkCalls.push_back({target, linkPath});
+        FileInfo info;
+        info.name      = linkPath;
+        info.isSymlink = true;
+        existing[linkPath] = info;
+        onDone(FsError::Success());
+    }
+
+    void SetPermissions(const std::string& path, uint32_t mode,
                         term::transport::DoneCallback onDone) override
     {
+        chmodCalls.push_back({path, mode});
         onDone(FsError::Success());
     }
 

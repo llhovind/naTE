@@ -212,7 +212,8 @@
 
     <ul>
       <li><strong>Cancel</strong> stops the selected transfer; <strong>Cancel All</strong> stops everything queued; <strong>Clear Finished</strong> tidies away what has completed.</li>
-      <li><strong>Directories</strong> transfer recursively. Symlinks are never followed.</li>
+      <li><strong>Directories</strong> transfer recursively.</li>
+      <li><strong>Symbolic links</strong> are handled the way you choose, from the dropdown beside the mode button. <em>Keep links</em> reproduces each link on the far side pointing where it already points; <em>Skip links</em> leaves them out of the copy, listing them in the queue as skipped so nothing goes missing quietly. A recursive copy never descends <em>through</em> a link either way, so a link pointing at a parent directory cannot turn a copy into an endless one. A kept link whose target does not exist on the destination will be a dangling link — that is what was asked for, and naTE will not second-guess it. The starting choice for new windows is <strong>Edit → Preferences → Behavior → Symbolic links in copies</strong>.</li>
       <li><strong>Drag and drop</strong> — files dragged from your desktop file manager onto a pane are queued for upload to that pane's current directory.</li>
       <li>Transfers <strong>keep running</strong> when you switch back to Explore mode; progress stays visible in the status bar.</li>
     </ul>

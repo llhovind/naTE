@@ -174,7 +174,7 @@ void SshTransport::WorkerThread()
     }
     if (!PerformHandshake(sock_fd_))    return;
     { std::string khErr;
-      if (!VerifyHostKey(session_, khErr)) {
+      if (!VerifyHostKey(khErr)) {
           NotifyError(TransportError::Category::HostKey, khErr);
           return;
       }
@@ -409,8 +409,9 @@ bool SshTransport::PerformHandshake(int fd)
 // VerifyHostKey — silent TOFU
 // ---------------------------------------------------------------------------
 
-bool SshTransport::VerifyHostKey(_LIBSSH2_SESSION* session, std::string& outError)
+bool SshTransport::VerifyHostKey(std::string& outError)
 {
+    _LIBSSH2_SESSION* session = session_;
     size_t keyLen  = 0;
     int    keyType = 0;
     const char* key = libssh2_session_hostkey(session, &keyLen, &keyType);

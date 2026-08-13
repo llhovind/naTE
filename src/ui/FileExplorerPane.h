@@ -3,6 +3,7 @@
 #include "config/Config.h"
 #include "fs/ExplorerController.h"
 #include "fs/RemoteDeleter.h"
+#include "fs/TransferQueue.h"
 #include "session/SessionManager.h"
 #include "transport/IRemoteFileSystem.h"
 
@@ -48,13 +49,9 @@ class FileExplorerPane : public wxPanel, private term::fs::IExplorerListener {
 public:
     // One row the user has selected, carrying everything an operation needs
     // without the caller reaching back into the model.
-    struct Item {
-        std::string path;
-        std::string name;
-        bool        isDir     = false;
-        bool        isSymlink = false;
-        uint64_t    size      = 0;
-    };
+    // What a selection means to a transfer is domain policy, so the record it
+    // travels in belongs to fs/ rather than to this widget.
+    using Item = term::fs::TransferItem;
 
     // The provider is queried each time the endpoint list is refreshed rather
     // than captured once: sessions open and close while this window is up, and

@@ -643,12 +643,11 @@ void FileExplorerPane::ShowPropertiesFor(size_t row)
                              *endpoint_.fs);
     if (dlg.ShowModal() != wxID_OK || !dlg.PermissionsChanged()) return;
 
-    // The dialog pumped events, so the session may have ended while it was open
-    // and endpoint_.fs be gone.
+    // The dialog pumped events, so the session may have ended while it was open.
     if (!RequireLive()) return;
 
     auto ctx = guard_.For(this);
-    endpoint_.fs->SetPermissions(path, dlg.SelectedMode(),
+    controller_->SetEntryPermissions(name, dlg.SelectedMode(),
         [ctx, name](term::transport::FsError err) {
             ctx.Post([name, err = std::move(err)](FileExplorerPane& p) mutable {
                 p.AfterWrite("Change permissions", err, name);
@@ -660,29 +659,19 @@ void FileExplorerPane::NewFolder()
 {
     if (!RequireLive()) return;
 
-    // The directory the user is looking at *now*. ShowModal below pumps events,
-    // so a navigation still in flight can land while the dialog is open; taking
-    // the path afterwards would create the folder somewhere the user was not
-    // looking when they named it.
-    const std::string dir = controller_->CurrentPath();
-
     wxTextEntryDialog dlg(this, "Name for the new folder:", "New Folder");
     if (dlg.ShowModal() != wxID_OK) return;
 
-    const std::string name = dlg.GetValue().Trim().Trim(false).ToStdString();
-    if (name.empty()) return;
-    if (name.find('/') != std::string::npos) {
-        wxMessageBox("A folder name cannot contain '/'.",
-                     "New Folder", wxOK | wxICON_WARNING, this);
-        return;
-    }
-
-    // The session can also have ended while the dialog was open.
+    // The dialog pumped events, so the session may have ended while it was open.
     if (!RequireLive()) return;
 
-    const std::string path = term::fs::path::Join(dir, name);
+    // The name only. Where it lands is the controller's business, which is what
+    // stops a navigation completing during the dialog from putting the folder
+    // somewhere the user was not looking.
+    const std::string name = dlg.GetValue().Trim().Trim(false).ToStdString();
+
     auto ctx = guard_.For(this);
-    endpoint_.fs->MakeDirectory(path, term::fs::kDefaultDirectoryMode,
+    controller_->CreateDirectory(name,
         [ctx, name](term::transport::FsError err) {
             ctx.Post([name, err = std::move(err)](FileExplorerPane& p) mutable {
                 p.AfterWrite("Create folder", err, name);
@@ -695,54 +684,25 @@ void FileExplorerPane::RenameRow(size_t row)
     if (!RequireLive()) return;
     if (row >= controller_->Model().VisibleCount()) return;
 
-    // Both paths are anchored to the directory as it is now. ShowModal below
-    // pumps events, so a navigation still in flight can land while the dialog
-    // is open — and reading the destination directory afterwards would turn a
-    // rename into a move out of the file's own directory.
-    const std::string dir     = controller_->CurrentPath();
     const std::string oldName = controller_->Model().At(row).name;
-    const std::string oldPath = term::fs::path::Join(dir, oldName);
 
     wxTextEntryDialog dlg(this, "New name:", "Rename", DecodeForDisplay(oldName));
     if (dlg.ShowModal() != wxID_OK) return;
 
-    const std::string newName = dlg.GetValue().Trim().Trim(false).ToStdString();
-    if (newName.empty() || newName == oldName) return;
-    if (newName.find('/') != std::string::npos) {
-        wxMessageBox("A name cannot contain '/'.",
-                     "Rename", wxOK | wxICON_WARNING, this);
-        return;
-    }
-
-    // The session can also have ended while the dialog was open.
+    // The dialog pumped events, so the session may have ended while it was open.
     if (!RequireLive()) return;
 
-    const std::string newPath = term::fs::path::Join(dir, newName);
+    const std::string newName = dlg.GetValue().Trim().Trim(false).ToStdString();
+    if (newName == oldName) return;   // nothing asked for, nothing to report
 
-    // Check the destination first rather than trusting the filesystem to
-    // refuse. POSIX rename() replaces silently, and the SFTP servers that do
-    // refuse are being polite rather than obeying the protocol.
+    // Names, not paths: the controller anchors both ends to the directory it is
+    // showing, so this cannot become a move, and it is the controller that
+    // checks the destination before letting a rename overwrite anything.
     auto ctx = guard_.For(this);
-    endpoint_.fs->Stat(newPath,
-        [ctx, oldPath, newPath, newName](term::transport::FileInfo,
-                                         term::transport::FsError statErr) {
-            ctx.Post([oldPath, newPath, newName,
-                      statErr = std::move(statErr)](FileExplorerPane& p) mutable {
-                if (statErr.code != term::transport::FsErrorCode::NoSuchFile) {
-                    wxMessageBox(
-                        wxString::Format("'%s' already exists in this directory.",
-                                         DecodeForDisplay(newName)),
-                        "Rename", wxOK | wxICON_WARNING, &p);
-                    return;
-                }
-                auto inner = p.guard_.For(&p);
-                p.endpoint_.fs->Rename(oldPath, newPath,
-                    [inner, newName](term::transport::FsError err) {
-                        inner.Post([newName, err = std::move(err)](
-                                       FileExplorerPane& q) mutable {
-                            q.AfterWrite("Rename", err, newName);
-                        });
-                    });
+    controller_->RenameEntry(oldName, newName,
+        [ctx, newName](term::transport::FsError err) {
+            ctx.Post([newName, err = std::move(err)](FileExplorerPane& p) mutable {
+                p.AfterWrite("Rename", err, newName);
             });
         });
 }

@@ -123,7 +123,10 @@ side with a transfer queue below.
   over the pane they copy out of so the target is never ambiguous
 - The queue shows per-file progress and route; cancel one transfer, cancel all, or clear
   what has finished
-- Directories transfer recursively and symlinks are never followed. When a destination
+- Directories transfer recursively. Symbolic links are **kept** (reproduced on the far
+  side pointing where they already point) or **skipped**, chosen per window and defaulted
+  in Preferences — a recursive copy never descends *through* a link either way, so a link
+  to a parent directory cannot make a copy endless. When a destination
   file already exists you are asked whether to **overwrite**, **keep both**, or **skip**,
   and can apply that answer to the rest of the transfer. Skip is the default button, and a
   queue with no one to ask skips too — nothing is overwritten by an unread dialog or an

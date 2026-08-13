@@ -209,13 +209,27 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent,
     m_confirmCloseChk->SetValue(current.confirmCloseWindow);
     behSizer->Add(m_confirmCloseChk, {5, 0}, {1, 2}, wxALIGN_CENTER_VERTICAL);
 
-    behSizer->Add(new wxStaticText(behPage, wxID_ANY, "External editor:"),
+    behSizer->Add(new wxStaticText(behPage, wxID_ANY, "Symbolic links in copies:"),
                   {6, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+    m_symlinkPolicyChoice = new wxChoice(behPage, wxID_ANY);
+    m_symlinkPolicyChoice->Append("Keep links");
+    m_symlinkPolicyChoice->Append("Skip links");
+    m_symlinkPolicyChoice->SetSelection(
+        current.symlinkPolicy == term::fs::SymlinkPolicy::Skip ? 1 : 0);
+    // What a new file explorer window starts with; each window can change its
+    // own afterwards, so this does not reach into windows already open.
+    m_symlinkPolicyChoice->SetToolTip(
+        "What a copy does with a symbolic link. Applies to file explorer "
+        "windows opened from now on.");
+    behSizer->Add(m_symlinkPolicyChoice, {6, 1}, {1, 1}, wxALIGN_CENTER_VERTICAL);
+
+    behSizer->Add(new wxStaticText(behPage, wxID_ANY, "External editor:"),
+                  {7, 0}, {1, 1}, wxALIGN_CENTER_VERTICAL);
     m_externalEditorCtrl = new wxTextCtrl(behPage, wxID_ANY,
                                           wxString::FromUTF8(current.externalEditorCommand),
                                           wxDefaultPosition, {320, -1});
     m_externalEditorCtrl->SetHint("e.g. code --wait   (empty = $EDITOR)");
-    behSizer->Add(m_externalEditorCtrl, {6, 1}, {1, 1}, wxEXPAND);
+    behSizer->Add(m_externalEditorCtrl, {7, 1}, {1, 1}, wxEXPAND);
 
     behSizer->AddGrowableCol(1);
     auto* behOuter = new wxBoxSizer(wxVERTICAL);
@@ -403,6 +417,9 @@ void PreferencesDialog::OnOk(wxCommandEvent& evt)
     result_.wordSelectRegex    = wordRegex;
     result_.copyOnSelect          = m_copyOnSelectChk->IsChecked();
     result_.confirmCloseWindow    = m_confirmCloseChk->IsChecked();
+    result_.symlinkPolicy         = m_symlinkPolicyChoice->GetSelection() == 1
+                                        ? term::fs::SymlinkPolicy::Skip
+                                        : term::fs::SymlinkPolicy::Preserve;
     result_.externalEditorCommand = m_externalEditorCtrl->GetValue().ToStdString();
 
     evt.Skip();

@@ -1,5 +1,6 @@
 #pragma once
 #include "config/Color.h"     // Rgb, UiColors
+#include "fs/SymlinkPolicy.h"
 #include "transport/EnvVar.h"
 #include <array>
 #include <string>
@@ -77,6 +78,9 @@ struct AppConfig {
     BellMode    bellMode           = BellMode::Visual;
     bool        copyOnSelect           = true;   // copy to X11 primary selection on mouseup
     bool        confirmCloseWindow     = true;   // false = suppress all close-confirmation dialogs
+    // Starting policy for a file explorer window; each window can change its
+    // own without disturbing this.
+    term::fs::SymlinkPolicy symlinkPolicy = term::fs::SymlinkPolicy::Preserve;
 
     // File explorer window geometry, remembered application-wide rather than
     // per session: the window is about a task, and a user who sizes it once

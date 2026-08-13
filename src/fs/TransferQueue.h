@@ -1,5 +1,6 @@
 #pragma once
 #include "fs/Dispatcher.h"
+#include "fs/SymlinkPolicy.h"
 #include "transport/IRemoteFileSystem.h"
 
 #include <cstdint>
@@ -30,6 +31,32 @@ struct TransferEndpoint {
 // Job model
 // ---------------------------------------------------------------------------
 
+// One thing the user picked to copy.
+//
+// Carries the full path, which transport::FileInfo deliberately does not, plus
+// the three attributes routing turns on — so deciding what a selection means
+// costs no extra round trip.
+struct TransferItem {
+    std::string path;
+    std::string name;
+    // Link-not-target, matching what both adapters' listings report: a symlink
+    // to a directory has isSymlink true and isDir false. These describe what
+    // the path *is*; what to do about it is SymlinkPolicy's business, and
+    // keeping that separation is why the two used to disagree.
+    bool        isDir     = false;
+    bool        isSymlink = false;
+    uint64_t    size      = 0;
+};
+
+// Describes a path on the machine naTE runs on, for callers that have a path
+// but no listing to read it from — a desktop drag-and-drop, most obviously.
+//
+// Uses symlink_status(), not status(), so a link is reported as a link exactly
+// as a directory listing would report it. std::filesystem::is_directory follows
+// links and is the wrong question here; asking it was how the drop path and the
+// pane came to describe the same file differently.
+TransferItem ItemForLocalPath(const std::string& path);
+
 enum class JobState {
     Queued,              // waiting its turn
     Checking,            // testing whether the destination already exists
@@ -50,8 +77,16 @@ enum class ConflictResolution { Overwrite, Skip, Rename };
 using JobId = uint64_t;
 inline constexpr JobId kInvalidJobId = 0;
 
+// What a job moves. Both kinds queue, collide and cancel identically; they
+// differ only in what happens once the destination is clear.
+enum class JobKind {
+    Copy,   // bytes
+    Link,   // a symlink reproduced at the destination
+};
+
 struct TransferJob {
-    JobId id = kInvalidJobId;
+    JobId   id   = kInvalidJobId;
+    JobKind kind = JobKind::Copy;
 
     // Captured at enqueue time, not read from the queue: changing what a pane
     // points at must never redirect work already queued.
@@ -68,6 +103,13 @@ struct TransferJob {
 
     JobState           state = JobState::Queued;
     transport::FsError error;
+
+    // True when the conflict check found something at destPath and the policy
+    // said to overwrite it. Only a link job acts on this: a file upload
+    // truncates on open, but creating a symlink over an existing path fails,
+    // so the old one has to go first — and only then, because an unconditional
+    // removal would cost a round trip on every link in a tree.
+    bool destExisted = false;
 
     // Set when neither endpoint is the local disk. SFTP cannot move bytes
     // server to server, so the file is pulled down and pushed back up, and
@@ -144,6 +186,12 @@ public:
     ConflictPolicy Policy() const noexcept { return policy_; }
     void SetConflictPrompt(ConflictPrompt prompt) { prompt_ = std::move(prompt); }
 
+    // How copies treat symbolic links. Applies to work queued from here on;
+    // jobs already queued carry the decision that was in force when they were
+    // created, so changing this never rewrites what the user already asked for.
+    void SetSymlinkPolicy(SymlinkPolicy policy) { symlinks_ = policy; }
+    SymlinkPolicy Symlinks() const noexcept { return symlinks_; }
+
     // --- Enqueueing ----------------------------------------------------------
     // sizeHint drives the aggregate progress denominator before a transfer
     // starts; pass the size from the directory listing when it is known.
@@ -152,13 +200,32 @@ public:
                   TransferEndpoint destination, const std::string& destPath,
                   uint64_t sizeHint = 0);
 
+    // Queues one picked item into destinationDir, deciding for itself whether
+    // that means a single transfer or a recursive walk. This is the entry point
+    // a view should use: what a selection *means* is a policy, and one that
+    // gets copying symlinks wrong produces dangling links on the far side.
+    //
+    // A symlink is copied as whatever it points at rather than reproduced as a
+    // link — the target may not exist on the other side, and a dangling link is
+    // a worse outcome than a real file. That is why a symlink to a directory
+    // takes the single-file path rather than being walked.
+    //
+    // onExpanded fires once either way: immediately for a file, after the walk
+    // for a directory. The transfers it queued may still be running.
+    void EnqueueItem(TransferEndpoint source, const TransferItem& item,
+                     TransferEndpoint destination,
+                     const std::string& destinationDir,
+                     std::function<void(transport::FsError)> onExpanded = {});
+
     // Recursively expands a directory into leaf file jobs, creating the
     // destination directories as it goes. onExpanded reports when the walk
     // finished; the transfers it queued may still be running.
     //
-    // Symlinks are never followed. That removes the possibility of a cycle by
-    // construction, and matches what rsync does by default — a link to /
-    // should not silently turn into a copy of the whole filesystem.
+    // Links encountered on the way are handed to the standing SymlinkPolicy,
+    // exactly as one the user picked directly would be. What no policy changes
+    // is that the walk never descends *through* a link: that is what removes
+    // the possibility of a cycle by construction, and it is why a link to "/"
+    // cannot silently turn into a copy of the whole filesystem.
     void EnqueueTree(TransferEndpoint source, const std::string& sourceDir,
                      TransferEndpoint destination, const std::string& destDir,
                      std::function<void(transport::FsError)> onExpanded);
@@ -193,6 +260,12 @@ private:
     void Pump();
 
     void BeginJob(JobId id);
+    // Queues a symlink according to the standing policy: reproduced, or
+    // recorded as skipped so a copy never quietly omits one.
+    void EnqueueSymlink(TransferEndpoint source, const TransferItem& item,
+                        TransferEndpoint destination, const std::string& destPath);
+    // Reads the link's target, then writes the same link at the destination.
+    void StartLink(JobId id);
     void OnConflictKnown(JobId id, bool exists);
     void ApplyResolution(JobId id, ConflictResolution resolution);
     void ResolveFreeName(JobId id, int attempt);
@@ -221,6 +294,7 @@ private:
     JobId                    nextId_   = 1;
     JobId                    activeId_ = kInvalidJobId;
     ConflictPolicy           policy_   = ConflictPolicy::Ask;
+    SymlinkPolicy            symlinks_ = SymlinkPolicy::Preserve;
 
     // The in-flight transfer, and which endpoint issued it. Both are needed:
     // a handle is only meaningful to the filesystem that returned it, and for
