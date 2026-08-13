@@ -46,6 +46,16 @@ constexpr int kControlsMargin  = 6;
 constexpr int kModeButtonGap   = 16;
 constexpr int kCopyButtonGap   = 8;
 constexpr int kMinCopyPairGap  = 8;
+// Clearance between the copy pair and the symlink control pinned right of it,
+// and between that control's label and its dropdown. The second is the smaller
+// of the two on purpose: a label belongs to the control it names, and has to
+// read as closer to it than to whatever sits on its other side.
+constexpr int kSymlinkChoiceGap = 16;
+constexpr int kSymlinkLabelGap  = 6;
+
+// Names what the dropdown decides. The items complete the sentence it starts,
+// so the two are written together or not at all.
+constexpr char kSymlinkLabel[] = "Symbolic links:";
 
 // "naFX" — *not another File eXplorer*, in the spirit of naTE itself. The
 // explorer gets its own name rather than the application's because a taskbar
@@ -261,27 +271,50 @@ void FileExplorerFrame::BuildLayout(OpenInEditorFn onOpenInEditor)
     toRightBtn_ = new wxButton(this, wxID_ANY, kCopyLabel);
     toLeftBtn_  = new wxButton(this, wxID_ANY, kCopyLabel);
 
-    // Named for what happens to the link, not for a mechanism: "Keep links"
-    // says what the user gets. Follow is deliberately absent — it is reserved
-    // in the enum but nothing implements it, and offering a choice that does
-    // something else would be worse than not offering it.
+    // The label names what is being decided, the items say what happens: read
+    // together they make one sentence, "Symbolic links: Keep". Without the
+    // label a bare "Keep" beside two copy buttons could plausibly be about
+    // anything on the row, and a dropdown nobody can identify is one nobody
+    // touches — least of all before a copy they cannot undo.
+    //
+    // Named for what happens to the link, not for a mechanism. Follow is
+    // deliberately absent — it is reserved in the enum but nothing implements
+    // it, and offering a choice that does something else would be worse than
+    // not offering it.
+    //
+    // Both are shown only in Transfer mode: they govern what a copy does with a
+    // link, and a control that cannot affect anything the user can currently do
+    // is noise in a row they read to find the copy buttons.
+    symlinkLabel_  = new wxStaticText(this, wxID_ANY, kSymlinkLabel);
     symlinkChoice_ = new wxChoice(this, wxID_ANY);
-    symlinkChoice_->Append("Keep links");
-    symlinkChoice_->Append("Skip links");
+    symlinkChoice_->Append("Keep");
+    symlinkChoice_->Append("Skip");
     symlinkChoice_->SetSelection(
         cfg_.symlinkPolicy == term::fs::SymlinkPolicy::Skip ? 1 : 0);
-    symlinkChoice_->SetToolTip(
-        "Keep links: copy a symbolic link as a link, pointing where it "
-        "already points.\nSkip links: leave them out of the copy.");
 
-    controls_->Add(modeBtn_, 0, wxRIGHT, kControlsMargin);
-    controls_->Add(symlinkChoice_, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
-                   kModeButtonGap);
+    // On the label too: it is the part a user points at when they are trying to
+    // work out what the control is for.
+    const wxString symlinkHelp =
+        "What a copy does with a symbolic link.\n\n"
+        "Keep: copy it as a link, still pointing where it already points.\n"
+        "Skip: leave it out of the copy.";
+    symlinkLabel_->SetToolTip(symlinkHelp);
+    symlinkChoice_->SetToolTip(symlinkHelp);
+
+    controls_->Add(modeBtn_, 0, wxRIGHT, kModeButtonGap);
     // Not a stretch spacer: the pair is positioned against the sash, which is
     // wherever the user left it, rather than centred in what is left of the row.
     copyPairGap_ = controls_->AddSpacer(0);
     controls_->Add(toRightBtn_, 0, wxRIGHT, kCopyButtonGap);
     controls_->Add(toLeftBtn_,  0);
+    // The link rule sits at the far right, out of the copy pair's way. It is a
+    // property of the transfer, not of the row's left-hand controls, and the
+    // pair has to be free to travel the whole width chasing the sash.
+    controls_->AddStretchSpacer(1);
+    controls_->Add(symlinkLabel_, 0, wxLEFT | wxALIGN_CENTER_VERTICAL,
+                   kSymlinkChoiceGap);
+    controls_->Add(symlinkChoice_, 0, wxLEFT | wxALIGN_CENTER_VERTICAL,
+                   kSymlinkLabelGap);
     outer->Add(controls_, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, kControlsMargin);
 
     transfers_ = new TransferPanel(this, cfg_, *queue_);
@@ -332,8 +365,10 @@ void FileExplorerFrame::BuildLayout(OpenInEditorFn onOpenInEditor)
     // Born in Explore mode: the panes are already built that way, but the
     // transfer chrome has to be hidden or the window would open as Explore
     // panes wearing Transfer controls.
-    controls_->Show(toRightBtn_, false);
-    controls_->Show(toLeftBtn_,  false);
+    controls_->Show(toRightBtn_,    false);
+    controls_->Show(toLeftBtn_,     false);
+    controls_->Show(symlinkLabel_,  false);
+    controls_->Show(symlinkChoice_, false);
     outer->Show(transfers_, false);
 
     // Lay out now rather than at first paint: the owner may switch the window
@@ -392,8 +427,10 @@ void FileExplorerFrame::ApplyMode()
     // Tell the *sizer*, not just the window: a sizer item keeps its own show
     // flag, and hiding the window alone leaves its space reserved as an empty
     // strip.
-    controls_->Show(toRightBtn_, transfer);
-    controls_->Show(toLeftBtn_,  transfer);
+    controls_->Show(toRightBtn_,    transfer);
+    controls_->Show(toLeftBtn_,     transfer);
+    controls_->Show(symlinkLabel_,  transfer);
+    controls_->Show(symlinkChoice_, transfer);
     GetSizer()->Show(transfers_, transfer);
 
     modeBtn_->SetLabel(transfer ? "Explore Mode" : "Transfer Mode");
@@ -411,7 +448,10 @@ void FileExplorerFrame::ApplyMode()
     // Explore mode has to subtract to describe itself.
     if (transfer) transferHeightDelta_ = GetSize().y - frameHeight;
 
-    SetMinSize(wxSize(MinFrameWidthForPanes(panes),
+    // The mode's real floor, set now that the row has been laid out in the
+    // state it is keeping — the lowered one at the top of this function exists
+    // only so the reshape above could not be blocked by its own starting point.
+    SetMinSize(wxSize(std::max(MinFrameWidthForPanes(panes), ControlsRowMinWidth()),
                       kMinHeight + (transfer ? transferHeightDelta_ : 0)));
 
     applyingMode_ = false;
@@ -467,6 +507,23 @@ int FileExplorerFrame::MinFrameWidthForPanes(int panes) const
     // the user squeeze the window until wx started stealing width from one
     // pane to keep the other above its own minimum.
     return ui::MinFrameWidthForPanes(panes, Metrics(), kMinWidth);
+}
+
+int FileExplorerFrame::ControlsRowMinWidth() const
+{
+    // Room for the row beneath the panes. Transfer mode puts a mode button, two
+    // copy buttons naming their destination, and the symlink control with its
+    // label on one line; the panes' own minimum says nothing about that, so
+    // without this floor a narrow window would push the right-hand end of the
+    // row off its own edge.
+    //
+    // Measured rather than added up: the widths are the labels', and the labels
+    // change with the endpoints. Hidden items count for nothing, which is what
+    // makes the same call right in both modes — and why it may only be asked
+    // once the row is in the state it is going to be in.
+    if (!controls_) return 0;
+    return controls_->GetMinSize().x + 2 * kControlsMargin +
+           (GetSize().x - GetClientSize().x);
 }
 
 void FileExplorerFrame::RestoreListingHeight(int wanted)
@@ -535,11 +592,18 @@ void FileExplorerFrame::AlignCopyButtonsToSash(int sashPosition)
     // Effective minimums, not current sizes: the labels name their destination
     // and change width as the panes are repointed, and this runs before the
     // row has been laid out at the new widths.
-    // Leading covers everything before the gap: the mode button, the symlink
-    // choice, and the margins between them.
-    const int leading = modeBtn_->GetEffectiveMinSize().x + kControlsMargin +
-                        (symlinkChoice_ ? symlinkChoice_->GetEffectiveMinSize().x : 0) +
-                        kModeButtonGap;
+    const int leading = modeBtn_->GetEffectiveMinSize().x + kModeButtonGap;
+
+    // The symlink control is pinned to the right edge, so it is width the pair
+    // must stop short of — width it only occupies while it is on show, and its
+    // label counts because the label is part of the control.
+    const bool symlinkShown = symlinkChoice_ && controls_->IsShown(symlinkChoice_);
+    const int  trailing = symlinkShown
+                              ? kSymlinkChoiceGap +
+                                symlinkLabel_->GetEffectiveMinSize().x +
+                                kSymlinkLabelGap +
+                                symlinkChoice_->GetEffectiveMinSize().x
+                              : 0;
 
     const ControlsRowMetrics metrics{
         kControlsMargin,
@@ -548,7 +612,8 @@ void FileExplorerFrame::AlignCopyButtonsToSash(int sashPosition)
         toRightBtn_->GetEffectiveMinSize().x,
         toLeftBtn_->GetEffectiveMinSize().x,
         kCopyButtonGap,
-        kMinCopyPairGap};
+        kMinCopyPairGap,
+        trailing};
 
     const int gap = LeadingGapForSashAlignedPair(sashCentre, metrics);
     // A live sash drag emits these by the dozen and most land on the same
@@ -632,6 +697,13 @@ void FileExplorerFrame::ApplyConfig(const AppConfig& cfg)
         symlinkChoice_->SetBackgroundColour(toWx(cfg_.ansiColors[0]));
         symlinkChoice_->SetForegroundColour(toWx(cfg_.ansiColors[7]));
     }
+    // The label sits on the frame background rather than on a control, so its
+    // contrast is measured against that — a foreground borrowed from a slot
+    // defined for a different surface lands invisible on some palettes.
+    if (symlinkLabel_)
+        symlinkLabel_->SetForegroundColour(
+            pickContrasting(toWx(cfg_.uiColors.frameBackground),
+                            toWx(cfg_.ansiColors[0]), toWx(cfg_.ansiColors[7])));
     // The window's own symlink choice is deliberately not reset here: the
     // preference sets what a *new* window starts with, and overwriting a
     // choice the user made in this window would be the setting reaching

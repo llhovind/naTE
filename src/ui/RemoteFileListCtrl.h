@@ -4,6 +4,9 @@
 
 #include <functional>
 
+// wxItemAttr arrives with this, and only with this: wx/itemattr.h declares the
+// class without including what its members are made of, so including it first
+// does not compile.
 #include <wx/listctrl.h>
 
 namespace ui {
@@ -34,11 +37,24 @@ public:
     // this and insert their own.
     void InsertStandardColumns();
 
+    // Colour for a link that leads nowhere. Until this is set — and it is the
+    // owner's to set, because the readable red depends on the palette the
+    // listing is drawn in — dangling links are drawn like any other row.
+    void SetBrokenLinkColour(const wxColour& colour);
+
 protected:
     wxString OnGetItemText(long item, long column) const override;
+    // A dangling link is the one row whose state a user cannot see any other
+    // way: the name, size and mode all still read as an ordinary link.
+    wxItemAttr* OnGetItemAttr(long item) const override;
 
 private:
     ModelProvider provider_;
+    // Held rather than built per row: wx keeps the pointer after OnGetItemAttr
+    // returns. Mutable because that query is const and wx wants to be handed a
+    // pointer it could write through, not because anything here writes to it.
+    mutable wxItemAttr brokenAttr_;
+    bool               hasBrokenColour_ = false;
 };
 
 } // namespace ui

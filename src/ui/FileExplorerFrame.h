@@ -18,6 +18,7 @@
 #include <wx/frame.h>
 #include <wx/sizer.h>
 #include <wx/splitter.h>
+#include <wx/stattext.h>
 #include <wx/statusbr.h>
 
 namespace ui {
@@ -110,6 +111,9 @@ private:
     int  PaneWidth() const;                     // width of the leading pane
     int  FrameWidthForPanes(int panes) const;
     int  MinFrameWidthForPanes(int panes) const;
+    // Narrowest the frame may be and still show every control on the row. Only
+    // meaningful once the row is laid out in its final state for the mode.
+    int  ControlsRowMinWidth() const;
     void RestoreListingHeight(int wanted);      // undo what the queue panel cost
     void SetFrameSize(int width, int height);
     void CentreSash();
@@ -157,6 +161,9 @@ private:
     // How copies treat symlinks. Lives on the frame rather than a pane because
     // it governs the queue, which the frame owns, exactly as the conflict
     // policy does — and because it applies to a transfer, not to browsing.
+    // The label is held because it shares the dropdown's visibility and its
+    // width counts towards the room the copy buttons have to move in.
+    wxStaticText*     symlinkLabel_  = nullptr;
     wxChoice*         symlinkChoice_ = nullptr;
     wxStatusBar*      status_      = nullptr;
 

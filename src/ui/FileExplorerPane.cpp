@@ -25,6 +25,10 @@ namespace {
 // wxLC_SINGLE_SEL is the opt-out. Named so the style argument is not a bare 0.
 constexpr long kMultiSelect = 0;
 
+// Palette slots for the two reds a broken link may be drawn in.
+constexpr size_t kAnsiRed       = 1;
+constexpr size_t kAnsiBrightRed = 9;
+
 // Receives files dragged in from the desktop.
 //
 // Only inbound drops are handled. Dragging *out* of a virtual wxListCtrl to
@@ -263,6 +267,12 @@ void FileExplorerPane::ApplyConfig(const AppConfig& cfg)
     if (list_) {
         list_->SetBackgroundColour(bg);
         list_->SetForegroundColour(fg);
+        // Red is the palette's own, so the warning reads as part of the theme
+        // rather than painted over it. Normal and bright are both offered
+        // because one of the two disappears into the listing background — on a
+        // dark scheme it is the dim one, on a light scheme the bright one.
+        list_->SetBrokenLinkColour(pickContrasting(bg, toWx(cfg_.ansiColors[kAnsiRed]),
+                                                   toWx(cfg_.ansiColors[kAnsiBrightRed])));
     }
     for (wxTextCtrl* ctrl : {pathCtrl_, filterCtrl_}) {
         if (!ctrl) continue;
@@ -534,7 +544,9 @@ void FileExplorerPane::OnContextMenu(wxListEvent& evt)
     const auto row = static_cast<size_t>(evt.GetIndex());
     if (row >= controller_->Model().VisibleCount()) return;
 
-    const bool isDir = controller_->Model().At(row).isDir;
+    // Directory-like, so a link known to lead to a directory is treated as the
+    // directory the row already claims it is.
+    const bool isDir = controller_->Model().IsDirectoryLike(row);
     // The name, not the index: PopupMenu below runs a nested event loop, so a
     // listing that refreshes while the menu is open would leave the index
     // pointing at a different file than the one under the cursor.
@@ -617,7 +629,7 @@ void FileExplorerPane::EditRow(size_t row)
 {
     if (!controller_ || !onOpenInEditor_) return;
     if (row >= controller_->Model().VisibleCount()) return;
-    if (controller_->Model().At(row).isDir) return;
+    if (controller_->Model().IsDirectoryLike(row)) return;
     onOpenInEditor_(endpoint_.sessionId, controller_->PathOf(row));
 }
 

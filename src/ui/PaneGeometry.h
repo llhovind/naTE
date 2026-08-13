@@ -48,6 +48,9 @@ struct ControlsRowMetrics {
     int destButton     = 0;  // the button right of the seam
     int betweenButtons = 0;  // margin separating the two
     int minGap         = 0;  // closest the pair may come to the leading items
+    // Everything pinned to the right of the pair, plus the margin before it.
+    // Space the pair may not take, exactly as `leading` is at the other end.
+    int trailing       = 0;
 };
 
 // Width of the spacer between the leading items and the copy pair that lands
@@ -63,7 +66,7 @@ inline int LeadingGapForSashAlignedPair(int sashCentre, ControlsRowMetrics m)
                      - m.betweenButtons / 2;
 
     const int widest = m.contentRight - m.contentLeft - m.leading - m.sourceButton
-                     - m.betweenButtons - m.destButton;
+                     - m.betweenButtons - m.destButton - m.trailing;
 
     const int upper = std::max(0, widest);
     return std::clamp(wanted, std::min(m.minGap, upper), upper);

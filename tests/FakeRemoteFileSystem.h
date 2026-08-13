@@ -56,6 +56,9 @@ public:
     std::map<std::string, std::vector<FileInfo>> listings;
     // Directories whose listing should fail, and with what.
     std::map<std::string, FsError>               listErrors;
+    // Paths whose stat should fail with something other than "not there" — a
+    // parent the user cannot traverse, a session that just died.
+    std::map<std::string, FsError>               statErrors;
 
     // --- Recorded calls ------------------------------------------------------
     std::vector<std::string> mkdirCalls;
@@ -187,6 +190,10 @@ public:
     void Stat(const std::string& path, term::transport::StatCallback onDone) override
     {
         statCalls.push_back(path);
+        if (const auto it = statErrors.find(path); it != statErrors.end()) {
+            onDone({}, it->second);
+            return;
+        }
         if (const auto it = existing.find(path); it != existing.end()) {
             onDone(it->second, FsError::Success());
             return;

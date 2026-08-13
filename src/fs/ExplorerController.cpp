@@ -7,7 +7,8 @@ namespace term::fs {
 ExplorerController::ExplorerController(transport::IRemoteFileSystem& remote,
                                        Dispatcher dispatch)
     : remote_(remote)
-    , guard_(std::move(dispatch))
+    , guard_(dispatch)
+    , links_(remote, std::move(dispatch))
 {}
 
 // Callbacks still held by the transport check the guard before touching us,
@@ -68,6 +69,10 @@ void ExplorerController::Begin(const std::string& path, HistoryIntent intent)
 {
     const uint64_t generation = ++generation_;
     SetLoading(true);
+    // Dropped here rather than when the new listing lands: those lookups are
+    // queued on the same connection the listing has to travel over, and they
+    // describe a directory the user has already left.
+    links_.Cancel();
 
     if (!NeedsCanonicalisation(path)) {
         RequestList(path, generation, intent);
@@ -135,6 +140,37 @@ void ExplorerController::OnListed(uint64_t generation, std::string path,
     SetLoading(false);
     if (pathChanged && listener_) listener_->OnExplorerPathChanged(currentPath_);
     if (listener_) listener_->OnExplorerContentsChanged();
+
+    ResolveLinks();
+}
+
+void ExplorerController::ResolveLinks()
+{
+    std::vector<std::string> names = model_.UnresolvedLinkNames();
+    // A directory without links owes nothing — the overwhelmingly common case,
+    // and the one that must stay free.
+    if (names.empty()) {
+        links_.Cancel();
+        return;
+    }
+
+    auto ctx = guard_.For(this);
+    const std::string directory = currentPath_;
+    const uint64_t    generation = generation_;
+
+    links_.Resolve(directory, std::move(names),
+                   [ctx, generation](std::vector<LinkResolution> resolutions) {
+        ctx.Post([generation, resolutions = std::move(resolutions)](
+                     ExplorerController& c) mutable {
+            // The resolver drops a superseded batch itself; this second check
+            // covers the navigation that started *and finished* while the
+            // batch was in flight, which would otherwise apply one listing's
+            // answers to another listing's rows.
+            if (generation != c.generation_) return;
+            c.model_.ApplyLinkTargets(resolutions);
+            if (c.listener_) c.listener_->OnExplorerContentsChanged();
+        });
+    });
 }
 
 void ExplorerController::SetLoading(bool loading)

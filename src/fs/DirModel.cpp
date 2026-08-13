@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <string_view>
+#include <unordered_map>
 
 namespace term::fs {
 
@@ -73,12 +75,14 @@ void DirModel::SetEntries(std::vector<transport::FileInfo> entries,
 {
     entries_ = std::move(entries);
     error_   = std::move(err);
+    linkTargets_.assign(entries_.size(), LinkTarget::Unresolved);
     Rebuild();
 }
 
 void DirModel::Clear()
 {
     entries_.clear();
+    linkTargets_.clear();
     error_ = {};
     Rebuild();
 }
@@ -117,6 +121,61 @@ const transport::FileInfo& DirModel::At(size_t index) const
     return entries_[visible_[index]];
 }
 
+// ---------------------------------------------------------------------------
+// Symbolic links
+// ---------------------------------------------------------------------------
+
+bool DirModel::EntryIsDirectoryLike(size_t entryIndex) const
+{
+    return entries_[entryIndex].isDir ||
+           linkTargets_[entryIndex] == LinkTarget::Directory;
+}
+
+bool DirModel::IsDirectoryLike(size_t index) const
+{
+    return EntryIsDirectoryLike(visible_[index]);
+}
+
+LinkTarget DirModel::LinkTargetAt(size_t index) const
+{
+    return linkTargets_[visible_[index]];
+}
+
+std::vector<std::string> DirModel::UnresolvedLinkNames() const
+{
+    std::vector<std::string> names;
+    for (size_t i = 0; i < entries_.size(); ++i) {
+        if (!entries_[i].isSymlink) continue;
+        if (linkTargets_[i] != LinkTarget::Unresolved) continue;
+        names.push_back(entries_[i].name);
+    }
+    return names;
+}
+
+void DirModel::ApplyLinkTargets(const std::vector<LinkResolution>& resolutions)
+{
+    if (resolutions.empty()) return;
+
+    // Indexed rather than searched per name: a directory can hold tens of
+    // thousands of entries and hundreds of links, and the naive pair of loops
+    // would multiply the two. The views borrow from `resolutions`, which
+    // outlives this call.
+    std::unordered_map<std::string_view, LinkTarget> byName;
+    byName.reserve(resolutions.size());
+    for (const LinkResolution& r : resolutions) byName.emplace(r.name, r.target);
+
+    bool changed = false;
+    for (size_t i = 0; i < entries_.size(); ++i) {
+        const auto it = byName.find(entries_[i].name);
+        if (it == byName.end() || linkTargets_[i] == it->second) continue;
+        linkTargets_[i] = it->second;
+        changed = true;
+    }
+    // Only a change in what a link leads to can reorder the rows, and a batch
+    // that told us nothing new must not shuffle a listing the user is reading.
+    if (changed) Rebuild();
+}
+
 size_t DirModel::IndexOfName(const std::string& name) const
 {
     for (size_t i = 0; i < visible_.size(); ++i)
@@ -124,8 +183,10 @@ size_t DirModel::IndexOfName(const std::string& name) const
     return visible_.size();
 }
 
-bool DirModel::PassesFilter(const transport::FileInfo& e) const
+bool DirModel::PassesFilter(size_t entryIndex) const
 {
+    const transport::FileInfo& e = entries_[entryIndex];
+
     if (!showHidden_ && !e.name.empty() && e.name.front() == '.')
         return false;
 
@@ -135,8 +196,9 @@ bool DirModel::PassesFilter(const transport::FileInfo& e) const
     // Directories are exempt from the name filter. Filtering for "*.conf"
     // means "show me the config files here", not "hide the way to the rest of
     // the tree" — a filter that strands the user in a directory they cannot
-    // navigate out of would be actively hostile.
-    if (e.isDir)
+    // navigate out of would be actively hostile. A link to a directory is a
+    // way out of here too, so it is exempt on the same grounds.
+    if (EntryIsDirectoryLike(entryIndex))
         return true;
 
     if (IsGlobPattern(nameFilter_))
@@ -160,10 +222,10 @@ void DirModel::Rebuild()
 
     visible_.reserve(entries_.size());
     for (size_t i = 0; i < entries_.size(); ++i) {
-        if (!PassesFilter(entries_[i])) continue;
+        if (!PassesFilter(i)) continue;
         visible_.push_back(i);
-        if (entries_[i].isDir) ++visibleDirs_;
-        else                   visibleBytes_ += entries_[i].size;
+        if (EntryIsDirectoryLike(i)) ++visibleDirs_;
+        else                         visibleBytes_ += entries_[i].size;
     }
 
     const bool descending = sortOrder_ == SortOrder::Descending;
@@ -198,8 +260,13 @@ void DirModel::Rebuild()
 
             // Directories lead in both directions when enabled: reversing the
             // sort should reorder the files, not bury the way back up the tree.
-            if (directoriesFirst_ && a.isDir != b.isDir)
-                return a.isDir;
+            // A link to a directory leads with them — it is a doorway, and
+            // which of the two kinds of doorway it is does not change where a
+            // user looks for it.
+            const bool aDir = EntryIsDirectoryLike(lhs);
+            const bool bDir = EntryIsDirectoryLike(rhs);
+            if (directoriesFirst_ && aDir != bDir)
+                return aDir;
 
             int c = compareKey(a, b);
             // Every key except Name falls back to Name so that equal sizes or

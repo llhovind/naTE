@@ -199,8 +199,9 @@ void RemoteFileBrowserDialog::OnConfirm(wxCommandEvent&)
     if (item == wxNOT_FOUND) return;
     const auto row = static_cast<size_t>(item);
     if (row >= controller_->Model().VisibleCount()) return;
-    // Directories are navigated, not picked.
-    if (controller_->Model().At(row).isDir) return;
+    // Directories are navigated, not picked — including the ones reached
+    // through a link, which the listing already presents as directories.
+    if (controller_->Model().IsDirectoryLike(row)) return;
 
     selectedPath_ = controller_->PathOf(row);
     EndModal(wxID_OK);

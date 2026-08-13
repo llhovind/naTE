@@ -583,3 +583,121 @@ TEST_CASE("given a directory being shown when permissions are set then they appl
     REQUIRE(fs.chmodCalls[0].path == "/etc/hosts");
     REQUIRE(fs.chmodCalls[0].mode == 0640u);
 }
+
+// ---------------------------------------------------------------------------
+// Symbolic links in a listing
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given a listing with a link to a directory when it settles then the row moves up to the directories") {
+    // The rows appear as the listing described them and are re-ordered once the
+    // lookups answer — the listing is never held back for them.
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    fs.AddSymlink("/etc/zlink", "zlink", "/etc");
+    fs.existing["/etc/zlink"].isDir = true;
+    fs.listings["/etc/zlink"] = {};
+
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    REQUIRE(VisibleNames(c) ==
+            std::vector<std::string>{"nginx", "zlink", "hosts"});
+    REQUIRE(c.Model().IsDirectoryLike(c.Model().IndexOfName("zlink")));
+}
+
+TEST_CASE("given a dangling link in a listing when it settles then it is marked broken") {
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    fs.AddSymlink("/etc/dangling", "dangling", "/etc");
+    fs.existing.erase("/etc/dangling");
+
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    REQUIRE(c.Model().LinkTargetAt(c.Model().IndexOfName("dangling")) ==
+            LinkTarget::Broken);
+}
+
+TEST_CASE("given a listing without links when it arrives then no lookups are issued") {
+    // The common case has to stay free: nothing but the listing itself.
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    REQUIRE(fs.statCalls.empty());
+}
+
+TEST_CASE("given lookups in flight when the user navigates away then no more are issued") {
+    // Those lookups queue on the same connection the new listing has to travel
+    // over, and they describe a directory that has gone from the screen.
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    for (int i = 0; i < 40; ++i) {
+        const std::string name = "link" + std::to_string(i);
+        fs.AddSymlink("/etc/" + name, name, "/etc");
+    }
+
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    const size_t issued = fs.statCalls.size();
+    REQUIRE(issued == 40);
+
+    // A second directory with links of its own; the first listing's lookups
+    // must not add to the ones it needs.
+    fs.statCalls.clear();
+    c.NavigateTo("/etc/nginx");
+    exec.RunAll();
+
+    REQUIRE(fs.statCalls.empty());
+}
+
+TEST_CASE("given a resolved listing when it is refreshed then the links are looked up again") {
+    // What a link points at is exactly what a refresh exists to re-read.
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    fs.AddSymlink("/etc/zlink", "zlink", "/etc");
+    fs.existing["/etc/zlink"].isDir = true;
+
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+    c.NavigateTo("/etc");
+    exec.RunAll();
+    fs.statCalls.clear();
+
+    c.Refresh();
+    exec.RunAll();
+
+    REQUIRE(fs.statCalls == std::vector<std::string>{"/etc/zlink"});
+}
+
+TEST_CASE("given a listing with links when they settle then the view is told the contents changed") {
+    // The rows reorder, so a view that was not told would be showing a model it
+    // no longer matches.
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    fs.AddSymlink("/etc/zlink", "zlink", "/etc");
+    fs.existing["/etc/zlink"].isDir = true;
+
+    ManualExecutor exec;
+    RecordingListener listener;
+    ExplorerController c(fs, exec.AsDispatcher());
+    c.SetListener(&listener);
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    REQUIRE(listener.contentsChanges == 2);   // the listing, then the answers
+}

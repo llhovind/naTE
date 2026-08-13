@@ -21,6 +21,8 @@ add_executable(naTE_tests
     test_dir_model.cpp
     test_transfer_queue.cpp
     test_explorer_controller.cpp
+    test_link_resolver.cpp
+    test_sftp_task_queue.cpp
     test_remote_deleter.cpp
     test_local_filesystem.cpp
     ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
@@ -34,6 +36,7 @@ add_executable(naTE_tests
     ${CMAKE_SOURCE_DIR}/src/fs/TransferQueue.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/ExplorerController.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/RemoteDeleter.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/LinkResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/LocalFileSystem.cpp
 )
 target_link_libraries(naTE_tests PRIVATE Catch2::Catch2)
@@ -73,6 +76,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/fs/TransferQueue.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/ExplorerController.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/RemoteDeleter.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/LinkResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/LocalFileSystem.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/DocLayout.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/UrlScanner.cpp

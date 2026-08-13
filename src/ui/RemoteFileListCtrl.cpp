@@ -38,6 +38,28 @@ void RemoteFileListCtrl::InsertStandardColumns()
     InsertColumn(FileColOwner,       "Owner",       wxLIST_FORMAT_LEFT,  110);
 }
 
+void RemoteFileListCtrl::SetBrokenLinkColour(const wxColour& colour)
+{
+    brokenAttr_.SetTextColour(colour);
+    hasBrokenColour_ = colour.IsOk();
+}
+
+wxItemAttr* RemoteFileListCtrl::OnGetItemAttr(long item) const
+{
+    if (!hasBrokenColour_) return nullptr;
+
+    const term::fs::DirModel* model = provider_ ? provider_() : nullptr;
+    if (!model || item < 0) return nullptr;
+    const auto row = static_cast<size_t>(item);
+    if (row >= model->VisibleCount()) return nullptr;
+
+    // nullptr means "draw this row like every other", which is what everything
+    // that is not a link leading nowhere gets.
+    return model->LinkTargetAt(row) == term::fs::LinkTarget::Broken
+               ? &brokenAttr_
+               : nullptr;
+}
+
 wxString RemoteFileListCtrl::OnGetItemText(long item, long column) const
 {
     const term::fs::DirModel* model = provider_ ? provider_() : nullptr;
@@ -46,13 +68,17 @@ wxString RemoteFileListCtrl::OnGetItemText(long item, long column) const
     if (row >= model->VisibleCount()) return {};
 
     const term::transport::FileInfo& e = model->At(row);
+    // A link known to lead to a directory is presented as one: it is ordered
+    // with them and opens like them, so a row that looked like a file would be
+    // the odd one out.
+    const bool directoryLike = model->IsDirectoryLike(row);
     switch (column) {
         case FileColName:
             // Remote names are opaque bytes; a non-UTF-8 name must stay
             // visible rather than silently rendering as empty.
-            return DecodeForDisplay(e.isDir ? e.name + "/" : e.name);
+            return DecodeForDisplay(directoryLike ? e.name + "/" : e.name);
         case FileColSize:
-            return e.isDir ? wxString("-") : FormatByteSize(e.size);
+            return directoryLike ? wxString("-") : FormatByteSize(e.size);
         case FileColModified:
             return FormatTime(e.mtime);
         case FileColPermissions:

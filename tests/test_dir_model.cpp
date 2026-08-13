@@ -31,6 +31,16 @@ FileInfo dir(std::string name, int64_t mtime = 0)
     return d;
 }
 
+FileInfo link(std::string name, uint64_t size = 0)
+{
+    FileInfo l;
+    l.name      = std::move(name);
+    l.size      = size;
+    l.mode      = 0120777;
+    l.isSymlink = true;
+    return l;
+}
+
 // Collects the visible names in order, which is what every ordering assertion
 // below is really about.
 std::vector<std::string> names(const DirModel& m)
@@ -288,4 +298,118 @@ TEST_CASE("given a name hidden by the filter when looked up then the miss is rep
     m.SetNameFilter("*.conf");
 
     REQUIRE(m.IndexOfName("b.txt") == m.VisibleCount());
+}
+
+// ---------------------------------------------------------------------------
+// Symbolic links
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given a listing with links when nothing has been resolved then they are unresolved") {
+    // A listing describes links, never their targets — so the model must not
+    // pretend to know, and must be able to say which ones it needs answers for.
+    DirModel m;
+    m.SetEntries({dir("etc"), link("latest"), file("a.txt")});
+
+    REQUIRE(m.LinkTargetAt(m.IndexOfName("latest")) == LinkTarget::Unresolved);
+    REQUIRE(m.UnresolvedLinkNames() == std::vector<std::string>{"latest"});
+}
+
+TEST_CASE("given a link to a directory when resolved then it is ordered with the directories") {
+    DirModel m;
+    m.SetEntries({file("a.txt"), link("zlink"), dir("bin")});
+
+    // Before the answer it can only be shown as what the listing said it was.
+    REQUIRE(names(m) == std::vector<std::string>{"bin", "a.txt", "zlink"});
+
+    m.ApplyLinkTargets({{"zlink", LinkTarget::Directory}});
+
+    REQUIRE(names(m) == std::vector<std::string>{"bin", "zlink", "a.txt"});
+    REQUIRE(m.IsDirectoryLike(m.IndexOfName("zlink")));
+}
+
+TEST_CASE("given resolved links when counted then a link to a directory counts as one") {
+    // The status line describes the same two groups the rows are ordered into,
+    // or it contradicts what the user is looking at.
+    DirModel m;
+    m.SetEntries({dir("bin"), link("zlink"), link("broken"), file("a.txt", 100)});
+    m.ApplyLinkTargets({{"zlink", LinkTarget::Directory}, {"broken", LinkTarget::Broken}});
+
+    REQUIRE(m.VisibleDirectoryCount() == 2);
+    REQUIRE(m.VisibleFileCount() == 2);
+}
+
+TEST_CASE("given a link to a file or nowhere when resolved then it stays with the files") {
+    DirModel m;
+    m.SetEntries({dir("bin"), link("conf"), link("dangling")});
+    m.ApplyLinkTargets({{"conf", LinkTarget::File}, {"dangling", LinkTarget::Broken}});
+
+    REQUIRE(names(m) == std::vector<std::string>{"bin", "conf", "dangling"});
+    REQUIRE_FALSE(m.IsDirectoryLike(m.IndexOfName("conf")));
+    REQUIRE_FALSE(m.IsDirectoryLike(m.IndexOfName("dangling")));
+    REQUIRE(m.LinkTargetAt(m.IndexOfName("dangling")) == LinkTarget::Broken);
+}
+
+TEST_CASE("given a descending sort when links are resolved then directories still lead") {
+    DirModel m;
+    m.SetEntries({file("a.txt"), link("zlink"), dir("bin")});
+    m.ApplyLinkTargets({{"zlink", LinkTarget::Directory}});
+    m.SetSort(SortKey::Name, SortOrder::Descending);
+
+    REQUIRE(names(m) == std::vector<std::string>{"zlink", "bin", "a.txt"});
+}
+
+TEST_CASE("given a name filter when a link leads to a directory then it is exempt like one") {
+    // A filter narrows what you are looking at; it must not close the ways out
+    // of the directory, whichever kind of doorway they are.
+    DirModel m;
+    m.SetEntries({file("nginx.conf"), file("a.txt"), link("sites")});
+    m.SetNameFilter("*.conf");
+    REQUIRE(names(m) == std::vector<std::string>{"nginx.conf"});
+
+    m.ApplyLinkTargets({{"sites", LinkTarget::Directory}});
+    REQUIRE(names(m) == std::vector<std::string>{"sites", "nginx.conf"});
+}
+
+TEST_CASE("given resolutions for names that have gone when applied then they are ignored") {
+    // Answers can outlive the listing that asked for them.
+    DirModel m;
+    m.SetEntries({dir("bin"), link("here")});
+    m.ApplyLinkTargets({{"gone", LinkTarget::Directory}, {"here", LinkTarget::File}});
+
+    REQUIRE(m.VisibleCount() == 2);
+    REQUIRE(m.LinkTargetAt(m.IndexOfName("here")) == LinkTarget::File);
+}
+
+TEST_CASE("given resolved links when a new listing arrives then every link is unresolved again") {
+    // What a link points at is exactly the thing that may have changed, so a
+    // previous listing's answers cannot be carried over.
+    DirModel m;
+    m.SetEntries({link("latest")});
+    m.ApplyLinkTargets({{"latest", LinkTarget::Directory}});
+    REQUIRE(m.IsDirectoryLike(0));
+
+    m.SetEntries({link("latest")});
+    REQUIRE_FALSE(m.IsDirectoryLike(0));
+    REQUIRE(m.UnresolvedLinkNames() == std::vector<std::string>{"latest"});
+}
+
+TEST_CASE("given a hidden link when unresolved names are collected then it is still included") {
+    // Toggling hidden files must not cost a second round of lookups, so the
+    // filter has no say in what gets resolved.
+    DirModel m;
+    m.SetEntries({link(".cache"), file("a.txt")});
+    REQUIRE(m.VisibleCount() == 1);
+
+    REQUIRE(m.UnresolvedLinkNames() == std::vector<std::string>{".cache"});
+}
+
+TEST_CASE("given an unanswerable link when it stays unresolved then it is not asked about twice") {
+    // A lookup that failed for a reason other than absence leaves the link
+    // unresolved — and a refresh is the only thing that should retry it.
+    DirModel m;
+    m.SetEntries({link("guarded")});
+    m.ApplyLinkTargets({{"guarded", LinkTarget::Unresolved}});
+
+    REQUIRE(m.UnresolvedLinkNames() == std::vector<std::string>{"guarded"});
+    REQUIRE_FALSE(m.IsDirectoryLike(0));
 }

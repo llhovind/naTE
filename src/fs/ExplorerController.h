@@ -1,6 +1,7 @@
 #pragma once
 #include "fs/DirModel.h"
 #include "fs/Dispatcher.h"
+#include "fs/LinkResolver.h"
 #include "transport/IRemoteFileSystem.h"
 
 #include <cstdint>
@@ -128,6 +129,14 @@ private:
                   std::vector<transport::FileInfo> entries, transport::FsError err);
     void SetLoading(bool loading);
 
+    // Asks what the listing's links point at, and folds the answers back into
+    // the model when they arrive. Deliberately *after* the rows are published:
+    // the listing is the thing the user is waiting for, and holding it back
+    // for a per-link round trip would make every directory containing one feel
+    // slow. The rows are therefore correct from the start and better ordered a
+    // moment later, rather than late and complete.
+    void ResolveLinks();
+
     // Wraps a WriteCallback so the adapter's answer arrives back on the owning
     // thread, guarded. Every write funnels through it rather than repeating the
     // same four-line bounce.
@@ -135,6 +144,7 @@ private:
 
     transport::IRemoteFileSystem& remote_;
     DispatchGuard                 guard_;
+    LinkResolver                  links_;
     IExplorerListener*            listener_ = nullptr;
 
     DirModel    model_;

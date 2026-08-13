@@ -1,10 +1,11 @@
 #pragma once
 #include "transport/IRemoteFileSystem.h"
+#include "transport/SftpTaskQueue.h"
 
 #include <atomic>
 #include <chrono>
-#include <deque>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -20,8 +21,14 @@ namespace term::transport {
 // subsystem and the cooperative task queue.
 //
 // Operations are submitted from the UI thread (the enqueue methods touch only
-// the queue under queueMutex_) and advanced one non-blocking step per
+// the queue, which locks for itself) and advanced one non-blocking step per
 // worker-loop iteration via Service(). Everything else is worker-thread-only.
+//
+// Which operation gets that step is SftpTaskQueue's decision, and it is a
+// correctness decision rather than a fairness one: libssh2 keeps an operation's
+// state on the session, so two of the same kind in flight would swap answers.
+// Every task therefore declares the slot its current step drives — see
+// SftpTaskQueue.
 //
 // The session pointer is bound by reference: the transport creates the libssh2
 // session on the worker thread after this object is constructed, so the service
@@ -83,7 +90,9 @@ private:
     struct PathOpTask;
     struct StatTask;
 
-    using Task = std::function<bool()>;
+    // The slot vocabulary and the scheduling rule live in SftpTaskQueue; see
+    // there for why an SFTP session can only carry one operation per slot.
+    using Slot = SftpSlot;
 
     // Outcome of a single non-blocking attempt to bring up the SFTP subsystem.
     enum class InitResult { Ready, Pending, Failed };
@@ -110,8 +119,16 @@ private:
     // a typed FsError, prefixing message with context.
     FsError MakeError(const std::string& context) const;
 
-    // Enqueues an already-wrapped task. Thread-safe.
-    void Enqueue(Task task);
+    // Wraps a task state machine and queues it. Every operation goes through
+    // here, so the step and the slot query can never be paired up wrongly.
+    // Thread-safe.
+    template <typename T>
+    void EnqueueTask(std::shared_ptr<T> task)
+    {
+        queue_.Push(SftpTask{[task] { return (*task)(); },
+                             [task] { return task->CurrentSlot(); },
+                             std::nullopt});
+    }
 
     // Cancellation registry. Cancel() records a handle here; transfer tasks
     // poll it each step and retire themselves. Kept separate from the queue so
@@ -131,8 +148,7 @@ private:
     // never cleared.
     std::atomic<bool>        cancelling_{false};
     _LIBSSH2_SFTP*           sftp_ = nullptr;
-    std::mutex               queueMutex_;
-    std::deque<Task>         queue_;
+    SftpTaskQueue            queue_;
     // Set on the first EAGAIN of an init attempt; cleared once it resolves.
     std::optional<std::chrono::steady_clock::time_point> initDeadline_;
 

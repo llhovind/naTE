@@ -4,6 +4,7 @@
 #include <libssh2.h>
 #include <libssh2_sftp.h>
 
+#include <algorithm>
 #include <fstream>
 #include <memory>
 
@@ -129,6 +130,9 @@ void ParseOwnerFromLongEntry(const char* longEntry, FileInfo& info)
 struct SftpService::SimpleOpTask {
     SftpService* svc      = nullptr;
     bool         initDone = false;
+    // Set by whichever operation built this task; every one of them drives a
+    // different libssh2 state machine.
+    Slot         opSlot   = Slot::Stat;
     std::string  context;
     // Attribute block for setstat. Lives here rather than in the operation
     // lambda because libssh2 reads it on every EAGAIN retry, so it must
@@ -136,6 +140,8 @@ struct SftpService::SimpleOpTask {
     LIBSSH2_SFTP_ATTRIBUTES attrs{};
     std::function<int(SimpleOpTask&)> op;
     DoneCallback onDone;
+
+    Slot CurrentSlot() const { return initDone ? opSlot : Slot::Init; }
 
     bool operator()()
     {
@@ -175,6 +181,10 @@ struct SftpService::PathOpTask {
     int          flag = 0;
     PathCallback onDone;
 
+    // realpath, readlink and symlink are one state machine in libssh2, so all
+    // three queue behind each other.
+    Slot CurrentSlot() const { return initDone ? Slot::Symlink : Slot::Init; }
+
     bool operator()()
     {
         if (svc->Stopped()) {
@@ -212,6 +222,8 @@ struct SftpService::StatTask {
     std::string  path;
     LIBSSH2_SFTP_ATTRIBUTES attrs{};
     StatCallback onDone;
+
+    Slot CurrentSlot() const { return initDone ? Slot::Stat : Slot::Init; }
 
     bool operator()()
     {
@@ -264,6 +276,16 @@ struct SftpService::ListDirTask {
     ListDirTask& operator=(const ListDirTask&) = delete;
 
     ~ListDirTask() { if (handle) libssh2_sftp_closedir(handle); }
+
+    Slot CurrentSlot() const
+    {
+        switch (state) {
+            case State::InitSftp: return Slot::Init;
+            case State::OpenDir:  return Slot::Open;
+            case State::ReadLoop: return Slot::ReadDir;
+        }
+        return Slot::Open;
+    }
 
     // Hands back whatever was read alongside the outcome. A directory that
     // fails partway is still useful, and discarding it would be a worse lie
@@ -352,6 +374,17 @@ struct SftpService::DownloadTask {
     DownloadTask& operator=(const DownloadTask&) = delete;
 
     ~DownloadTask() { if (handle) libssh2_sftp_close(handle); }
+
+    Slot CurrentSlot() const
+    {
+        switch (state) {
+            case State::InitSftp:    return Slot::Init;
+            case State::OpenHandle:  return Slot::Open;
+            case State::FStat:       return Slot::FStat;
+            case State::ReadLoop:    return Slot::Read;
+        }
+        return Slot::Read;
+    }
 
     bool Finish(FsError err)
     {
@@ -461,6 +494,16 @@ struct SftpService::UploadTask {
     UploadTask& operator=(const UploadTask&) = delete;
 
     ~UploadTask() { if (handle) libssh2_sftp_close(handle); }
+
+    Slot CurrentSlot() const
+    {
+        switch (state) {
+            case State::InitSftp:   return Slot::Init;
+            case State::OpenHandle: return Slot::Open;
+            case State::WriteLoop:  return Slot::Write;
+        }
+        return Slot::Write;
+    }
 
     bool Finish(FsError err)
     {
@@ -600,28 +643,9 @@ FsError SftpService::MakeError(const std::string& context) const
     return FsError::Make(FsErrorCode::Protocol, context + ": " + detail);
 }
 
-void SftpService::Enqueue(Task task)
-{
-    std::lock_guard<std::mutex> lk(queueMutex_);
-    queue_.push_back(std::move(task));
-}
-
 void SftpService::Service()
 {
-    Task task;
-    {
-        std::lock_guard<std::mutex> lk(queueMutex_);
-        if (queue_.empty()) return;
-        task = std::move(queue_.front());
-        queue_.pop_front();
-    }
-    const bool again = task();
-    if (again) {
-        // Back of the queue, not the front: a long transfer must yield to a
-        // directory listing enqueued behind it rather than starving it.
-        std::lock_guard<std::mutex> lk(queueMutex_);
-        queue_.push_back(std::move(task));
-    }
+    queue_.RunNext();
 }
 
 void SftpService::CancelPending()
@@ -631,13 +655,8 @@ void SftpService::CancelPending()
     // in one step rather than asking to be resumed.
     cancelling_.store(true, std::memory_order_release);
 
-    std::deque<Task> pending;
-    {
-        std::lock_guard<std::mutex> lk(queueMutex_);
-        pending.swap(queue_);
-    }
-    for (auto& task : pending)
-        task();  // sees Stopped(), reports NotConnected, returns false
+    for (auto& task : queue_.Drain())
+        task.step();  // sees Stopped(), reports NotConnected, returns false
 }
 
 void SftpService::Shutdown()
@@ -692,7 +711,7 @@ void SftpService::List(const std::string& path, ListCallback onDone)
     t->svc    = this;
     t->path   = path;
     t->onDone = std::move(onDone);
-    Enqueue([t]() { return (*t)(); });
+    EnqueueTask(t);
 }
 
 void SftpService::RealPath(const std::string& path, PathCallback onDone)
@@ -703,7 +722,7 @@ void SftpService::RealPath(const std::string& path, PathCallback onDone)
     t->flag    = LIBSSH2_SFTP_REALPATH;
     t->context = "Cannot resolve '" + path + "'";
     t->onDone  = std::move(onDone);
-    Enqueue([t]() { return (*t)(); });
+    EnqueueTask(t);
 }
 
 void SftpService::ReadLink(const std::string& path, PathCallback onDone)
@@ -714,7 +733,7 @@ void SftpService::ReadLink(const std::string& path, PathCallback onDone)
     t->flag    = LIBSSH2_SFTP_READLINK;
     t->context = "Cannot read link '" + path + "'";
     t->onDone  = std::move(onDone);
-    Enqueue([t]() { return (*t)(); });
+    EnqueueTask(t);
 }
 
 void SftpService::Stat(const std::string& path, StatCallback onDone)
@@ -723,7 +742,7 @@ void SftpService::Stat(const std::string& path, StatCallback onDone)
     t->svc    = this;
     t->path   = path;
     t->onDone = std::move(onDone);
-    Enqueue([t]() { return (*t)(); });
+    EnqueueTask(t);
 }
 
 void SftpService::MakeDirectory(const std::string& path, uint32_t mode,
@@ -731,6 +750,7 @@ void SftpService::MakeDirectory(const std::string& path, uint32_t mode,
 {
     auto t = std::make_shared<SimpleOpTask>();
     t->svc     = this;
+    t->opSlot  = Slot::MkDir;
     t->context = "Cannot create directory '" + path + "'";
     t->onDone  = std::move(onDone);
     t->op = [path, mode](SimpleOpTask& self) {
@@ -738,13 +758,14 @@ void SftpService::MakeDirectory(const std::string& path, uint32_t mode,
                                      static_cast<unsigned>(path.size()),
                                      static_cast<long>(mode));
     };
-    Enqueue([t]() { return (*t)(); });
+    EnqueueTask(t);
 }
 
 void SftpService::Remove(const std::string& path, bool isDir, DoneCallback onDone)
 {
     auto t = std::make_shared<SimpleOpTask>();
     t->svc     = this;
+    t->opSlot  = isDir ? Slot::RmDir : Slot::Unlink;
     t->context = std::string("Cannot delete ") + (isDir ? "directory '" : "'") +
                  path + "'";
     t->onDone  = std::move(onDone);
@@ -753,7 +774,7 @@ void SftpService::Remove(const std::string& path, bool isDir, DoneCallback onDon
         return isDir ? libssh2_sftp_rmdir_ex(self.svc->sftp_, path.c_str(), len)
                      : libssh2_sftp_unlink_ex(self.svc->sftp_, path.c_str(), len);
     };
-    Enqueue([t]() { return (*t)(); });
+    EnqueueTask(t);
 }
 
 void SftpService::CreateSymlink(const std::string& target,
@@ -762,6 +783,7 @@ void SftpService::CreateSymlink(const std::string& target,
 {
     auto t = std::make_shared<SimpleOpTask>();
     t->svc     = this;
+    t->opSlot  = Slot::Symlink;
     t->context = "Cannot create link '" + linkPath + "'";
     t->onDone  = std::move(onDone);
     // Same entry point as realpath and readlink, third flag value. Note the
@@ -777,7 +799,7 @@ void SftpService::CreateSymlink(const std::string& target,
             static_cast<unsigned>(linkPath.size()),
             LIBSSH2_SFTP_SYMLINK);
     };
-    Enqueue([t]() { return (*t)(); });
+    EnqueueTask(t);
 }
 
 void SftpService::Rename(const std::string& from, const std::string& to,
@@ -785,6 +807,7 @@ void SftpService::Rename(const std::string& from, const std::string& to,
 {
     auto t = std::make_shared<SimpleOpTask>();
     t->svc     = this;
+    t->opSlot  = Slot::Rename;
     t->context = "Cannot rename '" + from + "' to '" + to + "'";
     t->onDone  = std::move(onDone);
     // No OVERWRITE flag: a rename that would clobber an existing file must
@@ -796,7 +819,7 @@ void SftpService::Rename(const std::string& from, const std::string& to,
                                       LIBSSH2_SFTP_RENAME_ATOMIC |
                                       LIBSSH2_SFTP_RENAME_NATIVE);
     };
-    Enqueue([t]() { return (*t)(); });
+    EnqueueTask(t);
 }
 
 void SftpService::SetPermissions(const std::string& path, uint32_t mode,
@@ -804,6 +827,8 @@ void SftpService::SetPermissions(const std::string& path, uint32_t mode,
 {
     auto t = std::make_shared<SimpleOpTask>();
     t->svc               = this;
+    // setstat and stat are the same libssh2 state machine.
+    t->opSlot            = Slot::Stat;
     t->context           = "Cannot set permissions on '" + path + "'";
     t->attrs.flags       = LIBSSH2_SFTP_ATTR_PERMISSIONS;
     t->attrs.permissions = mode;
@@ -813,7 +838,7 @@ void SftpService::SetPermissions(const std::string& path, uint32_t mode,
                                     static_cast<unsigned>(path.size()),
                                     LIBSSH2_SFTP_SETSTAT, &self.attrs);
     };
-    Enqueue([t]() { return (*t)(); });
+    EnqueueTask(t);
 }
 
 TransferHandle SftpService::Download(const std::string& remotePath,
@@ -832,7 +857,7 @@ TransferHandle SftpService::Download(const std::string& remotePath,
     t->localPath  = localPath;
     t->onProgress = std::move(onProgress);
     t->onDone     = std::move(onDone);
-    Enqueue([t]() { return (*t)(); });
+    EnqueueTask(t);
     return id;
 }
 
@@ -850,7 +875,7 @@ TransferHandle SftpService::Upload(const std::string& localPath,
     t->remotePath = remotePath;
     t->onProgress = std::move(onProgress);
     t->onDone     = std::move(onDone);
-    Enqueue([t]() { return (*t)(); });
+    EnqueueTask(t);
     return id;
 }
 

@@ -1,4 +1,5 @@
 #pragma once
+#include "fs/LinkTarget.h"
 #include "transport/IRemoteFileSystem.h"
 
 #include <cstdint>
@@ -27,6 +28,10 @@ public:
     // Replaces the contents. err carries a partial-failure outcome: a listing
     // that failed halfway still delivers the entries it read, and both are
     // kept so the view can show the rows *and* say the result is incomplete.
+    //
+    // Every link comes back Unresolved: these entries describe links, not what
+    // they point at, and a previous listing's answers cannot be carried over
+    // because the thing at the other end is exactly what may have changed.
     void SetEntries(std::vector<transport::FileInfo> entries,
                     transport::FsError err = {});
 
@@ -54,6 +59,29 @@ public:
     void SetNameFilter(std::string pattern);
     const std::string& NameFilter() const noexcept { return nameFilter_; }
 
+    // --- Symbolic links ------------------------------------------------------
+    // Leaf names of every link whose target is still unknown, whether or not
+    // the filter is currently showing it. The model is asked rather than told
+    // because it is the one that knows which entries are links and which have
+    // already been answered for; a caller that tracked that itself would have a
+    // second copy to keep in step.
+    std::vector<std::string> UnresolvedLinkNames() const;
+
+    // Records what links point at, re-sorting once for the whole batch. Names
+    // that are no longer in the listing are ignored: an answer that arrives
+    // after the directory was replaced describes rows that have gone.
+    void ApplyLinkTargets(const std::vector<LinkResolution>& resolutions);
+
+    // What the row's link points at. Unresolved for anything that is not a
+    // link, which is the honest answer to "where does this lead" for a file.
+    LinkTarget LinkTargetAt(size_t index) const;
+
+    // True when the row behaves as a directory: a real one, or a link known to
+    // lead to one. This is what "directories first" sorts on and what a view
+    // should ask before it decorates a row as enterable — a link to a directory
+    // is a doorway, and burying it among the files hides the way through.
+    bool IsDirectoryLike(size_t index) const;
+
     // --- Sorting -------------------------------------------------------------
     void SetSort(SortKey key, SortOrder order);
     SortKey   Sort()      const noexcept { return sortKey_; }
@@ -75,7 +103,9 @@ public:
     const transport::FileInfo& At(size_t index) const;
 
     // Counts and byte total over the *visible* rows — what a status line
-    // reports, and what changes when the filter changes.
+    // reports, and what changes when the filter changes. A link known to lead
+    // to a directory counts as one, so the numbers describe the same two groups
+    // the rows are ordered into.
     size_t   VisibleDirectoryCount() const noexcept { return visibleDirs_; }
     size_t   VisibleFileCount() const noexcept { return visible_.size() - visibleDirs_; }
     uint64_t VisibleByteTotal() const noexcept { return visibleBytes_; }
@@ -88,11 +118,22 @@ public:
 private:
     // Recomputes visible_ from entries_ using the current filter and sort.
     void Rebuild();
-    bool PassesFilter(const transport::FileInfo& e) const;
+    bool PassesFilter(size_t entryIndex) const;
+
+    // The same question as IsDirectoryLike, asked of an unfiltered entry.
+    // Sorting and filtering work in entry indices; only the public accessors
+    // speak in rows.
+    bool EntryIsDirectoryLike(size_t entryIndex) const;
 
     std::string                      path_;
     std::vector<transport::FileInfo> entries_;
     transport::FsError               error_;
+
+    // What each entry's link leads to, parallel to entries_ and replaced
+    // wholesale with them. A parallel vector rather than a field on FileInfo:
+    // that struct is what an adapter returns, and this is derived state a
+    // second round trip produced.
+    std::vector<LinkTarget> linkTargets_;
 
     // Indices into entries_, in display order. Indices rather than copies so a
     // re-sort never duplicates the entry data.

@@ -129,6 +129,31 @@ TEST_CASE("given a sash far right when placing the copy pair then the pair stays
           kRow.betweenButtons + kRow.destButton == kRow.contentRight);
 }
 
+TEST_CASE("given a control pinned right when placing the pair then it is not overlapped")
+{
+    // The symlink choice sits at the right edge in Transfer mode. A sash far
+    // right pulls the pair towards it, and the pair has to stop at the control
+    // rather than slide underneath it.
+    ControlsRowMetrics pinned = kRow;
+    pinned.trailing = 140;
+
+    const int gap = LeadingGapForSashAlignedPair(980, pinned);
+
+    CHECK(pinned.contentLeft + pinned.leading + gap + pinned.sourceButton +
+          pinned.betweenButtons + pinned.destButton ==
+          pinned.contentRight - pinned.trailing);
+}
+
+TEST_CASE("given a control pinned right when the sash is reachable then the seam still lands on it")
+{
+    // The pinned control only bounds the pair; it must not push it off a sash
+    // it can legally reach.
+    ControlsRowMetrics pinned = kRow;
+    pinned.trailing = 140;
+
+    CHECK(Seam(LeadingGapForSashAlignedPair(500, pinned), pinned) == 500);
+}
+
 TEST_CASE("given a row too narrow for the pair when placing it then the gap closes entirely")
 {
     // Long labels in a small window: there is no legal position, and the pair
