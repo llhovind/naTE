@@ -33,4 +33,13 @@ std::string Parent(const std::string& path);
 // navigation aid, not a substitute for the remote's realpath.
 std::string Normalise(const std::string& path);
 
+// True when path is dir itself or lies somewhere beneath it. Both sides are
+// normalised first, so "/a" contains "/a/b/../c" and trailing slashes make no
+// difference.
+//
+// Lexical, like everything here: a symlink could still lead back inside dir by
+// a route this cannot see. That is sufficient for its purpose — a recursive
+// walk never follows links, so a link cannot carry one back in.
+bool Contains(const std::string& dir, const std::string& path);
+
 } // namespace term::fs::path

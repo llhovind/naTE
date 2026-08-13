@@ -469,7 +469,10 @@ void SessionManager::DownloadFile(SessionId id,
 {
     transport::IRemoteFileSystem* fs = GetRemoteFileSystem(id);
     if (!fs) { onDone(NoFileSystemError()); return; }
-    fs->Download(remotePath, localPath, nullptr, std::move(onDone));
+    // No mode: this fetches a working copy for an editor, not a faithful copy
+    // of the file. The caller has not stat'd the remote and inventing a mode
+    // from nothing would be worse than the adapter's default.
+    fs->Download(remotePath, localPath, std::nullopt, nullptr, std::move(onDone));
 }
 
 void SessionManager::UploadFile(SessionId id,
@@ -479,7 +482,9 @@ void SessionManager::UploadFile(SessionId id,
 {
     transport::IRemoteFileSystem* fs = GetRemoteFileSystem(id);
     if (!fs) { onDone(NoFileSystemError()); return; }
-    fs->Upload(localPath, remotePath, nullptr, std::move(onDone));
+    // No mode: this writes back over a file that already exists, whose
+    // permissions are the user's and must survive the save untouched.
+    fs->Upload(localPath, remotePath, std::nullopt, nullptr, std::move(onDone));
 }
 
 // ---------------------------------------------------------------------------

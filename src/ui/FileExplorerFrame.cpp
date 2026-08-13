@@ -13,7 +13,6 @@
 
 #include <wx/app.h>
 #include <wx/display.h>
-#include <wx/msgdlg.h>
 #include <wx/sizer.h>
 
 namespace ui {
@@ -649,16 +648,11 @@ void FileExplorerFrame::OnFilesDropped(FileExplorerPane* target,
     if (!queue_ || !target || paths.empty()) return;
 
     if (!target->IsLive()) return;
-    if (target->CurrentEndpoint().IsLocalDisk()) {
-        // Dropping desktop files onto the local pane would be a local copy,
-        // which this window does not do. Say so rather than doing nothing.
-        wxMessageBox("Dropped files can only be sent to a remote session.\n\n"
-                     "Point this pane at a session, or drop onto one that "
-                     "already is.",
-                     "Copy", wxOK | wxICON_INFORMATION, this);
-        return;
-    }
 
+    // A drop onto the local pane is a local copy, which is an ordinary transfer
+    // like any other. Dropping a file into the directory it already lives in is
+    // the one case that goes nowhere, and the queue refuses it by name rather
+    // than this second-guessing what the user meant.
     const term::fs::TransferEndpoint source{&SharedLocalFileSystem(),
                                             kLocalEndpointLabel};
     const auto destination = ToTransferEndpoint(target->CurrentEndpoint());
@@ -789,7 +783,7 @@ void FileExplorerFrame::QueueOne(const FileExplorerPane::Item& item,
         [this, name = item.name](term::transport::FsError err) {
             if (err.Failed() && status_)
                 status_->SetStatusText(
-                    wxString::Format("Could not fully read '%s': %s",
+                    wxString::Format("Could not copy '%s': %s",
                                      DecodeForDisplay(name),
                                      DecodeForDisplay(err.message)));
         });
@@ -806,17 +800,11 @@ void FileExplorerFrame::CopyBetweenPanes(FileExplorerPane* from, FileExplorerPan
     const auto destination = ToTransferEndpoint(to->CurrentEndpoint());
     const std::string destDir = to->CurrentPath();
 
-    if (source.IsLocalDisk() && destination.IsLocalDisk()) {
-        // Both panes are this machine. Rather than a half-supported local copy
-        // that would block the UI thread on a large file, say so plainly.
-        wxMessageBox("Both panes are showing this computer.\n\n"
-                     "Copying between local folders is a job for your file "
-                     "manager; this window moves files to and from remote "
-                     "sessions.",
-                     "Copy", wxOK | wxICON_INFORMATION, this);
-        return;
-    }
-
+    // Both panes on this computer is an ordinary copy: the local adapter moves
+    // the bytes on its own thread, so a large one costs the UI nothing. The
+    // cases that genuinely go nowhere — a file onto itself, a directory into
+    // its own subtree — are refused by name where the work is understood, not
+    // guessed at from here.
     for (const auto& item : items)
         QueueOne(item, source, destination, destDir);
 

@@ -148,3 +148,31 @@ TEST_CASE("given an octal string encoding file type bits when parsed then they a
     REQUIRE(mode == 07777u);
     REQUIRE((mode & kFileTypeMask) == 0u);
 }
+
+// ---------------------------------------------------------------------------
+// Containment
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given a directory and a path beneath it when tested then it contains it") {
+    REQUIRE(path::Contains("/home/user", "/home/user/docs"));
+    REQUIRE(path::Contains("/home/user", "/home/user/docs/deep/file.txt"));
+    // A directory contains itself, which is what makes copying one into itself
+    // detectable rather than a special case.
+    REQUIRE(path::Contains("/home/user", "/home/user"));
+    REQUIRE(path::Contains("/", "/anything"));
+}
+
+TEST_CASE("given a sibling path when tested for containment then it is not contained") {
+    // The separator is part of the comparison, or "/etc" would swallow
+    // "/etcetera".
+    REQUIRE_FALSE(path::Contains("/etc", "/etcetera"));
+    REQUIRE_FALSE(path::Contains("/home/user", "/home/other"));
+    REQUIRE_FALSE(path::Contains("/home/user/docs", "/home/user"));
+}
+
+TEST_CASE("given untidy spellings when tested for containment then they are normalised first") {
+    REQUIRE(path::Contains("/home/user/", "/home/user/docs"));
+    REQUIRE(path::Contains("/home//user", "/home/user/docs/"));
+    REQUIRE(path::Contains("/home/user", "/home/user/docs/../notes"));
+    REQUIRE_FALSE(path::Contains("/home/user", "/home/user/../other"));
+}

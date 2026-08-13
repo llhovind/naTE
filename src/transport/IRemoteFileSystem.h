@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -88,6 +89,16 @@ struct FileInfo {
 // handle, so a default-constructed one is safely inert.
 using TransferHandle = uint64_t;
 inline constexpr TransferHandle kInvalidTransferHandle = 0;
+
+// Selects the bits a file creation may carry: the nine permission bits plus
+// setuid/setgid/sticky. Adapters apply it to any mode they are handed, so a
+// caller passing a whole st_mode cannot smuggle file-type bits into an open().
+inline constexpr uint32_t kModeBitsMask = 07777;
+
+// What a file an adapter creates gets when the caller does not know the
+// source's mode. rw-r--r-- is what a shell redirect produces under the
+// conventional 022 umask, so such a file looks like any other the user made.
+inline constexpr uint32_t kDefaultFileMode = 0644;
 
 // Reports bytes moved so far. totalBytes is 0 when the size is not yet known
 // (before the remote stat completes) — callers must treat it as indeterminate
@@ -190,15 +201,28 @@ public:
                                 DoneCallback onDone) = 0;
 
     // Copies remotePath to the exact local path localPath, truncating it.
+    //
+    // sourceMode carries the source file's permission bits so a copy can
+    // reproduce them rather than landing under a default that has nothing to do
+    // with the original — an uploaded script that arrives without its execute
+    // bit is the case that matters. It applies only where the destination is
+    // *created*: an existing file keeps the permissions it already has and the
+    // destination's umask still narrows what is asked for, which is exactly
+    // what cp(1) does. Pass nullopt when the mode is genuinely unknown; zero is
+    // a real mode and is honoured as one.
+    //
     // onProgress may be empty. Returns a handle usable with Cancel().
     virtual TransferHandle Download(const std::string& remotePath,
                                     const std::string& localPath,
+                                    std::optional<uint32_t> sourceMode,
                                     ProgressCallback onProgress,
                                     DoneCallback onDone) = 0;
 
     // Copies localPath to the exact remote path remotePath, truncating it.
+    // sourceMode is as for Download.
     virtual TransferHandle Upload(const std::string& localPath,
                                   const std::string& remotePath,
+                                  std::optional<uint32_t> sourceMode,
                                   ProgressCallback onProgress,
                                   DoneCallback onDone) = 0;
 

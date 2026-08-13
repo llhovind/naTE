@@ -85,10 +85,23 @@ bool AbsorbListing(TransferQueue& queue, TreeWalk& walk, const PendingDir& dir,
             if (dir.depth + 1 < kMaxTreeDepth)
                 walk.pending.push_back({src, dst, dir.depth + 1});
         } else {
-            queue.Enqueue(walk.source, src, walk.destination, dst, e.size);
+            queue.Enqueue(walk.source, src, walk.destination, dst,
+                          {e.size, e.mode});
         }
     }
     return true;
+}
+
+// The bits a copy reproduces on the destination.
+//
+// The nine permission bits and nothing else. setuid, setgid and the sticky bit
+// are deliberately dropped: cp(1) drops them for the same reason, and a copy
+// that recreated a setuid binary somewhere the user merely has write access is
+// a privilege escalation waiting to be noticed by someone else.
+std::optional<uint32_t> PermissionsToCopy(std::optional<uint32_t> mode)
+{
+    if (!mode) return std::nullopt;
+    return *mode & kPermissionMask;
 }
 
 // Scratch path for a transfer that has to be staged through this machine.
@@ -117,6 +130,10 @@ TransferItem ItemForLocalPath(const std::string& path)
 
     item.isSymlink = std::filesystem::is_symlink(status);
     item.isDir     = std::filesystem::is_directory(status);
+    // The link's own permissions are meaningless, and a link is reproduced
+    // rather than copied, so only a real file contributes a mode.
+    if (!item.isSymlink)
+        item.mode = static_cast<uint32_t>(status.permissions()) & kPermissionMask;
 
     if (!item.isDir && !item.isSymlink) {
         const auto size = std::filesystem::file_size(path, ec);
@@ -163,21 +180,22 @@ JobId TransferQueue::AddJob(TransferJob job)
 
 JobId TransferQueue::Enqueue(TransferEndpoint source, const std::string& sourcePath,
                              TransferEndpoint destination, const std::string& destPath,
-                             uint64_t sizeHint)
+                             SourceAttributes attributes)
 {
     TransferJob job;
     job.source      = std::move(source);
     job.destination = std::move(destination);
     job.sourcePath  = sourcePath;
     job.destPath    = destPath;
-    job.totalBytes  = sizeHint;
+    job.totalBytes  = attributes.size;
+    job.sourceMode  = PermissionsToCopy(attributes.mode);
 
     // Neither side is this machine, so the bytes must come down and go back
     // up. They travel twice, and the denominator says so rather than leaving
     // a progress bar apparently stuck halfway.
     job.viaLocalStaging = job.source.Valid() && job.destination.Valid() &&
                           !job.source.IsLocalDisk() && !job.destination.IsLocalDisk();
-    if (job.viaLocalStaging) job.totalBytes = sizeHint * 2;
+    if (job.viaLocalStaging) job.totalBytes = attributes.size * 2;
 
     return AddJob(std::move(job));
 }
@@ -204,7 +222,8 @@ void TransferQueue::EnqueueItem(TransferEndpoint source, const TransferItem& ite
         return;
     }
 
-    Enqueue(std::move(source), item.path, std::move(destination), dest, item.size);
+    Enqueue(std::move(source), item.path, std::move(destination), dest,
+            {item.size, item.mode});
     // Nothing to expand, but the caller is told either way so it does not have
     // to know which shape it queued.
     if (onExpanded) onExpanded(transport::FsError::Success());
@@ -242,6 +261,20 @@ void TransferQueue::EnqueueTree(TransferEndpoint source, const std::string& sour
                                 TransferEndpoint destination, const std::string& destDir,
                                 std::function<void(transport::FsError)> onExpanded)
 {
+    // A directory copied into itself makes the walk chase the copies it is
+    // creating: every listing turns up the directory written a moment earlier,
+    // and only the depth cap ends it — having filled the tree with dozens of
+    // nested duplicates first. cp(1) refuses this for the same reason. Only
+    // meaningful within one filesystem; the identical path on two machines is
+    // two different places.
+    if (source.fs == destination.fs && path::Contains(sourceDir, destDir)) {
+        if (onExpanded)
+            onExpanded(transport::FsError::Make(
+                transport::FsErrorCode::InvalidName,
+                "Cannot copy '" + sourceDir + "' into itself"));
+        return;
+    }
+
     auto walk = std::make_shared<TreeWalk>();
     walk->source      = std::move(source);
     walk->destination = std::move(destination);
@@ -474,6 +507,7 @@ void TransferQueue::StartTransfer(JobId id)
         };
         activeHandleOwner_ = job->source.fs;
         RecordHandle(id, job->source.fs->Download(job->sourcePath, job->destPath,
+                                                  job->sourceMode,
                                                   onProgress, onDone));
         return;
     }
@@ -486,13 +520,16 @@ void TransferQueue::StartTransfer(JobId id)
         };
         activeHandleOwner_ = job->destination.fs;
         RecordHandle(id, job->destination.fs->Upload(job->sourcePath, job->destPath,
+                                                     job->sourceMode,
                                                      onProgress, onDone));
         return;
     }
 
     // Server to server: pull it down first. SFTP has no server-to-server copy,
     // so the bytes pass through this machine whether or not the user thinks of
-    // it that way.
+    // it that way. The staging file is created with the source's permissions
+    // too — a file the user keeps at 0600 must not sit world-readable in /tmp
+    // on the way past.
     job->tempPath = MakeStagingPath(id, path::Leaf(job->sourcePath));
     const auto onDone = [ctx, id](transport::FsError err) {
         ctx.Post([id, err = std::move(err)](TransferQueue& q) mutable {
@@ -501,6 +538,7 @@ void TransferQueue::StartTransfer(JobId id)
     };
     activeHandleOwner_ = job->source.fs;
     RecordHandle(id, job->source.fs->Download(job->sourcePath, job->tempPath,
+                                              job->sourceMode,
                                               onProgress, onDone));
 }
 
@@ -591,7 +629,11 @@ void TransferQueue::StartUploadLeg(JobId id)
     };
 
     activeHandleOwner_ = job->destination.fs;
+    // The mode carried here is the *source's*, not the staging file's: the
+    // staging file is an implementation detail, and its permissions must not
+    // become the ones the user's copy ends up with.
     RecordHandle(id, job->destination.fs->Upload(job->tempPath, job->destPath,
+                                                 job->sourceMode,
                                                  onProgress, onDone));
 }
 

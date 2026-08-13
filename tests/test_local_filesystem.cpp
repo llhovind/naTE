@@ -4,10 +4,16 @@
 #include "transport/LocalFileSystem.h"
 
 #include <algorithm>
+#include <chrono>
+#include <condition_variable>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <memory>
+#include <mutex>
 #include <optional>
 
+#include <sys/stat.h>
 #include <unistd.h>
 
 using namespace term::transport;
@@ -66,6 +72,105 @@ FsError DoneOf(LocalFileSystem& fs, const std::function<void(DoneCallback)>& cal
     call([&](FsError err) { captured = std::move(err); });
     (void)fs;
     return captured;
+}
+
+std::string ReadAll(const std::string& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in),
+                       std::istreambuf_iterator<char>());
+}
+
+// Permission bits of a path, or 0 if it is not there.
+uint32_t ModeOf(const std::string& path)
+{
+    struct stat st{};
+    if (::stat(path.c_str(), &st) != 0) return 0;
+    return static_cast<uint32_t>(st.st_mode) & 07777;
+}
+
+// The process umask, read the only way POSIX offers: by setting it and putting
+// it back. A creation mode is narrowed by it, so a test asserting on a default
+// has to say so too.
+mode_t Umask()
+{
+    const mode_t current = ::umask(0);
+    ::umask(current);
+    return current;
+}
+
+// Bridges a transfer's completion, which arrives on the adapter's worker
+// thread, back to the thread running the test.
+//
+// The state is shared rather than held by value, and the callback keeps a
+// reference to it. Waking a waiter does not finish the moment it wakes: the
+// notifying thread is still inside the condition variable, and a test that
+// returned and destroyed one would pull it out from under that thread.
+class Waiter {
+public:
+    DoneCallback Done() const
+    {
+        return [state = state_](FsError err) {
+            {
+                std::lock_guard<std::mutex> lk(state->mutex);
+                state->err   = std::move(err);
+                state->fired = true;
+            }
+            state->cv.notify_all();
+        };
+    }
+
+    // Blocks until the callback fires. The timeout turns a callback that never
+    // arrives into a failed assertion rather than a test run that hangs.
+    FsError Wait() const
+    {
+        std::unique_lock<std::mutex> lk(state_->mutex);
+        REQUIRE(state_->cv.wait_for(lk, std::chrono::seconds(10),
+                                    [s = state_] { return s->fired; }));
+        return state_->err;
+    }
+
+    bool Fired() const
+    {
+        std::lock_guard<std::mutex> lk(state_->mutex);
+        return state_->fired;
+    }
+
+private:
+    struct State {
+        std::mutex              mutex;
+        std::condition_variable cv;
+        FsError                 err;
+        bool                    fired = false;
+    };
+
+    std::shared_ptr<State> state_ = std::make_shared<State>();
+};
+
+struct CopyResult {
+    FsError  err;
+    uint64_t transferred = 0;
+    uint64_t total       = 0;
+};
+
+// Runs one copy and waits for it. The progress figures are written on the
+// worker thread and read here only after the completion callback has been
+// observed, which orders the two.
+CopyResult CopySync(LocalFileSystem& fs, const std::string& from,
+                    const std::string& to, std::optional<uint32_t> mode)
+{
+    CopyResult result;
+    Waiter     waiter;
+
+    fs.Download(from, to, mode,
+                [&result](uint64_t transferred, uint64_t total) {
+                    result.transferred = transferred;
+                    result.total       = total;
+                },
+                waiter.Done());
+
+    result.err = waiter.Wait();
+    return result;
 }
 
 } // namespace
@@ -357,17 +462,177 @@ TEST_CASE("given a path the user cannot write when created then it reports permi
 // Transfers
 // ---------------------------------------------------------------------------
 
-TEST_CASE("given the local adapter when a transfer is requested then it declines clearly") {
-    // Moving bytes between here and a remote is the remote adapter's job; this
-    // must fail loudly rather than appear to succeed.
+TEST_CASE("given two local paths when copied then the bytes and the mode arrive") {
+    TempTree tmp("copy");
+    const std::string src = tmp.File("script.sh", "#!/bin/sh\necho hi\n");
+    const std::string dst = tmp.At("copy.sh");
+
     LocalFileSystem fs;
 
-    FsError down, up;
-    REQUIRE(fs.Download("a", "b", nullptr, [&](FsError e) { down = std::move(e); })
-            == kInvalidTransferHandle);
-    REQUIRE(fs.Upload("a", "b", nullptr, [&](FsError e) { up = std::move(e); })
-            == kInvalidTransferHandle);
+    SECTION("the contents are reproduced") {
+        CopyResult result = CopySync(fs, src, dst, std::nullopt);
 
-    REQUIRE(down.code == FsErrorCode::Unsupported);
-    REQUIRE(up.code == FsErrorCode::Unsupported);
+        REQUIRE(result.err.Ok());
+        REQUIRE(ReadAll(dst) == "#!/bin/sh\necho hi\n");
+    }
+
+    SECTION("the source's permissions are reproduced") {
+        // The case that made this necessary: an executable that arrives without
+        // its execute bit is not the file the user asked to copy.
+        CopyResult result = CopySync(fs, src, dst, 0755);
+
+        REQUIRE(result.err.Ok());
+        // Narrowed by the umask, exactly as a file the user created here would
+        // be — asking for permissions the umask forbids is not this adapter's
+        // call to overrule.
+        REQUIRE(ModeOf(dst) == (0755 & ~Umask()));
+        // Whatever the umask, the bit that mattered is the owner's.
+        REQUIRE((ModeOf(dst) & 0100) != 0);
+    }
+
+    SECTION("an unknown mode leaves the adapter's default") {
+        CopyResult result = CopySync(fs, src, dst, std::nullopt);
+
+        REQUIRE(result.err.Ok());
+        REQUIRE(ModeOf(dst) == (kDefaultFileMode & ~Umask()));
+    }
+
+    SECTION("an existing destination keeps the permissions it already had") {
+        // cp(1)'s rule: the mode applies where the file is created. Overwriting
+        // must not silently reopen a file the user had locked down.
+        tmp.File("copy.sh", "old");
+        REQUIRE(::chmod(dst.c_str(), 0600) == 0);
+
+        CopyResult result = CopySync(fs, src, dst, 0777);
+
+        REQUIRE(result.err.Ok());
+        REQUIRE(ModeOf(dst) == 0600);
+        REQUIRE(ReadAll(dst) == "#!/bin/sh\necho hi\n");
+    }
+
+    SECTION("progress reports the whole file") {
+        CopyResult result = CopySync(fs, src, dst, std::nullopt);
+
+        REQUIRE(result.err.Ok());
+        REQUIRE(result.transferred == 18);
+        REQUIRE(result.total == 18);
+    }
+}
+
+TEST_CASE("given Upload and Download when copying locally then both mean the same thing") {
+    // The port names them for a remote this adapter does not have. What matters
+    // is that each copies its first argument to its second.
+    TempTree tmp("verbs");
+    const std::string a = tmp.File("a.txt", "AAA");
+    const std::string b = tmp.At("b.txt");
+    const std::string c = tmp.At("c.txt");
+
+    LocalFileSystem fs;
+
+    Waiter down;
+    fs.Download(a, b, std::nullopt, nullptr, down.Done());
+    REQUIRE(down.Wait().Ok());
+
+    Waiter up;
+    fs.Upload(a, c, std::nullopt, nullptr, up.Done());
+    REQUIRE(up.Wait().Ok());
+
+    REQUIRE(ReadAll(b) == "AAA");
+    REQUIRE(ReadAll(c) == "AAA");
+}
+
+TEST_CASE("given a copy onto the file being read when run then it refuses") {
+    // The truncating open would destroy the source before a byte was read, so
+    // this has to be refused rather than attempted.
+    TempTree tmp("selfcopy");
+    const std::string src = tmp.File("a.txt", "precious");
+
+    LocalFileSystem fs;
+
+    SECTION("the same path") {
+        CopyResult result = CopySync(fs, src, src, std::nullopt);
+
+        REQUIRE(result.err.Failed());
+        REQUIRE(ReadAll(src) == "precious");
+    }
+
+    SECTION("a second name for the same inode") {
+        const std::string link = tmp.At("link.txt");
+        REQUIRE(::link(src.c_str(), link.c_str()) == 0);
+
+        CopyResult result = CopySync(fs, src, link, std::nullopt);
+
+        REQUIRE(result.err.Failed());
+        REQUIRE(ReadAll(src) == "precious");
+    }
+}
+
+TEST_CASE("given a copy of something that is not a readable file then it fails clearly") {
+    TempTree tmp("copyfail");
+
+    LocalFileSystem fs;
+
+    SECTION("a missing source") {
+        CopyResult result = CopySync(fs, tmp.At("gone.txt"), tmp.At("out.txt"),
+                                     std::nullopt);
+
+        REQUIRE(result.err.code == FsErrorCode::NoSuchFile);
+    }
+
+    SECTION("a directory source") {
+        // Recursion belongs to the layer that walks a tree; this verb moves one
+        // file and says so rather than failing halfway through a read.
+        CopyResult result = CopySync(fs, tmp.Dir("sub"), tmp.At("out.txt"),
+                                     std::nullopt);
+
+        REQUIRE(result.err.Failed());
+    }
+
+    SECTION("an unwritable destination directory") {
+        CopyResult result = CopySync(fs, tmp.File("a.txt"),
+                                     tmp.At("nosuchdir/out.txt"), std::nullopt);
+
+        REQUIRE(result.err.Failed());
+    }
+}
+
+TEST_CASE("given a queued copy when cancelled then it retires as cancelled") {
+    TempTree tmp("cancel");
+    const std::string src = tmp.File("big.bin", std::string(4 * 1024 * 1024, 'x'));
+
+    LocalFileSystem fs;
+    Waiter waiter;
+
+    const TransferHandle handle =
+        fs.Download(src, tmp.At("out.bin"), std::nullopt, nullptr, waiter.Done());
+    REQUIRE(handle != kInvalidTransferHandle);
+    fs.Cancel(handle);
+
+    const FsError err = waiter.Wait();
+    // A cancel that lands after the copy finished is not a failure — the port
+    // promises the callback either way, and which side of the race it fell on
+    // is not this test's business.
+    REQUIRE((err.Ok() || err.code == FsErrorCode::Cancelled));
+}
+
+TEST_CASE("given an unknown handle when cancelled then nothing happens") {
+    LocalFileSystem fs;
+    fs.Cancel(12345);        // must not throw or block
+    fs.Cancel(kInvalidTransferHandle);
+    SUCCEED();
+}
+
+TEST_CASE("given a copy in flight when the adapter is destroyed then the callback still fires") {
+    // The port promises exactly one callback per call. Destruction is the case
+    // where dropping one would be easiest and least visible.
+    TempTree tmp("teardown");
+    const std::string src = tmp.File("big.bin", std::string(4 * 1024 * 1024, 'x'));
+
+    Waiter waiter;
+    {
+        LocalFileSystem fs;
+        fs.Download(src, tmp.At("out.bin"), std::nullopt, nullptr, waiter.Done());
+    }   // joins the worker
+
+    REQUIRE(waiter.Fired());
 }

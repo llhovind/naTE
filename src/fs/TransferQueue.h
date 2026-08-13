@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -46,6 +47,10 @@ struct TransferItem {
     bool        isDir     = false;
     bool        isSymlink = false;
     uint64_t    size      = 0;
+    // Raw POSIX mode as the listing reported it, file-type bits included.
+    // Empty when whatever produced the item could not read it, which is the
+    // only honest way to say "do not reproduce permissions you never saw".
+    std::optional<uint32_t> mode;
 };
 
 // Describes a path on the machine naTE runs on, for callers that have a path
@@ -56,6 +61,18 @@ struct TransferItem {
 // links and is the wrong question here; asking it was how the drop path and the
 // pane came to describe the same file differently.
 TransferItem ItemForLocalPath(const std::string& path);
+
+// What a listing already told us about a source file, so a transfer need not
+// ask the filesystem again for something it has just been handed.
+//
+// The two travel together because they are read together and are both wanted
+// before a byte moves: the size sets the progress denominator, and the mode
+// decides what permissions the destination is created with.
+struct SourceAttributes {
+    uint64_t                size = 0;
+    // Permission bits only; the caller has already dropped any file-type bits.
+    std::optional<uint32_t> mode;
+};
 
 enum class JobState {
     Queued,              // waiting its turn
@@ -110,6 +127,10 @@ struct TransferJob {
     // so the old one has to go first — and only then, because an unconditional
     // removal would cost a round trip on every link in a tree.
     bool destExisted = false;
+
+    // Permission bits to give the destination where the copy creates it, taken
+    // from the source. Empty when the source's mode was not known.
+    std::optional<uint32_t> sourceMode;
 
     // Set when neither endpoint is the local disk. SFTP cannot move bytes
     // server to server, so the file is pulled down and pushed back up, and
@@ -193,12 +214,10 @@ public:
     SymlinkPolicy Symlinks() const noexcept { return symlinks_; }
 
     // --- Enqueueing ----------------------------------------------------------
-    // sizeHint drives the aggregate progress denominator before a transfer
-    // starts; pass the size from the directory listing when it is known.
     // Transfers begin immediately — there is no separate start step.
     JobId Enqueue(TransferEndpoint source, const std::string& sourcePath,
                   TransferEndpoint destination, const std::string& destPath,
-                  uint64_t sizeHint = 0);
+                  SourceAttributes attributes = {});
 
     // Queues one picked item into destinationDir, deciding for itself whether
     // that means a single transfer or a recursive walk. This is the entry point

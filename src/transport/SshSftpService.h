@@ -56,10 +56,12 @@ public:
                         DoneCallback onDone) override;
     TransferHandle Download(const std::string& remotePath,
                             const std::string& localPath,
+                            std::optional<uint32_t> sourceMode,
                             ProgressCallback onProgress,
                             DoneCallback onDone) override;
     TransferHandle Upload(const std::string& localPath,
                           const std::string& remotePath,
+                          std::optional<uint32_t> sourceMode,
                           ProgressCallback onProgress,
                           DoneCallback onDone) override;
     void Cancel(TransferHandle handle) override;

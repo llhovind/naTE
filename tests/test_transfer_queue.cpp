@@ -4,9 +4,12 @@
 #include "fs/TransferQueue.h"
 #include "transport/LocalFileSystem.h"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
+#include <thread>
 
 using namespace term::fs;
 using term::transport::FsError;
@@ -67,6 +70,32 @@ JobState StateOf(const TransferQueue& q, JobId id)
     const TransferJob* job = q.FindJob(id);
     REQUIRE(job != nullptr);
     return job->state;
+}
+
+std::string ContentsOf(const std::string& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in),
+                       std::istreambuf_iterator<char>());
+}
+
+// Drains the executor until done() holds, leaving room for the local adapter's
+// worker thread to make progress. Every other test here drives a fake that
+// answers on the calling thread; a copy between two local paths is the one case
+// where the queue is genuinely waiting on another thread.
+//
+// Returns false on timeout, so a job that never retires fails the test instead
+// of hanging the run.
+bool RunUntil(ManualExecutor& exec, const std::function<bool()>& done)
+{
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (std::chrono::steady_clock::now() < deadline) {
+        exec.RunAll();
+        if (done()) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return false;
 }
 
 } // namespace
@@ -133,7 +162,7 @@ TEST_CASE("given a job that completes when progress never reported then transfer
     ManualExecutor exec;
     TransferQueue q(exec.AsDispatcher());
 
-    const JobId id = q.Enqueue(Local(), src, Remote(fs), "/remote/a.txt", 5);
+    const JobId id = q.Enqueue(Local(), src, Remote(fs), "/remote/a.txt", {5});
     exec.RunAll();
     fs.CompleteActive();
     exec.RunAll();
@@ -458,8 +487,8 @@ TEST_CASE("given several jobs when aggregated then totals cover the whole queue"
     ManualExecutor exec;
     TransferQueue q(exec.AsDispatcher());
 
-    q.Enqueue(Local(), tmp.File("a.txt"), Remote(fs), "/remote/a.txt", 100);
-    q.Enqueue(Local(), tmp.File("b.txt"), Remote(fs), "/remote/b.txt", 200);
+    q.Enqueue(Local(), tmp.File("a.txt"), Remote(fs), "/remote/a.txt", {100});
+    q.Enqueue(Local(), tmp.File("b.txt"), Remote(fs), "/remote/b.txt", {200});
     exec.RunAll();
 
     REQUIRE(q.TotalBytes() == 300);
@@ -476,8 +505,8 @@ TEST_CASE("given a completed job when more work follows then aggregate progress 
     ManualExecutor exec;
     TransferQueue q(exec.AsDispatcher());
 
-    q.Enqueue(Local(), tmp.File("a.txt"), Remote(fs), "/remote/a.txt", 100);
-    q.Enqueue(Local(), tmp.File("b.txt"), Remote(fs), "/remote/b.txt", 100);
+    q.Enqueue(Local(), tmp.File("a.txt"), Remote(fs), "/remote/a.txt", {100});
+    q.Enqueue(Local(), tmp.File("b.txt"), Remote(fs), "/remote/b.txt", {100});
     exec.RunAll();
     fs.CompleteActive();
     exec.RunAll();
@@ -642,7 +671,7 @@ TEST_CASE("given two remote endpoints when a file is queued then it is staged th
     TransferQueue q(exec.AsDispatcher());
 
     const JobId id = q.Enqueue(Remote(src), "/src/report.txt",
-                               Remote(dst), "/dst/report.txt", 100);
+                               Remote(dst), "/dst/report.txt", {100});
     exec.RunAll();
 
     REQUIRE(q.FindJob(id)->viaLocalStaging);
@@ -678,7 +707,7 @@ TEST_CASE("given a staged transfer when the first leg fails then the second neve
     ManualExecutor exec;
     TransferQueue q(exec.AsDispatcher());
 
-    const JobId id = q.Enqueue(Remote(src), "/src/a.txt", Remote(dst), "/dst/a.txt", 10);
+    const JobId id = q.Enqueue(Remote(src), "/src/a.txt", Remote(dst), "/dst/a.txt", {10});
     exec.RunAll();
 
     src.CompleteActive(FsError::Make(FsErrorCode::PermissionDenied, "denied"));
@@ -697,7 +726,7 @@ TEST_CASE("given a staged transfer when it completes then the staging file is re
     ManualExecutor exec;
     TransferQueue q(exec.AsDispatcher());
 
-    q.Enqueue(Remote(src), "/src/a.txt", Remote(dst), "/dst/a.txt", 10);
+    q.Enqueue(Remote(src), "/src/a.txt", Remote(dst), "/dst/a.txt", {10});
     exec.RunAll();
 
     const std::string staged = src.transfers.front().dest;
@@ -723,7 +752,7 @@ TEST_CASE("given a staged transfer when the conflict check runs then it asks the
     TransferQueue q(exec.AsDispatcher());
     q.SetConflictPolicy(ConflictPolicy::Skip);
 
-    const JobId id = q.Enqueue(Remote(src), "/src/a.txt", Remote(dst), "/dst/a.txt", 10);
+    const JobId id = q.Enqueue(Remote(src), "/src/a.txt", Remote(dst), "/dst/a.txt", {10});
     exec.RunAll();
 
     REQUIRE(dst.statCalls == std::vector<std::string>{"/dst/a.txt"});
@@ -1038,4 +1067,227 @@ TEST_CASE("given a server that cannot create links when one is preserved then th
     REQUIRE(q.Jobs().size() == 1);
     REQUIRE(q.Jobs()[0].state == JobState::Failed);
     REQUIRE(q.Jobs()[0].error.code == FsErrorCode::Unsupported);
+}
+
+// ---------------------------------------------------------------------------
+// Permissions
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given an executable source when queued then the destination is created with its mode") {
+    // The bug this covers: an uploaded script that lands without its execute
+    // bit is not the file the user copied.
+    FakeRemoteFileSystem fs;
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+
+    TransferItem item;
+    item.path = "/local/deploy.sh";
+    item.name = "deploy.sh";
+    item.size = 40;
+    item.mode = 0100755;
+
+    q.EnqueueItem(Local(), item, Remote(fs), "/remote");
+    exec.RunAll();
+
+    REQUIRE(fs.transfers.size() == 1);
+    REQUIRE(fs.transfers[0].isUpload);
+    REQUIRE(fs.transfers[0].sourceMode == 0755);
+}
+
+TEST_CASE("given a source whose mode is unknown when queued then none is imposed") {
+    // Nothing read the source's permissions, so the adapter's default stands.
+    // Inventing one here would be a guess wearing the clothes of a fact.
+    FakeRemoteFileSystem fs;
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+
+    TransferItem item;
+    item.path = "/local/a.txt";
+    item.name = "a.txt";
+
+    q.EnqueueItem(Local(), item, Remote(fs), "/remote");
+    exec.RunAll();
+
+    REQUIRE(fs.transfers.size() == 1);
+    REQUIRE_FALSE(fs.transfers[0].sourceMode.has_value());
+}
+
+TEST_CASE("given a setuid source when copied then the special bits are not reproduced") {
+    // cp(1) drops them, and for the same reason: recreating a setuid binary
+    // somewhere the user merely has write access is an escalation waiting to
+    // be found by somebody else.
+    FakeRemoteFileSystem fs;
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+
+    TransferItem item;
+    item.path = "/local/tool";
+    item.name = "tool";
+    item.mode = 0104755;   // setuid + rwxr-xr-x
+
+    q.EnqueueItem(Local(), item, Remote(fs), "/remote");
+    exec.RunAll();
+
+    REQUIRE(fs.transfers.size() == 1);
+    REQUIRE(fs.transfers[0].sourceMode == 0755);
+}
+
+TEST_CASE("given a copied tree when walked then each file keeps its own mode") {
+    FakeRemoteFileSystem src;
+    FakeRemoteFileSystem dst;
+    src.AddDirectory("/src/tree", "tree");
+    src.AddFile("/src/tree/run.sh", "run.sh", 10, "/src/tree", 0100755);
+    src.AddFile("/src/tree/notes.txt", "notes.txt", 20, "/src/tree", 0100640);
+
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+
+    q.EnqueueTree(Remote(src), "/src/tree", Remote(dst), "/dst/tree", nullptr);
+    exec.RunAll();
+
+    REQUIRE(q.Jobs().size() == 2);
+    // Per file, not per walk: one mode applied to the whole tree would be the
+    // easy mistake here.
+    const TransferJob* script =
+        q.Jobs()[0].sourcePath == "/src/tree/run.sh" ? &q.Jobs()[0] : &q.Jobs()[1];
+    const TransferJob* notes =
+        script == &q.Jobs()[0] ? &q.Jobs()[1] : &q.Jobs()[0];
+
+    REQUIRE(script->sourceMode == 0755);
+    REQUIRE(notes->sourceMode == 0640);
+}
+
+TEST_CASE("given a staged server-to-server copy when it runs then both legs carry the source mode") {
+    FakeRemoteFileSystem src;
+    FakeRemoteFileSystem dst;
+
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+
+    TransferItem item;
+    item.path = "/src/run.sh";
+    item.name = "run.sh";
+    item.size = 10;
+    item.mode = 0100755;
+
+    q.EnqueueItem(Remote(src), item, Remote(dst), "/dst");
+    exec.RunAll();
+
+    // Leg one: down to the staging file, which must not sit in /tmp with
+    // permissions the original never had.
+    REQUIRE(src.transfers.size() == 1);
+    REQUIRE(src.transfers[0].sourceMode == 0755);
+
+    src.CompleteActive();
+    exec.RunAll();
+
+    // Leg two carries the *source's* mode, not the staging file's: the staging
+    // file is an implementation detail and must not decide what the user gets.
+    REQUIRE(dst.transfers.size() == 1);
+    REQUIRE(dst.transfers[0].sourceMode == 0755);
+}
+
+// ---------------------------------------------------------------------------
+// Local to local
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given both endpoints on this computer when a file is copied then it arrives") {
+    // Both panes can be pointed at this computer, so the queue has to route a
+    // copy where neither side is remote — it used to hand the job to an adapter
+    // that declined it, and the user saw a failed transfer for a fair request.
+    TempDir tmp("local_to_local");
+    const std::string src = tmp.File("a.txt", "hello");
+    const std::string dstDir = tmp.Sub("out");
+    std::filesystem::create_directories(dstDir);
+
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+
+    TransferItem item;
+    item.path = src;
+    item.name = "a.txt";
+    item.size = 5;
+    item.mode = 0100644;
+
+    q.EnqueueItem(Local(), item, Local(), dstDir);
+
+    const JobId id = q.Jobs().at(0).id;
+    REQUIRE(RunUntil(exec, [&] {
+        const TransferJob* job = q.FindJob(id);
+        return job && job->IsTerminal();
+    }));
+
+    REQUIRE(StateOf(q, id) == JobState::Completed);
+    REQUIRE(std::filesystem::exists(tmp.Sub("out/a.txt")));
+    REQUIRE(ContentsOf(tmp.Sub("out/a.txt")) == "hello");
+}
+
+TEST_CASE("given a local copy onto the file itself when queued then it fails without destroying it") {
+    // The destination directory is the source's own, so the conflict check
+    // finds the file and Overwrite would truncate what is about to be read.
+    TempDir tmp("local_self_copy");
+    const std::string src = tmp.File("a.txt", "precious");
+
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+    q.SetConflictPolicy(ConflictPolicy::Overwrite);
+
+    TransferItem item;
+    item.path = src;
+    item.name = "a.txt";
+    item.size = 8;
+
+    q.EnqueueItem(Local(), item, Local(), tmp.path.string());
+
+    const JobId id = q.Jobs().at(0).id;
+    REQUIRE(RunUntil(exec, [&] {
+        const TransferJob* job = q.FindJob(id);
+        return job && job->IsTerminal();
+    }));
+
+    REQUIRE(StateOf(q, id) == JobState::Failed);
+    REQUIRE(ContentsOf(src) == "precious");
+}
+
+TEST_CASE("given a directory copied into its own subtree when queued then it is refused") {
+    // The walk would otherwise chase the copies it is creating: each listing
+    // turns up the directory written a moment before, and only the depth cap
+    // ends it, after filling the tree with nested duplicates.
+    FakeRemoteFileSystem fs;
+    fs.AddDirectory("/data", "data");
+    fs.AddFile("/data/a.txt", "a.txt", 5, "/data");
+
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+
+    FsError reported;
+    q.EnqueueTree(Remote(fs), "/data", Remote(fs), "/data/backup",
+                  [&](FsError err) { reported = std::move(err); });
+    exec.RunAll();
+
+    REQUIRE(reported.Failed());
+    REQUIRE(q.Jobs().empty());
+    // Refused before anything was written, so no half-made directory is left
+    // for the user to clear up.
+    REQUIRE(fs.listCalls.empty());
+}
+
+TEST_CASE("given the same path on two filesystems when a tree is copied then it proceeds") {
+    // Identical paths on two machines are two different places; refusing this
+    // would break the ordinary case of mirroring /etc between hosts.
+    FakeRemoteFileSystem src;
+    FakeRemoteFileSystem dst;
+    src.AddDirectory("/data", "data");
+    src.AddFile("/data/a.txt", "a.txt", 5, "/data");
+
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+
+    FsError reported;
+    q.EnqueueTree(Remote(src), "/data", Remote(dst), "/data",
+                  [&](FsError err) { reported = std::move(err); });
+    exec.RunAll();
+
+    REQUIRE(reported.Ok());
+    REQUIRE(q.Jobs().size() == 1);
 }

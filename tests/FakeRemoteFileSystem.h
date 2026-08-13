@@ -5,6 +5,8 @@
 #include <deque>
 #include <functional>
 #include <map>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -12,12 +14,20 @@ namespace testing {
 
 // Runs posted work only when told to, so a test can place itself precisely
 // between an operation completing and the queue reacting to it.
+//
+// Posting is thread-safe, because the dispatcher it stands in for is: a real
+// adapter may complete on a worker thread, and the local one does. Running is
+// not — draining happens on the test's own thread, which is the point.
 struct ManualExecutor {
+    mutable std::mutex                mutex;
     std::deque<std::function<void()>> queue;
 
     term::fs::Dispatcher AsDispatcher()
     {
-        return [this](std::function<void()> fn) { queue.push_back(std::move(fn)); };
+        return [this](std::function<void()> fn) {
+            std::lock_guard<std::mutex> lk(mutex);
+            queue.push_back(std::move(fn));
+        };
     }
 
     // Drains the queue, including work posted while draining. The iteration
@@ -25,16 +35,25 @@ struct ManualExecutor {
     size_t RunAll(size_t maxIterations = 10000)
     {
         size_t ran = 0;
-        while (!queue.empty() && ran < maxIterations) {
-            auto fn = std::move(queue.front());
-            queue.pop_front();
+        for (; ran < maxIterations; ++ran) {
+            std::function<void()> fn;
+            {
+                std::lock_guard<std::mutex> lk(mutex);
+                if (queue.empty()) break;
+                fn = std::move(queue.front());
+                queue.pop_front();
+            }
+            // Run unlocked: the work may post more, from this thread or another.
             fn();
-            ++ran;
         }
         return ran;
     }
 
-    bool Empty() const { return queue.empty(); }
+    bool Empty() const
+    {
+        std::lock_guard<std::mutex> lk(mutex);
+        return queue.empty();
+    }
 };
 
 // An in-memory IRemoteFileSystem.
@@ -88,6 +107,10 @@ public:
         bool           isUpload = false;
         std::string    source;
         std::string    dest;
+        // What the caller asked the destination to be created with, so a test
+        // can assert that a mode survived the trip rather than inspecting a
+        // real file.
+        std::optional<uint32_t> sourceMode;
         term::transport::ProgressCallback onProgress;
         term::transport::DoneCallback     onDone;
         bool           finished = false;
@@ -134,12 +157,13 @@ public:
     // Convenience for seeding: registers a file and, when parent is given,
     // adds it to that directory's listing.
     void AddFile(const std::string& path, const std::string& name,
-                 uint64_t size, const std::string& parent = {})
+                 uint64_t size, const std::string& parent = {},
+                 uint32_t mode = 0100644)
     {
         FileInfo info;
         info.name  = name;
         info.size  = size;
-        info.mode  = 0100644;
+        info.mode  = mode;
         existing[path] = info;
         if (!parent.empty()) listings[parent].push_back(info);
     }
@@ -254,11 +278,12 @@ public:
 
     TransferHandle Download(const std::string& remotePath,
                             const std::string& localPath,
+                            std::optional<uint32_t> sourceMode,
                             term::transport::ProgressCallback onProgress,
                             term::transport::DoneCallback onDone) override
     {
         const TransferHandle h = nextHandle_++;
-        transfers.push_back({h, false, remotePath, localPath,
+        transfers.push_back({h, false, remotePath, localPath, sourceMode,
                              std::move(onProgress), std::move(onDone), false});
         if (completeTransfersInline) CompleteActive();
         return h;
@@ -266,11 +291,12 @@ public:
 
     TransferHandle Upload(const std::string& localPath,
                           const std::string& remotePath,
+                          std::optional<uint32_t> sourceMode,
                           term::transport::ProgressCallback onProgress,
                           term::transport::DoneCallback onDone) override
     {
         const TransferHandle h = nextHandle_++;
-        transfers.push_back({h, true, localPath, remotePath,
+        transfers.push_back({h, true, localPath, remotePath, sourceMode,
                              std::move(onProgress), std::move(onDone), false});
         if (completeTransfersInline) CompleteActive();
         return h;

@@ -5,8 +5,13 @@
 #include <libssh2_sftp.h>
 
 #include <algorithm>
+#include <cerrno>
+#include <cstring>
 #include <fstream>
 #include <memory>
+
+#include <fcntl.h>
+#include <unistd.h>
 
 namespace term::transport {
 
@@ -50,6 +55,27 @@ FsErrorCode ClassifySftpStatus(unsigned long status)
         case LIBSSH2_FX_OP_UNSUPPORTED:      return FsErrorCode::Unsupported;
         default:                             return FsErrorCode::Protocol;
     }
+}
+
+// Brings a download's destination into existence with the permissions the
+// remote file had, before the stream that writes it is opened.
+//
+// Two steps rather than one because std::ofstream cannot express a creation
+// mode. Only the creation carries the mode: an existing file keeps its own
+// permissions, which is both what cp(1) does and what stops a re-download from
+// quietly re-opening a file the user had locked down.
+FsError CreateLocalFile(const std::string& path, std::optional<uint32_t> mode)
+{
+    const auto bits =
+        static_cast<mode_t>(mode.value_or(kDefaultFileMode) & kModeBitsMask);
+
+    const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, bits);
+    if (fd < 0)
+        return FsError::Make(FsErrorCode::LocalIoError,
+                             "Cannot create local file: " + path + ": " +
+                                 std::strerror(errno));
+    ::close(fd);
+    return FsError::Success();
 }
 
 // Copies libssh2 attributes into a FileInfo, honouring the presence flags:
@@ -361,6 +387,7 @@ struct SftpService::DownloadTask {
     TransferHandle handleId = kInvalidTransferHandle;
     std::string   remotePath;
     std::string   localPath;
+    std::optional<uint32_t> sourceMode;
     LIBSSH2_SFTP_HANDLE* handle = nullptr;
     std::ofstream out;
     uint64_t      transferred = 0;
@@ -420,6 +447,8 @@ struct SftpService::DownloadTask {
                 case InitResult::Failed:  return Finish(std::move(err));
                 case InitResult::Ready:   break;
             }
+            if (const FsError err = CreateLocalFile(localPath, sourceMode); err.Failed())
+                return Finish(err);
             out.open(localPath, std::ios::binary | std::ios::trunc);
             if (!out)
                 return Finish(FsError::Make(FsErrorCode::LocalIoError,
@@ -478,6 +507,7 @@ struct SftpService::UploadTask {
     TransferHandle handleId = kInvalidTransferHandle;
     std::string   localPath;
     std::string   remotePath;
+    std::optional<uint32_t> sourceMode;
     LIBSSH2_SFTP_HANDLE* handle  = nullptr;
     std::ifstream in;
     char          buf[kTransferChunk]{};
@@ -548,11 +578,16 @@ struct SftpService::UploadTask {
         }
 
         if (state == State::OpenHandle) {
+            // The mode is only consulted where the server creates the file, so
+            // overwriting leaves the existing permissions alone. That is what
+            // makes this safe for the remote-edit path, which uploads over a
+            // file whose mode is the user's business, not ours.
+            const long mode = static_cast<long>(
+                sourceMode.value_or(kDefaultFileMode) & kModeBitsMask);
             LIBSSH2_SFTP_HANDLE* h = libssh2_sftp_open(
                 svc->sftp_, remotePath.c_str(),
                 LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_TRUNC,
-                LIBSSH2_SFTP_S_IRUSR | LIBSSH2_SFTP_S_IWUSR |
-                LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH);  // 0644
+                mode);
             if (!h) {
                 if (libssh2_session_last_errno(svc->session_) == LIBSSH2_ERROR_EAGAIN)
                     return true;
@@ -843,6 +878,7 @@ void SftpService::SetPermissions(const std::string& path, uint32_t mode,
 
 TransferHandle SftpService::Download(const std::string& remotePath,
                                      const std::string& localPath,
+                                     std::optional<uint32_t> sourceMode,
                                      ProgressCallback onProgress,
                                      DoneCallback onDone)
 {
@@ -855,6 +891,7 @@ TransferHandle SftpService::Download(const std::string& remotePath,
     t->handleId   = id;
     t->remotePath = remotePath;
     t->localPath  = localPath;
+    t->sourceMode = sourceMode;
     t->onProgress = std::move(onProgress);
     t->onDone     = std::move(onDone);
     EnqueueTask(t);
@@ -863,6 +900,7 @@ TransferHandle SftpService::Download(const std::string& remotePath,
 
 TransferHandle SftpService::Upload(const std::string& localPath,
                                    const std::string& remotePath,
+                                   std::optional<uint32_t> sourceMode,
                                    ProgressCallback onProgress,
                                    DoneCallback onDone)
 {
@@ -873,6 +911,7 @@ TransferHandle SftpService::Upload(const std::string& localPath,
     t->handleId   = id;
     t->localPath  = localPath;
     t->remotePath = remotePath;
+    t->sourceMode = sourceMode;
     t->onProgress = std::move(onProgress);
     t->onDone     = std::move(onDone);
     EnqueueTask(t);

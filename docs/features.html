@@ -194,7 +194,7 @@
     <p>Type an octal value such as <code>755</code> and the Read / Write / Execute grid follows it; tick the boxes instead and the octal field updates to match. Nothing is sent to the remote host until you click <strong>OK</strong>.</p>
 
     <h3>Transfer mode</h3>
-    <p>Two panes side by side with a transfer queue below. Point either pane at <em>This computer</em> or at any active SSH session using its dropdown — uploads, downloads and <strong>server-to-server</strong> copies are all the same operation.</p>
+    <p>Two panes side by side with a transfer queue below. Point either pane at <em>This computer</em> or at any active SSH session using its dropdown — uploads, downloads, <strong>server-to-server</strong> copies and copies between two local folders are all the same operation.</p>
 
     <figure>
       <img src="img/file-transfer.png" alt="The naFX window in Transfer mode: two file panes side by side, the left pointed at root@vwww10 and the right at This computer, each with its own path field, filter and column headers. Between them at the bottom are Copy to This computer and Copy to root@vwww10 buttons, an Explore Mode button on the left, and below that a transfer queue with File, Route, Progress and Status columns plus Cancel, Cancel All and Clear Finished buttons.">
@@ -214,7 +214,9 @@
       <li><strong>Cancel</strong> stops the selected transfer; <strong>Cancel All</strong> stops everything queued; <strong>Clear Finished</strong> tidies away what has completed.</li>
       <li><strong>Directories</strong> transfer recursively.</li>
       <li><strong>Symbolic links</strong> are handled the way you choose, from the dropdown beside the mode button. <em>Keep links</em> reproduces each link on the far side pointing where it already points; <em>Skip links</em> leaves them out of the copy, listing them in the queue as skipped so nothing goes missing quietly. A recursive copy never descends <em>through</em> a link either way, so a link pointing at a parent directory cannot turn a copy into an endless one. A kept link whose target does not exist on the destination will be a dangling link — that is what was asked for, and naTE will not second-guess it. The starting choice for new windows is <strong>Edit → Preferences → Behavior → Symbolic links in copies</strong>.</li>
-      <li><strong>Drag and drop</strong> — files dragged from your desktop file manager onto a pane are queued for upload to that pane's current directory.</li>
+      <li><strong>Permissions</strong> are reproduced on the copy: a script that was executable where it came from is executable where it lands. As with <code>cp</code>, this applies where the copy creates the file — overwriting an existing one leaves that file's permissions alone — and the destination's own umask still applies. setuid, setgid and sticky bits are deliberately not carried across.</li>
+      <li><strong>Drag and drop</strong> — files dragged from your desktop file manager onto a pane are queued for copying into that pane's current directory.</li>
+      <li><strong>Copies that go nowhere</strong> are refused by name rather than half-attempted: a file onto itself, or a directory into its own subtree.</li>
       <li>Transfers <strong>keep running</strong> when you switch back to Explore mode; progress stays visible in the status bar.</li>
     </ul>
 

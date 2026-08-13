@@ -95,4 +95,16 @@ std::string Normalise(const std::string& path)
     return out;
 }
 
+bool Contains(const std::string& dir, const std::string& path)
+{
+    const std::string base   = Normalise(dir);
+    const std::string target = Normalise(path);
+
+    if (base == target) return true;
+    // The separator has to be part of the comparison, or "/etc" would be found
+    // to contain "/etcetera".
+    const std::string prefix = base == "/" ? base : base + "/";
+    return target.compare(0, prefix.size(), prefix) == 0;
+}
+
 } // namespace term::fs::path

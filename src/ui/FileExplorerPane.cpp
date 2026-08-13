@@ -421,7 +421,10 @@ std::vector<FileExplorerPane::Item> FileExplorerPane::SelectedItems() const
         const auto row = static_cast<size_t>(index);
         if (row >= controller_->Model().VisibleCount()) continue;
         const term::transport::FileInfo& e = controller_->Model().At(row);
-        items.push_back({controller_->PathOf(row), e.name, e.isDir, e.isSymlink, e.size});
+        // The mode travels with the item so a copy can reproduce it without a
+        // second round trip; the listing has already told us.
+        items.push_back({controller_->PathOf(row), e.name, e.isDir, e.isSymlink,
+                         e.size, e.mode});
     }
     return items;
 }
