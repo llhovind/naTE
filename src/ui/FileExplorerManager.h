@@ -53,6 +53,12 @@ public:
     // and one that vanished mid-interaction would not be.
     void OnSessionDestroyed(term::session::SessionId id);
 
+    // Tells every window that a file has been written behind their backs — a
+    // remote edit saving, for instance — so a pane showing that directory can
+    // pick up the new size and timestamp instead of displaying the listing the
+    // write invalidated. endpoint is 0 for this computer.
+    void OnFileChanged(term::session::SessionId endpoint, const std::string& path);
+
     void UpdateConfig(const AppConfig& cfg);
 
 private:

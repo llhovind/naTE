@@ -153,10 +153,18 @@ void RemoteEditSession::TriggerUpload()
     // the transport's thread could only ever be a stale hint.
     auto ctx = guard_.For(this);
     sm_.UploadFile(sessionId_, local, remote,
-        [ctx](term::transport::FsError /*err*/) {
-            ctx.Post([](RemoteEditSession& s) {
+        [ctx](term::transport::FsError err) mutable {
+            ctx.Post([err = std::move(err)](RemoteEditSession& s) {
                 s.uploadInFlight_.store(false, std::memory_order_relaxed);
-                if (s.pendingUpload_.exchange(false))
+
+                // Only a write that actually landed changed the remote, and
+                // only the last one of a coalesced burst is worth announcing —
+                // a pending upload is about to supersede this listing anyway.
+                const bool more = s.pendingUpload_.exchange(false);
+                if (!err.Failed() && !more && s.onSaved_)
+                    s.onSaved_(s.sessionId_, s.remotePath_);
+
+                if (more)
                     s.TriggerUpload();
             });
         });

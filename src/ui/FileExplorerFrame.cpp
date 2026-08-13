@@ -900,6 +900,22 @@ void FileExplorerFrame::OnSessionEnded(term::session::SessionId id)
     UpdateTransferButtons();
 }
 
+void FileExplorerFrame::OnFileChanged(term::session::SessionId endpoint,
+                                      const std::string& path)
+{
+    const std::string dir = term::fs::path::Normalise(term::fs::path::Parent(path));
+
+    for (FileExplorerPane* pane : {leftPane_, rightPane_}) {
+        // A hidden pane costs a round trip nobody sees; ApplyMode refreshes it
+        // when it comes back.
+        if (!pane || !pane->IsShown() || !pane->IsLive())              continue;
+        if (pane->CurrentEndpoint().sessionId != endpoint)             continue;
+        if (term::fs::path::Normalise(pane->CurrentPath()) != dir)     continue;
+
+        pane->Reload();
+    }
+}
+
 void FileExplorerFrame::OnDestroy(wxWindowDestroyEvent& evt)
 {
     // Destroy events from this frame's own children propagate up to here, so

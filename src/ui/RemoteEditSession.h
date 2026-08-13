@@ -30,6 +30,13 @@ public:
     RemoteEditSession(const RemoteEditSession&)            = delete;
     RemoteEditSession& operator=(const RemoteEditSession&) = delete;
 
+    // Reports a save that has reached the remote: the session it landed on and
+    // the absolute remote path. Invoked on the UI thread, once per successful
+    // upload, so an observer can re-read what the write changed.
+    using SavedFn = std::function<void(term::session::SessionId,
+                                       const std::string& remotePath)>;
+    void SetOnSaved(SavedFn cb) { onSaved_ = std::move(cb); }
+
     // Starts the inotify watch loop. Must be called once after construction.
     void Start();
 
@@ -54,6 +61,7 @@ private:
     std::string                    remotePath_;
     std::string                    localPath_;
     term::session::SessionManager& sm_;
+    SavedFn                        onSaved_;
 
     // Retires the watch and upload callbacks. Retired by Stop() rather than
     // only by destruction: a stopped session lingers until its owner erases it,

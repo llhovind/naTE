@@ -27,6 +27,13 @@ public:
                         const std::string&        editorCommand,
                         std::function<void(bool, std::string)> onReady);
 
+    // Reports every save that reaches a remote, as (session, remote path), on
+    // the UI thread. The manager does not know who cares — an open explorer
+    // showing that directory is holding a listing the write just invalidated —
+    // so the owner routes it.
+    using SavedFn = RemoteEditSession::SavedFn;
+    void SetOnFileSaved(SavedFn cb) { onFileSaved_ = std::move(cb); }
+
     // Stops a single edit session identified by local temp path and removes it.
     void StopSession(const std::string& localPath);
 
@@ -40,6 +47,7 @@ public:
 
 private:
     term::session::SessionManager&                  sm_;
+    SavedFn                                         onFileSaved_;
     std::vector<std::unique_ptr<RemoteEditSession>> sessions_;
     // Declared last so it is destroyed first: the download continuation it
     // guards touches sessions_, which must still exist when the guard retires.

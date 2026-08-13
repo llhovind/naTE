@@ -188,6 +188,15 @@ bool App::OnInit() {
             m_cfg.save(m_configPath);
         });
 
+    // A save from an external editor lands a new size and timestamp on the
+    // remote, which no explorer window has any way of noticing on its own.
+    // Wired here rather than between the two managers because neither should
+    // know the other exists: one runs edits, the other shows directories.
+    m_remoteEditManager->SetOnFileSaved(
+        [this](term::session::SessionId id, const std::string& path) {
+            if (m_fileExplorerManager) m_fileExplorerManager->OnFileChanged(id, path);
+        });
+
     const std::string restorePath = InstanceRestorePath(m_instanceId);
     m_restoreRepo = std::make_unique<term::db::JsonSessionRestoreRepository>(restorePath);
     m_namedRepo   = std::make_unique<term::db::JsonNamedWorkspaceRepository>(NateDir() + "/workspaces");

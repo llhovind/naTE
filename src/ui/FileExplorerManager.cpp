@@ -85,6 +85,15 @@ void FileExplorerManager::OnSessionDestroyed(term::session::SessionId id)
         if (frame) frame->OnSessionEnded(id);
 }
 
+void FileExplorerManager::OnFileChanged(term::session::SessionId endpoint,
+                                        const std::string& path)
+{
+    // Broadcast for the same reason as OnSessionDestroyed: any window's pane
+    // may be pointed at this endpoint, not just the one opened for it.
+    for (auto& [openedFor, frame] : frames_)
+        if (frame) frame->OnFileChanged(endpoint, path);
+}
+
 void FileExplorerManager::UpdateConfig(const AppConfig& cfg)
 {
     cfg_ = cfg;

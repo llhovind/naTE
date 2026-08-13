@@ -51,6 +51,13 @@ void RemoteEditManager::OpenRemoteFile(term::session::SessionId  id,
 
                 auto session = std::make_unique<RemoteEditSession>(
                     id, remotePath, localPath, mgr.sm_);
+                // Safe to capture the manager: a session's callbacks are
+                // retired by Stop(), which runs before it leaves sessions_ and
+                // before the manager itself is taken apart.
+                session->SetOnSaved(
+                    [&mgr](term::session::SessionId sid, const std::string& path) {
+                        if (mgr.onFileSaved_) mgr.onFileSaved_(sid, path);
+                    });
                 session->Start();
                 mgr.sessions_.push_back(std::move(session));
 

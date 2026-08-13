@@ -57,6 +57,12 @@ public:
     // elsewhere carries on, because a window can now span several sessions.
     void OnSessionEnded(term::session::SessionId id);
 
+    // A file on some endpoint has been written from outside this window — an
+    // external editor saving back, for instance. Any pane sitting in that
+    // file's directory re-reads it; everything else is untouched, so a save
+    // costs at most one listing per pane that was actually looking at it.
+    void OnFileChanged(term::session::SessionId endpoint, const std::string& path);
+
     // Explore gives the whole window to one listing; Transfer adds the second
     // pane, the copy buttons and the queue panel. Idempotent.
     void SetMode(FileExplorerMode mode);
