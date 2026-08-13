@@ -37,6 +37,14 @@ enum class SftpSlot : size_t {
     MkDir,
     RmDir,
     Symlink,  // symlink, readlink, realpath — one state machine for all three
+    // Closing a handle. Unlike the slots above, libssh2 keeps close state on
+    // the handle rather than the session, so two closes could safely overlap.
+    // They share a slot anyway because a waiting task has to name one, and a
+    // close is a single round-trip — serialising them costs nothing worth the
+    // extra slot. What it must never be is folded into the slot the task was
+    // already using: a download's close is not a read, and parking it on
+    // Slot::Read would block every other transfer behind a finished one.
+    Close,
     Count,
 };
 

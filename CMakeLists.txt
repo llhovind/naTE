@@ -210,6 +210,7 @@ set(SOURCES
     src/fs/ExplorerController.cpp
     src/fs/RemoteDeleter.cpp
     src/fs/LinkResolver.cpp
+    src/fs/EditTempPath.cpp
     src/layout/DocLayout.cpp
     src/layout/UrlScanner.cpp
     src/layout/WordSelector.cpp

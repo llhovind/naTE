@@ -288,7 +288,7 @@ struct SftpService::StatTask {
 };
 
 struct SftpService::ListDirTask {
-    enum class State { InitSftp, OpenDir, ReadLoop };
+    enum class State { InitSftp, OpenDir, ReadLoop, Closing };
 
     SftpService*  svc   = nullptr;
     State         state = State::InitSftp;
@@ -296,11 +296,17 @@ struct SftpService::ListDirTask {
     LIBSSH2_SFTP_HANDLE* handle = nullptr;
     std::vector<FileInfo> entries;
     ListCallback  onDone;
+    // The result the task will report, held from the moment it stops making
+    // progress until its handle is closed.
+    FsError       outcome;
 
     ListDirTask() = default;
     ListDirTask(const ListDirTask&) = delete;
     ListDirTask& operator=(const ListDirTask&) = delete;
 
+    // Last-resort only: every path that retires the task closes the handle
+    // through the queue first. This catches a task destroyed without ever
+    // being stepped, where abandoning the handle is all that is left.
     ~ListDirTask() { if (handle) libssh2_sftp_closedir(handle); }
 
     Slot CurrentSlot() const
@@ -309,24 +315,40 @@ struct SftpService::ListDirTask {
             case State::InitSftp: return Slot::Init;
             case State::OpenDir:  return Slot::Open;
             case State::ReadLoop: return Slot::ReadDir;
+            case State::Closing:  return Slot::Close;
         }
         return Slot::Open;
+    }
+
+    // Parks the outcome and hands the task over to the close, which is the only
+    // thing left that can change it.
+    bool Finish(FsError err)
+    {
+        outcome = std::move(err);
+        state   = State::Closing;
+        return AdvanceClose();
     }
 
     // Hands back whatever was read alongside the outcome. A directory that
     // fails partway is still useful, and discarding it would be a worse lie
     // than showing it with the error attached.
-    bool Finish(FsError err)
+    bool AdvanceClose()
     {
-        if (handle) { libssh2_sftp_closedir(handle); handle = nullptr; }
+        if (svc->StepHandleClose(handle, outcome, path) == CloseResult::Pending)
+            return true;
+
         auto cb   = std::move(onDone);
         auto ents = std::move(entries);
-        cb(std::move(ents), std::move(err));
+        cb(std::move(ents), std::move(outcome));
         return false;
     }
 
     bool operator()()
     {
+        // Ahead of the stop check: a task already closing owes its callback,
+        // and routing it back through Finish would restart the close it is in.
+        if (state == State::Closing) return AdvanceClose();
+
         if (svc->Stopped())
             return Finish(FsError::Make(FsErrorCode::NotConnected, "Session closed"));
 
@@ -380,7 +402,7 @@ struct SftpService::ListDirTask {
 };
 
 struct SftpService::DownloadTask {
-    enum class State { InitSftp, OpenHandle, FStat, ReadLoop };
+    enum class State { InitSftp, OpenHandle, FStat, ReadLoop, Closing };
 
     SftpService*  svc   = nullptr;
     State         state = State::InitSftp;
@@ -395,11 +417,17 @@ struct SftpService::DownloadTask {
     std::chrono::steady_clock::time_point lastProgress{};
     ProgressCallback onProgress;
     DoneCallback  onDone;
+    // The result the task will report, held from the moment it stops making
+    // progress until its handle is closed.
+    FsError       outcome;
 
     DownloadTask() = default;
     DownloadTask(const DownloadTask&) = delete;
     DownloadTask& operator=(const DownloadTask&) = delete;
 
+    // Last-resort only: every path that retires the task closes the handle
+    // through the queue first. This catches a task destroyed without ever
+    // being stepped, where abandoning the handle is all that is left.
     ~DownloadTask() { if (handle) libssh2_sftp_close(handle); }
 
     Slot CurrentSlot() const
@@ -409,17 +437,29 @@ struct SftpService::DownloadTask {
             case State::OpenHandle:  return Slot::Open;
             case State::FStat:       return Slot::FStat;
             case State::ReadLoop:    return Slot::Read;
+            case State::Closing:     return Slot::Close;
         }
         return Slot::Read;
     }
 
+    // Parks the outcome and hands the task over to the close, which is the only
+    // thing left that can change it.
     bool Finish(FsError err)
     {
-        if (handle) { libssh2_sftp_close(handle); handle = nullptr; }
+        outcome = std::move(err);
+        state   = State::Closing;
+        return AdvanceClose();
+    }
+
+    bool AdvanceClose()
+    {
+        if (svc->StepHandleClose(handle, outcome, remotePath) == CloseResult::Pending)
+            return true;
+
         out.close();
         svc->ForgetCancellation(handleId);
-        if (err.Ok() && onProgress) onProgress(transferred, total);
-        onDone(std::move(err));
+        if (outcome.Ok() && onProgress) onProgress(transferred, total);
+        onDone(std::move(outcome));
         return false;
     }
 
@@ -435,6 +475,11 @@ struct SftpService::DownloadTask {
 
     bool operator()()
     {
+        // Ahead of the stop and cancel checks: a task already closing owes its
+        // callback, and routing it back through Finish would restart the close
+        // it is in — and would overwrite the outcome it is carrying.
+        if (state == State::Closing) return AdvanceClose();
+
         if (svc->Stopped())
             return Finish(FsError::Make(FsErrorCode::NotConnected, "Session closed"));
         if (svc->IsCancelled(handleId))
@@ -500,7 +545,7 @@ struct SftpService::DownloadTask {
 };
 
 struct SftpService::UploadTask {
-    enum class State { InitSftp, OpenHandle, WriteLoop };
+    enum class State { InitSftp, OpenHandle, WriteLoop, Closing };
 
     SftpService*  svc   = nullptr;
     State         state = State::InitSftp;
@@ -519,10 +564,17 @@ struct SftpService::UploadTask {
     ProgressCallback onProgress;
     DoneCallback  onDone;
 
+    // The result the task will report, held from the moment it stops making
+    // progress until its handle is closed.
+    FsError       outcome;
+
     UploadTask() = default;
     UploadTask(const UploadTask&) = delete;
     UploadTask& operator=(const UploadTask&) = delete;
 
+    // Last-resort only: every path that retires the task closes the handle
+    // through the queue first. This catches a task destroyed without ever
+    // being stepped, where abandoning the handle is all that is left.
     ~UploadTask() { if (handle) libssh2_sftp_close(handle); }
 
     Slot CurrentSlot() const
@@ -531,17 +583,31 @@ struct SftpService::UploadTask {
             case State::InitSftp:   return Slot::Init;
             case State::OpenHandle: return Slot::Open;
             case State::WriteLoop:  return Slot::Write;
+            case State::Closing:    return Slot::Close;
         }
         return Slot::Write;
     }
 
+    // Parks the outcome and hands the task over to the close. For an upload
+    // that is not bookkeeping: the file was opened with TRUNC, so until the
+    // close lands the remote copy is shorter than what was sent, and reporting
+    // success before it would be reporting a save that has not happened.
     bool Finish(FsError err)
     {
-        if (handle) { libssh2_sftp_close(handle); handle = nullptr; }
+        outcome = std::move(err);
+        state   = State::Closing;
+        return AdvanceClose();
+    }
+
+    bool AdvanceClose()
+    {
+        if (svc->StepHandleClose(handle, outcome, remotePath) == CloseResult::Pending)
+            return true;
+
         in.close();
         svc->ForgetCancellation(handleId);
-        if (err.Ok() && onProgress) onProgress(transferred, total);
-        onDone(std::move(err));
+        if (outcome.Ok() && onProgress) onProgress(transferred, total);
+        onDone(std::move(outcome));
         return false;
     }
 
@@ -556,6 +622,11 @@ struct SftpService::UploadTask {
 
     bool operator()()
     {
+        // Ahead of the stop and cancel checks: a task already closing owes its
+        // callback, and routing it back through Finish would restart the close
+        // it is in — and would overwrite the outcome it is carrying.
+        if (state == State::Closing) return AdvanceClose();
+
         if (svc->Stopped())
             return Finish(FsError::Make(FsErrorCode::NotConnected, "Session closed"));
         if (svc->IsCancelled(handleId))
@@ -661,6 +732,30 @@ SftpService::InitResult SftpService::EnsureSftp(FsError& err)
         return InitResult::Failed;
     }
     return InitResult::Pending;
+}
+
+SftpService::CloseResult SftpService::StepHandleClose(LIBSSH2_SFTP_HANDLE*& handle,
+                                                      FsError& outcome,
+                                                      const std::string& path)
+{
+    if (!handle) return CloseResult::Done;
+
+    // A session that is going away will never answer the CLOSE, and the handle
+    // dies with it. Waiting here would hold the task — and the callback it
+    // still owes — open forever.
+    if (Stopped()) {
+        handle = nullptr;
+        return CloseResult::Done;
+    }
+
+    const int rc = libssh2_sftp_close(handle);
+    if (rc == LIBSSH2_ERROR_EAGAIN)
+        return CloseResult::Pending;
+
+    handle = nullptr;
+    if (rc < 0 && outcome.Ok())
+        outcome = MakeError("Cannot close '" + path + "'");
+    return CloseResult::Done;
 }
 
 FsError SftpService::MakeError(const std::string& context) const

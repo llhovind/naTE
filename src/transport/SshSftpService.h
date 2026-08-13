@@ -14,6 +14,7 @@
 
 struct _LIBSSH2_SESSION;
 struct _LIBSSH2_SFTP;
+struct _LIBSSH2_SFTP_HANDLE;
 
 namespace term::transport {
 
@@ -120,6 +121,27 @@ private:
     // Worker-thread only. Translates the current libssh2/SFTP error state into
     // a typed FsError, prefixing message with context.
     FsError MakeError(const std::string& context) const;
+
+    // Outcome of a single non-blocking attempt to close an SFTP handle.
+    enum class CloseResult { Pending, Done };
+
+    // Worker-thread only. Advances one handle close by a single step.
+    //
+    // Closing is an operation like any other here: on a non-blocking session it
+    // sends a CLOSE and waits for the reply, returning EAGAIN until that
+    // arrives. Treating it as fire-and-forget loses real data — for a write
+    // handle the buffered bytes and the CLOSE never reach the server, so an
+    // upload that has already truncated the remote file leaves it truncated
+    // while reporting success — and strands a half-finished operation on the
+    // session for whatever runs next.
+    //
+    // Nulls handle once it is closed, or abandoned because the session is gone
+    // and no reply is coming. outcome is only overwritten when the close fails
+    // and the caller had nothing worse to report: a close that fails after a
+    // failed read is a consequence, not the cause.
+    CloseResult StepHandleClose(_LIBSSH2_SFTP_HANDLE*& handle,
+                                FsError& outcome,
+                                const std::string& path);
 
     // Wraps a task state machine and queues it. Every operation goes through
     // here, so the step and the slot query can never be paired up wrongly.

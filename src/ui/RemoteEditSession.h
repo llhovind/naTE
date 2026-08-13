@@ -59,14 +59,9 @@ public:
     // Starts the inotify watch loop. Must be called once after construction.
     void Start();
 
-    // Stops the watch loop (write to stop-pipe, join thread, close fds).
-    // Idempotent; safe from any thread.
+    // Stops the watch loop (write to stop-pipe, join thread, close fds), then
+    // removes the working copy. Idempotent; safe from any thread.
     void Stop();
-
-    // Builds the local temp path: /tmp/nate-edit/<hostname>/<encoded-path>/<filename>
-    // Path components with '/' are encoded as '%2F'.
-    static std::string MakeTempPath(const std::string& hostname,
-                                    const std::string& remotePath);
 
     term::session::SessionId GetSessionId()  const { return sessionId_;   }
     const std::string&       GetRemotePath() const { return remotePath_;  }

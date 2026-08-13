@@ -1,4 +1,5 @@
 #include "ui/RemoteEditSession.h"
+#include "fs/EditTempPath.h"
 #include <filesystem>
 #include <poll.h>
 #include <sys/inotify.h>
@@ -7,19 +8,6 @@
 #include <cstring>
 
 namespace ui {
-
-namespace {
-    // Encode one path component: replace '/' with '%2F'.
-    std::string EncodePathComponent(const std::string& s) {
-        std::string out;
-        out.reserve(s.size());
-        for (char c : s) {
-            if (c == '/') out += "%2F";
-            else          out += c;
-        }
-        return out;
-    }
-} // namespace
 
 RemoteEditSession::RemoteEditSession(term::session::SessionId     sessionId,
                                      std::string                  remotePath,
@@ -34,17 +22,6 @@ RemoteEditSession::RemoteEditSession(term::session::SessionId     sessionId,
 RemoteEditSession::~RemoteEditSession()
 {
     Stop();
-}
-
-std::string RemoteEditSession::MakeTempPath(const std::string& hostname,
-                                             const std::string& remotePath)
-{
-    // Extract the filename from the remote path.
-    const auto slash = remotePath.rfind('/');
-    const std::string dir  = (slash != std::string::npos) ? remotePath.substr(0, slash) : "";
-    const std::string file = (slash != std::string::npos) ? remotePath.substr(slash + 1) : remotePath;
-
-    return "/tmp/nate-edit/" + hostname + "/" + EncodePathComponent(dir) + "/" + file;
 }
 
 void RemoteEditSession::Start()
@@ -83,12 +60,9 @@ void RemoteEditSession::Stop()
     if (stopPipe_[0] >= 0) { close(stopPipe_[0]); stopPipe_[0] = -1; }
     if (stopPipe_[1] >= 0) { close(stopPipe_[1]); stopPipe_[1] = -1; }
 
-    std::error_code ec;
-    const auto localFile = std::filesystem::path(localPath_);
-    std::filesystem::remove(localFile, ec);
-    // Remove the parent directory only if it is now empty.
-    const auto parentDir = localFile.parent_path();
-    std::filesystem::remove(parentDir, ec); // no-op if non-empty
+    // The working copy sits in a directory of its own, so this takes that with
+    // it, and any level above it the removal leaves empty.
+    term::fs::RemoveWorkingCopy(localPath_);
 }
 
 void RemoteEditSession::WatchLoop()
