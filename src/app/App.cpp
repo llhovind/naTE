@@ -197,6 +197,17 @@ bool App::OnInit() {
             if (m_fileExplorerManager) m_fileExplorerManager->OnFileChanged(id, path);
         });
 
+    // A failed upload is the case the editor cannot report: it wrote the local
+    // copy cleanly, so nothing tells the user the remote file is still stale.
+    // Reported by the window hosting the session, falling back to any window —
+    // the message matters more than which frame parents it.
+    m_remoteEditManager->SetOnFileSaveFailed(
+        [this](const ui::SaveFailure& failure) {
+            WindowContext* wc = FindContextForSession(failure.session);
+            if (!wc && !m_windows.empty()) wc = m_windows.front().get();
+            if (wc && wc->uiManager) wc->uiManager->ReportRemoteSaveFailed(failure);
+        });
+
     const std::string restorePath = InstanceRestorePath(m_instanceId);
     m_restoreRepo = std::make_unique<term::db::JsonSessionRestoreRepository>(restorePath);
     m_namedRepo   = std::make_unique<term::db::JsonNamedWorkspaceRepository>(NateDir() + "/workspaces");

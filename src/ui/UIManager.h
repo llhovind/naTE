@@ -33,6 +33,8 @@ class TerminalTile;
 
 namespace ui {
 
+struct SaveFailure;
+
 class UIManager : public term::session::ISessionObserver {
 public:
     UIManager(term::session::SessionManager& sm,
@@ -108,6 +110,11 @@ public:
     // round-trip exists to give a remote file a local presence, and a file
     // that is already local has nothing to gain from a copy of itself.
     void OpenFileInEditor(term::session::SessionId id, const std::string& path);
+
+    // Tells the user a save from their external editor never reached the
+    // remote. Routed here by App because this window hosts the session the
+    // edit belongs to.
+    void ReportRemoteSaveFailed(const SaveFailure& failure);
 
     // Open the file explorer window for a session (SSH only) in the given
     // mode. Transfer mode is what the "Transfer Files..." entry points reach.

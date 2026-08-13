@@ -155,19 +155,37 @@ void RemoteEditSession::TriggerUpload()
     sm_.UploadFile(sessionId_, local, remote,
         [ctx](term::transport::FsError err) mutable {
             ctx.Post([err = std::move(err)](RemoteEditSession& s) {
-                s.uploadInFlight_.store(false, std::memory_order_relaxed);
-
-                // Only a write that actually landed changed the remote, and
-                // only the last one of a coalesced burst is worth announcing —
-                // a pending upload is about to supersede this listing anyway.
-                const bool more = s.pendingUpload_.exchange(false);
-                if (!err.Failed() && !more && s.onSaved_)
-                    s.onSaved_(s.sessionId_, s.remotePath_);
-
-                if (more)
-                    s.TriggerUpload();
+                s.OnUploadFinished(err);
             });
         });
+}
+
+void RemoteEditSession::OnUploadFinished(const term::transport::FsError& err)
+{
+    uploadInFlight_.store(false, std::memory_order_relaxed);
+
+    // Only the last upload of a coalesced burst is worth announcing: a pending
+    // upload is about to supersede this outcome either way, and a failure that
+    // the very next attempt repairs was never the user's problem.
+    const bool more = pendingUpload_.exchange(false);
+
+    if (!more) {
+        if (err.Failed()) {
+            // Same failure twice running is the same broken state, not news.
+            if (err.message != lastReportedError_) {
+                lastReportedError_ = err.message;
+                if (onSaveFailed_)
+                    onSaveFailed_({sessionId_, remotePath_, localPath_, err.message});
+            }
+        } else {
+            lastReportedError_.clear();
+            if (onSaved_)
+                onSaved_(sessionId_, remotePath_);
+        }
+    }
+
+    if (more)
+        TriggerUpload();
 }
 
 } // namespace ui

@@ -34,6 +34,12 @@ public:
     using SavedFn = RemoteEditSession::SavedFn;
     void SetOnFileSaved(SavedFn cb) { onFileSaved_ = std::move(cb); }
 
+    // Reports a save that never reached the remote, on the UI thread. Routed by
+    // the owner for the same reason as SetOnFileSaved: the manager knows which
+    // session failed, not which window should tell the user about it.
+    using FailedFn = RemoteEditSession::FailedFn;
+    void SetOnFileSaveFailed(FailedFn cb) { onFileSaveFailed_ = std::move(cb); }
+
     // Stops a single edit session identified by local temp path and removes it.
     void StopSession(const std::string& localPath);
 
@@ -48,6 +54,7 @@ public:
 private:
     term::session::SessionManager&                  sm_;
     SavedFn                                         onFileSaved_;
+    FailedFn                                        onFileSaveFailed_;
     std::vector<std::unique_ptr<RemoteEditSession>> sessions_;
     // Declared last so it is destroyed first: the download continuation it
     // guards touches sessions_, which must still exist when the guard retires.

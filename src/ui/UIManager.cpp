@@ -564,6 +564,23 @@ void UIManager::OpenFileInEditor(term::session::SessionId id,
         });
 }
 
+void UIManager::ReportRemoteSaveFailed(const SaveFailure& failure)
+{
+    // The editor has already told the user the write succeeded — locally it
+    // did. Say plainly that the remote copy is the stale one, and point at the
+    // local file, which still holds the edits and is what a retry re-sends.
+    const std::string text =
+        "Your changes were not saved to the remote file.\n\n"
+        + failure.remotePath + "\n"
+        + (failure.message.empty() ? "Upload failed." : failure.message) + "\n\n"
+        "Your edits are still in the local copy:\n"
+        + failure.localPath + "\n\n"
+        "Saving again in the editor retries the upload.";
+
+    wxMessageBox(wxString::FromUTF8(text), "Remote Edit",
+                 wxOK | wxICON_ERROR, frame_);
+}
+
 void UIManager::OpenFileExplorerForSession(term::session::SessionId id,
                                            FileExplorerMode mode)
 {

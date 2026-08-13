@@ -58,6 +58,10 @@ void RemoteEditManager::OpenRemoteFile(term::session::SessionId  id,
                     [&mgr](term::session::SessionId sid, const std::string& path) {
                         if (mgr.onFileSaved_) mgr.onFileSaved_(sid, path);
                     });
+                session->SetOnSaveFailed(
+                    [&mgr](const SaveFailure& failure) {
+                        if (mgr.onFileSaveFailed_) mgr.onFileSaveFailed_(failure);
+                    });
                 session->Start();
                 mgr.sessions_.push_back(std::move(session));
 
