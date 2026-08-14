@@ -7,6 +7,7 @@
 #include "app/App.h"
 #include "ui/FileExplorerManager.h"
 #include "ui/RemoteEditManager.h"
+#include "ui/RemoteEditsDialog.h"
 #include "ui/RemoteFileBrowserDialog.h"
 #include "ui/KbdIntDialog.h"
 #include "ui/PasteConfirmDialog.h"
@@ -562,6 +563,18 @@ void UIManager::OpenFileInEditor(term::session::SessionId id,
                              "Edit Remote File", wxOK | wxICON_ERROR, frame_);
             }
         });
+}
+
+bool UIManager::HasActiveRemoteEdits() const
+{
+    return editMgr_ && editMgr_->HasActiveEdits();
+}
+
+void UIManager::ShowRemoteEdits()
+{
+    if (!editMgr_) return;
+    RemoteEditsDialog dlg(frame_, *editMgr_);
+    dlg.ShowModal();
 }
 
 void UIManager::ReportRemoteSaveFailed(const SaveFailure& failure)

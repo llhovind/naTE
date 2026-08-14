@@ -188,6 +188,7 @@ set(SOURCES
     src/ui/DialogPlacement.cpp
     src/ui/RemoteEditSession.cpp
     src/ui/RemoteEditManager.cpp
+    src/ui/RemoteEditsDialog.cpp
     src/ui/WorkspaceManagerDialog.cpp
     src/ui/GeometryDialog.cpp
     src/ui/PreferencesDialog.cpp
@@ -210,7 +211,7 @@ set(SOURCES
     src/fs/ExplorerController.cpp
     src/fs/RemoteDeleter.cpp
     src/fs/LinkResolver.cpp
-    src/fs/EditTempPath.cpp
+    src/fs/EditWorkspace.cpp
     src/layout/DocLayout.cpp
     src/layout/UrlScanner.cpp
     src/layout/WordSelector.cpp

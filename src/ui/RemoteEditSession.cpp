@@ -1,5 +1,5 @@
 #include "ui/RemoteEditSession.h"
-#include "fs/EditTempPath.h"
+#include "fs/EditWorkspace.h"
 #include <filesystem>
 #include <poll.h>
 #include <sys/inotify.h>

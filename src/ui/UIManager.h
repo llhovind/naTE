@@ -111,6 +111,15 @@ public:
     // that is already local has nothing to gain from a copy of itself.
     void OpenFileInEditor(term::session::SessionId id, const std::string& path);
 
+    // Shows the edits in progress so the user can end one. Their say-so is the
+    // only trustworthy signal that an edit is over — see RemoteEditsDialog.
+    void ShowRemoteEdits();
+
+    // Whether any edit is in progress. Queried at menu-update time rather than
+    // tracked, so an edit that ended with its SSH session cannot leave a stale
+    // enabled item behind.
+    bool HasActiveRemoteEdits() const;
+
     // Tells the user a save from their external editor never reached the
     // remote. Routed here by App because this window hosts the session the
     // edit belongs to.

@@ -11,6 +11,20 @@
 
 namespace ui {
 
+// One edit currently in progress, flattened to what an observer needs to show
+// it and to act on it. A snapshot: the sessions behind it are owned by the
+// manager and may be gone by the time this is read, which is why the identity
+// carried here is the local path rather than a pointer.
+struct ActiveEdit {
+    term::session::SessionId session = 0;
+    std::string              remotePath;
+    std::string              localPath;
+    // Resolved here rather than by the reader: it is the one field that needs a
+    // SessionManager, and asking every observer to hold one just to render a
+    // label would spread that dependency for nothing.
+    std::string              host;
+};
+
 // Application-global manager for remote-edit sessions.
 // Owned by App; all methods must be called on the UI thread.
 class RemoteEditManager {
@@ -40,16 +54,25 @@ public:
     using FailedFn = RemoteEditSession::FailedFn;
     void SetOnFileSaveFailed(FailedFn cb) { onFileSaveFailed_ = std::move(cb); }
 
-    // Stops a single edit session identified by local temp path and removes it.
+    // Stops a single edit session identified by local temp path and removes it,
+    // which discards its working copy. This is how an edit ends on purpose:
+    // nothing else can tell, because the editor is launched detached and its
+    // exit means different things for different editors.
     void StopSession(const std::string& localPath);
 
     // Stops and removes all edit sessions belonging to the given SSH session.
     // Called when an SSH session is destroyed.
     void OnSessionDestroyed(term::session::SessionId id);
 
-    const std::vector<std::unique_ptr<RemoteEditSession>>& GetSessions() const {
-        return sessions_;
-    }
+    // Every edit in progress, newest last. Read live at the point of use rather
+    // than cached by an observer — an edit can end for reasons the observer
+    // never sees, such as its SSH session going away.
+    std::vector<ActiveEdit> ListActiveEdits() const;
+
+    // Whether ListActiveEdits would return anything. Separate because the menu
+    // guard asks this on every idle cycle and only needs the answer, not the
+    // vector of strings building one would allocate.
+    bool HasActiveEdits() const { return !sessions_.empty(); }
 
 private:
     term::session::SessionManager&                  sm_;

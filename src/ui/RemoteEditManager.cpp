@@ -1,12 +1,13 @@
 #include "ui/RemoteEditManager.h"
 #include "ui/EditorLauncher.h"
-#include "fs/EditTempPath.h"
+#include "fs/EditWorkspace.h"
 #include <filesystem>
 #include <wx/app.h>
 #include <algorithm>
 #include <cerrno>
 #include <cstdlib>
 #include <system_error>
+#include <unistd.h>
 #include <vector>
 
 namespace ui {
@@ -23,7 +24,7 @@ namespace {
 // remote permissions we deliberately do not replicate.
 //
 // Returns an empty path on failure, with the reason in err.
-std::string CreateWorkingCopyDir(const term::fs::EditTempPath& layout,
+std::string CreateWorkingCopyDir(const term::fs::WorkingCopyPath& layout,
                                  std::string& err)
 {
     std::error_code ec;
@@ -69,7 +70,9 @@ void RemoteEditManager::OpenRemoteFile(term::session::SessionId  id,
                                         std::function<void(bool, std::string)> onReady)
 {
     const std::string hostname = sm_.GetRemoteDescription(id);
-    const auto layout = term::fs::MakeEditTempPath(hostname, remotePath);
+    // Stamped with this process so a later run can tell our working copies from
+    // a live sibling instance's when it reclaims what a crash left behind.
+    const auto layout = term::fs::MakeWorkingCopyPath(hostname, remotePath, ::getpid());
     if (layout.fileName.empty()) {
         if (onReady) onReady(false, "Not a file: " + remotePath);
         return;
@@ -138,6 +141,17 @@ void RemoteEditManager::StopSession(const std::string& localPath)
 
     (*it)->Stop();
     sessions_.erase(it);
+}
+
+std::vector<ActiveEdit> RemoteEditManager::ListActiveEdits() const
+{
+    std::vector<ActiveEdit> edits;
+    edits.reserve(sessions_.size());
+    for (const auto& s : sessions_) {
+        edits.push_back({s->GetSessionId(), s->GetRemotePath(), s->GetLocalPath(),
+                         sm_.GetRemoteDescription(s->GetSessionId())});
+    }
+    return edits;
 }
 
 void RemoteEditManager::OnSessionDestroyed(term::session::SessionId id)

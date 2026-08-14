@@ -5,6 +5,7 @@
 #include "db/JsonScrollbackRepository.h"
 #include "db/JsonSessionRestoreRepository.h"
 #include "db/ScrollbackPurge.h"
+#include "fs/EditWorkspace.h"
 #include "transport/AppSessionDefaults.h"
 #include "session/RestoreState.h"
 #include "ui/MainFrame.h"
@@ -213,6 +214,12 @@ bool App::OnInit() {
     m_namedRepo   = std::make_unique<term::db::JsonNamedWorkspaceRepository>(NateDir() + "/workspaces");
 
     PurgeOrphanedScrollback();
+
+    // Before any edit of this run can create one, so a directory carrying our
+    // own pid is provably a dead instance's rather than ours. Working copies
+    // belonging to a running naTE — another window, or a peer instance about to
+    // be restored — are left untouched, unsaved edits and all.
+    term::fs::PurgeOrphanedWorkingCopies(term::fs::DefaultOwnerIsLive);
 
     // Parse CLI flags.
     // --no-restore:              suppress restore even when config enables it.
