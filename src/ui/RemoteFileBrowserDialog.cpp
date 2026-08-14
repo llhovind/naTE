@@ -1,6 +1,5 @@
 #include "ui/RemoteFileBrowserDialog.h"
 
-#include "ui/ColorUtils.h"
 #include "ui/StringUtils.h"
 
 #include <wx/app.h>
