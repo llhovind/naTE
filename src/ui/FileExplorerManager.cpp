@@ -1,19 +1,50 @@
 #include "ui/FileExplorerManager.h"
 
+#include "ui/DialogPlacement.h"
+
+#include <wx/display.h>
 #include <wx/msgdlg.h>
 #include <wx/window.h>
 
 namespace ui {
 
+namespace {
+
+// How far each additional window is stepped down and right from the saved
+// position. Roughly a title bar: far enough that the window beneath is visibly
+// there and can be clicked, close enough that the group still reads as one.
+constexpr int kCascadeStep = 28;
+
+// How much of a restored window must land on a display for the position to be
+// used. A title bar's worth in each direction — below that there is nothing
+// left to drag the window back by.
+constexpr int kMinOnScreen = 80;
+
+std::vector<ScreenRect> DisplayRects()
+{
+    std::vector<ScreenRect> rects;
+    const unsigned count = wxDisplay::GetCount();
+    rects.reserve(count);
+    for (unsigned i = 0; i < count; ++i) {
+        // The client area, not the full geometry: a window placed under a panel
+        // or a dock is as hard to reach as one placed off the screen entirely.
+        const wxRect r = wxDisplay(i).GetClientArea();
+        rects.push_back(ScreenRect{r.x, r.y, r.width, r.height});
+    }
+    return rects;
+}
+
+} // namespace
+
 FileExplorerManager::FileExplorerManager(
     term::session::SessionManager& sm,
     const AppConfig& cfg,
     std::function<void(term::session::SessionId, std::string)> onOpenInEditor,
-    std::function<void(int, int)> onGeometryChanged)
+    std::function<void(const FileExplorerLayout&)> onLayoutChanged)
     : sm_(sm)
     , cfg_(cfg)
     , onOpenInEditor_(std::move(onOpenInEditor))
-    , onGeometryChanged_(std::move(onGeometryChanged))
+    , onLayoutChanged_(std::move(onLayoutChanged))
 {}
 
 FileExplorerManager::~FileExplorerManager()
@@ -24,7 +55,7 @@ FileExplorerManager::~FileExplorerManager()
     for (auto& [id, frame] : frames_) {
         if (!frame) continue;
         frame->SetOnClosed(nullptr);
-        frame->SetOnGeometryChanged(nullptr);
+        frame->SetOnLayoutChanged(nullptr);
         frame->SetOnOpenInEditor(nullptr);
     }
 }
@@ -61,19 +92,53 @@ void FileExplorerManager::OpenForSession(wxWindow* parent,
 
     frame->SetOnClosed([this, id] { frames_.erase(id); });
 
-    // Mode before the geometry callback: the PersistGeometry inside ApplyMode
-    // then no-ops, so merely opening a window never rewrites config.ini.
+    // Mode before the layout callback: the PersistLayout inside ApplyMode then
+    // no-ops, so merely opening a window never rewrites config.ini. It is also
+    // before placement, because Transfer mode is twice as wide and the position
+    // has to be judged against the size the window will actually have.
     frame->SetMode(mode);
-    frame->SetOnGeometryChanged(
-        [this](int width, int height) {
+    PlaceFrame(*frame);
+
+    frame->SetOnLayoutChanged(
+        [this](const FileExplorerLayout& layout) {
             // Mirror it locally too, so a window opened later this session
             // starts the same shape without waiting for a config reload.
-            cfg_.fileExplorerWidth  = width;
-            cfg_.fileExplorerHeight = height;
-            if (onGeometryChanged_) onGeometryChanged_(width, height);
+            cfg_.fileExplorerWidth        = layout.width;
+            cfg_.fileExplorerHeight       = layout.height;
+            cfg_.fileExplorerX            = layout.x;
+            cfg_.fileExplorerY            = layout.y;
+            cfg_.fileExplorerColumnWidths = layout.columnWidths;
+            if (onLayoutChanged_) onLayoutChanged_(layout);
         });
     frames_[id] = frame;
     frame->Show();
+}
+
+void FileExplorerManager::PlaceFrame(FileExplorerFrame& frame) const
+{
+    // Never placed: leave the window manager to decide, which it does better
+    // than any coordinate this application could invent for a first run.
+    if (cfg_.fileExplorerX == kUnsetWindowCoord ||
+        cfg_.fileExplorerY == kUnsetWindowCoord)
+        return;
+
+    // Windows already open are stepped past rather than stacked on. Replaying
+    // one saved position for every window would drop each new explorer exactly
+    // onto the last, which reads as the second one having failed to open.
+    const int offset = static_cast<int>(frames_.size()) * kCascadeStep;
+    const wxSize size = frame.GetSize();
+    const ScreenRect wanted{cfg_.fileExplorerX + offset,
+                            cfg_.fileExplorerY + offset,
+                            size.x, size.y};
+
+    // The display that held this window may be gone — a dock undocked, a second
+    // monitor unplugged — and replaying the coordinates would then open it
+    // somewhere the user cannot see or reach it.
+    const auto displays = DisplayRects();
+    if (!RectIsReachable(wanted, displays.data(), displays.size(), kMinOnScreen))
+        return;
+
+    frame.PlaceAt(wxPoint(wanted.x, wanted.y));
 }
 
 void FileExplorerManager::OnSessionDestroyed(term::session::SessionId id)

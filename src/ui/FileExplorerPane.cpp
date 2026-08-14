@@ -179,6 +179,10 @@ void FileExplorerPane::BuildToolbar(wxSizer* outer)
     filterCtrl_  = new wxTextCtrl(this, wxID_ANY);
     filterCtrl_->SetHint("*.conf   or   substring");
     hiddenCheck_ = new wxCheckBox(this, wxID_ANY, "Show hidden");
+    // Seeded from the model's own default rather than left at the widget's, so
+    // the checkbox and the listing cannot start out disagreeing. This is one of
+    // the two places to change if the default ever becomes a preference.
+    hiddenCheck_->SetValue(term::fs::kDefaultShowHidden);
 
     filterRow->Add(filterLabel_, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 6);
     filterRow->Add(filterCtrl_,  1, wxRIGHT | wxALIGN_CENTER_VERTICAL, 12);
@@ -238,7 +242,7 @@ void FileExplorerPane::BuildList(wxSizer* outer)
     list_ = new RemoteFileListCtrl(this, [this]() -> const term::fs::DirModel* {
         return controller_ ? &controller_->Model() : nullptr;
     }, kMultiSelect);
-    list_->InsertStandardColumns();
+    list_->InsertStandardColumns(cfg_.fileExplorerColumnWidths);
     outer->Add(list_, 1, wxEXPAND | wxLEFT | wxRIGHT, 6);
 
     list_->Bind(wxEVT_LIST_ITEM_ACTIVATED,   &FileExplorerPane::OnItemActivated,   this);
@@ -247,6 +251,22 @@ void FileExplorerPane::BuildList(wxSizer* outer)
     list_->Bind(wxEVT_LIST_KEY_DOWN,         &FileExplorerPane::OnListKeyDown,     this);
     list_->Bind(wxEVT_LIST_ITEM_SELECTED,    &FileExplorerPane::OnSelectionChanged, this);
     list_->Bind(wxEVT_LIST_ITEM_DESELECTED,  &FileExplorerPane::OnSelectionChanged, this);
+
+    // END_DRAG, not DRAGGING: the latter fires per mouse-move and each one
+    // would rewrite config.ini, which is the same reason the frame does not
+    // persist on wxEVT_SIZE.
+    //
+    // Deferred because this event carries the width wx is about to apply, not
+    // one it has applied — reading the column here returns the old number.
+    // Guarded because the notification then outlives the event, and a pane can
+    // be destroyed between the two.
+    list_->Bind(wxEVT_LIST_COL_END_DRAG, [this](wxListEvent& evt) {
+        auto ctx = guard_.For(this);
+        ctx.Post([](FileExplorerPane& pane) {
+            if (pane.onColumnWidthsChanged_) pane.onColumnWidthsChanged_();
+        });
+        evt.Skip();
+    });
 
     // wx takes ownership of the drop target.
     list_->SetDropTarget(new PaneFileDropTarget(
@@ -526,6 +546,18 @@ void FileExplorerPane::OnColumnClick(wxListEvent& evt)
 void FileExplorerPane::FocusList()
 {
     if (list_) list_->SetFocus();
+}
+
+RemoteFileListCtrl::ColumnWidths FileExplorerPane::ColumnWidths() const
+{
+    return list_ ? list_->CurrentColumnWidths()
+                 : kDefaultFileExplorerColumnWidths;
+}
+
+void FileExplorerPane::SetColumnWidths(
+    const RemoteFileListCtrl::ColumnWidths& widths)
+{
+    if (list_) list_->ApplyColumnWidths(widths);
 }
 
 void FileExplorerPane::OnListKeyDown(wxListEvent& evt)

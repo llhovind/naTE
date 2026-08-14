@@ -27,14 +27,14 @@ public:
     // to edit a file, where the endpoint is the session the file lives on or 0
     // for this computer; the caller routes it to the edit workflow, which this
     // class deliberately knows nothing about.
-    // onGeometryChanged is invoked when a window's remembered shape changes,
+    // onLayoutChanged is invoked when a window's remembered appearance changes,
     // so the owner can fold it into AppConfig and save. Kept as a callback
     // because writing configuration belongs to App, not to a UI manager.
     FileExplorerManager(
         term::session::SessionManager& sm,
         const AppConfig& cfg,
         std::function<void(term::session::SessionId, std::string)> onOpenInEditor,
-        std::function<void(int width, int height)> onGeometryChanged = {});
+        std::function<void(const FileExplorerLayout&)> onLayoutChanged = {});
 
     ~FileExplorerManager();
 
@@ -62,10 +62,15 @@ public:
     void UpdateConfig(const AppConfig& cfg);
 
 private:
+    // Puts a new window at the saved position, stepped clear of the windows
+    // already open and only if that lands somewhere reachable. Leaves the
+    // window where the window manager put it when either test fails.
+    void PlaceFrame(FileExplorerFrame& frame) const;
+
     term::session::SessionManager& sm_;
     AppConfig                      cfg_;
     std::function<void(term::session::SessionId, std::string)> onOpenInEditor_;
-    std::function<void(int, int)> onGeometryChanged_;
+    std::function<void(const FileExplorerLayout&)> onLayoutChanged_;
 
     // Non-owning: wx owns its frames. Entries are removed when a frame reports
     // that it closed.

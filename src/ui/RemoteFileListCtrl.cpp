@@ -3,6 +3,7 @@
 #include "fs/FileMode.h"
 #include "ui/StringUtils.h"
 
+#include <algorithm>
 #include <ctime>
 
 namespace ui {
@@ -29,13 +30,33 @@ RemoteFileListCtrl::RemoteFileListCtrl(wxWindow* parent, ModelProvider provider,
     , provider_(std::move(provider))
 {}
 
-void RemoteFileListCtrl::InsertStandardColumns()
+void RemoteFileListCtrl::InsertStandardColumns(const ColumnWidths& widths)
 {
-    InsertColumn(FileColName,        "Name",        wxLIST_FORMAT_LEFT,  240);
-    InsertColumn(FileColSize,        "Size",        wxLIST_FORMAT_RIGHT,  90);
-    InsertColumn(FileColModified,    "Modified",    wxLIST_FORMAT_LEFT,  130);
-    InsertColumn(FileColPermissions, "Permissions", wxLIST_FORMAT_LEFT,  105);
-    InsertColumn(FileColOwner,       "Owner",       wxLIST_FORMAT_LEFT,  110);
+    InsertColumn(FileColName,        "Name",        wxLIST_FORMAT_LEFT,  widths[FileColName]);
+    InsertColumn(FileColSize,        "Size",        wxLIST_FORMAT_RIGHT, widths[FileColSize]);
+    InsertColumn(FileColModified,    "Modified",    wxLIST_FORMAT_LEFT,  widths[FileColModified]);
+    InsertColumn(FileColPermissions, "Permissions", wxLIST_FORMAT_LEFT,  widths[FileColPermissions]);
+    InsertColumn(FileColOwner,       "Owner",       wxLIST_FORMAT_LEFT,  widths[FileColOwner]);
+}
+
+void RemoteFileListCtrl::ApplyColumnWidths(const ColumnWidths& widths)
+{
+    const int columns = std::min(GetColumnCount(), static_cast<int>(FileColumnCount));
+    for (int i = 0; i < columns; ++i)
+        SetColumnWidth(i, widths[static_cast<size_t>(i)]);
+}
+
+RemoteFileListCtrl::ColumnWidths RemoteFileListCtrl::CurrentColumnWidths() const
+{
+    ColumnWidths widths = kDefaultFileExplorerColumnWidths;
+    // A view that inserted its own columns has fewer than the standard five;
+    // those keep the default rather than reading past the end.
+    const int columns = std::min(GetColumnCount(), static_cast<int>(FileColumnCount));
+    for (int i = 0; i < columns; ++i) {
+        const int width = GetColumnWidth(i);
+        if (width > 0) widths[static_cast<size_t>(i)] = width;
+    }
+    return widths;
 }
 
 void RemoteFileListCtrl::SetBrokenLinkColour(const wxColour& colour)

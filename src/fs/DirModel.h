@@ -13,6 +13,23 @@ enum class SortKey { Name, Size, Modified, Owner, Permissions };
 
 enum class SortOrder { Ascending, Descending };
 
+// What a freshly opened listing starts from.
+//
+// Compile-time constants rather than AppConfig fields, and deliberately so: a
+// remembered sort is as likely to confuse as to help, because a window that
+// opens ordered by Permissions on account of something the user did last week
+// reads as a bug rather than as a preference being honoured. Hidden files
+// follow `ls`, which shows dotfiles only when asked — the convention every
+// administrator already has in their fingers.
+//
+// Promoting either to a real preference is mechanical, which is the point of
+// naming them here: add the field to AppConfig, thread it to the two places
+// these are read (DirModel's own initial state, and the toolbar checkbox in
+// FileExplorerPane::BuildToolbar), and add the control to PreferencesDialog.
+inline constexpr bool       kDefaultShowHidden = false;
+inline constexpr SortKey    kDefaultSortKey    = SortKey::Name;
+inline constexpr SortOrder  kDefaultSortOrder  = SortOrder::Ascending;
+
 // The contents of one directory, projected for display.
 //
 // A pure store plus a projection: it holds what a listing returned and answers
@@ -141,10 +158,10 @@ private:
     size_t   visibleDirs_  = 0;
     uint64_t visibleBytes_ = 0;
 
-    bool        showHidden_       = false;
+    bool        showHidden_       = kDefaultShowHidden;
     std::string nameFilter_;
-    SortKey     sortKey_          = SortKey::Name;
-    SortOrder   sortOrder_        = SortOrder::Ascending;
+    SortKey     sortKey_          = kDefaultSortKey;
+    SortOrder   sortOrder_        = kDefaultSortOrder;
     bool        directoriesFirst_ = true;
 };
 

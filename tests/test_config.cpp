@@ -1017,3 +1017,120 @@ TEST_CASE("given a symlink policy when saved and reloaded then it survives the r
     const auto reloaded = AppConfig::load(ini.stdPath());
     REQUIRE(reloaded.symlinkPolicy == term::fs::SymlinkPolicy::Skip);
 }
+
+// ---------------------------------------------------------------------------
+// File explorer window position and column widths
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given ini with explorer position when loaded then coordinates are read")
+{
+    const TempIni ini{"[Behavior]\nFileExplorerX=240\nFileExplorerY=130\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+
+    REQUIRE(cfg.fileExplorerX == 240);
+    REQUIRE(cfg.fileExplorerY == 130);
+}
+
+TEST_CASE("given ini with no explorer position when loaded then position is unset")
+{
+    // Not 0,0: an absent position must stay distinguishable from the top-left
+    // corner, or every fresh config would pin the window there.
+    const TempIni ini{"[Behavior]\nFileExplorerWidth=800\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+
+    REQUIRE(cfg.fileExplorerX == kUnsetWindowCoord);
+    REQUIRE(cfg.fileExplorerY == kUnsetWindowCoord);
+}
+
+TEST_CASE("given ini with empty explorer position when loaded then position is unset")
+{
+    // What save() writes for a window that has never been placed.
+    const TempIni ini{"[Behavior]\nFileExplorerX=\nFileExplorerY=\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+
+    REQUIRE(cfg.fileExplorerX == kUnsetWindowCoord);
+    REQUIRE(cfg.fileExplorerY == kUnsetWindowCoord);
+}
+
+TEST_CASE("given ini with negative explorer position when loaded then the coordinates survive")
+{
+    // A display arranged left of or above the primary one has negative
+    // coordinates; they must not be mistaken for absent values.
+    const TempIni ini{"[Behavior]\nFileExplorerX=-1700\nFileExplorerY=-40\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+
+    REQUIRE(cfg.fileExplorerX == -1700);
+    REQUIRE(cfg.fileExplorerY == -40);
+}
+
+TEST_CASE("given ini with explorer column widths when loaded then every width is read")
+{
+    const TempIni ini{"[Behavior]\nFileExplorerColumnWidths=300,80,140,100,120\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+
+    const std::array<int, kFileExplorerColumnCount> expected{300, 80, 140, 100, 120};
+    REQUIRE(cfg.fileExplorerColumnWidths == expected);
+}
+
+TEST_CASE("given ini with too few explorer column widths when loaded then the rest keep defaults")
+{
+    // A hand-edited or truncated line costs the user the columns it omits,
+    // not all five.
+    const TempIni ini{"[Behavior]\nFileExplorerColumnWidths=300,80\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+
+    REQUIRE(cfg.fileExplorerColumnWidths[0] == 300);
+    REQUIRE(cfg.fileExplorerColumnWidths[1] == 80);
+    REQUIRE(cfg.fileExplorerColumnWidths[2] == kDefaultFileExplorerColumnWidths[2]);
+    REQUIRE(cfg.fileExplorerColumnWidths[4] == kDefaultFileExplorerColumnWidths[4]);
+}
+
+TEST_CASE("given ini with an unusable explorer column width when loaded then that column keeps its default")
+{
+    // Zero and negative widths are refused: a zero-width column is invisible
+    // and cannot be dragged back into view.
+    const TempIni ini{"[Behavior]\nFileExplorerColumnWidths=300,0,-5,bad,120\n"};
+    const auto cfg = AppConfig::load(ini.stdPath());
+
+    REQUIRE(cfg.fileExplorerColumnWidths[0] == 300);
+    REQUIRE(cfg.fileExplorerColumnWidths[1] == kDefaultFileExplorerColumnWidths[1]);
+    REQUIRE(cfg.fileExplorerColumnWidths[2] == kDefaultFileExplorerColumnWidths[2]);
+    REQUIRE(cfg.fileExplorerColumnWidths[3] == kDefaultFileExplorerColumnWidths[3]);
+    REQUIRE(cfg.fileExplorerColumnWidths[4] == 120);
+}
+
+TEST_CASE("given a placed explorer window when config is saved then position and widths round-trip")
+{
+    const TempIni ini{""};
+
+    AppConfig cfg;
+    cfg.fileExplorerX            = -1700;
+    cfg.fileExplorerY            = 130;
+    cfg.fileExplorerWidth        = 880;
+    cfg.fileExplorerHeight       = 640;
+    cfg.fileExplorerColumnWidths = {300, 80, 140, 100, 120};
+    cfg.save(ini.stdPath());
+
+    const auto reloaded = AppConfig::load(ini.stdPath());
+
+    REQUIRE(reloaded.fileExplorerX            == cfg.fileExplorerX);
+    REQUIRE(reloaded.fileExplorerY            == cfg.fileExplorerY);
+    REQUIRE(reloaded.fileExplorerWidth        == cfg.fileExplorerWidth);
+    REQUIRE(reloaded.fileExplorerHeight       == cfg.fileExplorerHeight);
+    REQUIRE(reloaded.fileExplorerColumnWidths == cfg.fileExplorerColumnWidths);
+}
+
+TEST_CASE("given an unplaced explorer window when config is saved then it reloads as unplaced")
+{
+    // The default config must survive a save/load cycle without acquiring a
+    // position it was never given.
+    const TempIni ini{""};
+
+    AppConfig cfg;
+    cfg.save(ini.stdPath());
+
+    const auto reloaded = AppConfig::load(ini.stdPath());
+
+    REQUIRE(reloaded.fileExplorerX == kUnsetWindowCoord);
+    REQUIRE(reloaded.fileExplorerY == kUnsetWindowCoord);
+}

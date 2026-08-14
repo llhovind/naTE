@@ -156,7 +156,7 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
                         // this during a programmatic split/unsplit too, where
                         // the shape is mid-flight and must not be recorded.
                         if (applyingMode_ || !splitter_->IsSplit()) { evt.Skip(); return; }
-                        PersistGeometry();
+                        PersistLayout();
                         evt.Skip();
                     });
 
@@ -359,6 +359,9 @@ void FileExplorerFrame::BuildLayout(OpenInEditorFn onOpenInEditor)
         OnFilesDropped(rightPane_, std::move(paths));
     });
 
+    leftPane_->SetOnColumnWidthsChanged([this] { OnColumnWidthsChanged(leftPane_); });
+    rightPane_->SetOnColumnWidthsChanged([this] { OnColumnWidthsChanged(rightPane_); });
+
     SetSizer(outer);
 
     // Born in Explore mode: the panes are already built that way, but the
@@ -455,7 +458,7 @@ void FileExplorerFrame::ApplyMode()
 
     applyingMode_ = false;
     Thaw();
-    PersistGeometry();
+    PersistLayout();
 }
 
 // ---------------------------------------------------------------------------
@@ -626,12 +629,26 @@ void FileExplorerFrame::AlignCopyButtonsToSash(int sashPosition)
     controls_->Layout();
 }
 
-void FileExplorerFrame::PersistGeometry()
+void FileExplorerFrame::OnColumnWidthsChanged(FileExplorerPane* source)
+{
+    if (!source) return;
+
+    // The sibling adopts the new widths before anything is saved, so the two
+    // listings never disagree about how wide "Modified" is — and so reading the
+    // widths back from either pane gives the same answer.
+    const auto widths = source->ColumnWidths();
+    for (FileExplorerPane* pane : {leftPane_, rightPane_})
+        if (pane && pane != source) pane->SetColumnWidths(widths);
+
+    PersistLayout();
+}
+
+void FileExplorerFrame::PersistLayout()
 {
     // Null once the owner has gone; the window may still be torn down after it.
-    if (!onGeometryChanged_ || !splitter_) return;
-    // A maximised or minimised window's size is not what the user chose, so it
-    // must not overwrite the size they did choose.
+    if (!onLayoutChanged_ || !splitter_) return;
+    // A maximised or minimised window's size and position are not what the user
+    // chose, so they must not overwrite the ones they did choose.
     if (IsMaximized() || IsIconized()) return;
 
     // Always the Explore-mode shape, whatever mode is showing: that is what a
@@ -639,7 +656,20 @@ void FileExplorerFrame::PersistGeometry()
     // two-pane width would reopen an Explore window at twice the size.
     const int height = GetSize().y - (mode_ == FileExplorerMode::Transfer
                                           ? transferHeightDelta_ : 0);
-    onGeometryChanged_(FrameWidthForPanes(1), height);
+
+    const wxPoint at = GetPosition();
+
+    // The leading pane's columns, not the trailing one's. Both panes carry the
+    // same widths at every point a user can see them — they start from the same
+    // config and only one pane's dividers can be under the cursor at a time —
+    // so the choice is arbitrary, and naming one keeps it deterministic.
+    onLayoutChanged_(FileExplorerLayout{
+        FrameWidthForPanes(1),
+        height,
+        at.x,
+        at.y,
+        leftPane_ ? leftPane_->ColumnWidths() : kDefaultFileExplorerColumnWidths,
+    });
 }
 
 void FileExplorerFrame::OnFilesDropped(FileExplorerPane* target,
@@ -910,7 +940,7 @@ void FileExplorerFrame::OnDestroy(wxWindowDestroyEvent& evt)
     // only the frame's own destruction should notify the owner.
     if (evt.GetWindow() != this) { evt.Skip(); return; }
 
-    PersistGeometry();
+    PersistLayout();
 
     // The queue holds callbacks into this frame; retiring it first means
     // nothing can fire into a half-destroyed window.

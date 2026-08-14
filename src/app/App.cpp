@@ -184,13 +184,22 @@ bool App::OnInit() {
                          : (m_windows.empty() ? nullptr : m_windows.front().get());
             if (wc && wc->uiManager) wc->uiManager->OpenFileInEditor(endpoint, path);
         },
-        [this](int width, int height) {
-            if (m_cfg.fileExplorerWidth  == width &&
-                m_cfg.fileExplorerHeight == height)
-                return;   // the same shape reported twice is not worth a write
+        [this](const FileExplorerLayout& layout) {
+            // The same appearance reported twice is not worth a write, and it
+            // is reported twice routinely: closing a window that was never
+            // touched repeats what opening it already recorded.
+            if (m_cfg.fileExplorerWidth        == layout.width  &&
+                m_cfg.fileExplorerHeight       == layout.height &&
+                m_cfg.fileExplorerX            == layout.x      &&
+                m_cfg.fileExplorerY            == layout.y      &&
+                m_cfg.fileExplorerColumnWidths == layout.columnWidths)
+                return;
 
-            m_cfg.fileExplorerWidth  = width;
-            m_cfg.fileExplorerHeight = height;
+            m_cfg.fileExplorerWidth        = layout.width;
+            m_cfg.fileExplorerHeight       = layout.height;
+            m_cfg.fileExplorerX            = layout.x;
+            m_cfg.fileExplorerY            = layout.y;
+            m_cfg.fileExplorerColumnWidths = layout.columnWidths;
             m_cfg.save(m_configPath);
         });
 

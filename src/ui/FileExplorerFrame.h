@@ -77,14 +77,20 @@ public:
     // manager that the callback reaches back into has gone.
     void SetOnOpenInEditor(OpenInEditorFn cb);
 
-    // Reports the window's remembered shape when it changes, so the owner can
-    // save it. The width reported is always the *one-pane* width, whatever
+    // Reports the window's remembered appearance when it changes, so the owner
+    // can save it. The width reported is always the *one-pane* width, whatever
     // mode is showing — see the geometry section below. Writing configuration
     // is the owner's job.
-    void SetOnGeometryChanged(std::function<void(int width, int height)> cb)
+    void SetOnLayoutChanged(std::function<void(const FileExplorerLayout&)> cb)
     {
-        onGeometryChanged_ = std::move(cb);
+        onLayoutChanged_ = std::move(cb);
     }
+
+    // Places the window before it is first shown. Separate from construction
+    // because *where* a new window goes is the owner's decision: it is the one
+    // that knows how many explorer windows are already open, and so whether
+    // this one would land exactly on top of another.
+    void PlaceAt(const wxPoint& position) { Move(position); }
 
 private:
     // --- ITransferQueueListener ----------------------------------------------
@@ -133,7 +139,10 @@ private:
     // Uploads files dropped from the desktop onto a pane. Dropping onto the
     // local pane is a no-op the user is told about rather than a silent one.
     void OnFilesDropped(FileExplorerPane* target, std::vector<std::string> paths);
-    void PersistGeometry();
+    // Keeps the two listings' columns in step, then saves. `source` is the pane
+    // whose divider the user dragged.
+    void OnColumnWidthsChanged(FileExplorerPane* source);
+    void PersistLayout();
     void CopyBetweenPanes(FileExplorerPane* from, FileExplorerPane* to);
     // Queues one item, expanding directories recursively.
     void QueueOne(const FileExplorerPane::Item& item,
@@ -147,9 +156,9 @@ private:
     term::session::SessionManager& sm_;
     AppConfig                      cfg_;
     std::function<void()>          onClosed_;
-    // Invoked with the window's remembered geometry so the owner can persist
+    // Invoked with the window's remembered appearance so the owner can persist
     // it. The frame does not write configuration itself.
-    std::function<void(int width, int height)> onGeometryChanged_;
+    std::function<void(const FileExplorerLayout&)> onLayoutChanged_;
 
     std::unique_ptr<term::fs::TransferQueue> queue_;
 

@@ -98,6 +98,21 @@ public:
         onLocalFilesDropped_ = std::move(cb);
     }
 
+    // Fired after the user has finished dragging a column divider. Carries
+    // nothing: the owner reads ColumnWidths() when it is ready to save, which
+    // keeps one source of truth for a number wx owns.
+    void SetOnColumnWidthsChanged(std::function<void()> cb)
+    {
+        onColumnWidthsChanged_ = std::move(cb);
+    }
+
+    // The listing's column widths as they stand.
+    RemoteFileListCtrl::ColumnWidths ColumnWidths() const;
+
+    // Adopts another pane's column widths, so two panes side by side never show
+    // the same five columns at two different sizes.
+    void SetColumnWidths(const RemoteFileListCtrl::ColumnWidths& widths);
+
     // Moves keyboard focus onto the listing, for shortcuts owned by the frame.
     void FocusList();
 
@@ -176,6 +191,7 @@ private:
     std::function<void()>               onStateChanged_;
     std::function<void()>               onEndpointChanged_;
     std::function<void(std::vector<std::string>)> onLocalFilesDropped_;
+    std::function<void()>               onColumnWidthsChanged_;
 
     std::unique_ptr<term::fs::ExplorerController> controller_;
     std::unique_ptr<term::fs::RemoteDeleter>      deleter_;
