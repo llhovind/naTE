@@ -387,6 +387,15 @@ transport::IRemoteFileSystem* SessionManager::GetRemoteFileSystem(SessionId id) 
     return rec ? rec->session->GetRemoteFileSystem() : nullptr;
 }
 
+SessionId SessionManager::FindSessionForFileSystem(
+    const transport::IRemoteFileSystem* fs) const
+{
+    if (!fs) return 0;
+    for (const auto& [id, rec] : sessions_)
+        if (rec->session->GetRemoteFileSystem() == fs) return id;
+    return 0;
+}
+
 bool SessionManager::SupportsFileTransfer(SessionId id) const
 {
     return GetRemoteFileSystem(id) != nullptr;
@@ -448,43 +457,6 @@ std::string SessionManager::GetRemoteDescription(SessionId id) const
 {
     const SessionRecord* rec = FindRecord(id);
     return rec ? rec->session->GetTransportRemoteDescription() : std::string{};
-}
-
-namespace {
-
-// Every wrapper below funnels its "no such session, or no filesystem on it"
-// case through here, so the failure reads identically wherever it surfaces.
-transport::FsError NoFileSystemError()
-{
-    return transport::FsError::Make(transport::FsErrorCode::NotConnected,
-                                    "Session has no remote filesystem");
-}
-
-} // namespace
-
-void SessionManager::DownloadFile(SessionId id,
-                                  const std::string& remotePath,
-                                  const std::string& localPath,
-                                  transport::DoneCallback onDone)
-{
-    transport::IRemoteFileSystem* fs = GetRemoteFileSystem(id);
-    if (!fs) { onDone(NoFileSystemError()); return; }
-    // No mode: this fetches a working copy for an editor, not a faithful copy
-    // of the file. The caller has not stat'd the remote and inventing a mode
-    // from nothing would be worse than the adapter's default.
-    fs->Download(remotePath, localPath, std::nullopt, nullptr, std::move(onDone));
-}
-
-void SessionManager::UploadFile(SessionId id,
-                                const std::string& localPath,
-                                const std::string& remotePath,
-                                transport::DoneCallback onDone)
-{
-    transport::IRemoteFileSystem* fs = GetRemoteFileSystem(id);
-    if (!fs) { onDone(NoFileSystemError()); return; }
-    // No mode: this writes back over a file that already exists, whose
-    // permissions are the user's and must survive the save untouched.
-    fs->Upload(localPath, remotePath, std::nullopt, nullptr, std::move(onDone));
 }
 
 // ---------------------------------------------------------------------------

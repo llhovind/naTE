@@ -132,6 +132,14 @@ public:
     // (PTY, Serial, Loopback) or the id is unknown.
     transport::IRemoteFileSystem* GetRemoteFileSystem(SessionId id) const;
 
+    // The session whose transport owns fs, or 0 when none does.
+    //
+    // The inverse of GetRemoteFileSystem(), for the boundary where work done in
+    // terms of the port comes back to code that thinks in sessions: fs/ carries
+    // the filesystem and deliberately not an id, so the translation has to
+    // happen somewhere, and here is where the mapping actually lives.
+    SessionId FindSessionForFileSystem(const transport::IRemoteFileSystem* fs) const;
+
     // Convenience over GetRemoteFileSystem() for UI enable/disable checks.
     bool        SupportsFileTransfer(SessionId id)    const;
     bool        SupportsX11Forwarding(SessionId id)   const;
@@ -147,35 +155,6 @@ public:
     std::vector<transport::PortForwardStatus> GetPortForwardStatus(SessionId id) const;
     std::vector<transport::PortForwardDesc>   GetPortForwardDescs(SessionId id)  const;
     std::string GetRemoteDescription(SessionId id) const;
-
-    // -------------------------------------------------------------------------
-    // Remote filesystem conveniences
-    //
-    // Exact-path transfers for the remote-edit workflow, which knows both paths
-    // and wants neither a queue nor progress. Everything richer than this — the
-    // explorer, recursive copies, conflicts, cancellation — talks to
-    // GetRemoteFileSystem() directly, through fs/ExplorerController and
-    // fs/TransferQueue; there is deliberately no facade over those here.
-    //
-    // These resolve the id and report FsErrorCode::NotConnected when it names no
-    // session with a filesystem, so the two callers do not repeat that check.
-    // Everything else — the threading contract in particular — is
-    // IRemoteFileSystem's: callbacks may fire on any thread, and UI code must
-    // marshal via CallAfter.
-    //
-    // The NotConnected path has no worker to defer to, so its callback runs
-    // before the call returns — which the port's contract permits, and which
-    // callers must not assume away.
-    // -------------------------------------------------------------------------
-
-    void        DownloadFile(SessionId id,
-                             const std::string& remotePath,
-                             const std::string& localPath,
-                             transport::DoneCallback onDone);
-    void        UploadFile(SessionId id,
-                           const std::string& localPath,
-                           const std::string& remotePath,
-                           transport::DoneCallback onDone);
 
     term::input::InputTarget* GetInputTarget(SessionId id) const;
 

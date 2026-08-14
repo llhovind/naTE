@@ -1,22 +1,22 @@
-#include "ui/RemoteEditSession.h"
+#include "fs/RemoteEditSession.h"
 #include "fs/EditWorkspace.h"
 #include <filesystem>
+#include <optional>
 #include <poll.h>
 #include <sys/inotify.h>
 #include <unistd.h>
-#include <wx/app.h>
 #include <cstring>
 
-namespace ui {
+namespace term::fs {
 
-RemoteEditSession::RemoteEditSession(term::session::SessionId     sessionId,
-                                     std::string                  remotePath,
-                                     std::string                  localPath,
-                                     term::session::SessionManager& sm)
-    : sessionId_(sessionId)
+RemoteEditSession::RemoteEditSession(EditEndpoint endpoint,
+                                     std::string  remotePath,
+                                     std::string  localPath,
+                                     Dispatcher   dispatch)
+    : endpoint_(std::move(endpoint))
     , remotePath_(std::move(remotePath))
     , localPath_(std::move(localPath))
-    , sm_(sm)
+    , guard_(std::move(dispatch))
 {}
 
 RemoteEditSession::~RemoteEditSession()
@@ -62,7 +62,7 @@ void RemoteEditSession::Stop()
 
     // The working copy sits in a directory of its own, so this takes that with
     // it, and any level above it the removal leaves empty.
-    term::fs::RemoveWorkingCopy(localPath_);
+    RemoveWorkingCopy(localPath_);
 }
 
 void RemoteEditSession::WatchLoop()
@@ -106,7 +106,8 @@ void RemoteEditSession::WatchLoop()
         if (!trigger)
             continue;
 
-        // Marshal to UI thread for upload (all wx and manager calls must be UI-thread).
+        // Marshal to the owning thread for upload: everything downstream of it
+        // is single-threaded by construction.
         guard_.For(this).Post([](RemoteEditSession& s) { s.TriggerUpload(); });
     }
 }
@@ -126,40 +127,40 @@ void RemoteEditSession::TriggerUpload()
     // One liveness check, on the thread that acts on it. The old outer check on
     // the transport's thread could only ever be a stale hint.
     auto ctx = guard_.For(this);
-    sm_.UploadFile(sessionId_, local, remote,
-        [ctx](term::transport::FsError err) mutable {
+
+    // No mode: this writes back over a file that already exists, whose
+    // permissions are the user's and must survive the save untouched.
+    endpoint_.fs->Upload(local, remote, std::nullopt, nullptr,
+        [ctx](transport::FsError err) mutable {
             ctx.Post([err = std::move(err)](RemoteEditSession& s) {
                 s.OnUploadFinished(err);
             });
         });
 }
 
-void RemoteEditSession::OnUploadFinished(const term::transport::FsError& err)
+void RemoteEditSession::OnUploadFinished(const transport::FsError& err)
 {
     uploadInFlight_.store(false, std::memory_order_relaxed);
 
-    // Only the last upload of a coalesced burst is worth announcing: a pending
-    // upload is about to supersede this outcome either way, and a failure that
-    // the very next attempt repairs was never the user's problem.
+    // Taken before the policy is consulted, and consumed either way: this
+    // upload's outcome is only the burst's last word if nothing is queued
+    // behind it.
     const bool more = pendingUpload_.exchange(false);
 
-    if (!more) {
-        if (err.Failed()) {
-            // Same failure twice running is the same broken state, not news.
-            if (err.message != lastReportedError_) {
-                lastReportedError_ = err.message;
-                if (onSaveFailed_)
-                    onSaveFailed_({sessionId_, remotePath_, localPath_, err.message});
-            }
-        } else {
-            lastReportedError_.clear();
-            if (onSaved_)
-                onSaved_(sessionId_, remotePath_);
-        }
+    switch (announce_.Decide(err, more)) {
+        case SaveAnnouncement::Saved:
+            if (onSaved_) onSaved_(endpoint_.fs, remotePath_);
+            break;
+        case SaveAnnouncement::Failed:
+            if (onSaveFailed_)
+                onSaveFailed_({endpoint_.fs, remotePath_, localPath_, err.message});
+            break;
+        case SaveAnnouncement::Nothing:
+            break;
     }
 
     if (more)
         TriggerUpload();
 }
 
-} // namespace ui
+} // namespace term::fs

@@ -26,6 +26,7 @@ add_executable(naTE_tests
     test_remote_deleter.cpp
     test_local_filesystem.cpp
     test_edit_workspace.cpp
+    test_remote_edit.cpp
     ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
     ${CMAKE_SOURCE_DIR}/src/config/ColorScheme.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
@@ -39,6 +40,9 @@ add_executable(naTE_tests
     ${CMAKE_SOURCE_DIR}/src/fs/RemoteDeleter.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/LinkResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/EditWorkspace.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/SaveAnnouncePolicy.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/RemoteEditSession.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/RemoteEditManager.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/LocalFileSystem.cpp
 )
 target_link_libraries(naTE_tests PRIVATE Catch2::Catch2)

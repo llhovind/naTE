@@ -31,9 +31,12 @@ class TerminalPanel;
 class TerminalGrid;
 class TerminalTile;
 
-namespace ui {
-
+namespace term::fs {
+class RemoteEditManager;
 struct SaveFailure;
+} // namespace term::fs
+
+namespace ui {
 
 class UIManager : public term::session::ISessionObserver {
 public:
@@ -123,7 +126,7 @@ public:
     // Tells the user a save from their external editor never reached the
     // remote. Routed here by App because this window hosts the session the
     // edit belongs to.
-    void ReportRemoteSaveFailed(const SaveFailure& failure);
+    void ReportRemoteSaveFailed(const term::fs::SaveFailure& failure);
 
     // Open the file explorer window for a session (SSH only) in the given
     // mode. Transfer mode is what the "Transfer Files..." entry points reach.
@@ -132,7 +135,7 @@ public:
     void OpenFileExplorerForActive(FileExplorerMode mode);
 
     // Called by App after RemoteEditManager construction.
-    void SetRemoteEditManager(class RemoteEditManager* mgr) { editMgr_ = mgr; }
+    void SetRemoteEditManager(term::fs::RemoteEditManager* mgr) { editMgr_ = mgr; }
     void SetFileExplorerManager(class FileExplorerManager* mgr) { explorerMgr_ = mgr; }
 
     // Returns true when the active session supports remote file transfer (SSH).
@@ -332,7 +335,7 @@ private:
     term::session::SessionManager& sm_;
     term::input::InputRouter&      router_;
     MainFrame*                     frame_;
-    class RemoteEditManager*       editMgr_ = nullptr;
+    term::fs::RemoteEditManager*   editMgr_ = nullptr;
     class FileExplorerManager*     explorerMgr_ = nullptr;
     AppConfig                      cfg_;
     TerminalGrid*                  grid_ = nullptr;

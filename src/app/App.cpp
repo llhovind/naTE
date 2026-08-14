@@ -8,6 +8,7 @@
 #include "fs/EditWorkspace.h"
 #include "transport/AppSessionDefaults.h"
 #include "session/RestoreState.h"
+#include "ui/EditorLauncher.h"
 #include "ui/MainFrame.h"
 #include "ui/TerminalTile.h"
 #include <wx/filename.h>
@@ -163,7 +164,11 @@ bool App::OnInit() {
         static_cast<size_t>(m_cfg.scrollbackSaveLines),
         m_cfg.scrollbackSaveStyles);
 
-    m_remoteEditManager = std::make_unique<ui::RemoteEditManager>(*m_sessionManager);
+    m_remoteEditManager = std::make_unique<term::fs::RemoteEditManager>(
+        [](std::function<void()> fn) { wxTheApp->CallAfter(std::move(fn)); },
+        [](const std::string& command, const std::string& path) {
+            ui::LaunchEditor(command, path);
+        });
 
     // Routes "open in editor" from the explorer back through the same edit
     // workflow the Terminal menu uses, so there is one implementation of
@@ -194,8 +199,10 @@ bool App::OnInit() {
     // Wired here rather than between the two managers because neither should
     // know the other exists: one runs edits, the other shows directories.
     m_remoteEditManager->SetOnFileSaved(
-        [this](term::session::SessionId id, const std::string& path) {
-            if (m_fileExplorerManager) m_fileExplorerManager->OnFileChanged(id, path);
+        [this](term::transport::IRemoteFileSystem* fs, const std::string& path) {
+            if (!m_fileExplorerManager) return;
+            m_fileExplorerManager->OnFileChanged(
+                m_sessionManager->FindSessionForFileSystem(fs), path);
         });
 
     // A failed upload is the case the editor cannot report: it wrote the local
@@ -203,8 +210,9 @@ bool App::OnInit() {
     // Reported by the window hosting the session, falling back to any window —
     // the message matters more than which frame parents it.
     m_remoteEditManager->SetOnFileSaveFailed(
-        [this](const ui::SaveFailure& failure) {
-            WindowContext* wc = FindContextForSession(failure.session);
+        [this](const term::fs::SaveFailure& failure) {
+            WindowContext* wc = FindContextForSession(
+                m_sessionManager->FindSessionForFileSystem(failure.fs));
             if (!wc && !m_windows.empty()) wc = m_windows.front().get();
             if (wc && wc->uiManager) wc->uiManager->ReportRemoteSaveFailed(failure);
         });
@@ -348,7 +356,12 @@ MainFrame* App::CreateNewWindow()
     });
 
     wc->uiManager->SetOnSessionDestroyedCallback([this](term::session::SessionId id) {
-        if (m_remoteEditManager)    m_remoteEditManager->OnSessionDestroyed(id);
+        // Resolved while the id still names a live record: the session is being
+        // destroyed, not yet erased, so this is the last moment the port the
+        // edits were opened against can be named at all.
+        if (m_remoteEditManager)
+            m_remoteEditManager->StopEditsForFilesystem(
+                m_sessionManager->GetRemoteFileSystem(id));
         if (m_fileExplorerManager)  m_fileExplorerManager->OnSessionDestroyed(id);
     });
 

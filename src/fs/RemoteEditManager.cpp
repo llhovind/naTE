@@ -1,16 +1,15 @@
-#include "ui/RemoteEditManager.h"
-#include "ui/EditorLauncher.h"
+#include "fs/RemoteEditManager.h"
 #include "fs/EditWorkspace.h"
 #include <filesystem>
-#include <wx/app.h>
 #include <algorithm>
 #include <cerrno>
 #include <cstdlib>
+#include <optional>
 #include <system_error>
 #include <unistd.h>
 #include <vector>
 
-namespace ui {
+namespace term::fs {
 
 namespace {
 
@@ -24,7 +23,7 @@ namespace {
 // remote permissions we deliberately do not replicate.
 //
 // Returns an empty path on failure, with the reason in err.
-std::string CreateWorkingCopyDir(const term::fs::WorkingCopyPath& layout,
+std::string CreateWorkingCopyDir(const WorkingCopyPath& layout,
                                  std::string& err)
 {
     std::error_code ec;
@@ -49,8 +48,11 @@ std::string CreateWorkingCopyDir(const term::fs::WorkingCopyPath& layout,
 
 } // namespace
 
-RemoteEditManager::RemoteEditManager(term::session::SessionManager& sm)
-    : sm_(sm)
+RemoteEditManager::RemoteEditManager(Dispatcher     dispatch,
+                                     LaunchEditorFn launchEditor)
+    : dispatch_(std::move(dispatch))
+    , launchEditor_(std::move(launchEditor))
+    , guard_(dispatch_)
 {}
 
 RemoteEditManager::~RemoteEditManager()
@@ -64,15 +66,22 @@ RemoteEditManager::~RemoteEditManager()
     sessions_.clear();
 }
 
-void RemoteEditManager::OpenRemoteFile(term::session::SessionId  id,
-                                        const std::string&        remotePath,
-                                        const std::string&        editorCommand,
-                                        std::function<void(bool, std::string)> onReady)
+void RemoteEditManager::OpenRemoteFile(EditEndpoint       endpoint,
+                                       const std::string& remotePath,
+                                       const std::string& editorCommand,
+                                       std::function<void(bool, std::string)> onReady)
 {
-    const std::string hostname = sm_.GetRemoteDescription(id);
+    // Checked once, here, so no session can exist without somewhere to save to
+    // and no upload has to re-ask.
+    if (!endpoint.Valid()) {
+        if (onReady) onReady(false, "Session has no remote filesystem");
+        return;
+    }
+
     // Stamped with this process so a later run can tell our working copies from
     // a live sibling instance's when it reclaims what a crash left behind.
-    const auto layout = term::fs::MakeWorkingCopyPath(hostname, remotePath, ::getpid());
+    const auto layout =
+        MakeWorkingCopyPath(endpoint.label, remotePath, ::getpid());
     if (layout.fileName.empty()) {
         if (onReady) onReady(false, "Not a file: " + remotePath);
         return;
@@ -90,30 +99,36 @@ void RemoteEditManager::OpenRemoteFile(term::session::SessionId  id,
         return;
     }
 
+    // No mode: this fetches a working copy for an editor, not a faithful copy
+    // of the file. The caller has not stat'd the remote and inventing a mode
+    // from nothing would be worse than the adapter's default.
     auto ctx = guard_.For(this);
-    sm_.DownloadFile(id, remotePath, localPath,
-        [ctx, id, remotePath, localPath, editorCommand, onReady = std::move(onReady)]
-        (term::transport::FsError err) mutable {
-            ctx.Post([id, remotePath, localPath, editorCommand,
-                      err = std::move(err), onReady = std::move(onReady)]
+    endpoint.fs->Download(remotePath, localPath, std::nullopt, nullptr,
+        [ctx, endpoint, remotePath, localPath, editorCommand,
+         onReady = std::move(onReady)]
+        (transport::FsError err) mutable {
+            ctx.Post([endpoint = std::move(endpoint), remotePath, localPath,
+                      editorCommand, err = std::move(err),
+                      onReady = std::move(onReady)]
                      (RemoteEditManager& mgr) mutable {
                 if (err.Failed()) {
                     // No session will be built to own this working copy, so
                     // nothing else would ever come back for the directory that
                     // was created to hold it.
-                    term::fs::RemoveWorkingCopy(localPath);
+                    RemoveWorkingCopy(localPath);
                     if (onReady) onReady(false, err.message);
                     return;
                 }
 
                 auto session = std::make_unique<RemoteEditSession>(
-                    id, remotePath, localPath, mgr.sm_);
+                    std::move(endpoint), remotePath, localPath, mgr.dispatch_);
                 // Safe to capture the manager: a session's callbacks are
                 // retired by Stop(), which runs before it leaves sessions_ and
                 // before the manager itself is taken apart.
                 session->SetOnSaved(
-                    [&mgr](term::session::SessionId sid, const std::string& path) {
-                        if (mgr.onFileSaved_) mgr.onFileSaved_(sid, path);
+                    [&mgr](transport::IRemoteFileSystem* fs,
+                           const std::string& path) {
+                        if (mgr.onFileSaved_) mgr.onFileSaved_(fs, path);
                     });
                 session->SetOnSaveFailed(
                     [&mgr](const SaveFailure& failure) {
@@ -122,7 +137,7 @@ void RemoteEditManager::OpenRemoteFile(term::session::SessionId  id,
                 session->Start();
                 mgr.sessions_.push_back(std::move(session));
 
-                LaunchEditor(editorCommand, localPath);
+                if (mgr.launchEditor_) mgr.launchEditor_(editorCommand, localPath);
 
                 if (onReady) onReady(true, "");
             });
@@ -147,31 +162,24 @@ std::vector<ActiveEdit> RemoteEditManager::ListActiveEdits() const
 {
     std::vector<ActiveEdit> edits;
     edits.reserve(sessions_.size());
-    for (const auto& s : sessions_) {
-        edits.push_back({s->GetSessionId(), s->GetRemotePath(), s->GetLocalPath(),
-                         sm_.GetRemoteDescription(s->GetSessionId())});
-    }
+    for (const auto& s : sessions_)
+        edits.push_back({s->GetRemotePath(), s->GetLocalPath(), s->GetHost()});
     return edits;
 }
 
-void RemoteEditManager::OnSessionDestroyed(term::session::SessionId id)
+void RemoteEditManager::StopEditsForFilesystem(
+    const transport::IRemoteFileSystem* fs)
 {
-    const bool any = std::any_of(sessions_.begin(), sessions_.end(),
-        [id](const std::unique_ptr<RemoteEditSession>& s) {
-            return s->GetSessionId() == id;
-        });
-
-    if (!any) return;
+    if (!fs) return;
 
     sessions_.erase(
         std::remove_if(sessions_.begin(), sessions_.end(),
-            [id](const std::unique_ptr<RemoteEditSession>& s) {
-                if (s->GetSessionId() != id) return false;
+            [fs](const std::unique_ptr<RemoteEditSession>& s) {
+                if (s->GetFileSystem() != fs) return false;
                 s->Stop();
                 return true;
             }),
         sessions_.end());
-
 }
 
-} // namespace ui
+} // namespace term::fs

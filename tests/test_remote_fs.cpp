@@ -7,6 +7,7 @@
 #include "session/Connection.h"
 #include "session/SessionManager.h"
 #include "transport/IRemoteFileSystem.h"
+#include "transport/LocalFileSystem.h"
 
 using namespace term::session;
 using namespace term::transport;
@@ -40,33 +41,24 @@ TEST_CASE("given an unknown session id when queried then the port is null") {
 }
 
 // ---------------------------------------------------------------------------
-// Callback contract
+// Reverse lookup
 //
-// The port promises every callback fires exactly once, including on the paths
-// that cannot do any work. Dropping the callback instead would leave a caller
-// waiting forever on a spinner that never resolves — the failure mode these
-// tests exist to prevent.
+// fs/ works in terms of the port and holds no session id, so the way back —
+// from a filesystem to the session that owns it — has to be reliable, and in
+// particular has to answer "nobody" rather than guess.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("given a session with no filesystem when a transfer is requested then it reports not connected") {
+TEST_CASE("given a filesystem no session owns when looked up then it names no session") {
     SessionManager sm;
     const SessionId id = sm.CreateSession(loopbackConn(), 1000, 80, 24);
 
-    SECTION("download") {
-        std::optional<FsError> result;
-        sm.DownloadFile(id, "/etc/hosts", "/tmp/hosts",
-                        [&](FsError err) { result = std::move(err); });
-        REQUIRE(result.has_value());
-        REQUIRE(result->code == FsErrorCode::NotConnected);
+    SECTION("a filesystem belonging to nothing") {
+        LocalFileSystem unowned;
+        REQUIRE(sm.FindSessionForFileSystem(&unowned) == 0);
     }
 
-    SECTION("upload") {
-        std::optional<FsError> result;
-        sm.UploadFile(id, "/tmp/hosts", "/etc/hosts",
-                      [&](FsError err) { result = std::move(err); });
-        REQUIRE(result.has_value());
-        REQUIRE(result->code == FsErrorCode::NotConnected);
-        REQUIRE_FALSE(result->message.empty());
+    SECTION("no filesystem at all") {
+        REQUIRE(sm.FindSessionForFileSystem(nullptr) == 0);
     }
 
     sm.CloseSession(id);

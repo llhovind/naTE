@@ -6,7 +6,7 @@
 #include "ui/ResetAndClearDialog.h"
 #include "app/App.h"
 #include "ui/FileExplorerManager.h"
-#include "ui/RemoteEditManager.h"
+#include "fs/RemoteEditManager.h"
 #include "ui/RemoteEditsDialog.h"
 #include "ui/RemoteFileBrowserDialog.h"
 #include "ui/KbdIntDialog.h"
@@ -556,7 +556,12 @@ void UIManager::OpenFileInEditor(term::session::SessionId id,
 
     if (!editMgr_) return;
 
-    editMgr_->OpenRemoteFile(id, path, *command,
+    // Resolved here, at the boundary: the edit itself works in terms of the
+    // filesystem port and never needs to know a session exists.
+    const term::fs::EditEndpoint endpoint{sm_.GetRemoteFileSystem(id),
+                                          sm_.GetRemoteDescription(id)};
+
+    editMgr_->OpenRemoteFile(endpoint, path, *command,
         [this](bool ok, std::string err) {
             if (!ok) {
                 wxMessageBox(wxString::FromUTF8("Remote edit failed: " + err),
@@ -577,7 +582,7 @@ void UIManager::ShowRemoteEdits()
     dlg.ShowModal();
 }
 
-void UIManager::ReportRemoteSaveFailed(const SaveFailure& failure)
+void UIManager::ReportRemoteSaveFailed(const term::fs::SaveFailure& failure)
 {
     // The editor has already told the user the write succeeded — locally it
     // did. Say plainly that the remote copy is the stale one, and point at the

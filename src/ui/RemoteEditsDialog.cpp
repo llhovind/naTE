@@ -8,7 +8,7 @@
 
 namespace ui {
 
-RemoteEditsDialog::RemoteEditsDialog(wxWindow* parent, RemoteEditManager& mgr)
+RemoteEditsDialog::RemoteEditsDialog(wxWindow* parent, term::fs::RemoteEditManager& mgr)
     : wxDialog(parent, wxID_ANY, "Remote Edits",
                wxDefaultPosition, wxSize(520, 300))
     , mgr_(mgr)
@@ -66,7 +66,7 @@ void RemoteEditsDialog::OnFinish(wxCommandEvent&)
     if (sel == wxNOT_FOUND || static_cast<size_t>(sel) >= edits_.size())
         return;
 
-    const ActiveEdit edit = edits_[static_cast<size_t>(sel)];
+    const term::fs::ActiveEdit edit = edits_[static_cast<size_t>(sel)];
 
     // Named in full, because the working copy is the only place unsaved changes
     // exist: an editor still holding the file has nowhere to write it back to

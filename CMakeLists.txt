@@ -186,8 +186,6 @@ set(SOURCES
     src/ui/RemoteFileBrowserDialog.cpp
     src/ui/ResetAndClearDialog.cpp
     src/ui/DialogPlacement.cpp
-    src/ui/RemoteEditSession.cpp
-    src/ui/RemoteEditManager.cpp
     src/ui/RemoteEditsDialog.cpp
     src/ui/WorkspaceManagerDialog.cpp
     src/ui/GeometryDialog.cpp
@@ -212,6 +210,9 @@ set(SOURCES
     src/fs/RemoteDeleter.cpp
     src/fs/LinkResolver.cpp
     src/fs/EditWorkspace.cpp
+    src/fs/SaveAnnouncePolicy.cpp
+    src/fs/RemoteEditSession.cpp
+    src/fs/RemoteEditManager.cpp
     src/layout/DocLayout.cpp
     src/layout/UrlScanner.cpp
     src/layout/WordSelector.cpp
