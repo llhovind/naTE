@@ -4,6 +4,7 @@
 #include "ui/AppIconBundle.h"
 #include "ui/ColorUtils.h"
 #include "ui/ConflictDialog.h"
+#include "ui/SpaceWarningDialog.h"
 #include "ui/StringUtils.h"
 #include "ui/ToolButton.h"
 #include "ui/TransferPanel.h"
@@ -261,6 +262,16 @@ void FileExplorerFrame::BuildLayout(OpenInEditorFn onOpenInEditor)
         dlg.ShowModal();
         respond(dlg.Resolution(), dlg.ApplyToAll());
     });
+    queue_->SetSpaceWarningPrompt(
+        [this](const term::fs::PreflightReport& report, auto respond) {
+            // The endpoint's name, not the path: the user picked a machine to
+            // copy to, and "not enough room on prod-db-01" is the sentence they
+            // can act on. Read live from the pane rather than carried through
+            // the queue, which has no business knowing what anything is called.
+            SpaceWarningDialog dlg(this, cfg_, report, DestinationLabel());
+            dlg.ShowModal();
+            respond(dlg.Proceed());
+        });
 
     controls_   = new wxBoxSizer(wxHORIZONTAL);
     // These three keep their words. A copy is not undoable once the bytes land
@@ -318,6 +329,14 @@ void FileExplorerFrame::BuildLayout(OpenInEditorFn onOpenInEditor)
 
     transfers_ = new TransferPanel(this, cfg_, *queue_);
     transfers_->SetOnCancelJob([this](term::fs::JobId id) { queue_->CancelJob(id); });
+    transfers_->SetOnPauseChanged([this](bool paused) {
+        if (paused) queue_->Pause();
+        else        queue_->Resume();
+        // Pausing changes no job, so nothing else would repaint the button or
+        // the status line to say so.
+        if (transfers_) transfers_->RefreshFromQueue();
+        UpdateQueueStatus();
+    });
     transfers_->SetOnCancelAll([this] { queue_->CancelAll(); });
     transfers_->SetOnClearFinished([this] {
         queue_->ClearFinished();
@@ -849,6 +868,19 @@ void FileExplorerFrame::CopyBetweenPanes(FileExplorerPane* from, FileExplorerPan
 // ---------------------------------------------------------------------------
 // Queue notifications
 // ---------------------------------------------------------------------------
+
+wxString FileExplorerFrame::DestinationLabel() const
+{
+    if (queue_) {
+        for (const auto& job : queue_->Jobs()) {
+            if (job.state == term::fs::JobState::Queued)
+                return DecodeForDisplay(job.destination.label);
+        }
+    }
+    // Nothing queued means nothing to name. The warning is still worth showing
+    // with a neutral noun rather than an empty gap where a machine should be.
+    return "The destination";
+}
 
 void FileExplorerFrame::UpdateQueueStatus()
 {

@@ -5,6 +5,7 @@
 #include <deque>
 #include <functional>
 #include <map>
+#include <set>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -102,6 +103,20 @@ public:
     // Stands in for a server whose SFTP implementation has no SSH_FXP_SYMLINK.
     bool symlinkUnsupported = false;
 
+    // --- Volume space --------------------------------------------------------
+    // Space by path, so a test can give one host two volumes and check that the
+    // figure follows the path rather than the filesystem. A path with no entry
+    // gets defaultSpace, which is roomy enough that tests uninterested in space
+    // never have to seed any.
+    std::map<std::string, term::transport::FsSpaceInfo> spaceByPath;
+    term::transport::FsSpaceInfo defaultSpace{1ULL << 40, 1ULL << 40, false};
+    // Stands in for a server without statvfs@openssh.com.
+    bool spaceUnsupported = false;
+    // Paths that report as missing rather than answering, so a test can model a
+    // destination directory a walk has not created yet.
+    std::set<std::string>    spaceMissing;
+    std::vector<std::string> spaceCalls;
+
     struct PendingTransfer {
         TransferHandle handle = 0;
         bool           isUpload = false;
@@ -192,9 +207,46 @@ public:
     }
 
     // --- IRemoteFileSystem ---------------------------------------------------
+    // --- Deferred listings ---------------------------------------------------
+    // Holds List callbacks open so a test can see how many are in flight at
+    // once. libssh2 keeps readdir state per session, so two overlapping
+    // listings trade answers — the only way to prove that cannot happen is to
+    // stop answering and count.
+    bool deferListings = false;
+
+    struct PendingList {
+        std::string                  path;
+        term::transport::ListCallback onDone;
+    };
+    std::vector<PendingList> pendingLists;
+
+    // Answers the oldest outstanding listing. Returns false when there is none.
+    bool CompleteOldestListing()
+    {
+        if (pendingLists.empty()) return false;
+        PendingList taken = std::move(pendingLists.front());
+        pendingLists.erase(pendingLists.begin());
+
+        if (const auto it = listErrors.find(taken.path); it != listErrors.end()) {
+            taken.onDone({}, it->second);
+            return true;
+        }
+        if (const auto it = listings.find(taken.path); it != listings.end()) {
+            taken.onDone(it->second, FsError::Success());
+            return true;
+        }
+        taken.onDone({}, FsError::Make(FsErrorCode::NoSuchFile,
+                                       "no such directory: " + taken.path));
+        return true;
+    }
+
     void List(const std::string& path, term::transport::ListCallback onDone) override
     {
         listCalls.push_back(path);
+        if (deferListings) {
+            pendingLists.push_back({path, std::move(onDone)});
+            return;
+        }
         if (const auto it = listErrors.find(path); it != listErrors.end()) {
             onDone({}, it->second);
             return;
@@ -228,6 +280,27 @@ public:
     void ReadLink(const std::string& path, term::transport::PathCallback onDone) override
     {
         onDone(path + "-target", FsError::Success());
+    }
+
+    void QuerySpace(const std::string& path,
+                    term::transport::SpaceCallback onDone) override
+    {
+        spaceCalls.push_back(path);
+        if (spaceUnsupported) {
+            onDone({}, FsError::Make(FsErrorCode::Unsupported,
+                                     "This server cannot report free space"));
+            return;
+        }
+        if (spaceMissing.count(path)) {
+            onDone({}, FsError::Make(FsErrorCode::NoSuchFile,
+                                     "no such directory: " + path));
+            return;
+        }
+        if (const auto it = spaceByPath.find(path); it != spaceByPath.end()) {
+            onDone(it->second, FsError::Success());
+            return;
+        }
+        onDone(defaultSpace, FsError::Success());
     }
 
     void MakeDirectory(const std::string& path, uint32_t,

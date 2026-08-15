@@ -82,6 +82,39 @@ struct FileInfo {
 };
 
 // ---------------------------------------------------------------------------
+// Volume space
+// ---------------------------------------------------------------------------
+
+// How much room the volume backing some path has.
+//
+// Deliberately answered per-path rather than per-filesystem: a host commonly
+// mounts several volumes, and only the far side knows which one a given path
+// lands on. Asking about a path also gets the awkward cases right for free — a
+// directory that is a symlink onto another volume reports the volume it
+// actually resolves to, which no amount of client-side prefix matching against
+// a mount table would arrive at.
+//
+// Every figure is a snapshot and none of them is authoritative. statvfs cannot
+// see per-user quotas, other writers are free to consume space between the
+// answer and the write, and filesystems that compress, deduplicate or
+// thin-provision make availableBytes an under- or over-estimate respectively.
+// Callers may inform and may warn; nothing here is sound enough to refuse work
+// over.
+struct FsSpaceInfo {
+    uint64_t totalBytes = 0;
+    // What *this* user can actually write — the space reserved for root is
+    // already deducted. This is the only figure worth showing: the raw free
+    // count includes a reserve the user will never get, which turns into a
+    // transfer that fails several gigabytes after we promised it would fit.
+    uint64_t availableBytes = 0;
+
+    // The volume refuses writes outright. Worth surfacing before a transfer
+    // rather than after: "the destination is read-only" explains itself, and a
+    // permission failure on the first byte written does not.
+    bool readOnly = false;
+};
+
+// ---------------------------------------------------------------------------
 // Transfers
 // ---------------------------------------------------------------------------
 
@@ -106,10 +139,11 @@ inline constexpr uint32_t kDefaultFileMode = 0644;
 using ProgressCallback = std::function<void(uint64_t transferredBytes,
                                             uint64_t totalBytes)>;
 
-using DoneCallback = std::function<void(FsError)>;
-using ListCallback = std::function<void(std::vector<FileInfo>, FsError)>;
-using PathCallback = std::function<void(std::string, FsError)>;
-using StatCallback = std::function<void(FileInfo, FsError)>;
+using DoneCallback  = std::function<void(FsError)>;
+using ListCallback  = std::function<void(std::vector<FileInfo>, FsError)>;
+using PathCallback  = std::function<void(std::string, FsError)>;
+using StatCallback  = std::function<void(FileInfo, FsError)>;
+using SpaceCallback = std::function<void(FsSpaceInfo, FsError)>;
 
 // ---------------------------------------------------------------------------
 // The port
@@ -160,6 +194,21 @@ public:
     // Reads a symlink's target without following it. The result is returned
     // verbatim and may be relative to the link's own directory.
     virtual void ReadLink(const std::string& path, PathCallback onDone) = 0;
+
+    // Reports the volume backing path. See FsSpaceInfo for what the figures do
+    // and do not mean.
+    //
+    // path must exist; there is no volume to describe otherwise. A caller
+    // sizing up a directory it is about to create should ask about the nearest
+    // existing ancestor, which is necessarily on the same volume — a fresh
+    // mkdir cannot land anywhere but its parent's filesystem.
+    //
+    // Reporting space is an optional SFTP extension rather than part of the
+    // base protocol, so FsErrorCode::Unsupported is an ordinary outcome here
+    // and not a malfunction. A caller must render it as "unknown" and never as
+    // zero: telling a user a healthy volume has no room left is worse than
+    // telling them nothing.
+    virtual void QuerySpace(const std::string& path, SpaceCallback onDone) = 0;
 
     // Creates a symbolic link at linkPath pointing at target.
     //

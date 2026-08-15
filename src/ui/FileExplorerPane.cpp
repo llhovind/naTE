@@ -96,6 +96,13 @@ void FileExplorerPane::BindEndpoint(const PaneEndpoint& endpoint)
     deleter_.reset();
     endpoint_ = endpoint;
 
+    // The free-space figure belongs to the machine as much as to the path, and
+    // spacePath_ alone cannot tell them apart: two hosts both sitting at "/"
+    // would match, and the new endpoint would inherit the old one's number
+    // without anything looking wrong.
+    space_.reset();
+    spacePath_.clear();
+
     if (!endpoint_.Valid()) {
         GoOffline("No filesystem selected.");
         return;
@@ -192,7 +199,7 @@ void FileExplorerPane::BuildToolbar(wxSizer* outer)
     backBtn_->Bind(wxEVT_BUTTON,    [this](wxCommandEvent&) { if (controller_) controller_->GoBack(); });
     forwardBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { if (controller_) controller_->GoForward(); });
     upBtn_->Bind(wxEVT_BUTTON,      [this](wxCommandEvent&) { if (controller_) controller_->NavigateUp(); });
-    refreshBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { if (controller_) controller_->Refresh(); });
+    refreshBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { Reload(); });
     newFolderBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { NewFolder(); });
     pathCtrl_->Bind(wxEVT_TEXT_ENTER, &FileExplorerPane::OnGo, this);
     filterCtrl_->Bind(wxEVT_TEXT, [this](wxCommandEvent&) {
@@ -353,6 +360,7 @@ void FileExplorerPane::OnExplorerContentsChanged()
 
     UpdateStatus();
     UpdateNavigationState();
+    RefreshFreeSpace();
     if (onStateChanged_) onStateChanged_();
 }
 
@@ -412,12 +420,58 @@ void FileExplorerPane::UpdateStatus()
         text += wxString::Format("   (%zu not shown)",
                                  model.TotalCount() - model.VisibleCount());
 
+    // Only when it describes the directory on screen. A figure for the previous
+    // one is worse than none: it looks current, and on a host with several
+    // volumes it can be wrong by a whole disk.
+    if (space_ && spacePath_ == controller_->CurrentPath()) {
+        text += wxString::Format("   -   %s free",
+                                 FormatByteSize(space_->availableBytes));
+        if (space_->readOnly) text += " (read-only)";
+    }
+
     if (model.IsPartial())
         text += "   incomplete: " + DecodeForDisplay(model.Error().message);
     else if (model.HasError())
         text = "Error: " + DecodeForDisplay(model.Error().message);
 
     SetStatus(text);
+}
+
+void FileExplorerPane::RefreshFreeSpace(bool force)
+{
+    if (!controller_ || !endpoint_.Valid()) return;
+
+    const std::string path = controller_->CurrentPath();
+    if (path.empty()) return;
+
+    // Contents change for reasons that cannot move the volume — a filter
+    // keystroke, a re-sort — and each one would otherwise cost a round trip.
+    // Only an explicit refresh re-asks about a directory already answered for.
+    if (!force && space_ && spacePath_ == path) return;
+
+    // Dropped before the query rather than after it: whatever is held now
+    // describes the directory being left, and leaving it on screen until an
+    // answer arrives for the new one is exactly the staleness spacePath_ exists
+    // to prevent.
+    space_.reset();
+    spacePath_.clear();
+
+    auto ctx = guard_.For(this);
+    endpoint_.fs->QuerySpace(path, [ctx, path](term::transport::FsSpaceInfo info,
+                                               term::transport::FsError err) {
+        ctx.Post([path, info, err = std::move(err)](FileExplorerPane& p) mutable {
+            // A server without the statvfs extension answers Unsupported, which
+            // is ordinary rather than an error worth reporting — the status line
+            // simply carries no figure. Nothing is shown for a genuine failure
+            // either: the user asked to see a directory, not to be told about a
+            // volume query they never made.
+            if (err.Failed()) return;
+
+            p.space_     = info;
+            p.spacePath_ = path;
+            p.UpdateStatus();
+        });
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -452,6 +506,10 @@ std::vector<FileExplorerPane::Item> FileExplorerPane::SelectedItems() const
 void FileExplorerPane::Reload()
 {
     if (controller_) controller_->Refresh();
+    // Forced: an explicit reload is the one moment the user has asked for
+    // current information, and it is also when the volume is most likely to
+    // have moved — a transfer into this directory has just finished.
+    RefreshFreeSpace(true);
 }
 
 void FileExplorerPane::ReloadFocusing(std::string focusName)
@@ -566,7 +624,7 @@ void FileExplorerPane::OnListKeyDown(wxListEvent& evt)
     switch (evt.GetKeyCode()) {
         case WXK_DELETE:    DeleteSelection(); break;
         case WXK_F2:        RenameRow(row);    break;
-        case WXK_F5:        if (controller_) controller_->Refresh(); break;
+        case WXK_F5:        Reload();          break;
         // Backspace goes up a level, as in every file manager.
         case WXK_BACK:      if (controller_) controller_->NavigateUp(); break;
         default:            evt.Skip(); break;

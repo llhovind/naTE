@@ -136,6 +136,12 @@ private:
     void AlignCopyButtonsToSash();
     void AlignCopyButtonsToSash(int sashPosition);
     void UpdateQueueStatus();
+    // Names the endpoint the batch awaiting a space warning is bound for.
+    //
+    // Read off the queue's own jobs rather than remembered from whichever pane
+    // started the copy: the job carries the endpoint it was queued against, so
+    // this stays right even if a pane has since been repointed elsewhere.
+    wxString DestinationLabel() const;
     // Uploads files dropped from the desktop onto a pane. Dropping onto the
     // local pane is a no-op the user is told about rather than a silent one.
     void OnFilesDropped(FileExplorerPane* target, std::vector<std::string> paths);

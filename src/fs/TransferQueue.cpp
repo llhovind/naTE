@@ -1,5 +1,6 @@
 #include "fs/TransferQueue.h"
 #include "fs/FileMode.h"
+#include "fs/RelayWorkspace.h"
 #include "fs/RemotePath.h"
 
 #include <algorithm>
@@ -8,6 +9,8 @@
 #include <filesystem>
 #include <memory>
 #include <system_error>
+
+#include <unistd.h>
 
 namespace term::fs {
 
@@ -24,72 +27,21 @@ constexpr int kMaxTreeDepth = 64;
 // renaming will not fix.
 constexpr int kMaxRenameAttempts = 100;
 
-// --- Recursive tree expansion ----------------------------------------------
-// State for EnqueueTree's walk, at namespace scope so the continuation chain
-// below stays a sequence of short steps rather than one deeply nested lambda.
+// How far up the destination's ancestry a space query will climb before giving
+// up. Deep enough to clear any tree the walk could have just created, shallow
+// enough that an endpoint answering nothing costs a handful of round trips
+// rather than one per path component all the way to the root.
+constexpr int kMaxSpaceProbeAncestors = 8;
 
-struct PendingDir {
-    std::string source;
-    std::string dest;
-    int         depth = 0;
-};
-
-struct TreeWalk {
-    TransferEndpoint                        source;
-    TransferEndpoint                        destination;
-    std::deque<PendingDir>                  pending;
-    transport::FsError                      firstError;
-    std::function<void(transport::FsError)> onExpanded;
-
-    // Hands the walk's outcome back exactly once.
-    void Finish(transport::FsError err)
-    {
-        auto done = std::move(onExpanded);
-        onExpanded = nullptr;
-        if (done) done(std::move(err));
-    }
-};
-
-// Turns one directory's listing into queued file jobs and further directories
-// to visit. Returns false when the walk should stop, having already reported.
-bool AbsorbListing(TransferQueue& queue, TreeWalk& walk, const PendingDir& dir,
-                   const std::vector<transport::FileInfo>& entries,
-                   transport::FsError err)
+// Whether a failure means the endpoint is gone rather than that one path is a
+// problem. The distinction decides whether a tree walk skips and carries on or
+// abandons the batch: everything else is local to the directory that produced
+// it, and losing the whole selection over one of those is what this exists to
+// stop.
+bool IsEndpointGone(transport::FsErrorCode code) noexcept
 {
-    // A directory that failed outright stops the walk; one that returned rows
-    // alongside an error contributes what it read.
-    if (err.Failed() && entries.empty()) {
-        walk.Finish(std::move(err));
-        return false;
-    }
-    if (err.Failed() && walk.firstError.Ok()) walk.firstError = std::move(err);
-
-    for (const auto& e : entries) {
-        const std::string src = path::Join(dir.source, e.name);
-        const std::string dst = path::Join(dir.dest, e.name);
-
-        // A link inside the tree gets the same treatment as one the user
-        // picked directly, and it is never descended into — which is what
-        // keeps a walk free of cycles by construction.
-        if (e.isSymlink) {
-            TransferItem link;
-            link.path      = src;
-            link.name      = e.name;
-            link.isSymlink = true;
-            link.isDir     = e.isDir;
-            queue.EnqueueItem(walk.source, link, walk.destination, dir.dest);
-            continue;
-        }
-
-        if (e.isDir) {
-            if (dir.depth + 1 < kMaxTreeDepth)
-                walk.pending.push_back({src, dst, dir.depth + 1});
-        } else {
-            queue.Enqueue(walk.source, src, walk.destination, dst,
-                          {e.size, e.mode});
-        }
-    }
-    return true;
+    return code == transport::FsErrorCode::NotConnected ||
+           code == transport::FsErrorCode::Cancelled;
 }
 
 // The bits a copy reproduces on the destination.
@@ -105,15 +57,16 @@ std::optional<uint32_t> PermissionsToCopy(std::optional<uint32_t> mode)
 }
 
 // Scratch path for a transfer that has to be staged through this machine.
+//
+// The naming, and the pid inside it, belong to RelayWorkspace: a staging file
+// abandoned by a killed process has to be reclaimable by the next run, and only
+// something that knows the whole scheme can tell one of those from a file
+// another live instance is relaying through right now.
 std::string MakeStagingPath(JobId id, const std::string& leaf)
 {
-    std::error_code ec;
-    auto dir = std::filesystem::temp_directory_path(ec);
-    if (ec) dir = "/tmp";
-
-    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    return (dir / ("nate_relay_" + std::to_string(id) + "_" +
-                   std::to_string(stamp) + "_" + leaf)).string();
+    const auto stamp = static_cast<uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+    return MakeRelayPath(leaf, id, ::getpid(), stamp);
 }
 
 } // namespace
@@ -156,8 +109,10 @@ std::string MakeUniqueCandidate(const std::string& name, int attempt)
 // Construction
 // ---------------------------------------------------------------------------
 
-TransferQueue::TransferQueue(Dispatcher dispatch)
-    : guard_(std::move(dispatch))
+TransferQueue::TransferQueue(Dispatcher dispatch, StagingSpaceProbe stagingSpace)
+    : guard_(std::move(dispatch)),
+      stagingSpace_(stagingSpace ? std::move(stagingSpace)
+                                 : StagingSpaceProbe(&RelayVolumeSpace))
 {}
 
 // Callbacks still held by a transport check the guard before touching us, so
@@ -275,49 +230,152 @@ void TransferQueue::EnqueueTree(TransferEndpoint source, const std::string& sour
         return;
     }
 
-    auto walk = std::make_shared<TreeWalk>();
-    walk->source      = std::move(source);
-    walk->destination = std::move(destination);
-    walk->pending.push_back({sourceDir, destDir, 0});
-    walk->onExpanded  = std::move(onExpanded);
+    // Held from here until the walk reports, so nothing starts moving before
+    // the batch is fully known. Released through the walk's own completion
+    // hook, which fires exactly once on every path it can take — including the
+    // ones that stop early on an error.
+    // A fresh enumeration begins a new batch, and its tally must not carry
+    // over the last one's skipped directories.
+    if (!enumerating_) ResetEnumerationTally();
 
-    auto step = std::make_shared<std::function<void()>>();
-    auto ctx  = guard_.For(this);
+    toVisit_.push_back({std::move(source), std::move(destination),
+                        sourceDir, destDir, 0});
+    // The root of the tree is a directory the copy has to make, exactly like
+    // the ones found inside it.
+    dirsToCreate_.push_back({toVisit_.back().destination, destDir});
 
-    // One directory per turn: create it, list it, absorb what came back, and
-    // come round again for whatever that added to the queue.
-    *step = [ctx, walk, step]() {
-        if (walk->pending.empty()) {
-            walk->Finish(walk->firstError);
-            return;
+    if (onExpanded) enumCallbacks_.push_back(std::move(onExpanded));
+    if (!enumerating_) {
+        enumerating_ = true;
+        enumError_   = {};
+        StepEnumeration();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Enumeration
+// ---------------------------------------------------------------------------
+//
+// One directory at a time, for the whole queue, and nothing is written.
+//
+// Both properties are deliberate and both were learned the hard way. Several
+// trees used to be walked at once, each with its own continuation chain, which
+// meant several listings in flight on one SFTP session — and libssh2 keeps
+// readdir state per session, so two overlapping listings trade answers and a
+// directory's contents arrive attached to another directory's path. A single
+// queue with a single listing outstanding cannot express that bug. It is slower
+// on a wide tree, and that is the right trade: an enumeration that takes longer
+// is worth any amount more than one that is subtly wrong.
+//
+// Nothing is written because enumeration happens before the user has agreed to
+// anything. Creating the destination skeleton as the walk discovered it left
+// directories behind on a copy the user then declined, which is not something a
+// preview may do.
+
+void TransferQueue::StepEnumeration()
+{
+    if (toVisit_.empty()) {
+        FinishEnumeration();
+        return;
+    }
+
+    const PendingDir dir = toVisit_.front();
+    toVisit_.pop_front();
+
+    auto ctx = guard_.For(this);
+    dir.source.fs->List(dir.sourcePath,
+        [ctx, dir](std::vector<transport::FileInfo> entries,
+                   transport::FsError err) {
+            ctx.Post([dir, entries = std::move(entries),
+                      err = std::move(err)](TransferQueue& q) mutable {
+                // A batch cancelled while this listing was in flight must not
+                // have its results absorbed: the jobs and directories they
+                // would add are precisely what the cancel just took away, and
+                // absorbing them would refill a queue the user emptied.
+                if (!q.enumCancelled_)
+                    q.AbsorbListing(dir, entries, std::move(err));
+                q.StepEnumeration();
+            });
+        });
+}
+
+void TransferQueue::AbsorbListing(const PendingDir& dir,
+                                  const std::vector<transport::FileInfo>& entries,
+                                  transport::FsError err)
+{
+    if (err.Failed()) {
+        // A directory that could not be read costs that directory, not the rest
+        // of the tree — except when the endpoint itself is gone, where every
+        // remaining listing would fail identically and pressing on would spend
+        // a doomed round trip per directory to reach the same place.
+        if (IsEndpointGone(err.code)) toVisit_.clear();
+
+        NoteUnreadableDirectory(dir.sourcePath, err);
+        if (enumError_.Ok()) enumError_ = std::move(err);
+        // A listing that returned rows alongside an error still contributes
+        // what it read; discarding those would lose useful work.
+        if (entries.empty()) return;
+    }
+
+    for (const auto& e : entries) {
+        const std::string src = path::Join(dir.sourcePath, e.name);
+        const std::string dst = path::Join(dir.destPath, e.name);
+
+        // A link inside the tree gets the same treatment as one the user picked
+        // directly, and is never descended into — which is what keeps the walk
+        // free of cycles by construction.
+        if (e.isSymlink) {
+            TransferItem link;
+            link.path      = src;
+            link.name      = e.name;
+            link.isSymlink = true;
+            link.isDir     = e.isDir;
+            EnqueueSymlink(dir.source, link, dir.destination, dst);
+            continue;
         }
 
-        const PendingDir dir = walk->pending.front();
-        walk->pending.pop_front();
+        if (e.isDir) {
+            if (dir.depth + 1 >= kMaxTreeDepth) continue;
+            toVisit_.push_back({dir.source, dir.destination, src, dst,
+                                dir.depth + 1});
+            // Discovery order is breadth-first, so a parent is always recorded
+            // before its children and creating them in this order needs no
+            // sorting and no recursive mkdir.
+            dirsToCreate_.push_back({dir.destination, dst});
+        } else {
+            Enqueue(dir.source, src, dir.destination, dst, {e.size, e.mode});
+        }
+    }
+}
 
-        // The destination directory has to exist before anything lands in it,
-        // including the root of the tree — the listing below enumerates only
-        // its contents. An existing directory is the normal case when merging
-        // into a tree, so its error is not a failure.
-        walk->destination.fs->MakeDirectory(dir.dest, kDefaultDirectoryMode,
-            [ctx, walk, step, dir](transport::FsError) {
-                ctx.Post([ctx, walk, step, dir](TransferQueue&) {
-                    walk->source.fs->List(dir.source,
-                        [ctx, walk, step, dir](
-                            std::vector<transport::FileInfo> entries,
-                            transport::FsError err) {
-                            ctx.Post([walk, step, dir, entries = std::move(entries),
-                                      err = std::move(err)](TransferQueue& q) mutable {
-                                if (AbsorbListing(q, *walk, dir, entries,
-                                                  std::move(err)))
-                                    (*step)();
-                            });
-                        });
-                });
-            });
-    };
+void TransferQueue::FinishEnumeration()
+{
+    enumerating_   = false;
+    enumCancelled_ = false;
 
-    (*step)();
+    // Handed back before the queue acts on the batch: the callers are reporting
+    // on the enumeration, and one of them may still cancel what it produced.
+    auto callbacks = std::move(enumCallbacks_);
+    enumCallbacks_.clear();
+    for (auto& done : callbacks)
+        if (done) done(enumError_);
+
+    Pump();
+}
+
+void TransferQueue::CreateNextDirectory()
+{
+    const PendingDirCreate next = dirsToCreate_.front();
+    dirsToCreate_.pop_front();
+
+    auto ctx = guard_.For(this);
+    // The error is deliberately ignored: merging into a tree that already
+    // exists is the ordinary case, and a directory that genuinely cannot be
+    // made will fail again, visibly, on the first file that belongs in it.
+    next.destination.fs->MakeDirectory(next.path, kDefaultDirectoryMode,
+        [ctx](transport::FsError) {
+            ctx.Post([](TransferQueue& q) { q.Pump(); });
+        });
 }
 
 // ---------------------------------------------------------------------------
@@ -345,17 +403,232 @@ void TransferQueue::NotifyChanged(JobId id)
 
 void TransferQueue::Pump()
 {
-    if (activeId_ != kInvalidJobId) return;   // one at a time
+    if (enumerating_) return;   // still working out what the batch contains
 
     const auto it = std::find_if(jobs_.begin(), jobs_.end(),
         [](const TransferJob& j) { return j.state == JobState::Queued; });
     if (it == jobs_.end()) {
+        // Not idle while something is still moving: the last job of a batch is
+        // no longer queued long before it has finished.
+        if (activeId_ != kInvalidJobId) return;
+
+        // An empty directory is still a directory the user asked to copy, and
+        // it has no file job to carry it.
+        if (!dirsToCreate_.empty() && !paused_) {
+            CreateNextDirectory();
+            return;
+        }
+
+        // A drained queue is the other place a batch ends, and a batch of
+        // plain files never runs an enumeration to reset the tally on its way in.
+        ResetEnumerationTally();
         if (listener_) listener_->OnTransferQueueIdle();
+        return;
+    }
+
+    // Work queued after the standing verdict was reached has never been weighed
+    // against anything, so the verdict does not extend to it. Asked of every
+    // queued job rather than just the next one, because the case this exists
+    // for is a second copy started while the first is still draining: the job
+    // at the front is then old, cleared work, and waiting for it to be reached
+    // would hold the warning back until the bytes were nearly moving.
+    const bool unchecked = std::any_of(jobs_.begin(), jobs_.end(),
+        [this](const TransferJob& j) {
+            return j.state == JobState::Queued && j.id > checkedThrough_;
+        });
+    if (preflight_ == Preflight::Cleared && unchecked)
+        preflight_ = Preflight::Pending;
+
+    // Deliberately ahead of the one-at-a-time rule: the check costs a round
+    // trip and does not touch the transfer in flight, so it runs alongside it.
+    // The user hears that a batch will not fit when they ask for it, rather
+    // than whenever the queue eventually works its way round to it.
+    if (preflight_ != Preflight::Cleared) {
+        // Checking means a query or the user's answer is outstanding, and
+        // whichever it is will pump again when it lands.
+        if (preflight_ == Preflight::Pending) BeginPreflight();
+        return;
+    }
+
+    // After the check, not before it: a paused queue that is about to be
+    // resumed should already know whether the batch fits, and the check costs
+    // nothing while nothing is moving.
+    if (paused_) return;
+    if (activeId_ != kInvalidJobId) return;   // one at a time
+
+    // After the check and after the user's answer, never before: this is the
+    // first point at which the copy has been agreed to, and it is the first
+    // point at which anything may be written to the destination.
+    if (!dirsToCreate_.empty()) {
+        CreateNextDirectory();
         return;
     }
 
     activeId_ = it->id;
     BeginJob(activeId_);
+}
+
+void TransferQueue::Pause()
+{
+    paused_ = true;
+    // Nothing to stop: the transfer in flight is deliberately left to finish.
+    // Listeners still hear about it, because a queue that has stopped starting
+    // work looks different to a user than one that is merely slow.
+    if (listener_ && activeId_ != kInvalidJobId) NotifyChanged(activeId_);
+}
+
+void TransferQueue::Resume()
+{
+    if (!paused_) return;
+    paused_ = false;
+    Pump();
+}
+
+// ---------------------------------------------------------------------------
+// Pre-flight
+// ---------------------------------------------------------------------------
+
+void TransferQueue::BeginPreflight()
+{
+    preflight_ = Preflight::Checking;
+
+    const auto it = std::find_if(jobs_.begin(), jobs_.end(),
+        [](const TransferJob& j) { return j.state == JobState::Queued; });
+    if (it == jobs_.end() || !it->destination.Valid()) {
+        // Nothing to measure against. Clearing rather than holding: an invalid
+        // endpoint is BeginJob's to report, and a batch stuck behind a check
+        // that can never run would never report anything at all.
+        ClearPreflight();
+        return;
+    }
+
+    // The volume is the destination *directory's*, not the file's: the file is
+    // what is about to be created and does not exist yet. A host commonly has
+    // several volumes, so asking about the wrong path gives a confident answer
+    // about the wrong disk.
+    QuerySpaceFrom(it->destination.fs, path::Parent(it->destPath),
+                   kMaxSpaceProbeAncestors);
+}
+
+void TransferQueue::QuerySpaceFrom(transport::IRemoteFileSystem* fs,
+                                   std::string path, int ancestorsLeft)
+{
+    if (!fs || path.empty()) {
+        OnPreflightSpace(std::nullopt);
+        return;
+    }
+
+    auto ctx = guard_.For(this);
+    fs->QuerySpace(path, [ctx, fs, path, ancestorsLeft](
+                             transport::FsSpaceInfo info,
+                             transport::FsError err) {
+        ctx.Post([fs, path, ancestorsLeft, info,
+                  err = std::move(err)](TransferQueue& q) mutable {
+            if (err.Ok()) {
+                q.OnPreflightSpace(info);
+                return;
+            }
+
+            // The server has no statvfs at all, so climbing is pointless.
+            const std::string parent = path::Parent(path);
+            if (err.code == transport::FsErrorCode::Unsupported ||
+                ancestorsLeft <= 0 || parent.empty() || parent == path) {
+                // Unmeasured — never zero. See FsSpaceInfo.
+                q.OnPreflightSpace(std::nullopt);
+                return;
+            }
+            q.QuerySpaceFrom(fs, parent, ancestorsLeft - 1);
+        });
+    });
+}
+
+void TransferQueue::OnPreflightSpace(std::optional<transport::FsSpaceInfo> destination)
+{
+    // Gathered now rather than when the query was issued: a view queueing a
+    // multi-file selection is still adding to the batch while the query is in
+    // flight, and the callback is dispatched, so by here the loop has run.
+    // Jobs bound for a different filesystem are left out — they are not on the
+    // volume that was measured, and counting them against it would produce a
+    // shortfall out of files that are not going there.
+    std::vector<SpaceDemand> demands;
+    const transport::IRemoteFileSystem* volume = nullptr;
+    bool anyStaged = false;
+
+    for (const auto& job : jobs_) {
+        if (job.state != JobState::Queued) continue;
+        if (job.kind != JobKind::Copy) continue;   // a link occupies no space worth counting
+        if (!volume) volume = job.destination.fs;
+        if (job.destination.fs != volume) continue;
+
+        // totalBytes counts a staged transfer's bytes twice, once per leg. What
+        // lands on the destination is one copy of the file.
+        const uint64_t bytes =
+            job.viaLocalStaging ? job.totalBytes / 2 : job.totalBytes;
+
+        demands.push_back({bytes, job.viaLocalStaging});
+        anyStaged = anyStaged || job.viaLocalStaging;
+    }
+
+    // Only asked for when something in the batch actually stages through it, so
+    // an ordinary upload does not stat a volume it will never touch.
+    std::optional<transport::FsSpaceInfo> staging;
+    if (anyStaged && stagingSpace_) staging = stagingSpace_();
+
+    PreflightReport report;
+    report.forecast              = ForecastSpace(demands, destination, staging);
+    report.unreadableDirectories = unreadableDirs_;
+    report.firstFailure          = firstUnreadable_;
+    report.firstFailurePath      = firstUnreadablePath_;
+    lastPreflight_               = std::move(report);
+
+    if (!lastPreflight_->Concerning() || !spacePrompt_) {
+        ClearPreflight();
+        return;
+    }
+
+    auto ctx = guard_.For(this);
+    spacePrompt_(*lastPreflight_, [ctx](bool proceed) {
+        ctx.Post([proceed](TransferQueue& q) {
+            if (proceed) {
+                q.ClearPreflight();
+                return;
+            }
+            // Declining abandons the batch rather than merely leaving it
+            // parked: a queue held indefinitely behind an answered prompt looks
+            // to the user exactly like one that has hung.
+            q.CancelAll();
+        });
+    });
+}
+
+void TransferQueue::NoteUnreadableDirectory(const std::string& path,
+                                            const transport::FsError& err)
+{
+    ++unreadableDirs_;
+    // The first is kept rather than the last: it is the one nearest the top of
+    // the tree, and on a selection where a whole subtree is unreachable every
+    // failure below it says the same thing less usefully.
+    if (firstUnreadablePath_.empty()) {
+        firstUnreadable_     = err;
+        firstUnreadablePath_ = path;
+    }
+}
+
+void TransferQueue::ResetEnumerationTally()
+{
+    unreadableDirs_ = 0;
+    firstUnreadable_ = {};
+    firstUnreadablePath_.clear();
+}
+
+void TransferQueue::ClearPreflight()
+{
+    // Everything enqueued up to this moment is what the verdict covers — which
+    // is exactly the set OnPreflightSpace gathered, since nothing can have been
+    // added between its scan and this call.
+    checkedThrough_ = nextId_ - 1;
+    preflight_      = Preflight::Cleared;
+    Pump();
 }
 
 void TransferQueue::BeginJob(JobId id)
@@ -530,6 +803,14 @@ void TransferQueue::StartTransfer(JobId id)
     // it that way. The staging file is created with the source's permissions
     // too — a file the user keeps at 0600 must not sit world-readable in /tmp
     // on the way past.
+    if (!EnsureRelayRoot()) {
+        FinishJob(id, JobState::Failed,
+                  transport::FsError::Make(
+                      transport::FsErrorCode::LocalIoError,
+                      "Cannot create the staging directory '" + RelayRoot() + "'"));
+        return;
+    }
+
     job->tempPath = MakeStagingPath(id, path::Leaf(job->sourcePath));
     const auto onDone = [ctx, id](transport::FsError err) {
         ctx.Post([id, err = std::move(err)](TransferQueue& q) mutable {
@@ -725,6 +1006,18 @@ void TransferQueue::CancelJob(JobId id)
 
 void TransferQueue::CancelAll()
 {
+    // Anything not yet listed, and every directory the copy had not yet made.
+    //
+    // Declining is the main way this is reached, and a declined copy must leave
+    // the destination exactly as it found it. Dropping the jobs while leaving
+    // the directory list standing would have Pump quietly build the skeleton of
+    // a transfer the user just refused.
+    toVisit_.clear();
+    dirsToCreate_.clear();
+    // A listing may already be at the server. Its answer cannot be unasked, but
+    // it can be ignored when it lands.
+    if (enumerating_) enumCancelled_ = true;
+
     // Snapshot the ids first: FinishJob mutates state and pumps the queue,
     // which must not happen while iterating the vector it can reallocate.
     std::vector<JobId> ids;

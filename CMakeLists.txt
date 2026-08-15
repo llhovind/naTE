@@ -179,6 +179,7 @@ set(SOURCES
     src/ui/RemoteFileListCtrl.cpp
     src/ui/TransferPanel.cpp
     src/ui/ConflictDialog.cpp
+    src/ui/SpaceWarningDialog.cpp
     src/ui/FileExplorerManager.cpp
     src/ui/FilePropertiesDialog.cpp
     src/ui/KbdIntDialog.cpp
@@ -209,6 +210,9 @@ set(SOURCES
     src/fs/ExplorerController.cpp
     src/fs/RemoteDeleter.cpp
     src/fs/LinkResolver.cpp
+    src/fs/OwnerLiveness.cpp
+    src/fs/RelayWorkspace.cpp
+    src/fs/SpaceForecast.cpp
     src/fs/EditWorkspace.cpp
     src/fs/SaveAnnouncePolicy.cpp
     src/fs/RemoteEditSession.cpp

@@ -15,6 +15,7 @@
 #include <limits.h>
 #include <pwd.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 
 namespace term::transport {
@@ -173,6 +174,28 @@ void LocalFileSystem::ReadLink(const std::string& path, PathCallback onDone)
         return;
     }
     onDone(std::string(buf, static_cast<size_t>(n)), FsError::Success());
+}
+
+// ::statvfs rather than std::filesystem::space(): the standard call reports
+// capacity and free space but not whether the volume is mounted read-only, and
+// answering that costs nothing here. It also keeps the figures derived exactly
+// as the SFTP adapter derives them, so the two sides of a transfer cannot
+// disagree about what "available" means.
+void LocalFileSystem::QuerySpace(const std::string& path, SpaceCallback onDone)
+{
+    const std::string target = ExpandTilde(path);
+
+    struct statvfs vfs{};
+    if (::statvfs(target.c_str(), &vfs) != 0) {
+        onDone({}, ErrnoError("Cannot read free space for '" + target + "'", errno));
+        return;
+    }
+
+    FsSpaceInfo info;
+    info.totalBytes     = static_cast<uint64_t>(vfs.f_blocks) * vfs.f_frsize;
+    info.availableBytes = static_cast<uint64_t>(vfs.f_bavail) * vfs.f_frsize;
+    info.readOnly       = (vfs.f_flag & ST_RDONLY) != 0;
+    onDone(info, FsError::Success());
 }
 
 void LocalFileSystem::MakeDirectory(const std::string& path, uint32_t mode,

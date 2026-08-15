@@ -32,6 +32,10 @@ public:
                   const term::fs::TransferQueue& queue);
 
     void SetOnCancelJob(std::function<void(term::fs::JobId)> cb) { onCancelJob_ = std::move(cb); }
+    // Called with the state the user asked for, not a toggle: the button reads
+    // the queue for its own label, so the queue stays the single authority on
+    // whether anything is paused.
+    void SetOnPauseChanged(std::function<void(bool paused)> cb) { onPauseChanged_ = std::move(cb); }
     void SetOnCancelAll(std::function<void()> cb) { onCancelAll_ = std::move(cb); }
     void SetOnClearFinished(std::function<void()> cb) { onClearFinished_ = std::move(cb); }
 
@@ -49,9 +53,11 @@ private:
     std::function<void(term::fs::JobId)> onCancelJob_;
     std::function<void()>                onCancelAll_;
     std::function<void()>                onClearFinished_;
+    std::function<void(bool)>            onPauseChanged_;
 
     TransferJobListCtrl* list_       = nullptr;
     wxStaticText*        summary_    = nullptr;
+    wxButton*            pauseBtn_   = nullptr;
     wxButton*            cancelBtn_  = nullptr;
     wxButton*            cancelAllBtn_ = nullptr;
     wxButton*            clearBtn_   = nullptr;

@@ -32,6 +32,11 @@ enum class SftpSlot : size_t {
     Write,    // file writes
     Stat,     // stat, lstat, setstat
     FStat,    // fstat on an open handle
+    // statvfs. Its own state machine on the session (statvfs_state, distinct
+    // from stat_state), so it needs its own slot and must not borrow Stat's:
+    // sharing would park a volume query behind every listing's stats for no
+    // protocol reason, and every directory change issues both.
+    StatVfs,
     Unlink,
     Rename,
     MkDir,
@@ -51,6 +56,20 @@ enum class SftpSlot : size_t {
 // One queued operation: how to advance it, and which slot the step it is about
 // to run needs. The slot is a query rather than a value because a task moves
 // between them as it progresses — a download opens, fstats, then reads.
+//
+// THE INVARIANT EVERY TASK MUST KEEP: one step drives exactly one slot.
+//
+// The queue admits a task by asking `slot()` *before* running it, so that is
+// the only slot it has been cleared to use. A step that changes state and then
+// carries straight on into the next state's libssh2 call drives a second state
+// machine nobody checked was free — and since libssh2 keeps that state per
+// session, it is handed whichever request is already outstanding there.
+//
+// The failure is silent and looks like data corruption rather than an error: a
+// listing of one directory is delivered to the caller waiting on another, which
+// then joins its own path to the wrong names and asks the server for files that
+// were never there. On changing state, return true and let the queue re-admit
+// the task against its new slot.
 struct SftpTask {
     // Advances the operation by one non-blocking step. Returns true when there
     // is more to do, which also means "a reply may be outstanding on my slot".

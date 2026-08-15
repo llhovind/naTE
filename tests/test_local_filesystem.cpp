@@ -636,3 +636,60 @@ TEST_CASE("given a copy in flight when the adapter is destroyed then the callbac
 
     REQUIRE(waiter.Fired());
 }
+
+// ---------------------------------------------------------------------------
+// Volume space
+// ---------------------------------------------------------------------------
+
+TEST_CASE("given an existing directory when its space is queried then it reports the volume") {
+    TempTree tmp("space");
+
+    LocalFileSystem fs;
+    std::optional<FsSpaceInfo> got;
+    FsError err;
+    fs.QuerySpace(tmp.root.string(), [&](FsSpaceInfo info, FsError e) {
+        got = info;
+        err = std::move(e);
+    });
+
+    REQUIRE(err.Ok());
+    REQUIRE(got.has_value());
+    // Real figures from a real volume, so the only safe assertions are the
+    // invariants: a mounted filesystem has capacity, and what a user may write
+    // never exceeds it.
+    REQUIRE(got->totalBytes > 0);
+    REQUIRE(got->availableBytes <= got->totalBytes);
+}
+
+TEST_CASE("given a file rather than a directory when its space is queried then it reports the same volume") {
+    // statvfs takes any path on the volume. A caller holding a file path should
+    // not have to derive its directory first.
+    TempTree tmp("space_file");
+    const std::string file = tmp.File("a.txt", "hello");
+
+    LocalFileSystem fs;
+    std::optional<FsSpaceInfo> viaFile;
+    std::optional<FsSpaceInfo> viaDir;
+    fs.QuerySpace(file, [&](FsSpaceInfo info, FsError) { viaFile = info; });
+    fs.QuerySpace(tmp.root.string(), [&](FsSpaceInfo info, FsError) { viaDir = info; });
+
+    REQUIRE(viaFile.has_value());
+    REQUIRE(viaDir.has_value());
+    REQUIRE(viaFile->totalBytes == viaDir->totalBytes);
+}
+
+TEST_CASE("given a path that does not exist when its space is queried then it fails rather than reporting zero") {
+    // Zero would be indistinguishable from a full disk, and a caller acting on
+    // it would refuse a transfer the volume has ample room for.
+    LocalFileSystem fs;
+    FsError err;
+    bool called = false;
+    fs.QuerySpace("/nonexistent-path-for-space-test", [&](FsSpaceInfo, FsError e) {
+        called = true;
+        err    = std::move(e);
+    });
+
+    REQUIRE(called);
+    REQUIRE(err.Failed());
+    REQUIRE(err.code == FsErrorCode::NoSuchFile);
+}

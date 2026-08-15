@@ -9,6 +9,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -160,6 +161,18 @@ private:
     void UpdateStatus();
     void SetStatus(const wxString& text);
 
+    // Asks the endpoint how much room the volume behind the current directory
+    // has, and repaints the status line when it answers.
+    //
+    // Pulled on navigation rather than read at paint time, which is the one
+    // place this pane departs from querying live: the figure costs a network
+    // round trip, and a status line cannot wait for one. What it buys instead
+    // is a value that is explicitly a snapshot — hence spacePath_, so a stale
+    // answer is discarded rather than shown against the wrong directory.
+    // force re-asks about a directory already answered for, which only an
+    // explicit refresh should do — see the body.
+    void RefreshFreeSpace(bool force = false);
+
     // --- Operations ----------------------------------------------------------
     // No row. Returned when a name no longer appears in the listing.
     static constexpr size_t kNoRow = static_cast<size_t>(-1);
@@ -198,6 +211,13 @@ private:
     term::fs::DispatchGuard                       guard_;
 
     std::string pendingFocusName_;
+
+    // Last free-space answer, and the directory it describes. Empty path means
+    // nothing usable: no answer yet, a server that cannot report, or a query
+    // that failed. All three render the same way — by saying nothing at all,
+    // never by showing a zero.
+    std::optional<term::transport::FsSpaceInfo> space_;
+    std::string                                 spacePath_;
 
     wxChoice*     endpointChoice_ = nullptr;
     wxTextCtrl*   pathCtrl_    = nullptr;

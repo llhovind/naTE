@@ -6,6 +6,7 @@
 #include "db/JsonSessionRestoreRepository.h"
 #include "db/ScrollbackPurge.h"
 #include "fs/EditWorkspace.h"
+#include "fs/RelayWorkspace.h"
 #include "transport/AppSessionDefaults.h"
 #include "session/RestoreState.h"
 #include "ui/EditorLauncher.h"
@@ -237,6 +238,14 @@ bool App::OnInit() {
     // belonging to a running naTE — another window, or a peer instance about to
     // be restored — are left untouched, unsaved edits and all.
     term::fs::PurgeOrphanedWorkingCopies(term::fs::DefaultOwnerIsLive);
+
+    // Likewise for staging files, and for the same reason at the same moment.
+    // These matter more per file than working copies do: a staging file holds a
+    // whole transferred file, so one left behind by a killed instance occupies
+    // real space on a volume — usually /tmp — indefinitely, and the free-space
+    // figures the explorer reports would be counting our own litter against the
+    // user.
+    term::fs::PurgeOrphanedRelayFiles(term::fs::DefaultOwnerIsLive);
 
     // Parse CLI flags.
     // --no-restore:              suppress restore even when config enables it.

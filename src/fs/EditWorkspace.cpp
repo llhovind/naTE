@@ -2,10 +2,8 @@
 
 #include <cctype>
 #include <filesystem>
-#include <fstream>
 #include <stdexcept>
 #include <system_error>
-#include <unistd.h>
 #include <vector>
 
 namespace term::fs {
@@ -72,17 +70,6 @@ void PruneEmptyAncestors(std::filesystem::path start)
         if (!std::filesystem::remove(dir, ec))
             break;
     }
-}
-
-// Reads a process's name from /proc, or nullopt when there is no such process.
-std::optional<std::string> ProcessName(int pid)
-{
-    std::ifstream in("/proc/" + std::to_string(pid) + "/comm");
-    if (!in) return std::nullopt;
-
-    std::string name;
-    if (!std::getline(in, name)) return std::nullopt;
-    return name;
 }
 
 } // namespace
@@ -178,21 +165,6 @@ size_t PurgeOrphanedWorkingCopies(const OwnerIsLiveFn& isLive)
         PruneEmptyAncestors(dir.parent_path());
     }
     return reclaimed;
-}
-
-bool DefaultOwnerIsLive(int pid)
-{
-    if (pid <= 0) return false;
-
-    // Nothing of this run can have written a directory yet, so a directory
-    // wearing our pid is a dead instance whose number we inherited.
-    if (pid == ::getpid()) return false;
-
-    const auto owner = ProcessName(pid);
-    if (!owner) return false;
-
-    const auto self = ProcessName(::getpid());
-    return self && *owner == *self;
 }
 
 } // namespace term::fs

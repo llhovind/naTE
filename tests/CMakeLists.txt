@@ -20,6 +20,9 @@ add_executable(naTE_tests
     test_remote_path.cpp
     test_dir_model.cpp
     test_transfer_queue.cpp
+    test_transfer_preflight.cpp
+    test_space_forecast.cpp
+    test_relay_workspace.cpp
     test_explorer_controller.cpp
     test_link_resolver.cpp
     test_sftp_task_queue.cpp
@@ -39,6 +42,9 @@ add_executable(naTE_tests
     ${CMAKE_SOURCE_DIR}/src/fs/ExplorerController.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/RemoteDeleter.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/LinkResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/OwnerLiveness.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/RelayWorkspace.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/SpaceForecast.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/EditWorkspace.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/SaveAnnouncePolicy.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/RemoteEditSession.cpp
@@ -83,6 +89,9 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/fs/ExplorerController.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/RemoteDeleter.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/LinkResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/OwnerLiveness.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/RelayWorkspace.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/SpaceForecast.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/LocalFileSystem.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/DocLayout.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/UrlScanner.cpp

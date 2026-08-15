@@ -27,6 +27,8 @@ enum class Icon {
     Cancel,
     CancelAll,
     ClearFinished,
+    Pause,
+    Resume,
 };
 
 // Toolbar glyph edge length in device-independent pixels. wxBitmapBundle

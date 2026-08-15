@@ -1,5 +1,6 @@
 #pragma once
-#include <functional>
+#include "fs/OwnerLiveness.h"
+
 #include <optional>
 #include <string>
 
@@ -58,10 +59,6 @@ std::optional<int> OwnerPidOfWorkingCopyDir(const std::string& dirName);
 // session is untidy rather than wrong. A localPath outside the root is ignored.
 void RemoveWorkingCopy(const std::string& localPath);
 
-// Answers whether the naTE instance that owns a working copy is still running.
-// Injected so the sweep below can be tested without real processes.
-using OwnerIsLiveFn = std::function<bool(int pid)>;
-
 // Deletes every working copy whose owning process is gone, and returns how many
 // directories that was.
 //
@@ -75,15 +72,5 @@ using OwnerIsLiveFn = std::function<bool(int pid)>;
 // unsaved edits still in them. Anything unrecognised is therefore also left
 // alone; this reclaims what it can prove is dead, nothing more.
 size_t PurgeOrphanedWorkingCopies(const OwnerIsLiveFn& isLive);
-
-// Default liveness test: true when pid names a running process that is another
-// instance of this program.
-//
-// Comparing the process name and not merely existence is what makes this safe
-// against pid reuse — after a crash the number may well have been handed to
-// something unrelated, and treating that as a live owner would strand the
-// working copy forever. Our own pid reads as dead because nothing of this run
-// can have written a directory yet at the point this is called.
-bool DefaultOwnerIsLive(int pid);
 
 } // namespace term::fs

@@ -46,6 +46,7 @@ public:
     void RealPath(const std::string& path, PathCallback onDone) override;
     void Stat(const std::string& path, StatCallback onDone) override;
     void ReadLink(const std::string& path, PathCallback onDone) override;
+    void QuerySpace(const std::string& path, SpaceCallback onDone) override;
     void MakeDirectory(const std::string& path, uint32_t mode,
                        DoneCallback onDone) override;
     void Remove(const std::string& path, bool isDir, DoneCallback onDone) override;
@@ -92,6 +93,7 @@ private:
     struct SimpleOpTask;
     struct PathOpTask;
     struct StatTask;
+    struct StatVfsTask;
 
     // The slot vocabulary and the scheduling rule live in SftpTaskQueue; see
     // there for why an SFTP session can only carry one operation per slot.

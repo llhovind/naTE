@@ -66,6 +66,18 @@ const char* PathsFor(Icon icon)
             return R"(<circle cx="8" cy="8" r="6"/>)"
                    R"(<path d="M5.6 5.6 L10.4 10.4 M10.4 5.6 L5.6 10.4"/>)";
 
+        // The two transport-control glyphs everyone already knows. Stroked, not
+        // filled, like the rest of the set: Compose sets fill="none" once for
+        // the whole sheet and supplies only a stroke colour, so a filled shape
+        // here would have to name a colour this function cannot see — and an
+        // unknown colour rasterises to black, which is an invisible icon on a
+        // dark theme rather than a visible failure.
+        case Icon::Pause:
+            return R"(<path d="M6 3.75 V12.25 M10 3.75 V12.25"/>)";
+
+        case Icon::Resume:
+            return R"(<path d="M5.5 3.75 L12 8 L5.5 12.25 Z"/>)";
+
         case Icon::ClearFinished:
             return R"(<path d="M2.75 4.5 H13.25"/>)"
                    R"(<path d="M6.25 4.5 V2.75 H9.75 V4.5"/>)"

@@ -184,6 +184,9 @@ struct SftpService::SimpleOpTask {
                 case InitResult::Ready:   break;
             }
             initDone = true;
+            // Yields: the operation below drives a different state machine, and
+            // this task has only been admitted against Slot::Init.
+            return true;
         }
 
         const int rc = op(*this);
@@ -226,6 +229,9 @@ struct SftpService::PathOpTask {
                 case InitResult::Ready:   break;
             }
             initDone = true;
+            // Yields: the operation below drives a different state machine, and
+            // this task has only been admitted against Slot::Init.
+            return true;
         }
 
         char buf[kMaxPathLen];
@@ -266,6 +272,9 @@ struct SftpService::StatTask {
                 case InitResult::Ready:   break;
             }
             initDone = true;
+            // Yields: the operation below drives a different state machine, and
+            // this task has only been admitted against Slot::Init.
+            return true;
         }
 
         const int rc = libssh2_sftp_stat_ex(
@@ -283,6 +292,63 @@ struct SftpService::StatTask {
         FileInfo info;
         ApplyAttributes(attrs, info);
         onDone(std::move(info), FsError::Success());
+        return false;
+    }
+};
+
+// Volume space for one path, via the statvfs@openssh.com extension.
+//
+// That it is an extension rather than base SFTP is the thing to keep in view: a
+// server without it answers OP_UNSUPPORTED, which arrives here as an ordinary
+// FsErrorCode::Unsupported and means "no figure", not "no space".
+struct SftpService::StatVfsTask {
+    SftpService*  svc      = nullptr;
+    bool          initDone = false;
+    std::string   path;
+    // Filled by libssh2 across EAGAIN retries, so it outlives a single step.
+    LIBSSH2_SFTP_STATVFS st{};
+    SpaceCallback onDone;
+
+    Slot CurrentSlot() const { return initDone ? Slot::StatVfs : Slot::Init; }
+
+    bool operator()()
+    {
+        if (svc->Stopped()) {
+            onDone({}, FsError::Make(FsErrorCode::NotConnected, "Session closed"));
+            return false;
+        }
+
+        if (!initDone) {
+            FsError err;
+            switch (svc->EnsureSftp(err)) {
+                case InitResult::Pending: return true;
+                case InitResult::Failed:  onDone({}, std::move(err)); return false;
+                case InitResult::Ready:   break;
+            }
+            initDone = true;
+            // Yields: the operation below drives a different state machine, and
+            // this task has only been admitted against Slot::Init.
+            return true;
+        }
+
+        const int rc = libssh2_sftp_statvfs(
+            svc->sftp_, path.c_str(), path.size(), &st);
+        if (rc == LIBSSH2_ERROR_EAGAIN) return true;
+        if (rc < 0) {
+            onDone({}, svc->MakeError("Cannot read free space for '" + path + "'"));
+            return false;
+        }
+
+        FsSpaceInfo info;
+        // f_frsize, not f_bsize: fragment size is the unit the block counts are
+        // expressed in. The two are equal on Linux and differ elsewhere, so
+        // using the wrong one is a bug that passes every test written here and
+        // misreports on the systems nobody checked.
+        info.totalBytes     = st.f_blocks * st.f_frsize;
+        // f_bavail, not f_bfree — see FsSpaceInfo::availableBytes.
+        info.availableBytes = st.f_bavail * st.f_frsize;
+        info.readOnly       = (st.f_flag & LIBSSH2_SFTP_ST_RDONLY) != 0;
+        onDone(info, FsError::Success());
         return false;
     }
 };
@@ -360,6 +426,7 @@ struct SftpService::ListDirTask {
                 case InitResult::Ready:   break;
             }
             state = State::OpenDir;
+            return true;   // yields: opendir needs the Open slot
         }
 
         if (state == State::OpenDir) {
@@ -371,6 +438,11 @@ struct SftpService::ListDirTask {
             }
             handle = h;
             state  = State::ReadLoop;
+            // Yields rather than reading here. Reading now would drive the
+            // session's readdir state while another listing still holds it, and
+            // libssh2 would answer this task with that one's entries — the
+            // whole directory, delivered to the wrong caller.
+            return true;
         }
 
         // ReadLoop: drain all available entries this iteration.
@@ -499,6 +571,7 @@ struct SftpService::DownloadTask {
                 return Finish(FsError::Make(FsErrorCode::LocalIoError,
                                             "Cannot create local file: " + localPath));
             state = State::OpenHandle;
+            return true;   // yields: open needs the Open slot
         }
 
         if (state == State::OpenHandle) {
@@ -511,6 +584,7 @@ struct SftpService::DownloadTask {
             }
             handle = h;
             state  = State::FStat;
+            return true;   // yields: fstat needs the FStat slot
         }
 
         if (state == State::FStat) {
@@ -523,6 +597,7 @@ struct SftpService::DownloadTask {
             if (rc == 0 && (attrs.flags & LIBSSH2_SFTP_ATTR_SIZE))
                 total = attrs.filesize;
             state = State::ReadLoop;
+            return true;   // yields: reading needs the Read slot
         }
 
         // ReadLoop: drain all available data this iteration.
@@ -646,6 +721,7 @@ struct SftpService::UploadTask {
             total = static_cast<uint64_t>(in.tellg());
             in.seekg(0, std::ios::beg);
             state = State::OpenHandle;
+            return true;   // yields: open needs the Open slot
         }
 
         if (state == State::OpenHandle) {
@@ -667,6 +743,7 @@ struct SftpService::UploadTask {
             }
             handle = h;
             state  = State::WriteLoop;
+            return true;   // yields: writing needs the Write slot
         }
 
         // WriteLoop: send buffered data; read next chunk when buffer exhausted.
@@ -869,6 +946,15 @@ void SftpService::ReadLink(const std::string& path, PathCallback onDone)
 void SftpService::Stat(const std::string& path, StatCallback onDone)
 {
     auto t = std::make_shared<StatTask>();
+    t->svc    = this;
+    t->path   = path;
+    t->onDone = std::move(onDone);
+    EnqueueTask(t);
+}
+
+void SftpService::QuerySpace(const std::string& path, SpaceCallback onDone)
+{
+    auto t = std::make_shared<StatVfsTask>();
     t->svc    = this;
     t->path   = path;
     t->onDone = std::move(onDone);
