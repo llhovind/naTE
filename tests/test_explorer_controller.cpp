@@ -562,6 +562,221 @@ TEST_CASE("given an unchanged name when an entry is renamed then no round trip i
     REQUIRE(fs.renameCalls.empty());
 }
 
+TEST_CASE("given a relative destination when an entry is renamed then it resolves against the directory on screen") {
+    // The trap this guards: SFTP resolves a relative path against the server's
+    // login directory, so leaving "../x" to the remote would land it under the
+    // user's home rather than beside the directory they are looking at.
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc/nginx");
+    exec.RunAll();
+
+    std::optional<FsError> result;
+    c.RenameEntry("nginx.conf", "../nginx.conf.bak", [&](FsError err) {
+        result = std::move(err);
+    });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->Ok());
+    REQUIRE(fs.renameCalls ==
+            std::vector<std::string>{"/etc/nginx/nginx.conf -> /etc/nginx.conf.bak"});
+}
+
+TEST_CASE("given an absolute destination when an entry is renamed then it moves there") {
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    fs.AddDirectory("/var", "var");
+
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    std::optional<FsError> result;
+    c.RenameEntry("hosts", "/var/hosts.saved", [&](FsError err) {
+        result = std::move(err);
+    });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->Ok());
+    REQUIRE(fs.renameCalls == std::vector<std::string>{"/etc/hosts -> /var/hosts.saved"});
+}
+
+TEST_CASE("given a destination that is a directory when an entry is renamed then it lands inside under its own name") {
+    // What `mv f dir` means. The stat that checks for a collision already
+    // carries the answer, so this costs no extra round trip to decide.
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    std::optional<FsError> result;
+    c.RenameEntry("hosts", "nginx", [&](FsError err) { result = std::move(err); });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->Ok());
+    REQUIRE(fs.renameCalls == std::vector<std::string>{"/etc/hosts -> /etc/nginx/hosts"});
+}
+
+TEST_CASE("given a directory already holding that name when an entry is moved into it then nothing is overwritten") {
+    // The redirect into a directory happens once and once only: descending
+    // again would land the entry at /etc/nginx/hosts/hosts.
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    fs.AddDirectory("/etc/nginx/hosts", "hosts", "/etc/nginx");
+
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    std::optional<FsError> result;
+    c.RenameEntry("hosts", "nginx", [&](FsError err) { result = std::move(err); });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->code == FsErrorCode::AlreadyExists);
+    REQUIRE(fs.renameCalls.empty());
+}
+
+TEST_CASE("given a directory when it is moved inside itself then it is refused before anything is sent") {
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+    fs.statCalls.clear();
+
+    std::optional<FsError> result;
+    c.RenameEntry("nginx", "/etc/nginx/backup", [&](FsError err) {
+        result = std::move(err);
+    });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->code == FsErrorCode::InvalidName);
+    REQUIRE(fs.statCalls.empty());
+    REQUIRE(fs.renameCalls.empty());
+}
+
+TEST_CASE("given a destination naming the directory it is already in then no round trip is made") {
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    std::optional<FsError> result;
+    c.RenameEntry("hosts", ".", [&](FsError err) { result = std::move(err); });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->Ok());
+    REQUIRE(fs.renameCalls.empty());
+}
+
+TEST_CASE("given a trailing slash on a destination that does not exist then no file is created under that name") {
+    // "archive/" says the user meant a folder. Without this the mistyped name
+    // would quietly become a file called "archive", which is the wrong outcome
+    // arrived at silently — the one failure mode worth spending a rule on.
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    std::optional<FsError> result;
+    c.RenameEntry("hosts", "archive/", [&](FsError err) { result = std::move(err); });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->code == FsErrorCode::NotADirectory);
+    REQUIRE(fs.renameCalls.empty());
+}
+
+TEST_CASE("given a trailing slash on a directory that does exist then the entry lands inside it") {
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    std::optional<FsError> result;
+    c.RenameEntry("hosts", "nginx/", [&](FsError err) { result = std::move(err); });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->Ok());
+    REQUIRE(fs.renameCalls == std::vector<std::string>{"/etc/hosts -> /etc/nginx/hosts"});
+}
+
+TEST_CASE("given a destination containing a tilde then it is refused rather than guessed at") {
+    // Expanding "~" needs the server, and realpath needs the path to exist —
+    // which a destination generally does not. Landing under a guessed login
+    // directory would be worse than saying so.
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+    fs.statCalls.clear();
+
+    std::optional<FsError> result;
+    c.RenameEntry("hosts", "~/hosts.bak", [&](FsError err) { result = std::move(err); });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->code == FsErrorCode::InvalidName);
+    REQUIRE(fs.statCalls.empty());
+    REQUIRE(fs.renameCalls.empty());
+}
+
+TEST_CASE("given a destination that cannot be examined when an entry is moved then the server's own error survives") {
+    // Not "already exists": a destination whose parent cannot be traversed is
+    // a different problem with a different remedy, and only the server knows
+    // which one it is.
+    FakeRemoteFileSystem fs;
+    SeedEtc(fs);
+    fs.AddDirectory("/root", "root");
+    fs.statErrors["/root/hosts"] =
+        FsError::Make(FsErrorCode::PermissionDenied, "permission denied: /root/hosts");
+
+    ManualExecutor exec;
+    ExplorerController c(fs, exec.AsDispatcher());
+
+    c.NavigateTo("/etc");
+    exec.RunAll();
+
+    std::optional<FsError> result;
+    c.RenameEntry("hosts", "/root/hosts", [&](FsError err) { result = std::move(err); });
+    exec.RunAll();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->code == FsErrorCode::PermissionDenied);
+    REQUIRE(fs.renameCalls.empty());
+}
+
 TEST_CASE("given a directory being shown when permissions are set then they apply to that entry") {
     FakeRemoteFileSystem fs;
     SeedEtc(fs);

@@ -281,41 +281,131 @@ void ExplorerController::CreateDirectory(const std::string& name, WriteCallback 
 }
 
 void ExplorerController::RenameEntry(const std::string& oldName,
-                                     const std::string& newName,
+                                     const std::string& destination,
                                      WriteCallback onDone)
 {
-    if (const transport::FsError err = ValidateLeafName(newName); err.Failed()) {
-        if (onDone) onDone(err);
+    const auto reject = [&onDone](transport::FsErrorCode code, std::string message) {
+        if (onDone)
+            onDone(transport::FsError::Make(code, std::move(message)));
+    };
+
+    if (destination.empty()) {
+        reject(transport::FsErrorCode::InvalidName, "A destination cannot be empty.");
         return;
     }
-    // Renaming something to what it is already called is not a failure, and is
-    // not worth a round trip either.
-    if (newName == oldName) {
+    // "~" is shell syntax, expanded server-side by realpath — which needs the
+    // path to exist, and a destination usually does not. Resolving it here
+    // would mean guessing at the login directory.
+    if (destination.find('~') != std::string::npos) {
+        reject(transport::FsErrorCode::InvalidName,
+               "A destination cannot contain '~'. Use a full path.");
+        return;
+    }
+
+    // Read before Normalise strips it: a trailing '/' is the user saying they
+    // mean a directory, and it is the only signal distinguishing "into
+    // archive" from "renamed to archive".
+    const DirectoryDestination onDirectory = destination.back() == '/'
+                                                 ? DirectoryDestination::Required
+                                                 : DirectoryDestination::Absorbs;
+
+    // Join treats an absolute right-hand side as a replacement for the
+    // directory, which is the POSIX rule, so one expression covers a bare
+    // name, a relative path and an absolute one alike. Both ends are computed
+    // from the directory as it is now, so a navigation landing mid-operation
+    // cannot redirect either of them.
+    const std::string from = path::Join(currentPath_, oldName);
+    const std::string to   = path::Normalise(path::Join(currentPath_, destination));
+
+    // The path may have grown components, but whatever it ends in still has to
+    // be a name a file can have. The root is the exception: it names no leaf at
+    // all, and as a destination it can only mean the directory it is.
+    if (to != "/") {
+        if (const transport::FsError err = ValidateLeafName(path::Leaf(to)); err.Failed()) {
+            if (onDone) onDone(err);
+            return;
+        }
+    }
+    // Asking for the name it already has is not a failure, and is not worth a
+    // round trip either.
+    if (to == from) {
         if (onDone) onDone(transport::FsError::Success());
         return;
     }
+    // A directory cannot contain itself. The server would refuse this with
+    // EINVAL, which SFTP v3 flattens to a bare failure — saying it here costs
+    // nothing and names the entry rather than an errno.
+    if (path::Contains(from, to)) {
+        reject(transport::FsErrorCode::InvalidName,
+               "'" + path::Leaf(from) + "' cannot be moved inside itself.");
+        return;
+    }
 
-    // Both ends anchored to the directory as it is now, so a navigation that
-    // lands mid-operation cannot turn this into a move.
-    const std::string from = path::Join(currentPath_, oldName);
-    const std::string to   = path::Join(currentPath_, newName);
+    RenameResolved(from, to, onDirectory, std::move(onDone));
+}
 
+void ExplorerController::RenameResolved(std::string from, std::string to,
+                                        DirectoryDestination onDirectory,
+                                        WriteCallback onDone)
+{
     auto ctx = guard_.For(this);
-    remote_.Stat(to, [ctx, from, to, newName, onDone](transport::FileInfo,
-                                                      transport::FsError statErr) {
-        ctx.Post([from, to, newName, onDone,
+    remote_.Stat(to, [ctx, from, to, onDirectory, onDone](
+                         transport::FileInfo info, transport::FsError statErr) {
+        ctx.Post([from, to, onDirectory, onDone, info = std::move(info),
                   statErr = std::move(statErr)](ExplorerController& c) mutable {
-            // Only a definite "nothing there" clears the way. Any other error
-            // is the destination telling us something, and renaming onto it
-            // would be guessing with the user's data.
-            if (statErr.code != transport::FsErrorCode::NoSuchFile) {
+            const auto notADirectory = [&to, &onDone] {
                 if (onDone)
                     onDone(transport::FsError::Make(
-                        transport::FsErrorCode::AlreadyExists,
-                        "'" + newName + "' already exists in this directory."));
+                        transport::FsErrorCode::NotADirectory,
+                        "'" + to + "' is not a directory."));
+            };
+
+            // A definite "nothing there" is the only thing that clears the way
+            // — unless a directory was the whole point, in which case one that
+            // does not exist is the answer, not a new name to rename onto.
+            if (statErr.code == transport::FsErrorCode::NoSuchFile) {
+                if (onDirectory == DirectoryDestination::Required) {
+                    notADirectory();
+                    return;
+                }
+                c.remote_.Rename(from, to, c.Bounce(std::move(onDone)));
                 return;
             }
-            c.remote_.Rename(from, to, c.Bounce(std::move(onDone)));
+            // Any other failure is the destination telling us something the
+            // server understands better than we would — a parent that cannot
+            // be traversed, a session that has gone. Renaming onto it anyway
+            // would be guessing with the user's data.
+            if (statErr.Failed()) {
+                if (onDone) onDone(std::move(statErr));
+                return;
+            }
+
+            // Something is there. A directory takes the entry under its own
+            // name, which is both what `mv` does and what a user who typed a
+            // folder meant. Stat follows symlinks, so a link to a directory
+            // absorbs too — again matching `mv`.
+            if (info.isDir && onDirectory != DirectoryDestination::IsInTheWay) {
+                const std::string inside = path::Join(to, path::Leaf(from));
+                // Asked to move it into the directory it is already in.
+                if (inside == from) {
+                    if (onDone) onDone(transport::FsError::Success());
+                    return;
+                }
+                c.RenameResolved(std::move(from), inside,
+                                 DirectoryDestination::IsInTheWay, std::move(onDone));
+                return;
+            }
+
+            // Something is there and it is not a directory. Which complaint
+            // that is depends on what was asked for: a name already taken, or
+            // a folder that turned out to be a file.
+            if (onDirectory == DirectoryDestination::Required) {
+                notADirectory();
+                return;
+            }
+            if (onDone)
+                onDone(transport::FsError::Make(transport::FsErrorCode::AlreadyExists,
+                                                "'" + to + "' already exists."));
         });
     });
 }

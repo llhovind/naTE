@@ -651,7 +651,7 @@ void FileExplorerPane::OnContextMenu(wxListEvent& evt)
     auto* copyItem   = menu.Append(wxID_ANY, "Copy Path");
     menu.AppendSeparator();
     auto* newItem    = menu.Append(wxID_ANY, "New Folder...");
-    auto* renameItem = menu.Append(wxID_ANY, "Rename...\tF2");
+    auto* renameItem = menu.Append(wxID_ANY, "Rename/Move...\tF2");
     auto* deleteItem = menu.Append(
         wxID_ANY, selectionCount > 1
                       ? wxString::Format("Delete %zu Items...\tDel", selectionCount)
@@ -791,23 +791,33 @@ void FileExplorerPane::RenameRow(size_t row)
 
     const std::string oldName = controller_->Model().At(row).name;
 
-    wxTextEntryDialog dlg(this, "New name:", "Rename", DecodeForDisplay(oldName));
+    wxTextEntryDialog dlg(this,
+                          "New name, or a path to move it to:",
+                          "Rename or Move", DecodeForDisplay(oldName));
     if (dlg.ShowModal() != wxID_OK) return;
 
     // The dialog pumped events, so the session may have ended while it was open.
     if (!RequireLive()) return;
 
-    const std::string newName = dlg.GetValue().Trim().Trim(false).ToStdString();
-    if (newName == oldName) return;   // nothing asked for, nothing to report
+    const std::string destination = dlg.GetValue().Trim().Trim(false).ToStdString();
+    if (destination == oldName) return;   // nothing asked for, nothing to report
 
-    // Names, not paths: the controller anchors both ends to the directory it is
-    // showing, so this cannot become a move, and it is the controller that
-    // checks the destination before letting a rename overwrite anything.
+    // The subject is a name, never a path: the controller anchors it to the
+    // directory it is showing, so a navigation completing while the dialog was
+    // open cannot make this act on a different file. The destination is free
+    // to be a path — resolving it is the controller's job, as is refusing to
+    // land on something that already exists.
+    //
+    // Focus lands on the destination's own leaf, which after a move to another
+    // directory is simply not in this listing; the reload then keeps whatever
+    // selection it can, which is the right outcome for a row that has left.
+    const std::string focus = term::fs::path::Leaf(destination);
+
     auto ctx = guard_.For(this);
-    controller_->RenameEntry(oldName, newName,
-        [ctx, newName](term::transport::FsError err) {
-            ctx.Post([newName, err = std::move(err)](FileExplorerPane& p) mutable {
-                p.AfterWrite("Rename", err, newName);
+    controller_->RenameEntry(oldName, destination,
+        [ctx, focus](term::transport::FsError err) {
+            ctx.Post([focus, err = std::move(err)](FileExplorerPane& p) mutable {
+                p.AfterWrite("Rename", err, focus);
             });
         });
 }
