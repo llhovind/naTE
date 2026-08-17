@@ -102,6 +102,7 @@ void FileExplorerPane::BindEndpoint(const PaneEndpoint& endpoint)
     // without anything looking wrong.
     space_.reset();
     spacePath_.clear();
+    spaceQueryPath_.clear();
 
     if (!endpoint_.Valid()) {
         GoOffline("No filesystem selected.");
@@ -481,8 +482,10 @@ void FileExplorerPane::RefreshFreeSpace(bool force)
 
     // Contents change for reasons that cannot move the volume — a filter
     // keystroke, a re-sort — and each one would otherwise cost a round trip.
-    // Only an explicit refresh re-asks about a directory already answered for.
-    if (!force && space_ && spacePath_ == path) return;
+    // Only an explicit refresh re-asks about a directory already answered for,
+    // or already being asked about.
+    if (!force && space_ && spacePath_ == path)  return;
+    if (!force && spaceQueryPath_ == path)       return;
 
     // Dropped before the query rather than after it: whatever is held now
     // describes the directory being left, and leaving it on screen until an
@@ -490,11 +493,16 @@ void FileExplorerPane::RefreshFreeSpace(bool force)
     // to prevent.
     space_.reset();
     spacePath_.clear();
+    spaceQueryPath_ = path;
 
     auto ctx = guard_.For(this);
     endpoint_.fs->QuerySpace(path, [ctx, path](term::transport::FsSpaceInfo info,
                                                term::transport::FsError err) {
         ctx.Post([path, info, err = std::move(err)](FileExplorerPane& p) mutable {
+            // Released whatever the answer was, or a query that failed would
+            // suppress every retry for that directory.
+            if (p.spaceQueryPath_ == path) p.spaceQueryPath_.clear();
+
             // A server without the statvfs extension answers Unsupported, which
             // is ordinary rather than an error worth reporting — the status line
             // simply carries no figure. Nothing is shown for a genuine failure
@@ -669,11 +677,43 @@ void FileExplorerPane::OnListKeyDown(wxListEvent& evt)
     }
 }
 
+bool FileExplorerPane::IsRowSelected(size_t row) const
+{
+    return list_ && list_->GetItemState(static_cast<long>(row),
+                                        wxLIST_STATE_SELECTED) != 0;
+}
+
+void FileExplorerPane::SelectOnlyRow(size_t row)
+{
+    if (!list_) return;
+
+    long index = -1;
+    while ((index = list_->GetNextItem(index, wxLIST_NEXT_ALL,
+                                       wxLIST_STATE_SELECTED)) != wxNOT_FOUND)
+        list_->SetItemState(index, 0, wxLIST_STATE_SELECTED);
+
+    const auto item = static_cast<long>(row);
+    list_->SetItemState(item, wxLIST_STATE_SELECTED | wxLIST_STATE_FOCUSED,
+                        wxLIST_STATE_SELECTED | wxLIST_STATE_FOCUSED);
+}
+
 void FileExplorerPane::OnContextMenu(wxListEvent& evt)
 {
     if (!controller_) return;
     const auto row = static_cast<size_t>(evt.GetIndex());
     if (row >= controller_->Model().VisibleCount()) return;
+
+    // Every item in this menu has to act on the row the user pointed at. Most
+    // re-resolve it by name below; Delete reads the *selection*, because
+    // deleting several at once is the case worth having. Those two agree only
+    // if the click has made the row the selection — and wxListCtrl does not do
+    // that on its own, so a right-click on an unselected row would otherwise
+    // offer to delete whatever happened to be picked elsewhere in the listing,
+    // under a menu whose every other entry named the file under the cursor.
+    //
+    // A row already in the selection is left alone: right-clicking one of
+    // several picked files means "all of these", not "just this one".
+    if (!IsRowSelected(row)) SelectOnlyRow(row);
 
     // Directory-like, so a link known to lead to a directory is treated as the
     // directory the row already claims it is.
@@ -744,16 +784,31 @@ bool FileExplorerPane::RequireLive()
     return false;
 }
 
+void FileExplorerPane::ReportFailure(const wxString& what,
+                                     const term::transport::FsError& err)
+{
+    wxMessageBox(what + " failed:\n\n" + DecodeForDisplay(err.message),
+                 "File Explorer", wxOK | wxICON_ERROR, this);
+}
+
 void FileExplorerPane::AfterWrite(const wxString& what,
                                   const term::transport::FsError& err,
                                   std::string focusName)
 {
     if (err.Failed()) {
-        wxMessageBox(what + " failed:\n\n" + DecodeForDisplay(err.message),
-                     "File Explorer", wxOK | wxICON_ERROR, this);
+        ReportFailure(what, err);
         return;
     }
     ReloadFocusing(std::move(focusName));
+}
+
+void FileExplorerPane::AfterDelete(const term::transport::FsError& err)
+{
+    if (err.Failed()) ReportFailure("Delete", err);
+    // Unconditionally, and after the message box rather than instead of it: a
+    // delete that stopped partway has taken files the listing is still showing,
+    // and leaving them on screen invites the user to act on rows that are gone.
+    Reload();
 }
 
 void FileExplorerPane::EditRow(size_t row)
@@ -928,7 +983,7 @@ void FileExplorerPane::DeleteSelection()
                     },
                     [inner](term::transport::FsError err) {
                         inner.Post([err = std::move(err)](FileExplorerPane& q) mutable {
-                            q.AfterWrite("Delete", err, {});
+                            q.AfterDelete(err);
                         });
                     });
             });

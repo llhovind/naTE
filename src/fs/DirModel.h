@@ -67,14 +67,12 @@ public:
     // --- Filtering -----------------------------------------------------------
     // Dotfiles are hidden by default, as every POSIX file manager does.
     void SetShowHidden(bool show);
-    bool ShowHidden() const noexcept { return showHidden_; }
 
     // A name filter. Patterns containing '*' or '?' are matched as globs
     // ("*.conf"); anything else is a case-insensitive substring match, which
     // is what a user typing into a filter box almost always means. An empty
     // filter matches everything.
     void SetNameFilter(std::string pattern);
-    const std::string& NameFilter() const noexcept { return nameFilter_; }
 
     // --- Symbolic links ------------------------------------------------------
     // Leaf names of every link whose target is still unknown, whether or not
@@ -107,7 +105,6 @@ public:
     // When true (the default) directories precede files regardless of the sort
     // key or direction, which is what makes a listing navigable.
     void SetDirectoriesFirst(bool first);
-    bool DirectoriesFirst() const noexcept { return directoriesFirst_; }
 
     // --- Projection ----------------------------------------------------------
     // Number of rows after filtering.

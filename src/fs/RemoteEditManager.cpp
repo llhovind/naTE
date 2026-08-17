@@ -1,5 +1,6 @@
 #include "fs/RemoteEditManager.h"
 #include "fs/EditWorkspace.h"
+#include "fs/TempArea.h"
 #include <filesystem>
 #include <algorithm>
 #include <cerrno>
@@ -26,6 +27,19 @@ namespace {
 std::string CreateWorkingCopyDir(const WorkingCopyPath& layout,
                                  std::string& err)
 {
+    // The root first, and with its mode checked. Everything below it is created
+    // by create_directories, which lets the umask decide the mode — acceptable
+    // only because a private root makes the levels underneath unreachable to
+    // anyone else whatever mode they end up with. The root is also the one path
+    // in this tree with a fixed name, so it is the one another local user could
+    // win the race to create.
+    if (!EnsurePrivateDirectory(kEditWorkspaceRoot)) {
+        err = "Failed to create temp directory: '" +
+              std::string(kEditWorkspaceRoot) +
+              "' is not a private directory belonging to this user";
+        return {};
+    }
+
     std::error_code ec;
     const auto parent = std::filesystem::path(layout.dirTemplate).parent_path();
     std::filesystem::create_directories(parent, ec);

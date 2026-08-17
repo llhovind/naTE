@@ -1,5 +1,6 @@
 #pragma once
 #include "fs/OwnerLiveness.h"
+#include "fs/TempArea.h"
 
 #include <optional>
 #include <string>
@@ -43,12 +44,6 @@ struct WorkingCopyPath {
 WorkingCopyPath MakeWorkingCopyPath(const std::string& hostname,
                                     const std::string& remotePath,
                                     int ownerPid);
-
-// Reads the owner pid back out of a working-copy directory's leaf name.
-// Nullopt when the name was not produced by MakeWorkingCopyPath — which is the
-// safe answer, since an unrecognised directory is one this module must not
-// claim the authority to delete.
-std::optional<int> OwnerPidOfWorkingCopyDir(const std::string& dirName);
 
 // Removes a working copy and every directory the removal leaves empty, up to
 // but never including kEditWorkspaceRoot. Bounded there so a path built

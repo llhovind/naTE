@@ -1,16 +1,13 @@
 #include "fs/RelayWorkspace.h"
+#include "fs/TempArea.h"
 
 #include <algorithm>
 #include <cctype>
-#include <cerrno>
 #include <filesystem>
-#include <stdexcept>
 #include <system_error>
 #include <vector>
 
-#include <sys/stat.h>
 #include <sys/statvfs.h>
-#include <sys/types.h>
 
 namespace term::fs {
 
@@ -20,9 +17,6 @@ namespace {
 // loose files beside everyone else's: it bounds the sweep below to names this
 // module wrote, and it makes the space a relay is using visible at a glance.
 constexpr const char* kRelayDirName = "nate-relay";
-
-// Divides the owner pid from the rest of the name.
-constexpr char kOwnerSeparator = '-';
 
 // Longest source basename kept in a staging file's name. The name also carries
 // a pid, a job id and a timestamp, and the whole thing has to stay inside
@@ -62,22 +56,7 @@ std::string RelayRoot()
 
 bool EnsureRelayRoot()
 {
-    const std::string root = RelayRoot();
-
-    // mkdir(2) rather than std::filesystem::create_directory: the standard call
-    // applies 0777 narrowed by the umask, and a umask permissive enough to
-    // leave this group- or world-readable is exactly the configuration the mode
-    // is here to defend against.
-    if (::mkdir(root.c_str(), 0700) == 0)
-        return true;
-
-    // Already there is the ordinary case — every transfer after the first. It
-    // still has to be a directory, and one we can use.
-    if (errno != EEXIST)
-        return false;
-
-    std::error_code ec;
-    return std::filesystem::is_directory(root, ec);
+    return EnsurePrivateDirectory(RelayRoot());
 }
 
 std::string MakeRelayPath(const std::string& leaf, uint64_t jobId,
@@ -113,27 +92,6 @@ std::optional<transport::FsSpaceInfo> RelayVolumeSpace()
     return info;
 }
 
-std::optional<int> OwnerPidOfRelayFile(const std::string& fileName)
-{
-    const auto sep = fileName.find(kOwnerSeparator);
-    if (sep == std::string::npos || sep == 0)
-        return std::nullopt;
-
-    const std::string digits = fileName.substr(0, sep);
-    for (char c : digits) {
-        if (!std::isdigit(static_cast<unsigned char>(c)))
-            return std::nullopt;
-    }
-
-    // A pid long enough to overflow was never written by this scheme, so the
-    // name is not one of ours whatever else it is.
-    try {
-        return std::stoi(digits);
-    } catch (const std::exception&) {
-        return std::nullopt;
-    }
-}
-
 size_t PurgeOrphanedRelayFiles(const OwnerIsLiveFn& isLive)
 {
     const std::filesystem::path root(RelayRoot());
@@ -157,7 +115,7 @@ size_t PurgeOrphanedRelayFiles(const OwnerIsLiveFn& isLive)
         // grounds to be deleting things.
         if (!entry.is_regular_file(fileEc)) continue;
 
-        const auto owner = OwnerPidOfRelayFile(entry.path().filename().string());
+        const auto owner = OwnerPidOfTaggedName(entry.path().filename().string());
         if (!owner) continue;          // not a staging file: not ours to judge
         if (isLive(*owner)) continue;  // another instance is relaying through it
 

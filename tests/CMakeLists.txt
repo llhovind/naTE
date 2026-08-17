@@ -23,6 +23,7 @@ add_executable(naTE_tests
     test_transfer_preflight.cpp
     test_space_forecast.cpp
     test_relay_workspace.cpp
+    test_temp_area.cpp
     test_explorer_controller.cpp
     test_link_resolver.cpp
     test_sftp_task_queue.cpp
@@ -43,6 +44,7 @@ add_executable(naTE_tests
     ${CMAKE_SOURCE_DIR}/src/fs/RemoteDeleter.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/LinkResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/OwnerLiveness.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/TempArea.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/RelayWorkspace.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/SpaceForecast.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/EditWorkspace.cpp
@@ -90,6 +92,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/fs/RemoteDeleter.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/LinkResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/OwnerLiveness.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/TempArea.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/RelayWorkspace.cpp
     ${CMAKE_SOURCE_DIR}/src/fs/SpaceForecast.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/LocalFileSystem.cpp

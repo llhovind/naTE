@@ -8,7 +8,7 @@
 #include <string>
 
 using term::fs::MakeWorkingCopyPath;
-using term::fs::OwnerPidOfWorkingCopyDir;
+using term::fs::OwnerPidOfTaggedName;
 using term::fs::PurgeOrphanedWorkingCopies;
 using term::fs::RemoveWorkingCopy;
 using term::fs::kEditWorkspaceRoot;
@@ -140,17 +140,7 @@ TEST_CASE("given a directory this module named when the owner is read "
     // mkdtemp will have replaced the XXXXXX by the time this is read back.
     const std::string realised = leaf.substr(0, leaf.size() - 6) + "a1b2c3";
 
-    REQUIRE(OwnerPidOfWorkingCopyDir(realised) == 12345);
-}
-
-TEST_CASE("given a directory this module did not name when the owner is read "
-          "then there is no pid to act on")
-{
-    REQUIRE_FALSE(OwnerPidOfWorkingCopyDir("scratch").has_value());
-    REQUIRE_FALSE(OwnerPidOfWorkingCopyDir("-abc123").has_value());
-    REQUIRE_FALSE(OwnerPidOfWorkingCopyDir("12a4-abc123").has_value());
-    REQUIRE_FALSE(OwnerPidOfWorkingCopyDir("%2Froot").has_value());
-    REQUIRE_FALSE(OwnerPidOfWorkingCopyDir("99999999999999999999-abc").has_value());
+    REQUIRE(OwnerPidOfTaggedName(realised) == 12345);
 }
 
 // ---------------------------------------------------------------------------

@@ -211,6 +211,7 @@ set(SOURCES
     src/fs/RemoteDeleter.cpp
     src/fs/LinkResolver.cpp
     src/fs/OwnerLiveness.cpp
+    src/fs/TempArea.cpp
     src/fs/RelayWorkspace.cpp
     src/fs/SpaceForecast.cpp
     src/fs/EditWorkspace.cpp

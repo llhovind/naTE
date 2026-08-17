@@ -1,8 +1,6 @@
 #include "fs/EditWorkspace.h"
 
-#include <cctype>
 #include <filesystem>
-#include <stdexcept>
 #include <system_error>
 #include <vector>
 
@@ -10,10 +8,10 @@ namespace term::fs {
 
 namespace {
 
-// Suffix mkdtemp(3) replaces with the unique component, and the separator that
-// divides it from the owner pid in front.
+// Suffix mkdtemp(3) replaces with the unique component. What divides it from
+// the owner pid in front is kOwnerSeparator, which this scheme shares with the
+// staging area rather than declaring its own copy of.
 constexpr const char* kMkdtempSuffix = "XXXXXX";
-constexpr char        kOwnerSeparator = '-';
 
 // Flattens one path into a single directory name by escaping the separator.
 // The remote directory becomes one local component so the tree stays shallow
@@ -96,27 +94,6 @@ WorkingCopyPath MakeWorkingCopyPath(const std::string& hostname,
     return WorkingCopyPath{std::move(path), std::move(file)};
 }
 
-std::optional<int> OwnerPidOfWorkingCopyDir(const std::string& dirName)
-{
-    const auto sep = dirName.find(kOwnerSeparator);
-    if (sep == std::string::npos || sep == 0)
-        return std::nullopt;
-
-    const std::string digits = dirName.substr(0, sep);
-    for (char c : digits) {
-        if (!std::isdigit(static_cast<unsigned char>(c)))
-            return std::nullopt;
-    }
-
-    // A pid long enough to overflow was never written by this scheme, so the
-    // name is not one of ours whatever else it is.
-    try {
-        return std::stoi(digits);
-    } catch (const std::exception&) {
-        return std::nullopt;
-    }
-}
-
 void RemoveWorkingCopy(const std::string& localPath)
 {
     const std::filesystem::path file(localPath);
@@ -149,7 +126,7 @@ size_t PurgeOrphanedWorkingCopies(const OwnerIsLiveFn& isLive)
         std::error_code dirEc;
         if (!entry.is_directory(dirEc)) continue;
 
-        const auto owner = OwnerPidOfWorkingCopyDir(entry.path().filename().string());
+        const auto owner = OwnerPidOfTaggedName(entry.path().filename().string());
         if (!owner) continue;          // not a working copy: not ours to judge
         if (isLive(*owner)) continue;  // another instance is editing in there
 

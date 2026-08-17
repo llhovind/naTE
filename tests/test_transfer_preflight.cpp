@@ -144,6 +144,68 @@ TEST_CASE("given a space warning when the user declines then nothing is transfer
     REQUIRE(fs.transfers.empty());
 }
 
+TEST_CASE("given a declined batch when more work is queued then the queue still runs it") {
+    // The regression this exists for: declining left the check recorded as
+    // still outstanding, and Pump will not start anything while one is. A
+    // single "no" therefore wedged that window's queue for good — every copy
+    // asked for afterwards sat Queued forever, waiting on an answer the user
+    // had already given.
+    TempFile src("wedged");
+    FakeRemoteFileSystem fs;
+    fs.defaultSpace = Volume(100);
+
+    ManualExecutor exec;
+    RecordingPrompt prompt;
+    prompt.answer = false;
+    TransferQueue q(exec.AsDispatcher(), Staging(Volume(1ULL << 40)));
+    q.SetSpaceWarningPrompt(prompt.Handler());
+
+    q.Enqueue(Local(), src.Str(), Remote(fs, "host"), "/remote/huge", {5000});
+    exec.RunAll();
+    REQUIRE(prompt.asked);
+    REQUIRE(q.IsIdle());
+
+    // An ordinary copy afterwards, which fits and is not objected to.
+    prompt.answer = true;
+    const JobId next = q.Enqueue(Local(), src.Str(), Remote(fs, "host"),
+                                 "/remote/small", {10});
+    exec.RunAll();
+
+    REQUIRE(q.FindJob(next)->state == JobState::Active);
+}
+
+TEST_CASE("given two destinations when one is declined then the other is left alone") {
+    // The warning names one machine and totals one volume, so "no" is an answer
+    // about that copy. Work queued in the other direction was never what was
+    // being asked about.
+    TempFile src("decline_scope");
+    FakeRemoteFileSystem cramped;
+    FakeRemoteFileSystem roomy;
+    cramped.defaultSpace = Volume(100);
+    roomy.defaultSpace   = Volume(1ULL << 40);
+
+    ManualExecutor exec;
+    RecordingPrompt prompt;
+    prompt.answer = false;
+    TransferQueue q(exec.AsDispatcher(), Staging(Volume(1ULL << 40)));
+    q.SetSpaceWarningPrompt(prompt.Handler());
+
+    // Both queued before either verdict lands, so one prompt sees a queue
+    // holding work for two volumes.
+    const JobId doomed = q.Enqueue(Local(), src.Str(), Remote(cramped, "cramped"),
+                                   "/cramped/huge", {5000});
+    const JobId spared = q.Enqueue(Local(), src.Str(), Remote(roomy, "roomy"),
+                                   "/roomy/ok", {10});
+    exec.RunAll();
+
+    REQUIRE(prompt.asked);
+    REQUIRE(q.FindJob(doomed)->state == JobState::Cancelled);
+    REQUIRE(q.FindJob(spared)->state != JobState::Cancelled);
+    REQUIRE(q.FindJob(spared)->state != JobState::Queued);
+    // And it was weighed against its own volume before it started.
+    REQUIRE(roomy.spaceCalls.size() == 1);
+}
+
 TEST_CASE("given the destination volume when checked then the directory is asked about, not the file") {
     // A host commonly has several volumes. The file does not exist yet, so
     // asking about its path would be asking about nothing; the directory it is
@@ -487,6 +549,116 @@ TEST_CASE("given a second batch queued while the first is running then it is che
     REQUIRE(prompt.asked);
     REQUIRE(prompt.seen->forecast.destination.Short());
     REQUIRE(fs.spaceCalls.size() == 2);
+}
+
+TEST_CASE("given queued work for two destinations then each volume is checked separately") {
+    // The regression this exists for: a verdict measured one volume but was
+    // recorded as a high-water mark over job ids, which cleared everything
+    // queued beneath it — including work bound somewhere else entirely. Copying
+    // in both directions between two panes therefore started the second copy
+    // against a volume nobody had measured.
+    TempFile src("two_volumes");
+    FakeRemoteFileSystem roomy;
+    FakeRemoteFileSystem cramped;
+    roomy.defaultSpace   = Volume(1ULL << 40);
+    cramped.defaultSpace = Volume(100);
+
+    ManualExecutor exec;
+    RecordingPrompt prompt;
+    TransferQueue q(exec.AsDispatcher(), Staging(Volume(1ULL << 40)));
+    q.SetSpaceWarningPrompt(prompt.Handler());
+
+    // Several, so some are still queued once the first one starts moving.
+    q.Enqueue(Local(), src.Str(), Remote(roomy, "roomy"), "/roomy/1", {10});
+    q.Enqueue(Local(), src.Str(), Remote(roomy, "roomy"), "/roomy/2", {10});
+    q.Enqueue(Local(), src.Str(), Remote(roomy, "roomy"), "/roomy/3", {10});
+    exec.RunAll();
+    REQUIRE_FALSE(prompt.asked);
+
+    // The other direction, onto a volume that cannot possibly hold it.
+    q.Enqueue(Local(), src.Str(), Remote(cramped, "cramped"), "/cramped/huge", {5000});
+    exec.RunAll();
+
+    REQUIRE(cramped.spaceCalls.size() == 1);
+    REQUIRE(prompt.asked);
+    REQUIRE(prompt.seen->forecast.destination.Short());
+    // Against its own volume, not the batch it was queued behind.
+    REQUIRE(prompt.seen->forecast.destination.requiredBytes == 5000);
+    REQUIRE(prompt.seen->forecast.destination.availableBytes == 100);
+}
+
+TEST_CASE("given two destinations when the second is weighed then the first is not counted again") {
+    // The other half: a per-volume verdict must not re-total work it has
+    // already cleared, and must not ask its volume a second time either.
+    TempFile src("no_double_count");
+    FakeRemoteFileSystem a;
+    FakeRemoteFileSystem b;
+    a.defaultSpace = Volume(1ULL << 40);
+    b.defaultSpace = Volume(1ULL << 40);
+
+    ManualExecutor exec;
+    RecordingPrompt prompt;
+    TransferQueue q(exec.AsDispatcher(), Staging(Volume(1ULL << 40)));
+    q.SetSpaceWarningPrompt(prompt.Handler());
+
+    q.Enqueue(Local(), src.Str(), Remote(a, "a"), "/a/1", {10});
+    q.Enqueue(Local(), src.Str(), Remote(a, "a"), "/a/2", {10});
+    exec.RunAll();
+
+    q.Enqueue(Local(), src.Str(), Remote(b, "b"), "/b/1", {7});
+    exec.RunAll();
+
+    REQUIRE(a.spaceCalls.size() == 1);
+    REQUIRE(b.spaceCalls.size() == 1);
+    REQUIRE(prompt.seen.has_value() == false);
+    // The standing report describes B's batch alone.
+    REQUIRE(q.LastPreflight()->forecast.destination.requiredBytes == 7);
+
+    // And neither volume is asked again as the queue drains.
+    for (int i = 0; i < 100 && !q.IsIdle(); ++i) {
+        a.CompleteActive();
+        b.CompleteActive();
+        exec.RunAll();
+    }
+    REQUIRE(q.IsIdle());
+    REQUIRE(a.spaceCalls.size() == 1);
+    REQUIRE(b.spaceCalls.size() == 1);
+}
+
+TEST_CASE("given an incomplete walk for one destination then a second is not blamed for it") {
+    // The tally travels with the report that carries it. Two verdicts in one
+    // queue used to mean the second repeating the first's skipped directories
+    // as though its own walk had found them.
+    TempFile plain("tally_not_repeated");
+    FakeRemoteFileSystem src;
+    FakeRemoteFileSystem dst;
+    FakeRemoteFileSystem other;
+    dst.defaultSpace   = Volume(1ULL << 40);
+    other.defaultSpace = Volume(1ULL << 40);
+
+    src.AddDirectory("/data", "data");
+    src.AddDirectory("/data/sub", "sub", "/data");
+    src.AddFile("/data/f.bin", "f.bin", 10, "/data");
+    src.listErrors["/data/sub"] =
+        term::transport::FsError::Make(term::transport::FsErrorCode::PermissionDenied,
+                                       "Permission denied");
+
+    ManualExecutor exec;
+    RecordingPrompt prompt;
+    TransferQueue q(exec.AsDispatcher(), Staging(Volume(1ULL << 40)));
+    q.SetSpaceWarningPrompt(prompt.Handler());
+
+    q.EnqueueTree(Remote(src, "src"), "/data", Remote(dst, "dst"), "/backup", {});
+    exec.RunAll();
+    REQUIRE(q.LastPreflight()->unreadableDirectories == 1);
+
+    // A clean upload to a different host, queued while that batch is still
+    // going. Its own walk read everything it was asked to.
+    q.Enqueue(Local(), plain.Str(), Remote(other, "other"), "/other/f", {10});
+    exec.RunAll();
+
+    REQUIRE(q.LastPreflight()->unreadableDirectories == 0);
+    REQUIRE_FALSE(q.LastPreflight()->CopyWillBeIncomplete());
 }
 
 TEST_CASE("given a batch already cleared when it drains then it is not re-checked per job") {
@@ -931,3 +1103,4 @@ TEST_CASE("given a cancelled batch when it had directories pending then none are
 
     REQUIRE(dst.mkdirCalls.empty());
 }
+

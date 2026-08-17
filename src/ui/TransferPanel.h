@@ -20,6 +20,15 @@ class TransferJobListCtrl;
 // of this sentence would drift.
 wxString DescribeTransferQueue(const term::fs::TransferQueue& queue);
 
+// What a queue that has just gone idle actually did, for the one-shot message a
+// window shows when the last job retires.
+//
+// Separate from DescribeTransferQueue because that one describes a queue at any
+// moment and this one closes it off. A batch the user declined at the space
+// warning drains exactly like one that ran, so a fixed "Transfers finished."
+// over a list of cancelled rows reads as a claim that the files moved.
+wxString DescribeTransferOutcome(const term::fs::TransferQueue& queue);
+
 // The transfer queue's face: one row per job, with progress, and the controls
 // to stop them.
 //

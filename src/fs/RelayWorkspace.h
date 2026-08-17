@@ -1,5 +1,6 @@
 #pragma once
 #include "fs/OwnerLiveness.h"
+#include "fs/TempArea.h"
 #include "transport/IRemoteFileSystem.h"
 
 #include <cstdint>
@@ -31,13 +32,14 @@ namespace term::fs {
 std::string RelayRoot();
 
 // Creates RelayRoot() if it is not already there, owner-accessible only.
-// Returns false when it could not be created or is not a directory.
+// Returns false when it could not be created, or when what is there belongs to
+// someone else — see EnsurePrivateDirectory for what is checked and why.
 //
-// The 0700 matters: a staging file carries the source file's own permissions,
-// so a file the user keeps at 0600 stays at 0600 on the way past — but that
-// only holds for the file. Anything in a world-readable directory can at least
-// be enumerated, and the names of the files someone is moving between two
-// servers are worth keeping to themselves.
+// The privacy matters: a staging file carries the source file's own
+// permissions, so a file the user keeps at 0600 stays at 0600 on the way past —
+// but that only holds for the file. Anything in a world-readable directory can
+// at least be enumerated, and the names of the files someone is moving between
+// two servers are worth keeping to themselves.
 bool EnsureRelayRoot();
 
 // Names the staging file for one transfer. Pure: creates nothing.
@@ -66,11 +68,6 @@ std::string MakeRelayPath(const std::string& leaf, uint64_t jobId,
 // the calling thread. TMPDIR pointing at such a mount is pathological enough to
 // accept rather than build machinery against.
 std::optional<transport::FsSpaceInfo> RelayVolumeSpace();
-
-// Reads the owner pid back out of a staging file's name. Nullopt when the name
-// was not produced by MakeRelayPath — the safe answer, since a file this module
-// does not recognise is not one it may claim the authority to delete.
-std::optional<int> OwnerPidOfRelayFile(const std::string& fileName);
 
 // Deletes every staging file whose owning process is gone, and returns how many
 // that was.

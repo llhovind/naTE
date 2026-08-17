@@ -186,6 +186,11 @@ private:
     // now; the name is what the user actually chose.
     size_t RowForName(const std::string& name) const;
 
+    bool IsRowSelected(size_t row) const;
+    // Makes one row the whole selection, so an action reading the selection and
+    // one reading the row under the cursor cannot name different files.
+    void SelectOnlyRow(size_t row);
+
     void CopyPathOf(size_t row);
     void ShowPropertiesFor(size_t row);
     void EditRow(size_t row);
@@ -193,8 +198,22 @@ private:
     void RenameRow(size_t row);
     void DeleteSelection();
     bool ConfirmDeletion(const term::fs::DeletePlan& plan, const wxString& target);
+
+    // The one shape a failed operation is reported in.
+    void ReportFailure(const wxString& what, const term::transport::FsError& err);
+
+    // Completion for a write that either happened or did not: a rename, a new
+    // folder, a permission change. Failure changed nothing on the far side, so
+    // there is nothing to re-read and the message box is the whole report.
     void AfterWrite(const wxString& what, const term::transport::FsError& err,
                     std::string focusName);
+
+    // Completion for a delete, which is the one write where failure is a
+    // *partial* success: the deleter stops at the first entry it cannot remove,
+    // having already removed everything ahead of it. The listing is stale either
+    // way, so it is re-read on both outcomes.
+    void AfterDelete(const term::transport::FsError& err);
+
     bool RequireLive();
 
     EndpointProvider                    provider_;
@@ -224,6 +243,11 @@ private:
     // never by showing a zero.
     std::optional<term::transport::FsSpaceInfo> space_;
     std::string                                 spacePath_;
+    // The directory a query is out for, so a second notification about the same
+    // one does not issue another. Landing a listing and resolving its symlinks
+    // both report contents changed, which is two calls per navigation into any
+    // directory containing a link.
+    std::string                                 spaceQueryPath_;
 
     wxChoice*     endpointChoice_ = nullptr;
     wxTextCtrl*   pathCtrl_    = nullptr;

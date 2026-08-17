@@ -234,10 +234,6 @@ void TransferQueue::EnqueueTree(TransferEndpoint source, const std::string& sour
     // the batch is fully known. Released through the walk's own completion
     // hook, which fires exactly once on every path it can take — including the
     // ones that stop early on an error.
-    // A fresh enumeration begins a new batch, and its tally must not carry
-    // over the last one's skipped directories.
-    if (!enumerating_) ResetEnumerationTally();
-
     toVisit_.push_back({std::move(source), std::move(destination),
                         sourceDir, destDir, 0});
     // The root of the tree is a directory the copy has to make, exactly like
@@ -419,24 +415,21 @@ void TransferQueue::Pump()
             return;
         }
 
-        // A drained queue is the other place a batch ends, and a batch of
-        // plain files never runs an enumeration to reset the tally on its way in.
+        // The one way a tally is raised that no verdict ever collects: a walk
+        // where every directory was unreadable queues nothing, so there is
+        // never a batch for a report to be built about.
         ResetEnumerationTally();
         if (listener_) listener_->OnTransferQueueIdle();
         return;
     }
 
-    // Work queued after the standing verdict was reached has never been weighed
-    // against anything, so the verdict does not extend to it. Asked of every
-    // queued job rather than just the next one, because the case this exists
-    // for is a second copy started while the first is still draining: the job
-    // at the front is then old, cleared work, and waiting for it to be reached
-    // would hold the warning back until the bytes were nearly moving.
-    const bool unchecked = std::any_of(jobs_.begin(), jobs_.end(),
-        [this](const TransferJob& j) {
-            return j.state == JobState::Queued && j.id > checkedThrough_;
-        });
-    if (preflight_ == Preflight::Cleared && unchecked)
+    // Work no verdict has covered — either queued after the last one, or bound
+    // for a volume that verdict did not measure. Asked of every queued job
+    // rather than just the next one, because the case this exists for is a
+    // second copy started while the first is still draining: the job at the
+    // front is then old, cleared work, and waiting for it to be reached would
+    // hold the warning back until the bytes were nearly moving.
+    if (preflight_ == Preflight::Cleared && FirstUnchecked())
         preflight_ = Preflight::Pending;
 
     // Deliberately ahead of the one-at-a-time rule: the check costs a round
@@ -488,16 +481,31 @@ void TransferQueue::Resume()
 // Pre-flight
 // ---------------------------------------------------------------------------
 
+TransferJob* TransferQueue::FirstUnchecked()
+{
+    const auto it = std::find_if(jobs_.begin(), jobs_.end(),
+        [](const TransferJob& j) {
+            return j.state == JobState::Queued && !j.spaceChecked;
+        });
+    return it == jobs_.end() ? nullptr : &*it;
+}
+
 void TransferQueue::BeginPreflight()
 {
     preflight_ = Preflight::Checking;
 
-    const auto it = std::find_if(jobs_.begin(), jobs_.end(),
-        [](const TransferJob& j) { return j.state == JobState::Queued; });
-    if (it == jobs_.end() || !it->destination.Valid()) {
-        // Nothing to measure against. Clearing rather than holding: an invalid
-        // endpoint is BeginJob's to report, and a batch stuck behind a check
-        // that can never run would never report anything at all.
+    TransferJob* job = FirstUnchecked();
+    if (!job) {
+        ClearPreflight();
+        return;
+    }
+    if (!job->destination.Valid()) {
+        // Nothing to measure against. Marked weighed rather than left standing:
+        // an invalid endpoint is BeginJob's to report, and a job that can
+        // neither be checked nor retired here would have Pump come straight
+        // back for it. Clearing rather than holding, for the same reason — a
+        // batch stuck behind a check that can never run reports nothing at all.
+        job->spaceChecked = true;
         ClearPreflight();
         return;
     }
@@ -506,7 +514,7 @@ void TransferQueue::BeginPreflight()
     // what is about to be created and does not exist yet. A host commonly has
     // several volumes, so asking about the wrong path gives a confident answer
     // about the wrong disk.
-    QuerySpaceFrom(it->destination.fs, path::Parent(it->destPath),
+    QuerySpaceFrom(job->destination.fs, path::Parent(job->destPath),
                    kMaxSpaceProbeAncestors);
 }
 
@@ -544,21 +552,36 @@ void TransferQueue::QuerySpaceFrom(transport::IRemoteFileSystem* fs,
 
 void TransferQueue::OnPreflightSpace(std::optional<transport::FsSpaceInfo> destination)
 {
+    // The volume this verdict is about: whichever one BeginPreflight asked
+    // about, re-derived the same way so the figure measured and the bytes
+    // totalled cannot describe different destinations.
+    const TransferJob* first = FirstUnchecked();
+    if (!first) {
+        // Everything the query was issued for has since been cancelled or
+        // started. Nothing left to weigh, and nothing to say about it.
+        ClearPreflight();
+        return;
+    }
+    const transport::IRemoteFileSystem* const volume = first->destination.fs;
+
     // Gathered now rather than when the query was issued: a view queueing a
     // multi-file selection is still adding to the batch while the query is in
     // flight, and the callback is dispatched, so by here the loop has run.
-    // Jobs bound for a different filesystem are left out — they are not on the
-    // volume that was measured, and counting them against it would produce a
-    // shortfall out of files that are not going there.
+    // Jobs bound for a different filesystem are left out *and left unchecked* —
+    // they are not on the volume that was measured, counting them against it
+    // would produce a shortfall out of files that are not going there, and Pump
+    // will weigh them against their own volume on the next turn.
     std::vector<SpaceDemand> demands;
-    const transport::IRemoteFileSystem* volume = nullptr;
     bool anyStaged = false;
 
-    for (const auto& job : jobs_) {
+    for (auto& job : jobs_) {
         if (job.state != JobState::Queued) continue;
-        if (job.kind != JobKind::Copy) continue;   // a link occupies no space worth counting
-        if (!volume) volume = job.destination.fs;
         if (job.destination.fs != volume) continue;
+        // Weighed, whether or not it contributes bytes. A link occupies no
+        // space worth counting but must still be marked, or a batch of nothing
+        // but links would leave the queue asking about them forever.
+        job.spaceChecked = true;
+        if (job.kind != JobKind::Copy) continue;
 
         // totalBytes counts a staged transfer's bytes twice, once per leg. What
         // lands on the destination is one copy of the file.
@@ -580,6 +603,10 @@ void TransferQueue::OnPreflightSpace(std::optional<transport::FsSpaceInfo> desti
     report.firstFailure          = firstUnreadable_;
     report.firstFailurePath      = firstUnreadablePath_;
     lastPreflight_               = std::move(report);
+    // Consumed by the report now carrying it. A queue holding work for two
+    // destinations reaches a verdict per volume, and the second must not repeat
+    // the first's skipped directories as though it had found them itself.
+    ResetEnumerationTally();
 
     if (!lastPreflight_->Concerning() || !spacePrompt_) {
         ClearPreflight();
@@ -587,16 +614,24 @@ void TransferQueue::OnPreflightSpace(std::optional<transport::FsSpaceInfo> desti
     }
 
     auto ctx = guard_.For(this);
-    spacePrompt_(*lastPreflight_, [ctx](bool proceed) {
-        ctx.Post([proceed](TransferQueue& q) {
-            if (proceed) {
-                q.ClearPreflight();
-                return;
-            }
-            // Declining abandons the batch rather than merely leaving it
-            // parked: a queue held indefinitely behind an answered prompt looks
-            // to the user exactly like one that has hung.
-            q.CancelAll();
+    spacePrompt_(*lastPreflight_, [ctx, volume](bool proceed) {
+        ctx.Post([proceed, volume](TransferQueue& q) {
+            // Declining abandons the work this verdict covered rather than
+            // merely leaving it parked: a queue held indefinitely behind an
+            // answered prompt looks to the user exactly like one that has hung.
+            //
+            // Only that work, though. The warning named one destination and
+            // totalled one volume's worth of files, so "no" is an answer about
+            // those — a copy queued in the other direction was never what was
+            // being asked about and is not this answer's to throw away.
+            if (!proceed) q.CancelBatchFor(volume);
+
+            // Either way the check is over and must be recorded as over. Pump
+            // refuses to start anything while one is outstanding, so a queue
+            // left in Checking never moves another byte: before this, declining
+            // a single warning wedged the window's queue for good, and every
+            // copy asked for afterwards sat waiting on an answer already given.
+            q.ClearPreflight();
         });
     });
 }
@@ -623,11 +658,10 @@ void TransferQueue::ResetEnumerationTally()
 
 void TransferQueue::ClearPreflight()
 {
-    // Everything enqueued up to this moment is what the verdict covers — which
-    // is exactly the set OnPreflightSpace gathered, since nothing can have been
-    // added between its scan and this call.
-    checkedThrough_ = nextId_ - 1;
-    preflight_      = Preflight::Cleared;
+    // What the verdict covers is recorded on the jobs themselves, so there is
+    // nothing to record here. Pump decides what to do next: run the cleared
+    // work, or weigh whatever this verdict did not reach.
+    preflight_ = Preflight::Cleared;
     Pump();
 }
 
@@ -1024,6 +1058,38 @@ void TransferQueue::CancelAll()
     ids.reserve(jobs_.size());
     for (const auto& job : jobs_)
         if (!job.IsTerminal()) ids.push_back(job.id);
+
+    for (const JobId id : ids)
+        CancelJob(id);
+}
+
+void TransferQueue::CancelBatchFor(const transport::IRemoteFileSystem* volume)
+{
+    // The directories the copy had not yet made *there*. A declined copy must
+    // leave its destination exactly as it found it, and dropping the jobs while
+    // leaving the directory list standing would have Pump quietly build the
+    // skeleton of a transfer the user just refused. Another volume's pending
+    // directories belong to a batch this answer was not about.
+    std::deque<PendingDirCreate> keepDirs;
+    for (auto& dir : dirsToCreate_)
+        if (dir.destination.fs != volume) keepDirs.push_back(std::move(dir));
+    dirsToCreate_.swap(keepDirs);
+
+    // Directories still waiting to be listed for it. A listing already at the
+    // server needs no equivalent: Pump will not begin a check while a walk is
+    // running, so there is never one in flight at the moment this is reached —
+    // which is as well, since a single outstanding listing could not be
+    // discarded on one volume's behalf without discarding the other's too.
+    std::deque<PendingDir> keepVisits;
+    for (auto& dir : toVisit_)
+        if (dir.destination.fs != volume) keepVisits.push_back(std::move(dir));
+    toVisit_.swap(keepVisits);
+
+    // Snapshot the ids first: FinishJob mutates state and pumps the queue,
+    // which must not happen while iterating the vector it can reallocate.
+    std::vector<JobId> ids;
+    for (const auto& job : jobs_)
+        if (!job.IsTerminal() && job.destination.fs == volume) ids.push_back(job.id);
 
     for (const JobId id : ids)
         CancelJob(id);

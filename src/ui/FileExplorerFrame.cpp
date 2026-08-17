@@ -923,7 +923,7 @@ void FileExplorerFrame::OnTransferQueueIdle()
     if (rightPane_ && rightPane_->IsShown() && rightPane_->IsLive())
         rightPane_->Reload();
 
-    if (status_) status_->SetStatusText("Transfers finished.");
+    if (status_ && queue_) status_->SetStatusText(DescribeTransferOutcome(*queue_));
 }
 
 // ---------------------------------------------------------------------------

@@ -124,6 +124,16 @@ struct TransferJob {
     JobState           state = JobState::Queued;
     transport::FsError error;
 
+    // True once a pre-flight verdict has weighed this job against the volume it
+    // is bound for.
+    //
+    // Per job rather than a high-water mark over job ids, because "checked" is
+    // not a contiguous prefix of the queue: a verdict covers one volume, and
+    // work bound elsewhere sitting beside it in the queue has been weighed
+    // against nothing. A watermark cleared both, so a copy in the second
+    // direction between two panes started unexamined.
+    bool spaceChecked = false;
+
     // True when the conflict check found something at destPath and the policy
     // said to overwrite it. Only a link job acts on this: a file upload
     // truncates on open, but creating a symlink over an existing path fails,
@@ -336,6 +346,12 @@ public:
     void CancelJob(JobId id);
     void CancelAll();
 
+    // Abandons everything bound for one destination: its unstarted jobs, the
+    // directories the copy had not yet made there, and anything still waiting
+    // to be listed for it. What a declined space warning acts on, since that
+    // warning is about one volume and a queue may hold work for several.
+    void CancelBatchFor(const transport::IRemoteFileSystem* volume);
+
     // Cancels only the jobs touching one filesystem, for when a single session
     // dies and the rest of the queue is still perfectly valid.
     void CancelJobsUsing(const transport::IRemoteFileSystem* fs);
@@ -395,8 +411,11 @@ private:
         Cleared,   // this batch may run
     };
 
-    // Asks the destination how much room it has. Called once per batch, from
-    // Pump, when there is queued work and no expansion is still assembling it.
+    // Asks the destination how much room it has. Called from Pump when there is
+    // queued work no verdict has covered yet and no expansion is still
+    // assembling it. Once per volume, not once per batch: a queue holding work
+    // for two destinations is weighed twice, because one volume's answer says
+    // nothing about the other's.
     void BeginPreflight();
     // Asks fs about path, walking up to its parent when the answer is "no such
     // path" and trying again.
@@ -411,11 +430,17 @@ private:
     // statvfs at all, and no ancestor will answer any better.
     void QuerySpaceFrom(transport::IRemoteFileSystem* fs, std::string path,
                         int ancestorsLeft);
-    // Totals the batch against what came back and decides whether to warn.
-    // The batch is gathered here rather than when the query was issued: an
-    // enqueue loop is still adding to it while the query is in flight, and a
-    // forecast for the first item alone would understate every multi-file copy.
+    // Totals the jobs bound for the measured volume against what came back and
+    // decides whether to warn, marking each one weighed as it goes.
+    //
+    // The set is gathered here rather than when the query was issued: an enqueue
+    // loop is still adding to it while the query is in flight, and a forecast
+    // for the first item alone would understate every multi-file copy.
     void OnPreflightSpace(std::optional<transport::FsSpaceInfo> destination);
+    // The first queued job no verdict has covered, or null when there is none.
+    // Both the volume to ask about and the set to total are derived from it, so
+    // the two cannot name different destinations.
+    TransferJob* FirstUnchecked();
     // Releases the batch to run.
     void ClearPreflight();
     // Forgets what the previous batch's walk could not read.
@@ -482,19 +507,14 @@ private:
 
     bool                       paused_    = false;
     Preflight                  preflight_ = Preflight::Pending;
-    // The highest job id the standing verdict actually accounted for.
-    //
-    // A cleared batch is cleared only for the jobs it examined. Work queued
-    // while that batch is still running is new work, and job ids only ever
-    // increase, so anything above this watermark has never been weighed against
-    // any volume — without it a second copy started before the first finished
-    // would inherit "this fits" from a batch it has nothing to do with.
-    JobId                         checkedThrough_ = kInvalidJobId;
     std::optional<PreflightReport> lastPreflight_;
 
-    // Directories skipped while assembling the current batch. Reset when a new
-    // batch starts — at the first walk of a fresh group, and again whenever the
-    // queue drains, since a batch may begin either way.
+    // Directories skipped since the last verdict was reached.
+    //
+    // Consumed by the report that carries them, so each verdict describes the
+    // walking done since the previous one rather than everything the queue has
+    // ever skipped. Also cleared when the queue drains, which is the one way a
+    // tally can be raised that no report ever collects.
     size_t                        unreadableDirs_ = 0;
     transport::FsError            firstUnreadable_;
     std::string                   firstUnreadablePath_;

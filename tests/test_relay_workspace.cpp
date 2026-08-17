@@ -51,7 +51,7 @@ TEST_CASE("given a staging path when built then it carries the owner pid first")
     const std::string leaf = std::filesystem::path(path).filename().string();
 
     REQUIRE(leaf.rfind("4242-", 0) == 0);
-    REQUIRE(OwnerPidOfRelayFile(leaf) == 4242);
+    REQUIRE(OwnerPidOfTaggedName(leaf) == 4242);
 }
 
 TEST_CASE("given two queues numbering jobs alike when paths are built then they differ") {
@@ -89,15 +89,6 @@ TEST_CASE("given an overlong remote name when a staging path is built then the l
     // NAME_MAX is 255 on Linux, and the name also carries a pid, a job id and
     // a timestamp in front of the truncated leaf.
     REQUIRE(leaf.size() < 255);
-}
-
-TEST_CASE("given a name this module never wrote when the owner is read then it is not claimed") {
-    // Anything unrecognised belongs to someone else, and a sweep must not
-    // delete what it cannot prove is its own.
-    REQUIRE(OwnerPidOfRelayFile("vmlinuz") == std::nullopt);
-    REQUIRE(OwnerPidOfRelayFile("-42-1-x") == std::nullopt);
-    REQUIRE(OwnerPidOfRelayFile("abc-1-x") == std::nullopt);
-    REQUIRE(OwnerPidOfRelayFile("") == std::nullopt);
 }
 
 // ---------------------------------------------------------------------------

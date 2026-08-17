@@ -252,6 +252,32 @@ wxString DescribeTransferQueue(const term::fs::TransferQueue& queue)
            + DescribeForecast(queue);
 }
 
+wxString DescribeTransferOutcome(const term::fs::TransferQueue& queue)
+{
+    using term::fs::JobState;
+
+    size_t copied = 0, other = 0;
+    for (const auto& job : queue.Jobs()) {
+        if (job.state == JobState::Completed) ++copied;
+        else if (job.IsTerminal())            ++other;
+    }
+
+    if (copied == 0 && other == 0) return {};
+    // Nothing landed. The commonest way here is declining the space warning,
+    // where saying a transfer finished would be the opposite of what happened.
+    if (copied == 0)
+        return wxString::Format("No files were copied (%zu cancelled, skipped "
+                                "or failed).", other);
+    if (other == 0)
+        return wxString::Format("Copied %zu file%s.", copied,
+                                copied == 1 ? "" : "s");
+    // The list below says which is which; this only has to stop the count
+    // reading as a clean run. ASCII only: this is a *format* literal, and a
+    // non-ASCII one is the case that yields a null pointer for Format to walk.
+    return wxString::Format("Copied %zu of %zu - see the list for the rest.",
+                            copied, copied + other);
+}
+
 void TransferPanel::UpdateSummary()
 {
     const size_t pending = queue_.PendingCount();
