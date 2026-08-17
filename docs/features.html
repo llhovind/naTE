@@ -159,6 +159,7 @@
       <li><strong>Filter</strong> by glob (<code>*.conf</code>) or by plain substring. The status line reports how many entries the filter hid, so a short list is never mistaken for an empty directory.</li>
       <li><strong>Show hidden</strong> toggles dotfiles.</li>
       <li><strong>Navigate</strong> with the back, forward and up buttons, or by typing a path directly into the path field.</li>
+      <li><strong>Free space</strong> for the volume the current directory sits on is reported at the end of the status line, with <em>(read-only)</em> beside it when the volume is mounted that way. It is re-read when you navigate or refresh — not when you re-sort or type in the filter, neither of which can move a volume — and it is shown only while it still describes the directory on screen, because a figure carried over from the previous directory looks current and, on a host with several volumes, can be wrong by a whole disk. Servers whose SFTP build omits the optional <code>statvfs</code> extension simply show no figure.</li>
     </ul>
 
     <h3>Acting on files</h3>
@@ -197,7 +198,7 @@
     <p>Two panes side by side with a transfer queue below. Point either pane at <em>This computer</em> or at any active SSH session using its dropdown — uploads, downloads, <strong>server-to-server</strong> copies and copies between two local folders are all the same operation.</p>
 
     <figure>
-      <img src="img/file-transfer.png" alt="The naFX window in Transfer mode: two file panes side by side, the left pointed at root@vwww10 and the right at This computer, each with its own path field, filter and column headers. Between them at the bottom are Copy to This computer and Copy to root@vwww10 buttons, an Explore Mode button on the left, and below that a transfer queue with File, Route, Progress and Status columns plus Cancel, Cancel All and Clear Finished buttons.">
+      <img src="img/file-transfer.png" alt="The naFX window in Transfer mode: two file panes side by side, the left pointed at root@vwww10 and the right at This computer, each with its own path field, filter and column headers, and each ending in a status line reading its directory counts, total size and 169.0 GiB free. Between them at the bottom are Copy to This computer and Copy to root@vwww10 buttons, an Explore Mode button on the left and a Symbolic links dropdown reading Keep on the right, and below that a transfer queue reading No transfers, with File, Route, Progress and Status columns and Pause, Cancel, Cancel All and Clear Finished buttons.">
       <figcaption>Transfer mode — two endpoints, a copy button per direction, and the queue below</figcaption>
     </figure>
 
@@ -211,7 +212,7 @@
     <p>The copy buttons name their destination rather than a direction, and the pair sits over the splitter so each button is above the pane it copies out of — there is no direction to work out. The queue below shows every job with its route, live progress and status.</p>
 
     <ul>
-      <li><strong>Cancel</strong> stops the selected transfer; <strong>Cancel All</strong> stops everything queued; <strong>Clear Finished</strong> tidies away what has completed.</li>
+      <li><strong>Pause</strong> holds the queue and turns into <strong>Resume</strong>; <strong>Cancel</strong> stops the selected transfer; <strong>Cancel All</strong> stops everything queued; <strong>Clear Finished</strong> tidies away what has completed.</li>
       <li><strong>Directories</strong> transfer recursively.</li>
       <li><strong>Symbolic links</strong> are handled the way you choose, from the dropdown beside the mode button. <em>Keep links</em> reproduces each link on the far side pointing where it already points; <em>Skip links</em> leaves them out of the copy, listing them in the queue as skipped so nothing goes missing quietly. A recursive copy never descends <em>through</em> a link either way, so a link pointing at a parent directory cannot turn a copy into an endless one. A kept link whose target does not exist on the destination will be a dangling link — that is what was asked for, and naTE will not second-guess it. The starting choice for new windows is <strong>Edit → Preferences → Behavior → Symbolic links in copies</strong>.</li>
       <li><strong>Permissions</strong> are reproduced on the copy: a script that was executable where it came from is executable where it lands. As with <code>cp</code>, this applies where the copy creates the file — overwriting an existing one leaves that file's permissions alone — and the destination's own umask still applies. setuid, setgid and sticky bits are deliberately not carried across.</li>
@@ -219,6 +220,38 @@
       <li><strong>Copies that go nowhere</strong> are refused by name rather than half-attempted: a file onto itself, or a directory into its own subtree.</li>
       <li>Transfers <strong>keep running</strong> when you switch back to Explore mode; progress stays visible in the status bar.</li>
     </ul>
+
+    <h3>Pausing a queue</h3>
+    <p><strong>Pause</strong> stops the queue starting anything further and lets the transfer already in flight run to completion. The button becomes <strong>Resume</strong>, and work added while paused waits with the rest.</p>
+
+    <div class="callout callout-note">
+      <p><strong>Why the current file finishes anyway.</strong> SFTP has no suspend, and this queue has no resume across runs — a part-written destination file is not something a later transfer can pick up. Stopping mid-file would therefore mean throwing away the bytes already moved, which is cancelling under a gentler name. Letting the current file land costs at most one file and leaves the queue somewhere you can actually continue from.</p>
+    </div>
+
+    <h3>Before a copy starts</h3>
+    <p>When you click a <strong>Copy to ...</strong> button, naTE sizes the batch — walking directories to their leaves — and checks it against the volume it is bound for before moving a byte. The weighing is per destination volume rather than per click: a queue carrying work for two different destinations is checked twice, because what one volume has to say tells you nothing about the other. Most copies simply start. The check stops to ask only when there is something worth saying:</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Finding</th><th>What it means</th></tr></thead>
+        <tbody>
+          <tr><td><strong>It will not fit</strong></td><td>The batch is larger than the free space where it is going, with the figure that is short shown in the palette's red</td></tr>
+          <tr><td><strong>Part of it could not be read</strong></td><td>Directories the walk could not list are not in the batch at all, so the copy would finish <em>looking</em> complete while silently missing them. The dialog names the first one and quotes the server's own reason, which is usually enough to tell a permission problem from a directory that has gone away underneath you.</td></tr>
+          <tr><td><strong>The destination is read-only</strong></td><td>No amount of free space makes it writable, so this leads rather than hiding under a size comparison</td></tr>
+          <tr><td><strong>It could not be checked</strong></td><td>The batch is over 1 GiB and the server cannot report its free space at all. Not the same claim as "it will not fit" — nothing is known either way, and you are being told the usual check did not happen.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>The dialog names each volume with what it was asked for against what it has, and offers <strong>Copy Anyway</strong> or <strong>Cancel</strong>. As with the conflict prompt, <strong>Cancel</strong> is the default button: nothing has been written yet, and a copy not started is one you can still start.</p>
+
+    <div class="callout callout-note">
+      <p><strong>Copies between two servers show a second figure</strong>, for the staging area on this computer that the bytes pass through. It is the size of the <em>largest single file</em> in the batch, not the total, because the queue moves one file at a time and reclaims each staging file as it goes — totalling them would refuse batches that fit perfectly well, and on a <code>/tmp</code> sized to a fraction of RAM it would refuse nearly all of them. Setting <code>TMPDIR</code> to a larger volume moves that work there.</p>
+    </div>
+
+    <div class="callout callout-note">
+      <p><strong>A quiet check is not a guarantee.</strong> Free space is a snapshot: it does not account for quotas, for other writers on the same volume, or for filesystems that compress what they store. Reporting it at all is an optional part of SFTP, so a server that stays silent about a small copy is the ordinary case, not a fault — warning on every such server would train you to dismiss the dialog unread, which is the one outcome that would make it worthless.</p>
+    </div>
 
     <h3>When the destination file already exists</h3>
 

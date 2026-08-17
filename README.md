@@ -107,7 +107,9 @@ window, for navigating and one-off administration.
 - Act on a selection from the context menu: **Open in Editor**, **Copy Path**,
   **New Folder...**, **Rename...**, **Delete**, or **Properties...** to inspect and
   change the file's permission bits
-- The status line reports what the directory holds and how much of it the filter hid
+- The status line reports what the directory holds, how much of it the filter hid, and
+  the free space on the volume that directory sits on — re-read when you navigate, not
+  when you re-sort, and shown only while it describes the directory on screen
 
 #### Transfer mode
 
@@ -121,8 +123,15 @@ side with a transfer queue below.
   transfers stage through a temporary local file automatically
 - The **Copy to ...** buttons name their destination rather than a direction, and sit
   over the pane they copy out of so the target is never ambiguous
-- The queue shows per-file progress and route; cancel one transfer, cancel all, or clear
-  what has finished
+- The queue shows per-file progress and route; **pause** it, cancel one transfer, cancel
+  all, or clear what has finished. Pause stops the queue *starting* anything further and
+  lets the file in flight land — SFTP has no suspend, so stopping mid-file would mean
+  discarding the bytes already moved, which is cancelling under a gentler name
+- **Before a copy starts**, naTE totals the batch and checks it against the destination's
+  free space, and stops to ask only when there is something to say: it will not fit, the
+  destination is mounted read-only, part of what you selected could not be read, or the
+  batch is over 1 GiB and the server cannot report its free space at all. **Cancel** is
+  the default button, so a dialog dismissed unread starts nothing
 - Directories transfer recursively. Symbolic links are **kept** (reproduced on the far
   side pointing where they already point) or **skipped**, chosen per window and defaulted
   in Preferences — a recursive copy never descends *through* a link either way, so a link
