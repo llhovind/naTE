@@ -424,6 +424,91 @@ TEST_CASE("given an active job when cancelled then the transport is asked and th
     REQUIRE(q.IsIdle());
 }
 
+TEST_CASE("given an active transfer when cancelled then the queue reports cancelling until the transport confirms") {
+    TempDir tmp("cancelling_active");
+    FakeRemoteFileSystem fs;
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+
+    const JobId id = q.Enqueue(Local(), tmp.File("a.txt"), Remote(fs), "/remote/a.txt");
+    exec.RunAll();
+    REQUIRE(StateOf(q, id) == JobState::Active);
+    REQUIRE_FALSE(q.IsCancelling());
+
+    q.CancelJob(id);
+    // The transport has been asked and has not answered. The queue is neither
+    // running nor stopped, which is the whole reason this state has a name.
+    REQUIRE(q.IsCancelling());
+
+    exec.RunAll();
+    REQUIRE(StateOf(q, id) == JobState::Cancelled);
+    REQUIRE_FALSE(q.IsCancelling());
+}
+
+TEST_CASE("given only queued jobs when cancelled then the queue never reports cancelling") {
+    // Nothing is in flight, so the stop is instantaneous. A window that lit up
+    // for a state lasting no time at all would flicker for every cancel.
+    TempDir tmp("cancelling_queued");
+    FakeRemoteFileSystem fs;
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+
+    const JobId a = q.Enqueue(Local(), tmp.File("a.txt"), Remote(fs), "/remote/a.txt");
+    const JobId b = q.Enqueue(Local(), tmp.File("b.txt"), Remote(fs), "/remote/b.txt");
+    exec.RunAll();
+    REQUIRE(StateOf(q, a) == JobState::Active);
+
+    q.CancelJob(b);
+    REQUIRE_FALSE(q.IsCancelling());
+    REQUIRE(StateOf(q, b) == JobState::Cancelled);
+}
+
+TEST_CASE("given a transfer that finished before the cancel arrived then the queue stops reporting cancelling") {
+    // The race the flag must not outlive: the file lands, and the user clicks
+    // Cancel before the completion has been delivered. The job retires as
+    // Completed, and a queue still claiming to be stopping would say so for the
+    // rest of its life.
+    TempDir tmp("cancelling_race");
+    FakeRemoteFileSystem fs;
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+
+    const JobId id = q.Enqueue(Local(), tmp.File("a.txt"), Remote(fs), "/remote/a.txt");
+    exec.RunAll();
+    REQUIRE(StateOf(q, id) == JobState::Active);
+
+    fs.CompleteActive();          // done at the server; the queue has not heard
+    q.CancelAll();
+    REQUIRE(q.IsCancelling());
+
+    exec.RunAll();
+    REQUIRE(StateOf(q, id) == JobState::Completed);
+    REQUIRE_FALSE(q.IsCancelling());
+}
+
+TEST_CASE("given a tree still being walked when cancelled then the queue reports cancelling until the listing lands") {
+    TempDir tmp("cancelling_walk");
+    FakeRemoteFileSystem fs;
+    fs.AddDirectory("/remote/top", "top");
+    fs.AddFile("/remote/top/a.txt", "a.txt", 10, "/remote/top");
+
+    ManualExecutor exec;
+    TransferQueue q(exec.AsDispatcher());
+
+    q.EnqueueTree(Remote(fs), "/remote/top", Local(), tmp.Sub("dest"), nullptr);
+    REQUIRE(q.IsExpanding());
+    REQUIRE_FALSE(q.IsCancelling());
+
+    q.CancelAll();
+    // A listing already at the server cannot be unasked, so the walk is still
+    // out even though its answer is going to be discarded.
+    REQUIRE(q.IsCancelling());
+
+    exec.RunAll();
+    REQUIRE_FALSE(q.IsExpanding());
+    REQUIRE_FALSE(q.IsCancelling());
+}
+
 TEST_CASE("given a mixed queue when everything is cancelled then no job is left pending") {
     TempDir tmp("cancel_all");
     FakeRemoteFileSystem fs;

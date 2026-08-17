@@ -5,6 +5,7 @@
 #include "ui/ColorUtils.h"
 #include "ui/FilePropertiesDialog.h"
 #include "ui/RemoteFileListCtrl.h"
+#include "ui/StatusTone.h"
 #include "ui/StringUtils.h"
 #include "ui/ToolButton.h"
 
@@ -24,10 +25,6 @@ namespace {
 // wx has no positive flag for multi-selection: it is the default, and
 // wxLC_SINGLE_SEL is the opt-out. Named so the style argument is not a bare 0.
 constexpr long kMultiSelect = 0;
-
-// Palette slots for the two reds a broken link may be drawn in.
-constexpr size_t kAnsiRed       = 1;
-constexpr size_t kAnsiBrightRed = 9;
 
 // Receives files dragged in from the desktop.
 //
@@ -77,8 +74,16 @@ FileExplorerPane::FileExplorerPane(wxWindow* parent,
     BuildToolbar(outer);
     BuildList(outer);
 
-    status_ = new wxStaticText(this, wxID_ANY, "Loading...");
-    outer->Add(status_, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
+    // The spinner leads the line rather than trailing it: it is the thing that
+    // has to be seen first, and at the end of a status line that can run the
+    // width of the pane it would sit wherever the sentence happened to stop.
+    status_  = new wxStaticText(this, wxID_ANY, "Loading...");
+    spinner_ = MakeStatusSpinner(this, status_);
+
+    auto* statusRow = new wxBoxSizer(wxHORIZONTAL);
+    statusRow->Add(spinner_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+    statusRow->Add(status_,  1, wxALIGN_CENTER_VERTICAL);
+    outer->Add(statusRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
 
     SetSizer(outer);
     ApplyConfig(cfg_);
@@ -332,9 +337,11 @@ void FileExplorerPane::ApplyConfig(const AppConfig& cfg)
     // against that rather than borrowed from a UiColors slot defined for a
     // different surface.
     const wxColour labelFg = pickContrasting(paneBg, bg, fg);
-    for (wxStaticText* label : {filterLabel_, status_})
-        if (label) label->SetForegroundColour(labelFg);
-    if (hiddenCheck_) hiddenCheck_->SetForegroundColour(labelFg);
+    if (filterLabel_)  filterLabel_->SetForegroundColour(labelFg);
+    if (hiddenCheck_)  hiddenCheck_->SetForegroundColour(labelFg);
+    // The status line is the one loose label whose colour is not simply the
+    // resting one — it may be mid-message when the theme changes.
+    ApplyStatusTone();
     if (endpointChoice_) {
         endpointChoice_->SetBackgroundColour(bg);
         endpointChoice_->SetForegroundColour(fg);
@@ -360,7 +367,10 @@ void FileExplorerPane::ApplyConfig(const AppConfig& cfg)
 
 void FileExplorerPane::OnExplorerLoadingChanged(bool loading)
 {
-    if (loading) SetStatus("Loading...");
+    // Only the start of a load is announced here. Its end arrives as a contents
+    // change carrying the listing to describe, and repainting the counts twice
+    // would put the previous directory's figures on screen for a frame.
+    if (loading) SetStatus("Loading...", StatusTone::Busy);
     UpdateNavigationState();
 }
 
@@ -419,9 +429,30 @@ void FileExplorerPane::RefreshRows()
     else           list_->Refresh();
 }
 
-void FileExplorerPane::SetStatus(const wxString& text)
+void FileExplorerPane::SetStatus(const wxString& text, StatusTone tone)
 {
-    if (status_) status_->SetLabel(text);
+    statusTone_ = tone;
+    if (!status_) return;
+    status_->SetLabel(text);
+    ApplyStatusTone();
+}
+
+void FileExplorerPane::ApplyStatusTone()
+{
+    if (!status_) return;
+
+    // Measured against the pane background the label sits on, exactly as the
+    // other loose text is — see ApplyConfig.
+    const wxColour paneBg = toWx(cfg_.uiColors.frameBackground);
+    const wxColour normal = pickContrasting(paneBg, toWx(cfg_.ansiColors[0]),
+                                                    toWx(cfg_.ansiColors[7]));
+    status_->SetForegroundColour(StatusToneColour(statusTone_, cfg_, paneBg, normal));
+    status_->Refresh();
+
+    // Only when the spinner came or went: the status line is rewritten on every
+    // progress callback, and laying the pane out again for each one would be
+    // work done for a layout that has not moved.
+    if (ApplyToneToSpinner(spinner_, statusTone_)) Layout();
 }
 
 void FileExplorerPane::UpdateNavigationState()
@@ -465,12 +496,19 @@ void FileExplorerPane::UpdateStatus()
         if (space_->readOnly) text += " (read-only)";
     }
 
-    if (model.IsPartial())
+    // Both cases are the same failure differing only in how much of the
+    // listing survived it, and both are worth the user's eye: rows that are
+    // missing are exactly what a correct-looking count will not tell them.
+    StatusTone tone = StatusTone::Normal;
+    if (model.IsPartial()) {
         text += "   incomplete: " + DecodeForDisplay(model.Error().message);
-    else if (model.HasError())
+        tone = StatusTone::Error;
+    } else if (model.HasError()) {
         text = "Error: " + DecodeForDisplay(model.Error().message);
+        tone = StatusTone::Error;
+    }
 
-    SetStatus(text);
+    SetStatus(text, tone);
 }
 
 void FileExplorerPane::RefreshFreeSpace(bool force)
@@ -567,7 +605,9 @@ void FileExplorerPane::GoOffline(const wxString& reason)
     deleter_.reset();
     endpoint_.fs = nullptr;
     if (list_) { list_->SetItemCount(0); list_->Refresh(); }
-    SetStatus(reason);
+    // A pane with no filesystem behind it still looks like a pane. The reason
+    // is the only thing distinguishing an empty directory from a dead one.
+    SetStatus(reason, StatusTone::Error);
     UpdateNavigationState();
     if (onStateChanged_) onStateChanged_();
 }
@@ -615,7 +655,8 @@ void FileExplorerPane::OnItemActivated(wxListEvent& evt)
                     case term::fs::ActivationResult::Failed:
                         p.SetStatus(wxString::Format("Cannot open '%s': %s",
                                                      DecodeForDisplay(path),
-                                                     DecodeForDisplay(err.message)));
+                                                     DecodeForDisplay(err.message)),
+                                    StatusTone::Error);
                         break;
                 }
             });
@@ -963,7 +1004,9 @@ void FileExplorerPane::DeleteSelection()
         items.size() == 1 ? wxString::Format("'%s'", DecodeForDisplay(items.front().name))
                           : wxString::Format("%zu items", items.size());
 
-    SetStatus("Examining " + label + "...");
+    // The walk that costs a round trip per directory, before any confirmation
+    // has been asked for: nothing else on screen moves while it runs.
+    SetStatus("Examining " + label + "...", StatusTone::Busy);
 
     auto ctx = guard_.For(this);
     deleter_->Plan(std::move(targets),
@@ -978,7 +1021,8 @@ void FileExplorerPane::DeleteSelection()
                     [inner](size_t done, size_t total) {
                         inner.Post([done, total](FileExplorerPane& q) {
                             q.SetStatus(wxString::Format("Deleting... %zu/%zu",
-                                                         done, total));
+                                                         done, total),
+                                        StatusTone::Busy);
                         });
                     },
                     [inner](term::transport::FsError err) {

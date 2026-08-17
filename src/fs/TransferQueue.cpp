@@ -1013,6 +1013,7 @@ void TransferQueue::FinishJob(JobId id, JobState state, transport::FsError err)
         activeId_          = kInvalidJobId;
         activeHandle_      = transport::kInvalidTransferHandle;
         activeHandleOwner_ = nullptr;
+        cancellingActive_  = false;
     }
     Pump();
 }
@@ -1029,7 +1030,10 @@ void TransferQueue::CancelJob(JobId id)
     if (job->state == JobState::Active && id == activeId_ && activeHandleOwner_) {
         // The transport owns the job now; it will report Cancelled through the
         // normal completion path, so there is exactly one place a job retires.
+        // Until it does, the queue is neither running nor stopped, and says so.
+        cancellingActive_ = true;
         activeHandleOwner_->Cancel(activeHandle_);
+        NotifyChanged(id);
         return;
     }
 

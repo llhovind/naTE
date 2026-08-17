@@ -108,6 +108,9 @@ TransferPanel::TransferPanel(wxWindow* parent, const AppConfig& cfg,
 
     auto* header = new wxBoxSizer(wxHORIZONTAL);
     summary_ = new wxStaticText(this, wxID_ANY, "No transfers.");
+    // Leads the summary, where the eye starts, and takes no room at all while
+    // the queue is idle — which is most of the time.
+    spinner_ = MakeStatusSpinner(this, summary_);
     // First of the three, and ahead of Cancel deliberately: it is the only one
     // that is not destructive, and it is what someone reaches for when a
     // transfer turns out to be going somewhere it should not. Cancel throws
@@ -117,6 +120,7 @@ TransferPanel::TransferPanel(wxWindow* parent, const AppConfig& cfg,
     cancelAllBtn_ = new wxButton(this, wxID_ANY, "Cancel All", wxDefaultPosition, wxDefaultSize);
     clearBtn_     = new wxButton(this, wxID_ANY, "Clear Finished", wxDefaultPosition, wxDefaultSize);
 
+    header->Add(spinner_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
     header->Add(summary_, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
     header->Add(pauseBtn_,     0, wxRIGHT, 4);
     header->Add(cancelBtn_,    0, wxRIGHT, 4);
@@ -215,6 +219,17 @@ wxString DescribeTransferQueue(const term::fs::TransferQueue& queue)
     const size_t pending = queue.PendingCount();
     const size_t total   = queue.Jobs().size();
 
+    // Ahead of everything, the walk included: once a stop has been asked for,
+    // "Examining directories..." describes work whose results are already being
+    // thrown away, and the counts describe a batch that is going nowhere. What
+    // the user needs here is not a figure but the reason the window has not
+    // stopped yet.
+    if (queue.IsCancelling()) {
+        return queue.IsExpanding()
+                 ? wxString("Cancelling...  -  waiting for the listing in flight")
+                 : wxString("Cancelling...  -  waiting for the file in flight to stop");
+    }
+
     // Ahead of everything else: while a walk is running there is nothing queued
     // and nothing moving, so every other sentence here would read "No
     // transfers" and the window would look asleep. On a large tree this state
@@ -252,6 +267,18 @@ wxString DescribeTransferQueue(const term::fs::TransferQueue& queue)
            + DescribeForecast(queue);
 }
 
+StatusTone ToneForTransferQueue(const term::fs::TransferQueue& queue)
+{
+    // The two phases where the queue is working with nothing on screen moving
+    // to show it: the walk, and the wind-down after a stop is asked for. A
+    // running transfer already moves a row's percentage every second and needs
+    // no help being noticed. Failed jobs are left to the rows: they say which
+    // file and why, and colouring the summary for them would leave it lit long
+    // after the batch the user has moved on from.
+    return queue.IsExpanding() || queue.IsCancelling() ? StatusTone::Busy
+                                                       : StatusTone::Normal;
+}
+
 wxString DescribeTransferOutcome(const term::fs::TransferQueue& queue)
 {
     using term::fs::JobState;
@@ -284,6 +311,7 @@ void TransferPanel::UpdateSummary()
     const size_t total   = queue_.Jobs().size();
 
     summary_->SetLabel(DescribeTransferQueue(queue_));
+    ApplySummaryTone();
 
     cancelAllBtn_->Enable(pending > 0);
     cancelBtn_->Enable(pending > 0);
@@ -309,6 +337,26 @@ void TransferPanel::UpdateSummary()
     }
 }
 
+void TransferPanel::ApplySummaryTone()
+{
+    if (!summary_) return;
+
+    const StatusTone tone = ToneForTransferQueue(queue_);
+
+    // The header sits on the panel background, so the resting colour is
+    // measured against that rather than borrowed from the list below it.
+    const wxColour paneBg = toWx(cfg_.uiColors.frameBackground);
+    const wxColour normal = pickContrasting(paneBg, toWx(cfg_.ansiColors[0]),
+                                                    toWx(cfg_.ansiColors[7]));
+    summary_->SetForegroundColour(StatusToneColour(tone, cfg_, paneBg, normal));
+    summary_->Refresh();
+
+    // Only when the spinner came or went. This runs on every progress
+    // callback — once per SFTP block — and re-laying the header for each one
+    // would be work done for a layout that has not moved.
+    if (ApplyToneToSpinner(spinner_, tone)) Layout();
+}
+
 void TransferPanel::ApplyConfig(const AppConfig& cfg)
 {
     cfg_ = cfg;
@@ -322,7 +370,9 @@ void TransferPanel::ApplyConfig(const AppConfig& cfg)
         list_->SetBackgroundColour(bg);
         list_->SetForegroundColour(fg);
     }
-    if (summary_) summary_->SetForegroundColour(pickContrasting(paneBg, bg, fg));
+    // Not simply the resting colour: the theme can change mid-walk, and the
+    // summary has to come back in the tone it was already wearing.
+    ApplySummaryTone();
 
     // Words kept: all three act on a queue the user cannot get back, and
     // "Cancel" versus "Cancel All" is a distinction no pair of glyphs makes

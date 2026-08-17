@@ -279,6 +279,20 @@ public:
     // watching an apparently idle window.
     bool IsExpanding() const noexcept { return enumerating_; }
 
+    // True between a stop being asked for and the queue actually settling.
+    //
+    // Exposed for the same reason IsExpanding() is: the stop is not instant.
+    // The transport owns the file in flight and reports it cancelled through
+    // its own completion path, and a listing already at the server has to land
+    // before its answer can be thrown away. In between, a view with no word for
+    // this describes a queue that is still working as though nothing had been
+    // asked of it — which is exactly when the user, having just clicked Cancel,
+    // is watching to see whether anything happened.
+    bool IsCancelling() const noexcept
+    {
+        return cancellingActive_ || (enumerating_ && enumCancelled_);
+    }
+
     // How copies treat symbolic links. Applies to work queued from here on;
     // jobs already queued carry the decision that was in force when they were
     // created, so changing this never rewrites what the user already asked for.
@@ -531,6 +545,14 @@ private:
     // the next.
     transport::TransferHandle     activeHandle_      = transport::kInvalidTransferHandle;
     transport::IRemoteFileSystem* activeHandleOwner_ = nullptr;
+
+    // Set when the transport has been asked to abandon the file in flight.
+    //
+    // Cleared where that job retires rather than where it reports cancelled: a
+    // transfer that completes a moment before the request reaches the transport
+    // retires as Completed, and a flag that only a Cancelled outcome cleared
+    // would leave the queue claiming to be stopping for the rest of its life.
+    bool cancellingActive_ = false;
 };
 
 // Builds the nth alternative name for a colliding file: "notes.txt" becomes

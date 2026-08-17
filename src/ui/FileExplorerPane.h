@@ -22,6 +22,7 @@
 #include <wx/textctrl.h>
 
 #include "ui/RemoteFileListCtrl.h"
+#include "ui/StatusTone.h"
 
 namespace ui {
 
@@ -160,7 +161,15 @@ private:
     void RefreshRows();
     void UpdateNavigationState();
     void UpdateStatus();
-    void SetStatus(const wxString& text);
+    // The tone travels with the words rather than being set separately: a
+    // colour left over from the previous message is a status line saying two
+    // different things at once, and the one it says loudest would be the stale
+    // one.
+    void SetStatus(const wxString& text, StatusTone tone = StatusTone::Normal);
+    // Repaints the status line in whatever its current tone resolves to under
+    // the active theme. Called on every message and on every config change,
+    // because both move the answer.
+    void ApplyStatusTone();
 
     // Asks the endpoint how much room the volume behind the current directory
     // has, and repaints the status line when it answers.
@@ -232,6 +241,11 @@ private:
 
     std::string pendingFocusName_;
 
+    // What the status line is currently saying about itself. Kept because the
+    // words and the theme change on different occasions, and a theme change
+    // must not repaint a "Deleting..." line in the resting colour.
+    StatusTone statusTone_ = StatusTone::Normal;
+
     // Set when a navigation was asked for from the path field, so the keyboard
     // can follow the user into the listing once that navigation lands. One-shot:
     // consumed by the first contents change it sees, whatever the outcome.
@@ -259,8 +273,9 @@ private:
     wxButton*     upBtn_       = nullptr;
     wxButton*     refreshBtn_  = nullptr;
     wxButton*     newFolderBtn_ = nullptr;
-    RemoteFileListCtrl* list_  = nullptr;
-    wxStaticText* status_      = nullptr;
+    RemoteFileListCtrl*  list_    = nullptr;
+    wxStaticText*        status_  = nullptr;
+    wxActivityIndicator* spinner_ = nullptr;
 };
 
 } // namespace ui

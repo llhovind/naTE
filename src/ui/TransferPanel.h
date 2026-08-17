@@ -2,6 +2,7 @@
 
 #include "config/Config.h"
 #include "fs/TransferQueue.h"
+#include "ui/StatusTone.h"
 
 #include <functional>
 
@@ -29,6 +30,14 @@ wxString DescribeTransferQueue(const term::fs::TransferQueue& queue);
 // over a list of cancelled rows reads as a claim that the files moved.
 wxString DescribeTransferOutcome(const term::fs::TransferQueue& queue);
 
+// How loudly that summary should be drawn, given what the queue is doing.
+//
+// Beside DescribeTransferQueue rather than inside the panel because it answers
+// the same question about the same object — one of them saying "Examining
+// directories..." while the other paints the line as resting is precisely the
+// drift that keeping them apart produces.
+StatusTone ToneForTransferQueue(const term::fs::TransferQueue& queue);
+
 // The transfer queue's face: one row per job, with progress, and the controls
 // to stop them.
 //
@@ -55,6 +64,10 @@ public:
 
 private:
     void UpdateSummary();
+    // Repaints the summary in the tone the live queue is currently in. Read
+    // from the queue at paint time rather than remembered, so the colour cannot
+    // outlive the state that earned it.
+    void ApplySummaryTone();
 
     const term::fs::TransferQueue& queue_;
     AppConfig                      cfg_;
@@ -66,6 +79,7 @@ private:
 
     TransferJobListCtrl* list_       = nullptr;
     wxStaticText*        summary_    = nullptr;
+    wxActivityIndicator* spinner_    = nullptr;
     wxButton*            pauseBtn_   = nullptr;
     wxButton*            cancelBtn_  = nullptr;
     wxButton*            cancelAllBtn_ = nullptr;
