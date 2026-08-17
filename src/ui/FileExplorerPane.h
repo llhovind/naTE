@@ -114,7 +114,8 @@ public:
     // the same five columns at two different sizes.
     void SetColumnWidths(const RemoteFileListCtrl::ColumnWidths& widths);
 
-    // Moves keyboard focus onto the listing, for shortcuts owned by the frame.
+    // Moves keyboard focus onto the listing — for shortcuts owned by the frame,
+    // and for the pane's own way back out of the path and filter fields.
     void FocusList();
 
     const std::string& CurrentPath() const;
@@ -211,6 +212,11 @@ private:
     term::fs::DispatchGuard                       guard_;
 
     std::string pendingFocusName_;
+
+    // Set when a navigation was asked for from the path field, so the keyboard
+    // can follow the user into the listing once that navigation lands. One-shot:
+    // consumed by the first contents change it sees, whatever the outcome.
+    bool focusListOnArrival_ = false;
 
     // Last free-space answer, and the directory it describes. Empty path means
     // nothing usable: no answer yet, a server that cannot report, or a query

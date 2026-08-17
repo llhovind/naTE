@@ -231,6 +231,26 @@ void FileExplorerPane::BuildToolbar(wxSizer* outer)
                 default: break;
             }
         }
+        // Escape abandons an edit in progress and hands the keyboard back to
+        // the listing. Without it Ctrl+L and Ctrl+F are one-way doors: they
+        // reach the text fields, and only the mouse comes back out.
+        if (evt.GetModifiers() == wxMOD_NONE && evt.GetKeyCode() == WXK_ESCAPE) {
+            const wxWindow* const focus = FindFocus();
+            if (focus == pathCtrl_) {
+                // The field holds an edit that was never committed; the
+                // directory actually on screen is what it should say.
+                pathCtrl_->ChangeValue(wxString::FromUTF8(CurrentPath()));
+                FocusList();
+                return;
+            }
+            if (focus == filterCtrl_) {
+                // Nothing to abandon: the filter applies as it is typed, so its
+                // text is already the applied state. Clearing it here would
+                // discard a view the user can see and undo for themselves.
+                FocusList();
+                return;
+            }
+        }
         evt.Skip();
     });
 
@@ -356,6 +376,21 @@ void FileExplorerPane::OnExplorerContentsChanged()
             list_->EnsureVisible(item);
         }
         pendingFocusName_.clear();
+    }
+
+    if (focusListOnArrival_ && controller_) {
+        focusListOnArrival_ = false;
+        const term::fs::DirModel& model = controller_->Model();
+        // A partial listing still opened the directory and has rows worth
+        // acting on. Only one that produced nothing keeps the keyboard in the
+        // path field, where the text that failed is still sitting there to be
+        // corrected — which is why it is not re-selected: after a typo, editing
+        // is likelier than retyping, and a select-all would destroy it on the
+        // next keystroke.
+        const bool arrived = !model.HasError() || model.IsPartial();
+        // A round trip is long enough for the user to have moved on. Focus is
+        // theirs to spend, so it is only taken back from where we left it.
+        if (arrived && FindFocus() == pathCtrl_) FocusList();
     }
 
     UpdateStatus();
@@ -536,6 +571,9 @@ void FileExplorerPane::GoOffline(const wxString& reason)
 void FileExplorerPane::OnGo(wxCommandEvent&)
 {
     if (!controller_) return;
+    // Only Enter in the path field reaches here, so the request came from the
+    // keyboard and the keyboard should end up somewhere useful when it lands.
+    focusListOnArrival_ = true;
     controller_->NavigateTo(pathCtrl_->GetValue().Trim().ToStdString());
 }
 
