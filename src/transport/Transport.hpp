@@ -1,20 +1,10 @@
 #pragma once
 #include "transport/PortForward.h"
-#include <cstdint>
-#include <functional>
 #include <string>
-#include <vector>
 
 namespace term::transport {
 
-struct RemoteDirEntry {
-    std::string name;
-    std::string permissions;
-    std::string modTime;
-    uint64_t    size      = 0;
-    bool        isDir     = false;
-    bool        isSymlink = false;
-};
+class IRemoteFileSystem;
 
 class Transport {
 public:
@@ -40,7 +30,6 @@ public:
     // accessible. PTY transports read this from /proc/<pid>/cwd; all others return "".
     virtual std::string GetCurrentWorkingDir() const { return {}; }
 
-    virtual bool SupportsFileTransfer()    const noexcept { return false; }
     virtual bool SupportsX11Forwarding()   const noexcept { return false; }
     virtual bool SupportsPortForwarding()  const noexcept { return false; }
 
@@ -48,40 +37,14 @@ public:
     virtual void RemovePortForward(PortForwardId /*id*/) {}
     virtual std::string GetRemoteDescription() const { return {}; }
 
-    // Uploads localPath into remoteDir via SFTP. onDone is invoked on the
-    // calling thread; callers are responsible for marshalling to the UI thread
-    // if required (e.g. wxTheApp->CallAfter). Default no-op for PTY/Serial.
-    virtual void SendFile(
-        const std::string& /*localPath*/,
-        const std::string& /*remoteDir*/,
-        std::function<void(bool success, std::string error)> /*onDone*/) {}
-
-    // Downloads remotePath into localDir via SFTP. onDone calling convention
-    // matches SendFile above.
-    virtual void ReceiveFile(
-        const std::string& /*remotePath*/,
-        const std::string& /*localDir*/,
-        std::function<void(bool success, std::string error)> /*onDone*/) {}
-
-    // Lists the contents of remotePath via SFTP. onDone calling convention
-    // matches SendFile above.
-    virtual void ListRemoteDirectory(
-        const std::string& /*remotePath*/,
-        std::function<void(std::vector<RemoteDirEntry>, std::string error)> /*onDone*/) {}
-
-    // Downloads remotePath to the exact local file path localPath via SFTP.
-    // Used by the remote-edit workflow (PR 2). Default no-op.
-    virtual void SftpDownloadFile(
-        const std::string& /*remotePath*/,
-        const std::string& /*localPath*/,
-        std::function<void(bool success, std::string localPathOrError)> /*onDone*/) {}
-
-    // Uploads localPath to the exact remote file path remotePath via SFTP.
-    // Used by the remote-edit auto-upload workflow (PR 2). Default no-op.
-    virtual void SftpUploadFile(
-        const std::string& /*localPath*/,
-        const std::string& /*remotePath*/,
-        std::function<void(bool success, std::string error)> /*onDone*/) {}
+    // The transport's view of the remote filesystem, or nullptr when it has
+    // none — which is the capability check, so there is no separate
+    // SupportsFileTransfer() to fall out of sync with it.
+    //
+    // The returned object is owned by the transport and dies with it. Callers
+    // must not retain it across a session teardown. See IRemoteFileSystem for
+    // the threading contract.
+    virtual IRemoteFileSystem* GetRemoteFileSystem() { return nullptr; }
 };
 
 } // namespace term::transport

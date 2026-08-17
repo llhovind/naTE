@@ -50,3 +50,80 @@ TEST_CASE("given work area with non-zero origin when centring then clamp respect
     CHECK(p.y == 0);
     CHECK(p.x >= work.x);
 }
+
+// ---------------------------------------------------------------------------
+// Restoring a window's saved position
+// ---------------------------------------------------------------------------
+
+using ui::RectIsReachable;
+
+namespace {
+
+// Two displays side by side, the second one to the right of the first — the
+// arrangement a saved position most often outlives.
+constexpr ScreenRect kDisplays[2] = { { 0, 0, 1920, 1080 },
+                                      { 1920, 0, 1920, 1080 } };
+constexpr ScreenRect kOneDisplay[1] = { { 0, 0, 1920, 1080 } };
+
+// A title bar's worth, matching what FileExplorerManager asks for.
+constexpr int kMargin = 80;
+
+bool Reachable(ScreenRect frame, const ScreenRect* displays, std::size_t count)
+{
+    return RectIsReachable(frame, displays, count, kMargin);
+}
+
+} // namespace
+
+TEST_CASE("given a window well inside a display when tested then the position is reachable")
+{
+    CHECK(Reachable({ 300, 200, 720, 700 }, kOneDisplay, 1));
+}
+
+TEST_CASE("given a window on a second display when that display is gone then the position is refused")
+{
+    // Saved while docked at (2400,300); the external monitor has since been
+    // unplugged, so nothing of the window would be on the remaining screen.
+    const ScreenRect saved{ 2400, 300, 720, 700 };
+
+    CHECK(Reachable(saved, kDisplays, 2));
+    CHECK_FALSE(Reachable(saved, kOneDisplay, 1));
+}
+
+TEST_CASE("given a window overlapping a display by less than the margin then the position is refused")
+{
+    // 40px of the window is on screen: visible, but with no title bar to grab.
+    CHECK_FALSE(Reachable({ 1880, 400, 720, 700 }, kOneDisplay, 1));
+}
+
+TEST_CASE("given a window overlapping a display by exactly the margin then the position is accepted")
+{
+    // The boundary belongs to the reachable side: exactly a title bar's worth
+    // is enough to drag the window back with.
+    CHECK(Reachable({ 1920 - kMargin, 400, 720, 700 }, kOneDisplay, 1));
+}
+
+TEST_CASE("given a window off the top of a display when tested then the position is refused")
+{
+    // Horizontally fine, vertically above the screen — the case that hides the
+    // title bar specifically, which is the one that cannot be recovered from.
+    CHECK_FALSE(Reachable({ 400, -680, 720, 700 }, kOneDisplay, 1));
+}
+
+TEST_CASE("given a display left of the origin when a window sits on it then the position is reachable")
+{
+    // A monitor arranged to the left of the primary one has negative
+    // coordinates throughout; they are positions, not error values.
+    constexpr ScreenRect leftOfPrimary[2] = { { -1920, 0, 1920, 1080 },
+                                              { 0, 0, 1920, 1080 } };
+
+    CHECK(Reachable({ -1500, 200, 720, 700 }, leftOfPrimary, 2));
+}
+
+TEST_CASE("given no displays reported when tested then the position is accepted")
+{
+    // An empty list means the query failed, not that every position is bad.
+    // Discarding a good saved position over a failed lookup would be worse
+    // than trusting it.
+    CHECK(Reachable({ 300, 200, 720, 700 }, nullptr, 0));
+}

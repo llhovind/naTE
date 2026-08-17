@@ -1,14 +1,18 @@
 #include "ui/RemoteFileBrowserDialog.h"
 
-#include <algorithm>
-#include <cctype>
+#include "ui/StringUtils.h"
+
 #include <wx/app.h>
-#include <wx/msgdlg.h>
 #include <wx/sizer.h>
-#include <wx/stattext.h>
-#include <wx/string.h>
 
 namespace ui {
+
+namespace {
+constexpr int kInitialWidth  = 620;
+constexpr int kInitialHeight = 460;
+constexpr int kMinWidth      = 420;
+constexpr int kMinHeight     = 320;
+} // namespace
 
 RemoteFileBrowserDialog::RemoteFileBrowserDialog(
     wxWindow* parent,
@@ -16,33 +20,20 @@ RemoteFileBrowserDialog::RemoteFileBrowserDialog(
     term::session::SessionManager& sm,
     const std::string& remoteDescription,
     const wxString& confirmLabel,
-    const std::string& initialPath,
-    BrowseMode mode)
+    const std::string& initialPath)
     : wxDialog(parent, wxID_ANY,
-               [&]() -> wxString {
-                   if (mode == BrowseMode::Directory)
-                       return remoteDescription.empty()
-                           ? wxString("Select Destination Directory")
-                           : wxString::Format("Select Directory on %s",
-                                              wxString::FromUTF8(remoteDescription));
-                   return remoteDescription.empty()
-                       ? wxString("Browse Remote Files")
-                       : wxString::Format("Browse %s",
-                                          wxString::FromUTF8(remoteDescription));
-               }(),
-               wxDefaultPosition, wxSize(560, 420),
+               remoteDescription.empty()
+                   ? wxString("Browse Remote Files")
+                   : "Browse " + DecodeForDisplay(remoteDescription),
+               wxDefaultPosition, wxSize(kInitialWidth, kInitialHeight),
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
-    , sessionId_(sessionId)
     , sm_(sm)
-    , mode_(mode)
-    , currentPath_(initialPath.empty() ? "." : initialPath)
 {
     auto* outer = new wxBoxSizer(wxVERTICAL);
 
-    // --- Path bar ---
     auto* pathRow = new wxBoxSizer(wxHORIZONTAL);
     upBtn_ = new wxButton(this, wxID_ANY, "Up", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
-    pathCtrl_ = new wxTextCtrl(this, wxID_ANY, wxString::FromUTF8(currentPath_),
+    pathCtrl_ = new wxTextCtrl(this, wxID_ANY, wxString::FromUTF8(initialPath),
                                wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
     auto* goBtn = new wxButton(this, wxID_ANY, "Go", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
     pathRow->Add(upBtn_,    0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 4);
@@ -50,165 +41,169 @@ RemoteFileBrowserDialog::RemoteFileBrowserDialog(
     pathRow->Add(goBtn,     0, wxALIGN_CENTER_VERTICAL);
     outer->Add(pathRow, 0, wxEXPAND | wxALL, 10);
 
-    // --- File list ---
-    fileList_ = new wxListCtrl(this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
-                               wxLC_REPORT | wxLC_VRULES | wxLC_HRULES);
-    fileList_->InsertColumn(0, "Name",        wxLIST_FORMAT_LEFT,  260);
-    fileList_->InsertColumn(1, "Size",        wxLIST_FORMAT_RIGHT,  80);
-    fileList_->InsertColumn(2, "Permissions", wxLIST_FORMAT_LEFT,  120);
+    fileList_ = new RemoteFileListCtrl(
+        this,
+        [this]() -> const term::fs::DirModel* {
+            return controller_ ? &controller_->Model() : nullptr;
+        },
+        wxLC_SINGLE_SEL);
+    fileList_->InsertStandardColumns();
     outer->Add(fileList_, 1, wxEXPAND | wxLEFT | wxRIGHT, 10);
 
-    // --- Status ---
     statusLabel_ = new wxStaticText(this, wxID_ANY, "Loading...");
     outer->Add(statusLabel_, 0, wxLEFT | wxTOP | wxBOTTOM, 10);
 
-    // --- Buttons ---
     auto* btnRow = new wxBoxSizer(wxHORIZONTAL);
     btnRow->AddStretchSpacer();
-    if (mode_ == BrowseMode::Directory) {
-        addBtn_ = new wxButton(this, wxID_ANY, "Select This Directory");
-    } else {
-        addBtn_ = new wxButton(this, wxID_ANY, confirmLabel);
-        addBtn_->Disable();
-    }
+    confirmBtn_ = new wxButton(this, wxID_ANY, confirmLabel);
     auto* closeBtn = new wxButton(this, wxID_CANCEL, "Close");
-    btnRow->Add(addBtn_,   0, wxRIGHT, 6);
-    btnRow->Add(closeBtn,  0);
+    btnRow->Add(confirmBtn_, 0, wxRIGHT, 6);
+    btnRow->Add(closeBtn,    0);
     outer->Add(btnRow, 0, wxALL, 10);
 
     SetSizerAndFit(outer);
-    SetMinSize(wxSize(400, 300));
+    SetMinSize(wxSize(kMinWidth, kMinHeight));
 
-    upBtn_->Bind(wxEVT_BUTTON,       &RemoteFileBrowserDialog::OnUp,         this);
-    goBtn->Bind(wxEVT_BUTTON,        &RemoteFileBrowserDialog::OnGo,         this);
-    pathCtrl_->Bind(wxEVT_TEXT_ENTER, [this](wxCommandEvent& evt){ OnGo(evt); });
-    fileList_->Bind(wxEVT_LIST_ITEM_ACTIVATED, &RemoteFileBrowserDialog::OnItemActivated, this);
-    if (mode_ == BrowseMode::Files) {
-        fileList_->Bind(wxEVT_LIST_ITEM_SELECTED,
-            [this](wxListEvent&){ addBtn_->Enable(fileList_->GetSelectedItemCount() > 0); });
-        fileList_->Bind(wxEVT_LIST_ITEM_DESELECTED,
-            [this](wxListEvent&){ addBtn_->Enable(fileList_->GetSelectedItemCount() > 0); });
+    upBtn_->Bind(wxEVT_BUTTON,        &RemoteFileBrowserDialog::OnUp, this);
+    goBtn->Bind(wxEVT_BUTTON,         &RemoteFileBrowserDialog::OnGo, this);
+    pathCtrl_->Bind(wxEVT_TEXT_ENTER, &RemoteFileBrowserDialog::OnGo, this);
+    confirmBtn_->Bind(wxEVT_BUTTON,   &RemoteFileBrowserDialog::OnConfirm, this);
+    fileList_->Bind(wxEVT_LIST_ITEM_ACTIVATED,
+                    &RemoteFileBrowserDialog::OnItemActivated, this);
+    const auto onSelect = [this](wxListEvent& evt) { UpdateControls(); evt.Skip(); };
+    fileList_->Bind(wxEVT_LIST_ITEM_SELECTED,   onSelect);
+    fileList_->Bind(wxEVT_LIST_ITEM_DESELECTED, onSelect);
+
+    term::transport::IRemoteFileSystem* remote = sm_.GetRemoteFileSystem(sessionId);
+    if (!remote) {
+        statusLabel_->SetLabel("This session has no remote filesystem.");
+        UpdateControls();
+        return;
     }
-    addBtn_->Bind(wxEVT_BUTTON, &RemoteFileBrowserDialog::OnAdd, this);
 
-    Navigate(currentPath_);
+    controller_ = std::make_unique<term::fs::ExplorerController>(
+        *remote,
+        [](std::function<void()> fn) { wxTheApp->CallAfter(std::move(fn)); });
+    controller_->SetListener(this);
+    // Dotfiles stay visible here, unlike in the explorer. This dialog exists
+    // largely to pick a file to edit, and .bashrc, .vimrc and friends are
+    // exactly the files an administrator reaches for — hiding them would make
+    // the common case impossible rather than merely tidier.
+    controller_->Model().SetShowHidden(true);
+    controller_->NavigateTo(initialPath.empty() ? "." : initialPath);
 }
 
-void RemoteFileBrowserDialog::Navigate(const std::string& path)
+// ---------------------------------------------------------------------------
+// Controller notifications
+// ---------------------------------------------------------------------------
+
+void RemoteFileBrowserDialog::OnExplorerLoadingChanged(bool loading)
 {
-    if (loading_) return;
-    loading_ = true;
-    currentPath_ = path;
-    pathCtrl_->SetValue(wxString::FromUTF8(currentPath_));
-    upBtn_->Disable();
-    addBtn_->Disable();
-    fileList_->DeleteAllItems();
-    statusLabel_->SetLabel("Loading...");
-
-    sm_.ListRemoteDirectory(sessionId_, currentPath_,
-        [this](std::vector<term::transport::RemoteDirEntry> entries, std::string error) {
-            wxTheApp->CallAfter([this,
-                                 es  = std::move(entries),
-                                 err = std::move(error)]() mutable {
-                loading_ = false;
-                if (!err.empty()) {
-                    statusLabel_->SetLabel(wxString::Format("Error: %s",
-                                           wxString::FromUTF8(err)));
-                    upBtn_->Enable(currentPath_ != "/");
-                    return;
-                }
-                currentEntries_ = std::move(es);
-                std::sort(currentEntries_.begin(), currentEntries_.end(),
-                    [](const term::transport::RemoteDirEntry& a,
-                       const term::transport::RemoteDirEntry& b) {
-                        if (a.isDir != b.isDir) return a.isDir > b.isDir;
-                        std::string la = a.name, lb = b.name;
-                        for (auto& c : la) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                        for (auto& c : lb) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                        return la < lb;
-                    });
-                PopulateList(currentEntries_);
-                upBtn_->Enable(currentPath_ != "/");
-                if (mode_ == BrowseMode::Directory)
-                    addBtn_->Enable();
-            });
-        });
+    if (loading) statusLabel_->SetLabel("Loading...");
+    UpdateControls();
 }
 
-void RemoteFileBrowserDialog::PopulateList(
-    const std::vector<term::transport::RemoteDirEntry>& entries)
+void RemoteFileBrowserDialog::OnExplorerPathChanged(const std::string& path)
 {
-    fileList_->DeleteAllItems();
-    for (const auto& e : entries) {
-        const long idx = fileList_->InsertItem(
-            fileList_->GetItemCount(),
-            wxString::FromUTF8(e.isDir ? e.name + "/" : e.name));
-        fileList_->SetItem(idx, 1,
-            e.isDir ? wxString("-") : wxString::Format("%llu",
-                static_cast<unsigned long long>(e.size)));
-        fileList_->SetItem(idx, 2, wxString::FromUTF8(e.permissions));
-    }
-    statusLabel_->SetLabel(wxString::Format("%zu item(s)",
-                                            entries.size()));
+    pathCtrl_->ChangeValue(wxString::FromUTF8(path));
 }
 
-std::string RemoteFileBrowserDialog::FullPath(const std::string& name) const
+void RemoteFileBrowserDialog::OnExplorerContentsChanged()
 {
-    if (currentPath_.empty() || currentPath_.back() == '/')
-        return currentPath_ + name;
-    return currentPath_ + "/" + name;
+    if (!controller_) return;
+    const auto& model = controller_->Model();
+
+    const long count = static_cast<long>(model.VisibleCount());
+    fileList_->SetItemCount(count);
+    if (count > 0) fileList_->RefreshItems(0, count - 1);
+    else           fileList_->Refresh();
+
+    // A listing that failed partway still shows its rows, so the status line
+    // is where the incompleteness has to be admitted.
+    if (model.IsPartial())
+        statusLabel_->SetLabel(
+            wxString::Format("%zu item(s) - partial: %s", model.VisibleCount(),
+                             DecodeForDisplay(model.Error().message)));
+    else if (model.HasError())
+        statusLabel_->SetLabel("Error: " + DecodeForDisplay(model.Error().message));
+    else
+        statusLabel_->SetLabel(wxString::Format("%zu item(s)", model.VisibleCount()));
+
+    UpdateControls();
 }
 
-std::string RemoteFileBrowserDialog::ParentPath() const
+void RemoteFileBrowserDialog::UpdateControls()
 {
-    const auto& p = currentPath_;
-    if (p == "." || p == "/") return "/";
-    const auto pos = p.rfind('/');
-    if (pos == std::string::npos) return ".";
-    if (pos == 0) return "/";
-    return p.substr(0, pos);
+    const bool live    = controller_ != nullptr;
+    const bool loading = live && controller_->IsLoading();
+
+    upBtn_->Enable(live && !loading && controller_->CurrentPath() != "/");
+    pathCtrl_->Enable(live);
+    confirmBtn_->Enable(live && !loading &&
+                        fileList_->GetSelectedItemCount() > 0);
 }
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
 
 void RemoteFileBrowserDialog::OnGo(wxCommandEvent&)
 {
-    Navigate(pathCtrl_->GetValue().Trim().ToStdString());
+    if (controller_) controller_->NavigateTo(pathCtrl_->GetValue().Trim().ToStdString());
 }
 
 void RemoteFileBrowserDialog::OnUp(wxCommandEvent&)
 {
-    Navigate(ParentPath());
+    if (controller_) controller_->NavigateUp();
 }
 
 void RemoteFileBrowserDialog::OnItemActivated(wxListEvent& evt)
 {
-    const long idx = evt.GetIndex();
-    if (idx < 0 || idx >= static_cast<long>(currentEntries_.size())) return;
-    const auto& entry = currentEntries_[static_cast<size_t>(idx)];
-    if (entry.isDir) Navigate(FullPath(entry.name));
+    if (!controller_) return;
+    const auto row = static_cast<size_t>(evt.GetIndex());
+
+    // The controller decides what activation means, including resolving a
+    // symlink to find out whether it is a doorway or a file.
+    auto ctx = guard_.For(this);
+    controller_->Activate(row,
+        [ctx](term::fs::ActivationResult result, std::string path,
+              term::transport::FsError err) {
+            ctx.Post([result, path = std::move(path), err = std::move(err)](
+                         RemoteFileBrowserDialog& dlg) mutable {
+                switch (result) {
+                    case term::fs::ActivationResult::Navigated:
+                        break;
+                    case term::fs::ActivationResult::IsFile:
+                        // Double-clicking a file picks it outright.
+                        dlg.selectedPath_ = std::move(path);
+                        dlg.EndModal(wxID_OK);
+                        break;
+                    case term::fs::ActivationResult::Failed:
+                        dlg.statusLabel_->SetLabel(
+                            wxString::Format("Cannot open '%s': %s",
+                                             DecodeForDisplay(path),
+                                             DecodeForDisplay(err.message)));
+                        break;
+                }
+            });
+        });
 }
 
-void RemoteFileBrowserDialog::OnAdd(wxCommandEvent&)
+void RemoteFileBrowserDialog::OnConfirm(wxCommandEvent&)
 {
-    if (mode_ == BrowseMode::Directory) {
-        selectedPaths_ = { currentPath_ };
-        EndModal(wxID_OK);
-        return;
-    }
+    if (!controller_) return;
 
-    long item = -1;
-    while (true) {
-        item = fileList_->GetNextItem(item, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
-        if (item == wxNOT_FOUND) break;
-        if (item >= static_cast<long>(currentEntries_.size())) continue;
-        const auto& entry = currentEntries_[static_cast<size_t>(item)];
-        if (!entry.isDir) {
-            const std::string path = FullPath(entry.name);
-            if (std::find(selectedPaths_.begin(), selectedPaths_.end(), path)
-                == selectedPaths_.end())
-                selectedPaths_.push_back(path);
-        }
-    }
-    if (!selectedPaths_.empty()) EndModal(wxID_OK);
+    const long item = fileList_->GetNextItem(-1, wxLIST_NEXT_ALL,
+                                             wxLIST_STATE_SELECTED);
+    if (item == wxNOT_FOUND) return;
+    const auto row = static_cast<size_t>(item);
+    if (row >= controller_->Model().VisibleCount()) return;
+    // Directories are navigated, not picked — including the ones reached
+    // through a link, which the listing already presents as directories.
+    if (controller_->Model().IsDirectoryLike(row)) return;
+
+    selectedPath_ = controller_->PathOf(row);
+    EndModal(wxID_OK);
 }
 
 } // namespace ui

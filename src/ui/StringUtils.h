@@ -1,4 +1,6 @@
 #pragma once
+#include <cstdint>
+#include <iterator>
 #include <string>
 #include <wx/string.h>
 
@@ -30,4 +32,37 @@ inline std::string ToUtf8(const std::u32string& u32)
 inline wxString ToWxString(const std::u32string& u32)
 {
     return wxString::FromUTF8(ToUtf8(u32));
+}
+
+// Decodes bytes that came from outside naTE — remote filenames in particular —
+// for display.
+//
+// Remote filesystems store names as opaque bytes, so a latin-1 or otherwise
+// non-UTF-8 name is entirely legal. wxString::FromUTF8 returns an *empty*
+// string for such input, which would make the file silently vanish from a
+// listing rather than merely look wrong. Falling back to a byte-wise latin-1
+// read keeps it visible and selectable; the caller must still use the original
+// bytes for any path it sends back to the server.
+inline wxString DecodeForDisplay(const std::string& bytes)
+{
+    if (bytes.empty()) return {};
+    if (wxString decoded = wxString::FromUTF8(bytes); !decoded.empty())
+        return decoded;
+    return wxString::From8BitData(bytes.data(), bytes.size());
+}
+
+// Formats a byte count the way a person reads it. Binary units, because these
+// are file sizes on a POSIX filesystem and that is what `ls -h` reports.
+inline wxString FormatByteSize(uint64_t bytes)
+{
+    constexpr const char* units[] = {"B", "KiB", "MiB", "GiB", "TiB", "PiB"};
+    double value = static_cast<double>(bytes);
+    size_t unit  = 0;
+    while (value >= 1024.0 && unit + 1 < std::size(units)) {
+        value /= 1024.0;
+        ++unit;
+    }
+    if (unit == 0)
+        return wxString::Format("%llu B", static_cast<unsigned long long>(bytes));
+    return wxString::Format("%.1f %s", value, units[unit]);
 }

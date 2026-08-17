@@ -2,10 +2,12 @@
 #include "ui/ClipboardUtils.h"
 #include "ui/ColorUtils.h"
 #include "ui/DialogPlacement.h"
+#include "ui/EditorLauncher.h"
 #include "ui/ResetAndClearDialog.h"
 #include "app/App.h"
-#include "ui/TransferFilesDialog.h"
-#include "ui/RemoteEditManager.h"
+#include "ui/FileExplorerManager.h"
+#include "fs/RemoteEditManager.h"
+#include "ui/RemoteEditsDialog.h"
 #include "ui/RemoteFileBrowserDialog.h"
 #include "ui/KbdIntDialog.h"
 #include "ui/PasteConfirmDialog.h"
@@ -299,9 +301,6 @@ void UIManager::WireTileCallbacks(TerminalTile* tile)
         [this](std::span<const term::session::SessionId> ids, TerminalTile* dstTile) -> bool {
             return static_cast<App&>(wxGetApp()).DropSession(ids, frame_, dstTile);
         });
-    tile->SetFileTransferAvailableCallback([this] {
-        return AnySessionSupportsFileTransfer();
-    });
     tile->SetStatusProvider([this](term::session::SessionId id) {
         return sm_.GetSessionStatus(id);
     });
@@ -502,35 +501,12 @@ void UIManager::ResetAndClearSession(term::session::SessionId id)
     sm_.ResetTerminal(id, true);
 }
 
-void UIManager::TransferFilesForSession(term::session::SessionId preSelectedSrc)
-{
-    auto all = GetSessionList();
-    std::vector<std::pair<term::session::SessionId, std::string>> eligible;
-    for (auto& [id, label] : all) {
-        if (sm_.SupportsFileTransfer(id))
-            eligible.emplace_back(id, label);
-    }
-    ui::TransferFilesDialog dlg(frame_, sm_, std::move(eligible), preSelectedSrc);
-    if (SessionUI* sui = FindSessionUI(preSelectedSrc); sui && sui->tile)
-        CentreDialogOnTile(dlg, sui->tile);
-    dlg.ShowModal();
-}
-
 void UIManager::ResetActiveTerminal()         { ResetTerminalForSession(activeId_); }
 void UIManager::ResetAndClearActiveTerminal() { ResetAndClearSession(activeId_); }
-void UIManager::TransferFilesForActive()      { TransferFilesForSession(activeId_); }
 
 bool UIManager::ActiveSessionSupportsFileTransfer() const
 {
     return activeId_ && sm_.SupportsFileTransfer(activeId_);
-}
-
-bool UIManager::AnySessionSupportsFileTransfer() const
-{
-    for (const auto& [id, _] : sessions_) {
-        if (sm_.SupportsFileTransfer(id)) return true;
-    }
-    return false;
 }
 
 
@@ -545,31 +521,94 @@ void UIManager::EditRemoteFileForSession(term::session::SessionId id)
         CentreDialogOnTile(dlg, sui->tile);
     if (dlg.ShowModal() != wxID_OK) return;
 
-    const auto& paths = dlg.GetSelectedPaths();
-    if (paths.empty()) return;
-    const std::string remotePath = paths.front();
+    if (dlg.GetSelectedPath().empty()) return;
+    OpenFileInEditor(id, dlg.GetSelectedPath());
+}
 
-    std::string editorCommand = cfg_.remoteEditorCommand;
-    if (editorCommand.empty()) {
-        const char* envEditor = std::getenv("EDITOR");
-        if (envEditor) editorCommand = envEditor;
+std::optional<std::string> UIManager::ResolveEditorCommand()
+{
+    std::string command = cfg_.externalEditorCommand;
+    if (command.empty()) {
+        if (const char* envEditor = std::getenv("EDITOR")) command = envEditor;
     }
-    if (editorCommand.empty()) {
-        wxMessageBox(
-            wxString::FromUTF8(
-                "No remote editor configured.\n\n"
-                "Set one in Edit \xe2\x86\x92 Preferences \xe2\x86\x92 Behavior \xe2\x86\x92 Remote editor."),
-            "Edit Remote File", wxOK | wxICON_INFORMATION, frame_);
+    if (!command.empty()) return command;
+
+    wxMessageBox(
+        wxString::FromUTF8(
+            "No editor configured.\n\n"
+            "Set one in Edit \xe2\x86\x92 Preferences \xe2\x86\x92 Behavior \xe2\x86\x92 External editor."),
+        "Open in Editor", wxOK | wxICON_INFORMATION, frame_);
+    return std::nullopt;
+}
+
+void UIManager::OpenFileInEditor(term::session::SessionId id,
+                                 const std::string& path)
+{
+    const auto command = ResolveEditorCommand();
+    if (!command) return;
+
+    // This computer: the editor writes the real file, so there is no copy to
+    // download, no watch to run and no upload to schedule.
+    if (!id) {
+        LaunchEditor(*command, path);
         return;
     }
 
-    editMgr_->OpenRemoteFile(id, remotePath, editorCommand,
+    if (!editMgr_) return;
+
+    // Resolved here, at the boundary: the edit itself works in terms of the
+    // filesystem port and never needs to know a session exists.
+    const term::fs::EditEndpoint endpoint{sm_.GetRemoteFileSystem(id),
+                                          sm_.GetRemoteDescription(id)};
+
+    editMgr_->OpenRemoteFile(endpoint, path, *command,
         [this](bool ok, std::string err) {
             if (!ok) {
                 wxMessageBox(wxString::FromUTF8("Remote edit failed: " + err),
                              "Edit Remote File", wxOK | wxICON_ERROR, frame_);
             }
         });
+}
+
+bool UIManager::HasActiveRemoteEdits() const
+{
+    return editMgr_ && editMgr_->HasActiveEdits();
+}
+
+void UIManager::ShowRemoteEdits()
+{
+    if (!editMgr_) return;
+    RemoteEditsDialog dlg(frame_, *editMgr_);
+    dlg.ShowModal();
+}
+
+void UIManager::ReportRemoteSaveFailed(const term::fs::SaveFailure& failure)
+{
+    // The editor has already told the user the write succeeded — locally it
+    // did. Say plainly that the remote copy is the stale one, and point at the
+    // local file, which still holds the edits and is what a retry re-sends.
+    const std::string text =
+        "Your changes were not saved to the remote file.\n\n"
+        + failure.remotePath + "\n"
+        + (failure.message.empty() ? "Upload failed." : failure.message) + "\n\n"
+        "Your edits are still in the local copy:\n"
+        + failure.localPath + "\n\n"
+        "Saving again in the editor retries the upload.";
+
+    wxMessageBox(wxString::FromUTF8(text), "Remote Edit",
+                 wxOK | wxICON_ERROR, frame_);
+}
+
+void UIManager::OpenFileExplorerForSession(term::session::SessionId id,
+                                           FileExplorerMode mode)
+{
+    if (!explorerMgr_ || !id) return;
+    explorerMgr_->OpenForSession(frame_, id, mode);
+}
+
+void UIManager::OpenFileExplorerForActive(FileExplorerMode mode)
+{
+    OpenFileExplorerForSession(activeId_, mode);
 }
 
 void UIManager::EditRemoteFileForActive()
@@ -877,7 +916,10 @@ void UIManager::OnTerminalAction(TerminalActionEvent& evt)
             SaveSessionToFile(evt.GetSessionId());
             break;
         case TerminalAction::TransferFiles:
-            TransferFilesForSession(evt.GetSessionId());
+            // The old modal dialog's entry point now opens the explorer
+            // already in the shape that job needs.
+            OpenFileExplorerForSession(evt.GetSessionId(),
+                                       FileExplorerMode::Transfer);
             break;
         case TerminalAction::EditRemoteFile:
             EditRemoteFileForSession(evt.GetSessionId());
@@ -914,6 +956,10 @@ void UIManager::OnTileAction(TileActionEvent& evt)
             });
             break;
         }
+        case TileAction::OpenFileExplorer:
+            OpenFileExplorerForSession(evt.GetSessionId(),
+                                       FileExplorerMode::Explore);
+            break;
         case TileAction::MoveAllToNewWindow: {
             TerminalTile* tile = evt.GetTile();
             std::vector<term::session::SessionId> ids;

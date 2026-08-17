@@ -128,7 +128,7 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& cfg)
             menu.AppendSeparator();
             const bool sshTab = tabs_[tabIdx].supportsFileTransfer;
             auto* xferItem = menu.Append(wxID_ANY, "Transfer Files...");
-            xferItem->Enable(fileTransferAvailableCb_ && fileTransferAvailableCb_());
+            xferItem->Enable(sshTab);
             menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
                 TerminalActionEvent evt(TerminalAction::TransferFiles, sid);
                 ProcessWindowEvent(evt);
@@ -139,6 +139,14 @@ TerminalTile::TerminalTile(wxWindow* parent, const AppConfig& cfg)
                 TerminalActionEvent evt(TerminalAction::EditRemoteFile, sid);
                 ProcessWindowEvent(evt);
             }, editRemoteItem->GetId());
+            // Scoped to the right-clicked tab, not the active one: this is the
+            // only path that can open the explorer for a session without
+            // switching to it first.
+            auto* explorerItem = menu.Append(wxID_ANY, "File Explorer...");
+            explorerItem->Enable(sshTab);
+            menu.Bind(wxEVT_MENU, [this, sid](wxCommandEvent&) {
+                EmitTileAction(TileAction::OpenFileExplorer, sid);
+            }, explorerItem->GetId());
             PopupMenu(&menu);
         } else {
             // Tile context menu — background area, no specific tab.
@@ -596,6 +604,20 @@ void TerminalTile::OnShowTileMenu()
     menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         EmitTerminalAction(TerminalAction::ToggleBroadcast);
     }, broadcastItem->GetId());
+
+    menu.AppendSeparator();
+    // Read the capability off the active tab at menu-build time rather than
+    // caching a copy, so the item can never be stale.
+    const term::session::SessionId activeId = GetActiveSessionId();
+    const auto activeTab = std::find_if(
+        tabs_.begin(), tabs_.end(),
+        [activeId](const TabEntry& e) { return e.sessionId == activeId; });
+
+    auto* explorerItem = menu.Append(wxID_ANY, "File Explorer...");
+    explorerItem->Enable(activeTab != tabs_.end() && activeTab->supportsFileTransfer);
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        EmitTileAction(TileAction::OpenFileExplorer, GetActiveSessionId());
+    }, explorerItem->GetId());
 
     menu.AppendSeparator();
     auto* newWindowItem = menu.Append(wxID_ANY, "Move to New Window");

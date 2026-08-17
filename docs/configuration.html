@@ -217,10 +217,31 @@ copyOnSelect = true</code></pre>
             </td>
           </tr>
           <tr>
-            <td><code>remoteEditorCommand</code></td>
+            <td><code>ExternalEditorCommand</code></td>
             <td>string</td>
             <td>(empty)</td>
-            <td>Editor command for <strong>Terminal → Edit Remote File</strong>. Empty uses <code>$EDITOR</code>. Use <code>code --wait</code> for VS Code.</td>
+            <td>
+              Editor command for <strong>Terminal → Edit Remote File...</strong> and the File
+              Explorer's <strong>Open in Editor</strong>. Empty uses <code>$EDITOR</code>. Use
+              <code>code --wait</code> for VS Code. The older name
+              <code>RemoteEditorCommand</code> is still read, but naTE writes this key.
+            </td>
+          </tr>
+          <tr>
+            <td><code>FileExplorerWidth</code></td>
+            <td>integer</td>
+            <td><code>720</code></td>
+            <td>
+              Width of <em>one</em> File Explorer pane, in pixels. Transfer mode doubles it, so
+              switching modes never squeezes a pane. Updated automatically when you resize the
+              explorer window. See <a href="features.html#file-explorer">File Explorer</a>.
+            </td>
+          </tr>
+          <tr>
+            <td><code>FileExplorerHeight</code></td>
+            <td>integer</td>
+            <td><code>700</code></td>
+            <td>Height of the File Explorer window in pixels. Updated automatically when you resize it.</td>
           </tr>
         </tbody>
       </table>
@@ -393,7 +414,9 @@ autoRestoreSession  = true
 sessionSaveInterval = 120
 defaultWorkingDir   = ~/Projects
 defaultLoginShell   = true
-remoteEditorCommand = code --wait
+ExternalEditorCommand = code --wait
+FileExplorerWidth     = 720
+FileExplorerHeight    = 700
 
 [Panel]
 Columns         = 220

@@ -38,6 +38,25 @@ std::vector<GeometryPreset> parseGeometryPresets(const std::string& val)
     return result;
 }
 
+// Column widths, comma-separated in column order. Anything malformed leaves
+// that column at its default rather than rejecting the whole line: a hand-edited
+// config with one bad number should cost the user one column, not all five.
+// Non-positive widths are refused too — a zero-width column is invisible and
+// cannot be dragged back into view.
+std::array<int, kFileExplorerColumnCount> parseColumnWidths(const std::string& val)
+{
+    auto result = kDefaultFileExplorerColumnWidths;
+    std::istringstream ss(val);
+    std::string token;
+    for (std::size_t i = 0; i < result.size() && std::getline(ss, token, ','); ++i) {
+        try {
+            const int width = std::stoi(trim(token));
+            if (width > 0) result[i] = width;
+        } catch (...) {}
+    }
+    return result;
+}
+
 // Map legacy enum names written by earlier versions to the new file stems.
 std::string normalizeLegacyThemeName(const std::string& val)
 {
@@ -109,7 +128,23 @@ AppConfig AppConfig::load(const std::string& configPath, const std::string& them
             else if (key == "WordSelectRegex"  && !val.empty()) cfg.wordSelectRegex = val;
             else if (key == "CopyOnSelect")          cfg.copyOnSelect          = (val == "true" || val == "1");
             else if (key == "ConfirmCloseWindow")    cfg.confirmCloseWindow    = (val == "true" || val == "1");
-            else if (key == "RemoteEditorCommand")   cfg.remoteEditorCommand   = val;
+            else if (key == "FileExplorerWidth")     cfg.fileExplorerWidth     = std::stoi(val);
+            else if (key == "FileExplorerHeight")    cfg.fileExplorerHeight    = std::stoi(val);
+            // Position falls back to "never placed" rather than to 0,0, which
+            // would pin an unreadable config's window to the top-left corner
+            // instead of letting the window manager choose.
+            else if (key == "FileExplorerX")         cfg.fileExplorerX         = toInt(val, kUnsetWindowCoord);
+            else if (key == "FileExplorerY")         cfg.fileExplorerY         = toInt(val, kUnsetWindowCoord);
+            else if (key == "FileExplorerColumnWidths")
+                cfg.fileExplorerColumnWidths = parseColumnWidths(val);
+            // RemoteEditorCommand is the pre-local-edit spelling. Still read so
+            // an existing setting survives the upgrade; only the new key is
+            // written, so it disappears on the next save.
+            else if (key == "ExternalEditorCommand" ||
+                     key == "RemoteEditorCommand")   cfg.externalEditorCommand = val;
+            else if (key == "SymlinkPolicy") {
+                cfg.symlinkPolicy = term::fs::SymlinkPolicyFromString(val);
+            }
             else if (key == "BellMode") {
                 if      (val == "None")    cfg.bellMode = BellMode::None;
                 else if (val == "Audible") cfg.bellMode = BellMode::Audible;
@@ -204,9 +239,27 @@ void AppConfig::save(const std::string& configPath) const
       << "WebSearchUrl="    << webSearchUrl                      << "\n"
       << "WordSelectRegex=" << wordSelectRegex                   << "\n"
       << "BellMode="        << bellModeStr                       << "\n"
+      << "SymlinkPolicy="   << term::fs::ToString(symlinkPolicy)  << "\n"
       << "CopyOnSelect="          << (copyOnSelect       ? "true" : "false") << "\n"
       << "ConfirmCloseWindow="    << (confirmCloseWindow ? "true" : "false") << "\n"
-      << "RemoteEditorCommand="   << remoteEditorCommand                      << "\n"
+      << "FileExplorerWidth="     << fileExplorerWidth                        << "\n"
+      << "FileExplorerHeight="    << fileExplorerHeight                       << "\n";
+
+    // An unplaced window writes an empty value rather than a coordinate, so a
+    // config that has never seen the explorer does not claim a position for it.
+    f << "FileExplorerX=";
+    if (fileExplorerX != kUnsetWindowCoord) f << fileExplorerX;
+    f << "\nFileExplorerY=";
+    if (fileExplorerY != kUnsetWindowCoord) f << fileExplorerY;
+
+    f << "\nFileExplorerColumnWidths=";
+    for (std::size_t i = 0; i < fileExplorerColumnWidths.size(); ++i) {
+        if (i) f << ",";
+        f << fileExplorerColumnWidths[i];
+    }
+
+    f << "\n"
+      << "ExternalEditorCommand=" << externalEditorCommand                    << "\n"
       << "\n"
       << "[Panel]\n"
       << "Columns="         << columns         << "\n"

@@ -31,6 +31,11 @@ class TerminalPanel;
 class TerminalGrid;
 class TerminalTile;
 
+namespace term::fs {
+class RemoteEditManager;
+struct SaveFailure;
+} // namespace term::fs
+
 namespace ui {
 
 class UIManager : public term::session::ISessionObserver {
@@ -95,21 +100,46 @@ public:
     void SaveSessionToFile(term::session::SessionId id);
     void SaveActiveSessionToFile();
 
-    // Open the unified transfer dialog, pre-selecting the given session as source.
-    void TransferFilesForSession(term::session::SessionId preSelectedSrc);
-    void TransferFilesForActive();
-
     // Open the remote file browser and launch a remote-edit session (SSH only).
     void EditRemoteFileForActive();
     void EditRemoteFileForSession(term::session::SessionId id);
 
+    // Opens an already-chosen path in the configured editor. Shared by the
+    // Terminal menu (which picks the path with a browser dialog) and the file
+    // explorer (which already has one).
+    //
+    // id names the session the file lives on, or 0 for this computer. A local
+    // file is handed to the editor directly: the download/watch/upload
+    // round-trip exists to give a remote file a local presence, and a file
+    // that is already local has nothing to gain from a copy of itself.
+    void OpenFileInEditor(term::session::SessionId id, const std::string& path);
+
+    // Shows the edits in progress so the user can end one. Their say-so is the
+    // only trustworthy signal that an edit is over — see RemoteEditsDialog.
+    void ShowRemoteEdits();
+
+    // Whether any edit is in progress. Queried at menu-update time rather than
+    // tracked, so an edit that ended with its SSH session cannot leave a stale
+    // enabled item behind.
+    bool HasActiveRemoteEdits() const;
+
+    // Tells the user a save from their external editor never reached the
+    // remote. Routed here by App because this window hosts the session the
+    // edit belongs to.
+    void ReportRemoteSaveFailed(const term::fs::SaveFailure& failure);
+
+    // Open the file explorer window for a session (SSH only) in the given
+    // mode. Transfer mode is what the "Transfer Files..." entry points reach.
+    void OpenFileExplorerForSession(term::session::SessionId id,
+                                    FileExplorerMode mode);
+    void OpenFileExplorerForActive(FileExplorerMode mode);
+
     // Called by App after RemoteEditManager construction.
-    void SetRemoteEditManager(class RemoteEditManager* mgr) { editMgr_ = mgr; }
+    void SetRemoteEditManager(term::fs::RemoteEditManager* mgr) { editMgr_ = mgr; }
+    void SetFileExplorerManager(class FileExplorerManager* mgr) { explorerMgr_ = mgr; }
 
     // Returns true when the active session supports remote file transfer (SSH).
     bool ActiveSessionSupportsFileTransfer() const;
-    // Returns true when at least one open session supports file transfer.
-    bool AnySessionSupportsFileTransfer() const;
 
 
     // Toggle broadcast mode on/off.
@@ -264,6 +294,10 @@ private:
     bool             HasActiveSelection() const;
     std::u32string   GetFullActiveSelectedText() const;
 
+    // The configured editor, falling back to $EDITOR. Returns nullopt after
+    // telling the user none is set, so callers can simply bail.
+    std::optional<std::string> ResolveEditorCommand();
+
     void ResetTerminalForSession(term::session::SessionId id);
     void ResetAndClearSession(term::session::SessionId id);
 
@@ -301,7 +335,8 @@ private:
     term::session::SessionManager& sm_;
     term::input::InputRouter&      router_;
     MainFrame*                     frame_;
-    class RemoteEditManager*       editMgr_ = nullptr;
+    term::fs::RemoteEditManager*   editMgr_ = nullptr;
+    class FileExplorerManager*     explorerMgr_ = nullptr;
     AppConfig                      cfg_;
     TerminalGrid*                  grid_ = nullptr;
 

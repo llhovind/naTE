@@ -1,51 +1,27 @@
-#include "ui/RemoteEditSession.h"
+#include "fs/RemoteEditSession.h"
+#include "fs/EditWorkspace.h"
 #include <filesystem>
+#include <optional>
 #include <poll.h>
 #include <sys/inotify.h>
 #include <unistd.h>
-#include <wx/app.h>
 #include <cstring>
 
-namespace ui {
+namespace term::fs {
 
-namespace {
-    // Encode one path component: replace '/' with '%2F'.
-    std::string EncodePathComponent(const std::string& s) {
-        std::string out;
-        out.reserve(s.size());
-        for (char c : s) {
-            if (c == '/') out += "%2F";
-            else          out += c;
-        }
-        return out;
-    }
-} // namespace
-
-RemoteEditSession::RemoteEditSession(term::session::SessionId     sessionId,
-                                     std::string                  remotePath,
-                                     std::string                  localPath,
-                                     term::session::SessionManager& sm)
-    : sessionId_(sessionId)
+RemoteEditSession::RemoteEditSession(EditEndpoint endpoint,
+                                     std::string  remotePath,
+                                     std::string  localPath,
+                                     Dispatcher   dispatch)
+    : endpoint_(std::move(endpoint))
     , remotePath_(std::move(remotePath))
     , localPath_(std::move(localPath))
-    , sm_(sm)
-    , alive_(std::make_shared<std::atomic<bool>>(true))
+    , guard_(std::move(dispatch))
 {}
 
 RemoteEditSession::~RemoteEditSession()
 {
     Stop();
-}
-
-std::string RemoteEditSession::MakeTempPath(const std::string& hostname,
-                                             const std::string& remotePath)
-{
-    // Extract the filename from the remote path.
-    const auto slash = remotePath.rfind('/');
-    const std::string dir  = (slash != std::string::npos) ? remotePath.substr(0, slash) : "";
-    const std::string file = (slash != std::string::npos) ? remotePath.substr(slash + 1) : remotePath;
-
-    return "/tmp/nate-edit/" + hostname + "/" + EncodePathComponent(dir) + "/" + file;
 }
 
 void RemoteEditSession::Start()
@@ -68,7 +44,9 @@ void RemoteEditSession::Start()
 
 void RemoteEditSession::Stop()
 {
-    alive_->store(false, std::memory_order_release);
+    // First: everything below can block, and no callback may reach this session
+    // while it is being taken apart.
+    guard_.Retire();
 
     if (stopPipe_[1] >= 0) {
         char b = 1;
@@ -82,12 +60,9 @@ void RemoteEditSession::Stop()
     if (stopPipe_[0] >= 0) { close(stopPipe_[0]); stopPipe_[0] = -1; }
     if (stopPipe_[1] >= 0) { close(stopPipe_[1]); stopPipe_[1] = -1; }
 
-    std::error_code ec;
-    const auto localFile = std::filesystem::path(localPath_);
-    std::filesystem::remove(localFile, ec);
-    // Remove the parent directory only if it is now empty.
-    const auto parentDir = localFile.parent_path();
-    std::filesystem::remove(parentDir, ec); // no-op if non-empty
+    // The working copy sits in a directory of its own, so this takes that with
+    // it, and any level above it the removal leaves empty.
+    RemoveWorkingCopy(localPath_);
 }
 
 void RemoteEditSession::WatchLoop()
@@ -131,12 +106,9 @@ void RemoteEditSession::WatchLoop()
         if (!trigger)
             continue;
 
-        // Marshal to UI thread for upload (all wx and manager calls must be UI-thread).
-        wxTheApp->CallAfter([this] {
-            if (!alive_->load(std::memory_order_acquire))
-                return;
-            TriggerUpload();
-        });
+        // Marshal to the owning thread for upload: everything downstream of it
+        // is single-threaded by construction.
+        guard_.For(this).Post([](RemoteEditSession& s) { s.TriggerUpload(); });
     }
 }
 
@@ -149,27 +121,46 @@ void RemoteEditSession::TriggerUpload()
         return;
     }
 
-    std::weak_ptr<std::atomic<bool>> weakAlive = alive_;
     const std::string local  = localPath_;
     const std::string remote = remotePath_;
 
-    sm_.SftpUploadFile(sessionId_, local, remote,
-        [this, weakAlive](bool /*ok*/, std::string /*err*/) {
-            auto strongAlive = weakAlive.lock();
-            if (!strongAlive || !strongAlive->load(std::memory_order_acquire))
-                return;
+    // One liveness check, on the thread that acts on it. The old outer check on
+    // the transport's thread could only ever be a stale hint.
+    auto ctx = guard_.For(this);
 
-            wxTheApp->CallAfter([this, weakAlive] {
-                auto sa = weakAlive.lock();
-                if (!sa || !sa->load(std::memory_order_acquire))
-                    return;
-
-                uploadInFlight_.store(false, std::memory_order_relaxed);
-
-                if (pendingUpload_.exchange(false))
-                    TriggerUpload();
+    // No mode: this writes back over a file that already exists, whose
+    // permissions are the user's and must survive the save untouched.
+    endpoint_.fs->Upload(local, remote, std::nullopt, nullptr,
+        [ctx](transport::FsError err) mutable {
+            ctx.Post([err = std::move(err)](RemoteEditSession& s) {
+                s.OnUploadFinished(err);
             });
         });
 }
 
-} // namespace ui
+void RemoteEditSession::OnUploadFinished(const transport::FsError& err)
+{
+    uploadInFlight_.store(false, std::memory_order_relaxed);
+
+    // Taken before the policy is consulted, and consumed either way: this
+    // upload's outcome is only the burst's last word if nothing is queued
+    // behind it.
+    const bool more = pendingUpload_.exchange(false);
+
+    switch (announce_.Decide(err, more)) {
+        case SaveAnnouncement::Saved:
+            if (onSaved_) onSaved_(endpoint_.fs, remotePath_);
+            break;
+        case SaveAnnouncement::Failed:
+            if (onSaveFailed_)
+                onSaveFailed_({endpoint_.fs, remotePath_, localPath_, err.message});
+            break;
+        case SaveAnnouncement::Nothing:
+            break;
+    }
+
+    if (more)
+        TriggerUpload();
+}
+
+} // namespace term::fs

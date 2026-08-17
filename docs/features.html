@@ -45,7 +45,7 @@
   <main class="main-content">
 
     <h1>Features</h1>
-    <p class="page-subtitle">Port forwarding, file transfer, remote edit, X11, search, selection, and more.</p>
+    <p class="page-subtitle">Port forwarding, the file explorer, remote edit, X11, search, selection, and more.</p>
 
     <!-- ──────────── PORT FORWARDING ──────────── -->
     <h2 class="section-anchor" id="port-forwarding">Port Forwarding</h2>
@@ -120,28 +120,180 @@
     </div>
 
     <h3>Saving forwards to a profile</h3>
-    <p>Port forwards can be saved to a connection profile so they are set up automatically every time you connect. Add the forwards in the New Connection dialog (SSH tab) before saving the profile.</p>
+    <p>Port forwards can be saved to a connection profile so they are set up automatically every time you connect. Add them in the <strong>Port Forwards</strong> box on the New Connection dialog's SSH tab before saving the profile — see <a href="connections.html#ssh-port-forwards">Port Forwards</a> for the fields and what they mean.</p>
 
-    <!-- ──────────── FILE TRANSFER ──────────── -->
-    <h2 class="section-anchor" id="file-transfer">File Transfer (SFTP)</h2>
-    <p>naTE can transfer files via SFTP between your local machine and any active SSH session, or between two remote sessions. Open the dialog with <strong>Terminal → Transfer Files...</strong> (or right-click a tile and choose <strong>Transfer Files...</strong>).</p>
+    <!-- ──────────── FILE EXPLORER ──────────── -->
+    <h2 class="section-anchor" id="file-explorer">File Explorer &amp; Transfer</h2>
+    <p>The File Explorer browses remote filesystems over the SSH connection a session already has — no sshfs, no second login, and no interruption to the shell running in the tile. It opens in its own window, titled <strong>naFX</strong> after the endpoints it is pointed at, and works in one of two modes. The same window switches between them, so nothing is lost when you change your mind.</p>
 
-    <h3>Transferring files</h3>
-    <ol class="steps">
-      <li>Open <strong>Terminal → Transfer Files...</strong>.</li>
-      <li>In the <strong>Source</strong> section, choose the session the files are coming from — <em>Local (this computer)</em> or any active SSH session.</li>
-      <li>Click <strong>Add Files...</strong> to pick local files, or <strong>Browse Remote...</strong> to browse the remote filesystem and select files from there.</li>
-      <li>In the <strong>Destination</strong> section, choose the session to transfer to and set the target directory. Click <strong>Browse...</strong> to navigate to it.</li>
-      <li>Click <strong>Transfer</strong>. The status line shows progress per file.</li>
-    </ol>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Mode</th><th>Opens with</th><th>For</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Explore</strong></td>
+            <td><strong>Terminal → File Explorer...</strong></td>
+            <td>One pane filling the window — navigating and one-off administration</td>
+          </tr>
+          <tr>
+            <td><strong>Transfer</strong></td>
+            <td><strong>Terminal → Transfer Files...</strong></td>
+            <td>Two panes and a queue — moving files between any two endpoints</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Both entries are also on the right-click menu of a tile and of a tab. Each session gets one explorer window: asking again brings the existing window forward and switches it to the mode you asked for.</p>
+
+    <h3>Explore mode</h3>
+    <p>A single pane, for looking around and making small changes without leaving naTE.</p>
 
     <figure>
-      <img src="img/file-transfer-dialog.png" alt="Transfer Files dialog with Source and Destination sections, each with a Session dropdown; the source section has a file list with Browse Remote and Remove buttons; the destination has a directory field and Browse button; Transfer and Close buttons at the bottom">
-      <figcaption>The unified Transfer Files dialog — choose source and destination sessions independently, then click Transfer</figcaption>
+      <img src="img/file-explorer.png" alt="The naFX window in Explore mode: an endpoint dropdown reading root@vwww10, a navigation row with back, forward and up buttons beside a path field showing /etc, refresh and new-folder buttons, a filter field with a Show hidden checkbox, and a file list with Name, Size, Modified, Permissions and Owner columns. A status line reads 29 directories, 39 files, 58.0 KiB, and a Transfer Mode button sits at the bottom left.">
+      <figcaption>Explore mode — one pane filling the window, with the Transfer Mode button bottom left</figcaption>
     </figure>
 
+    <ul>
+      <li><strong>Sort</strong> by any column — Name, Size, Modified, Permissions, Owner — by clicking its header; click again to reverse.</li>
+      <li><strong>Filter</strong> by glob (<code>*.conf</code>) or by plain substring. The status line reports how many entries the filter hid, so a short list is never mistaken for an empty directory.</li>
+      <li><strong>Show hidden</strong> toggles dotfiles.</li>
+      <li><strong>Navigate</strong> with the back, forward and up buttons, or by typing a path directly into the path field.</li>
+      <li><strong>Free space</strong> for the volume the current directory sits on is reported at the end of the status line, with <em>(read-only)</em> beside it when the volume is mounted that way. It is re-read when you navigate or refresh — not when you re-sort or type in the filter, neither of which can move a volume — and it is shown only while it still describes the directory on screen, because a figure carried over from the previous directory looks current and, on a host with several volumes, can be wrong by a whole disk. Servers whose SFTP build omits the optional <code>statvfs</code> extension simply show no figure.</li>
+    </ul>
+
+    <h3>Acting on files</h3>
+    <p>Right-click a selection for the context menu:</p>
+
+    <figure>
+      <img src="img/file-explorer-context-menu.png" alt="The File Explorer context menu open over a selected file web_stats.sh, listing Open in Editor and Copy Path, then New Folder..., Rename... with an F2 accelerator and Delete... with a Delete accelerator, then Properties... at the bottom.">
+      <figcaption>The context menu — actions apply to the selected entries</figcaption>
+    </figure>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Item</th><th>Does</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Open in Editor</strong></td><td>Downloads the file and opens it in your local editor, watching for saves — the same mechanism as <a href="#remote-edit">Remote File Editing</a>. Disabled for directories.</td></tr>
+          <tr><td><strong>Copy Path</strong></td><td>Puts the absolute remote path on the clipboard</td></tr>
+          <tr><td><strong>New Folder...</strong></td><td>Creates a directory in the current location</td></tr>
+          <tr><td><strong>Rename...</strong> (<code>F2</code>)</td><td>Renames in place. Renaming is inherently single-target, so the item is disabled — rather than silently acting on one of several rows — when more than one entry is selected.</td></tr>
+          <tr><td><strong>Delete...</strong> (<code>Del</code>)</td><td>Deletes the selection, recursively for directories, after confirmation. With several entries selected the item names the count, so you can see what you are about to remove.</td></tr>
+          <tr><td><strong>Properties...</strong></td><td>Shows size, type, timestamps and ownership, and lets you change the permission bits</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Permissions</h3>
+    <p><strong>Properties...</strong> reports what the entry is and who owns it, and gives you its mode two ways at once.</p>
+
+    <figure>
+      <img src="img/file-properties-dialog.png" alt="The Properties dialog for web_stats.sh, showing Name, Path, Type Regular file, Size 421 bytes, Owner root:root (0:0) and a Modified timestamp. A Permissions box holds an Octal field reading 755 above a grid of Read, Write and Execute checkboxes for Owner, Group and Other, with Cancel and OK buttons below.">
+      <figcaption>Properties — the octal field and the checkbox grid are two views of the same mode</figcaption>
+    </figure>
+
+    <p>Type an octal value such as <code>755</code> and the Read / Write / Execute grid follows it; tick the boxes instead and the octal field updates to match. Nothing is sent to the remote host until you click <strong>OK</strong>.</p>
+
+    <h3>Transfer mode</h3>
+    <p>Two panes side by side with a transfer queue below. Point either pane at <em>This computer</em> or at any active SSH session using its dropdown — uploads, downloads, <strong>server-to-server</strong> copies and copies between two local folders are all the same operation.</p>
+
+    <figure>
+      <img src="img/file-transfer.png" alt="The naFX window in Transfer mode: two file panes side by side, the left pointed at root@vwww10 and the right at This computer, each with its own path field, filter and column headers, and each ending in a status line reading its directory counts, total size and 169.0 GiB free. Between them at the bottom are Copy to This computer and Copy to root@vwww10 buttons, an Explore Mode button on the left and a Symbolic links dropdown reading Keep on the right, and below that a transfer queue reading No transfers, with File, Route, Progress and Status columns and Pause, Cancel, Cancel All and Clear Finished buttons.">
+      <figcaption>Transfer mode — two endpoints, a copy button per direction, and the queue below</figcaption>
+    </figure>
+
+    <ol class="steps">
+      <li>Choose an endpoint for each pane from its dropdown at the top.</li>
+      <li>Navigate each pane to the source and destination directories.</li>
+      <li>Select the files or directories to move in the pane they live in.</li>
+      <li>Click the <strong>Copy to ...</strong> button naming where they should land.</li>
+    </ol>
+
+    <p>The copy buttons name their destination rather than a direction, and the pair sits over the splitter so each button is above the pane it copies out of — there is no direction to work out. The queue below shows every job with its route, live progress and status.</p>
+
+    <ul>
+      <li><strong>Pause</strong> holds the queue and turns into <strong>Resume</strong>; <strong>Cancel</strong> stops the selected transfer; <strong>Cancel All</strong> stops everything queued; <strong>Clear Finished</strong> tidies away what has completed.</li>
+      <li><strong>Directories</strong> transfer recursively.</li>
+      <li><strong>Symbolic links</strong> are handled the way you choose, from the dropdown beside the mode button. <em>Keep links</em> reproduces each link on the far side pointing where it already points; <em>Skip links</em> leaves them out of the copy, listing them in the queue as skipped so nothing goes missing quietly. A recursive copy never descends <em>through</em> a link either way, so a link pointing at a parent directory cannot turn a copy into an endless one. A kept link whose target does not exist on the destination will be a dangling link — that is what was asked for, and naTE will not second-guess it. The starting choice for new windows is <strong>Edit → Preferences → Behavior → Symbolic links in copies</strong>.</li>
+      <li><strong>Permissions</strong> are reproduced on the copy: a script that was executable where it came from is executable where it lands. As with <code>cp</code>, this applies where the copy creates the file — overwriting an existing one leaves that file's permissions alone — and the destination's own umask still applies. setuid, setgid and sticky bits are deliberately not carried across.</li>
+      <li><strong>Drag and drop</strong> — files dragged from your desktop file manager onto a pane are queued for copying into that pane's current directory.</li>
+      <li><strong>Copies that go nowhere</strong> are refused by name rather than half-attempted: a file onto itself, or a directory into its own subtree.</li>
+      <li>Transfers <strong>keep running</strong> when you switch back to Explore mode; progress stays visible in the status bar.</li>
+    </ul>
+
+    <h3>Pausing a queue</h3>
+    <p><strong>Pause</strong> stops the queue starting anything further and lets the transfer already in flight run to completion. The button becomes <strong>Resume</strong>, and work added while paused waits with the rest.</p>
+
     <div class="callout callout-note">
-      <p><strong>How it works:</strong> File transfer runs over a new SSH channel multiplexed on the existing authenticated connection — no re-authentication, and no interruption to your running terminal session. Remote-to-remote transfers stage through a temporary local file automatically.</p>
+      <p><strong>Why the current file finishes anyway.</strong> SFTP has no suspend, and this queue has no resume across runs — a part-written destination file is not something a later transfer can pick up. Stopping mid-file would therefore mean throwing away the bytes already moved, which is cancelling under a gentler name. Letting the current file land costs at most one file and leaves the queue somewhere you can actually continue from.</p>
+    </div>
+
+    <h3>Before a copy starts</h3>
+    <p>When you click a <strong>Copy to ...</strong> button, naTE sizes the batch — walking directories to their leaves — and checks it against the volume it is bound for before moving a byte. The weighing is per destination volume rather than per click: a queue carrying work for two different destinations is checked twice, because what one volume has to say tells you nothing about the other. Most copies simply start. The check stops to ask only when there is something worth saying:</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Finding</th><th>What it means</th></tr></thead>
+        <tbody>
+          <tr><td><strong>It will not fit</strong></td><td>The batch is larger than the free space where it is going, with the figure that is short shown in the palette's red</td></tr>
+          <tr><td><strong>Part of it could not be read</strong></td><td>Directories the walk could not list are not in the batch at all, so the copy would finish <em>looking</em> complete while silently missing them. The dialog names the first one and quotes the server's own reason, which is usually enough to tell a permission problem from a directory that has gone away underneath you.</td></tr>
+          <tr><td><strong>The destination is read-only</strong></td><td>No amount of free space makes it writable, so this leads rather than hiding under a size comparison</td></tr>
+          <tr><td><strong>It could not be checked</strong></td><td>The batch is over 1 GiB and the server cannot report its free space at all. Not the same claim as "it will not fit" — nothing is known either way, and you are being told the usual check did not happen.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>The dialog names each volume with what it was asked for against what it has, and offers <strong>Copy Anyway</strong> or <strong>Cancel</strong>. As with the conflict prompt, <strong>Cancel</strong> is the default button: nothing has been written yet, and a copy not started is one you can still start.</p>
+
+    <div class="callout callout-note">
+      <p><strong>Copies between two servers show a second figure</strong>, for the staging area on this computer that the bytes pass through. It is the size of the <em>largest single file</em> in the batch, not the total, because the queue moves one file at a time and reclaims each staging file as it goes — totalling them would refuse batches that fit perfectly well, and on a <code>/tmp</code> sized to a fraction of RAM it would refuse nearly all of them. Setting <code>TMPDIR</code> to a larger volume moves that work there.</p>
+    </div>
+
+    <div class="callout callout-note">
+      <p><strong>A quiet check is not a guarantee.</strong> Free space is a snapshot: it does not account for quotas, for other writers on the same volume, or for filesystems that compress what they store. Reporting it at all is an optional part of SFTP, so a server that stays silent about a small copy is the ordinary case, not a fault — warning on every such server would train you to dismiss the dialog unread, which is the one outcome that would make it worthless.</p>
+    </div>
+
+    <h3>When the destination file already exists</h3>
+
+    <figure>
+      <img src="img/file-transfer-conflict-dialog.png" alt="The File Already Exists dialog: a heading reading 'web_stats.sh' already exists, a Destination line showing /home/lhovind/web_stats.sh, an unticked checkbox labelled Apply this choice to the rest of the transfer, and Overwrite, Keep Both and Skip buttons.">
+      <figcaption>The conflict prompt — it names the destination path, not just the filename</figcaption>
+    </figure>
+
+    <ul>
+      <li><strong>Overwrite</strong> replaces the existing file.</li>
+      <li><strong>Keep Both</strong> transfers the incoming file under a free name, leaving the existing one untouched.</li>
+      <li><strong>Skip</strong> leaves the existing file and moves on.</li>
+      <li><strong>Apply this choice to the rest of the transfer</strong> answers every remaining conflict in the queue the same way, so a large directory copy does not have to be babysat.</li>
+    </ul>
+
+    <div class="callout callout-note">
+      <p><strong>The safe answer is the default.</strong> <strong>Skip</strong> is the default button, so pressing <kbd>Enter</kbd> or <kbd>Esc</kbd> without reading the dialog cannot destroy anything. The same reasoning applies with no one there to ask: a queue that cannot prompt skips rather than overwrites, so an unattended transfer never silently replaces data.</p>
+    </div>
+
+    <div class="callout callout-note">
+      <p><strong>How it works:</strong> Transfers run over a new SFTP channel multiplexed on the existing authenticated SSH connection — no re-authentication, and no interruption to your running terminal session. Remote-to-remote transfers stage through a temporary local file automatically, so two servers that cannot reach each other can still exchange files through you.</p>
+    </div>
+
+    <h3>Keyboard</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>Alt+←</kbd> / <kbd>Alt+→</kbd></td><td>Back / forward through visited directories</td></tr>
+          <tr><td><kbd>Backspace</kbd></td><td>Up one directory</td></tr>
+          <tr><td><kbd>Ctrl+L</kbd></td><td>Focus the path field</td></tr>
+          <tr><td><kbd>Ctrl+F</kbd></td><td>Focus the filter field</td></tr>
+          <tr><td><kbd>Ctrl+H</kbd></td><td>Toggle hidden files</td></tr>
+          <tr><td><kbd>F2</kbd></td><td>Rename the selected entry</td></tr>
+          <tr><td><kbd>F5</kbd></td><td>Refresh the listing</td></tr>
+          <tr><td><kbd>Delete</kbd></td><td>Delete the selection</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout callout-tip">
+      <p><strong>Window size:</strong> the explorer is sized in whole panes — the window remembered as <code>FileExplorerWidth</code> is the width of <em>one</em> pane, and Transfer mode doubles it so neither pane is squeezed by switching modes. See <a href="configuration.html#behavior">Configuration</a>.</p>
     </div>
 
     <!-- ──────────── REMOTE EDIT ──────────── -->
@@ -151,14 +303,21 @@
     <h3>Starting a remote edit</h3>
     <ol class="steps">
       <li>Focus an SSH session.</li>
-      <li>Open <strong>Terminal → Edit Remote File</strong>.</li>
+      <li>Open <strong>Terminal → Edit Remote File...</strong>.</li>
       <li>The remote file browser opens. Navigate to the file and click <strong>Edit</strong>.</li>
       <li>naTE downloads the file to a temporary location and opens it in your editor.</li>
       <li>Edit and save normally. naTE detects the save and uploads the new version.</li>
     </ol>
 
+    <figure>
+      <img src="img/edit-remote-file-browser.png" alt="The Browse root@vwww10 dialog: an Up button beside a path field reading /root with a Go button, a file list with Name, Size, Modified, Permissions and Owner columns, a status line reading 14 item(s), and Edit and Close buttons at the bottom with Edit disabled until a file is selected.">
+      <figcaption>The remote file browser — <strong>Edit</strong> stays disabled until you select a file</figcaption>
+    </figure>
+
+    <p>To edit a file you are already looking at in the File Explorer, use <strong>Open in Editor</strong> from its context menu instead — it skips the browser and starts the same watch-and-upload cycle.</p>
+
     <h3>Configuring your editor</h3>
-    <p>naTE uses the <strong>Remote editor command</strong> setting (<strong>Edit → Preferences → Behavior</strong>). If unset, it falls back to your <code>$EDITOR</code> environment variable.</p>
+    <p>naTE uses the <strong>Remote editor command</strong> setting (<strong>Edit → Preferences → Behavior</strong>). If unset, it falls back to your <code>$EDITOR</code> environment variable. The same setting drives the File Explorer's <strong>Open in Editor</strong>.</p>
     <ul>
       <li>Many GUI editors are <strong>single-instance</strong> — launching them a second time hands the file to an already-running window and exits immediately, which causes naTE to think the edit is done before you have saved anything. You need a flag that either blocks until the file is closed, or forces a new window. For example: <code>code --wait</code> (VS Code), <code>mousepad -o window</code> (Mousepad), <code>gedit --new-window --wait</code> (gedit). Check your editor's <code>--help</code> output for the equivalent option.</li>
     </ul>

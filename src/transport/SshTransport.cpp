@@ -174,7 +174,7 @@ void SshTransport::WorkerThread()
     }
     if (!PerformHandshake(sock_fd_))    return;
     { std::string khErr;
-      if (!VerifyHostKey(session_, khErr)) {
+      if (!VerifyHostKey(khErr)) {
           NotifyError(TransportError::Category::HostKey, khErr);
           return;
       }
@@ -409,8 +409,9 @@ bool SshTransport::PerformHandshake(int fd)
 // VerifyHostKey — silent TOFU
 // ---------------------------------------------------------------------------
 
-bool SshTransport::VerifyHostKey(_LIBSSH2_SESSION* session, std::string& outError)
+bool SshTransport::VerifyHostKey(std::string& outError)
 {
+    _LIBSSH2_SESSION* session = session_;
     size_t keyLen  = 0;
     int    keyType = 0;
     const char* key = libssh2_session_hostkey(session, &keyLen, &keyType);
@@ -1041,52 +1042,9 @@ std::string SshTransport::KnownHostsPath()
     return path;
 }
 
-// ---------------------------------------------------------------------------
-// File send/receive — public interface
-// ---------------------------------------------------------------------------
-
 std::string SshTransport::GetRemoteDescription() const
 {
     return desc_.username + "@" + desc_.host;
-}
-
-// ---------------------------------------------------------------------------
-// SFTP — thin delegation to SftpService (owns the queue + task machines)
-// ---------------------------------------------------------------------------
-
-void SshTransport::SendFile(const std::string& localPath,
-                            const std::string& remoteDir,
-                            std::function<void(bool, std::string)> onDone)
-{
-    sftpService_.SendFile(localPath, remoteDir, std::move(onDone));
-}
-
-void SshTransport::ReceiveFile(const std::string& remotePath,
-                               const std::string& localDir,
-                               std::function<void(bool, std::string)> onDone)
-{
-    sftpService_.ReceiveFile(remotePath, localDir, std::move(onDone));
-}
-
-void SshTransport::ListRemoteDirectory(
-    const std::string& remotePath,
-    std::function<void(std::vector<RemoteDirEntry>, std::string)> onDone)
-{
-    sftpService_.ListRemoteDirectory(remotePath, std::move(onDone));
-}
-
-void SshTransport::SftpDownloadFile(const std::string& remotePath,
-                                    const std::string& localPath,
-                                    std::function<void(bool, std::string)> onDone)
-{
-    sftpService_.DownloadToPath(remotePath, localPath, std::move(onDone));
-}
-
-void SshTransport::SftpUploadFile(const std::string& localPath,
-                                  const std::string& remotePath,
-                                  std::function<void(bool, std::string)> onDone)
-{
-    sftpService_.UploadFromPath(localPath, remotePath, std::move(onDone));
 }
 
 // ---------------------------------------------------------------------------

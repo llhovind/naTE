@@ -1,6 +1,7 @@
 #include "transport/PtyTransport.h"
 #include "transport/EnvUtils.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <csignal>

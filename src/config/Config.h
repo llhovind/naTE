@@ -1,7 +1,9 @@
 #pragma once
 #include "config/Color.h"     // Rgb, UiColors
+#include "fs/SymlinkPolicy.h"
 #include "transport/EnvVar.h"
 #include <array>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -13,6 +15,45 @@ struct GeometryPreset {
 enum class TileLayout  { RowFirst, ColumnFirst };
 enum class CursorStyle { Block, Bar, Underline };
 enum class BellMode    { None, Visual, Audible };
+
+// The two shapes the file explorer window takes. Explore gives the whole
+// window to one listing for routine browsing; Transfer adds the second pane,
+// the copy buttons and the transfer queue. Named rather than a bool because
+// "true" would have to be read as two panes *and* buttons *and* queue panel.
+enum class FileExplorerMode { Explore, Transfer };
+
+// Columns in a file explorer listing. Mirrors ui::FileColumnCount, which cannot
+// be named from here because this layer stays wx-free; a static_assert in
+// ui/RemoteFileListCtrl.h fails the build if the two ever disagree.
+inline constexpr int kFileExplorerColumnCount = 5;
+
+// Starting width of each column, in pixels, in the order Name, Size, Modified,
+// Permissions, Owner. Defined here rather than at the InsertColumn calls so the
+// value a user's saved widths fall back to and the value a fresh listing starts
+// from are the same number.
+inline constexpr std::array<int, kFileExplorerColumnCount>
+    kDefaultFileExplorerColumnWidths = {240, 90, 130, 105, 110};
+
+// "This window has never been placed", for a saved window coordinate. A
+// sentinel is needed because 0 and negative coordinates are both legal: a
+// display arranged left of the primary one has negative x throughout.
+inline constexpr int kUnsetWindowCoord = std::numeric_limits<int>::min();
+
+// The parts of a file explorer window's appearance that outlive it closing.
+//
+// Reported as one struct rather than as loose arguments: the window has four
+// numbers and a column array to hand back, and a callback taking nine ints
+// invites transpositions the compiler cannot catch.
+struct FileExplorerLayout {
+    int width  = 0;
+    int height = 0;
+    // Top-left of the frame, or kUnsetWindowCoord when it should not be
+    // recorded — a maximised window's position is not one the user chose.
+    int x = kUnsetWindowCoord;
+    int y = kUnsetWindowCoord;
+    std::array<int, kFileExplorerColumnCount> columnWidths =
+        kDefaultFileExplorerColumnWidths;
+};
 
 struct AppConfig {
     int columns         = 80;
@@ -71,7 +112,36 @@ struct AppConfig {
     BellMode    bellMode           = BellMode::Visual;
     bool        copyOnSelect           = true;   // copy to X11 primary selection on mouseup
     bool        confirmCloseWindow     = true;   // false = suppress all close-confirmation dialogs
-    std::string remoteEditorCommand    = "";     // empty = $EDITOR; e.g. "code --wait"
+    // Starting policy for a file explorer window; each window can change its
+    // own without disturbing this.
+    term::fs::SymlinkPolicy symlinkPolicy = term::fs::SymlinkPolicy::Preserve;
+
+    // File explorer window geometry, remembered application-wide rather than
+    // per session: the window is about a task, and a user who sizes it once
+    // wants that size the next time whatever the session happens to be.
+    //
+    // The mode is deliberately absent. Both menu entries name the mode they
+    // open in, so a stored value would have no reader. Neither is the sash:
+    // the window is sized in whole panes, and Transfer mode splits its width
+    // in two, so there is no independent split to remember.
+    //
+    // Nor are the sort column, the show-hidden toggle or the name filter. Those
+    // are view state a window deliberately starts fresh on — see
+    // kDefaultSortKey and kDefaultShowHidden in fs/DirModel.h for why, and for
+    // what promoting either to a preference would take.
+    int         fileExplorerWidth      = 720;    // one pane; Transfer mode doubles it
+    int         fileExplorerHeight     = 700;
+    // Where the window last stood. kUnsetWindowCoord until the user has placed
+    // one, which leaves the first window wherever the window manager puts it —
+    // a better guess than any coordinate this application could invent.
+    int         fileExplorerX          = kUnsetWindowCoord;
+    int         fileExplorerY          = kUnsetWindowCoord;
+    // Listing column widths, shared by every pane in every explorer window: the
+    // columns show the same five things everywhere, so a width chosen once is a
+    // width chosen for all of them.
+    std::array<int, kFileExplorerColumnCount> fileExplorerColumnWidths =
+        kDefaultFileExplorerColumnWidths;
+    std::string externalEditorCommand  = "";     // empty = $EDITOR; e.g. "code --wait"
 
     // [Session] defaults — applied to every new session, overridable per profile
     std::string                        defaultShell;        // empty = $SHELL → /bin/sh

@@ -160,6 +160,7 @@ set(SOURCES
     src/transport/SshPortForwardEngine.cpp
     src/transport/SshPublicKey.cpp
     src/transport/X11Utils.cpp
+    src/transport/LocalFileSystem.cpp
     src/transport/LoopbackTransport.cpp
     src/transport/PtyTransport.cpp
     src/transport/SerialTransport.cpp
@@ -168,17 +169,25 @@ set(SOURCES
     src/transport/SshTransport.cpp
     src/parser/Parser.cpp
     src/ui/wxKeyAdapter.cpp
+    src/ui/AppIconBundle.cpp
+    src/ui/IconSet.cpp
     src/ui/MainFrame.cpp
     src/ui/NewConnectionDialog.cpp
     src/ui/ConnectionManagerDialog.cpp
-    src/ui/TransferFilesDialog.cpp
+    src/ui/FileExplorerFrame.cpp
+    src/ui/FileExplorerPane.cpp
+    src/ui/RemoteFileListCtrl.cpp
+    src/ui/TransferPanel.cpp
+    src/ui/ConflictDialog.cpp
+    src/ui/SpaceWarningDialog.cpp
+    src/ui/FileExplorerManager.cpp
+    src/ui/FilePropertiesDialog.cpp
     src/ui/KbdIntDialog.cpp
     src/ui/PasteConfirmDialog.cpp
     src/ui/RemoteFileBrowserDialog.cpp
     src/ui/ResetAndClearDialog.cpp
     src/ui/DialogPlacement.cpp
-    src/ui/RemoteEditSession.cpp
-    src/ui/RemoteEditManager.cpp
+    src/ui/RemoteEditsDialog.cpp
     src/ui/WorkspaceManagerDialog.cpp
     src/ui/GeometryDialog.cpp
     src/ui/PreferencesDialog.cpp
@@ -194,6 +203,21 @@ set(SOURCES
     src/ui/DragGhost.cpp
     src/ui/TabStrip.cpp
     src/ui/TerminalGrid.cpp
+    src/fs/FileMode.cpp
+    src/fs/RemotePath.cpp
+    src/fs/DirModel.cpp
+    src/fs/TransferQueue.cpp
+    src/fs/ExplorerController.cpp
+    src/fs/RemoteDeleter.cpp
+    src/fs/LinkResolver.cpp
+    src/fs/OwnerLiveness.cpp
+    src/fs/TempArea.cpp
+    src/fs/RelayWorkspace.cpp
+    src/fs/SpaceForecast.cpp
+    src/fs/EditWorkspace.cpp
+    src/fs/SaveAnnouncePolicy.cpp
+    src/fs/RemoteEditSession.cpp
+    src/fs/RemoteEditManager.cpp
     src/layout/DocLayout.cpp
     src/layout/UrlScanner.cpp
     src/layout/WordSelector.cpp

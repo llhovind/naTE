@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <chrono>
 #include <ctime>
-#include <filesystem>
 #include <iomanip>
 #include <random>
 #include <sstream>
@@ -373,10 +372,33 @@ SessionStatus SessionManager::GetSessionStatus(SessionId id) const
     return rec ? rec->session->GetStatus() : SessionStatus::Connected;
 }
 
-bool SessionManager::SupportsFileTransfer(SessionId id) const
+std::vector<SessionId> SessionManager::GetSessionIds() const
+{
+    std::vector<SessionId> ids;
+    ids.reserve(sessions_.size());
+    for (const auto& [id, _] : sessions_) ids.push_back(id);
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
+transport::IRemoteFileSystem* SessionManager::GetRemoteFileSystem(SessionId id) const
 {
     const SessionRecord* rec = FindRecord(id);
-    return rec && rec->session->SupportsFileTransfer();
+    return rec ? rec->session->GetRemoteFileSystem() : nullptr;
+}
+
+SessionId SessionManager::FindSessionForFileSystem(
+    const transport::IRemoteFileSystem* fs) const
+{
+    if (!fs) return 0;
+    for (const auto& [id, rec] : sessions_)
+        if (rec->session->GetRemoteFileSystem() == fs) return id;
+    return 0;
+}
+
+bool SessionManager::SupportsFileTransfer(SessionId id) const
+{
+    return GetRemoteFileSystem(id) != nullptr;
 }
 
 bool SessionManager::SupportsX11Forwarding(SessionId id) const
@@ -435,107 +457,6 @@ std::string SessionManager::GetRemoteDescription(SessionId id) const
 {
     const SessionRecord* rec = FindRecord(id);
     return rec ? rec->session->GetTransportRemoteDescription() : std::string{};
-}
-
-void SessionManager::SendFile(SessionId id,
-                              const std::string& localPath,
-                              const std::string& remoteDir,
-                              std::function<void(bool, std::string)> onDone)
-{
-    SessionRecord* rec = FindRecord(id);
-    if (rec) rec->session->SendFile(localPath, remoteDir, std::move(onDone));
-}
-
-void SessionManager::ReceiveFile(SessionId id,
-                                 const std::string& remotePath,
-                                 const std::string& localDir,
-                                 std::function<void(bool, std::string)> onDone)
-{
-    SessionRecord* rec = FindRecord(id);
-    if (rec) rec->session->ReceiveFile(remotePath, localDir, std::move(onDone));
-}
-
-void SessionManager::TransferFileBetweenSessions(
-    SessionId          srcId,
-    const std::string& srcPath,
-    SessionId          dstId,
-    const std::string& dstDir,
-    std::function<void(bool, std::string)> onDone)
-{
-    // Local → Remote
-    if (srcId == 0) {
-        SendFile(dstId, srcPath, dstDir, std::move(onDone));
-        return;
-    }
-    // Remote → Local
-    if (dstId == 0) {
-        ReceiveFile(srcId, srcPath, dstDir, std::move(onDone));
-        return;
-    }
-    // Remote → Remote: download to temp, upload, then clean up.
-    std::filesystem::path tempDir;
-    try {
-        tempDir = std::filesystem::temp_directory_path() / "nate_xfer_XXXXXXXX";
-        // Replace the X's with a unique suffix.
-        tempDir = std::filesystem::path(
-            std::string(tempDir) + std::to_string(
-                std::chrono::steady_clock::now().time_since_epoch().count()));
-        std::filesystem::create_directories(tempDir);
-    } catch (const std::exception& ex) {
-        onDone(false, std::string("Failed to create temp directory: ") + ex.what());
-        return;
-    }
-
-    const std::string tempDirStr = tempDir.string();
-
-    ReceiveFile(srcId, srcPath, tempDirStr,
-        [this, dstId, dstDir, tempDirStr, srcPath,
-         onDone = std::move(onDone)](bool ok, std::string err) mutable {
-
-            if (!ok) {
-                std::filesystem::remove_all(tempDirStr);
-                onDone(false, std::move(err));
-                return;
-            }
-
-            const std::string filename =
-                std::filesystem::path(srcPath).filename().string();
-            const std::string tempFile =
-                (std::filesystem::path(tempDirStr) / filename).string();
-
-            SendFile(dstId, tempFile, dstDir,
-                [tempDirStr, onDone = std::move(onDone)](bool ok2, std::string err2) {
-                    std::filesystem::remove_all(tempDirStr);
-                    onDone(ok2, std::move(err2));
-                });
-        });
-}
-
-void SessionManager::ListRemoteDirectory(
-    SessionId id,
-    const std::string& remotePath,
-    std::function<void(std::vector<transport::RemoteDirEntry>, std::string)> onDone)
-{
-    SessionRecord* rec = FindRecord(id);
-    if (rec) rec->session->ListRemoteDirectory(remotePath, std::move(onDone));
-}
-
-void SessionManager::SftpDownloadFile(SessionId id,
-                                      const std::string& remotePath,
-                                      const std::string& localPath,
-                                      std::function<void(bool, std::string)> onDone)
-{
-    SessionRecord* rec = FindRecord(id);
-    if (rec) rec->session->SftpDownloadFile(remotePath, localPath, std::move(onDone));
-}
-
-void SessionManager::SftpUploadFile(SessionId id,
-                                    const std::string& localPath,
-                                    const std::string& remotePath,
-                                    std::function<void(bool, std::string)> onDone)
-{
-    SessionRecord* rec = FindRecord(id);
-    if (rec) rec->session->SftpUploadFile(localPath, remotePath, std::move(onDone));
 }
 
 // ---------------------------------------------------------------------------

@@ -13,7 +13,8 @@
 #include "session/ISessionObserver.h"
 #include "session/SessionManager.h"
 #include "ui/UIManager.h"
-#include "ui/RemoteEditManager.h"
+#include "ui/FileExplorerManager.h"
+#include "fs/RemoteEditManager.h"
 
 class MainFrame;
 class TerminalTile;
@@ -130,7 +131,8 @@ private:
     std::string                                         m_themesDir;
     std::unique_ptr<term::db::ConnectionStore>          m_connectionStore;
     std::unique_ptr<term::session::SessionManager>      m_sessionManager;
-    std::unique_ptr<ui::RemoteEditManager>              m_remoteEditManager;
+    std::unique_ptr<term::fs::RemoteEditManager>        m_remoteEditManager;
+    std::unique_ptr<ui::FileExplorerManager>            m_fileExplorerManager;
     std::unique_ptr<term::db::ISessionRestoreRepository> m_restoreRepo;
     std::unique_ptr<term::db::INamedWorkspaceRepository>  m_namedRepo;
     wxTimer                                             m_saveTimer;

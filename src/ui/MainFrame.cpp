@@ -8,16 +8,12 @@
 #include "ui/TerminalTile.h"
 #include "config/ColorScheme.h"
 #include "ui/WorkspaceManagerDialog.h"
+#include "ui/AppIconBundle.h"
 #include "ui/UIManager.h"
-#include "ui/resources/AppIcon.h"
 #include "db/ConnectionProfile.h"
 #include "db/ConnectionStore.h"
 #include "app/App.h"
 #include <wx/fontdlg.h>
-#include <wx/icon.h>
-#include <wx/iconbndl.h>
-#include <wx/image.h>
-#include <wx/mstream.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/textdlg.h>
@@ -51,6 +47,8 @@ namespace {
     constexpr int ID_TILE_LAYOUT_ROW_FIRST   = wxID_HIGHEST + 35;
     constexpr int ID_TILE_LAYOUT_COL_FIRST   = wxID_HIGHEST + 36;
     constexpr int ID_EDIT_REMOTE_FILE        = wxID_HIGHEST + 37;
+    constexpr int ID_FILE_EXPLORER           = wxID_HIGHEST + 38;
+    constexpr int ID_REMOTE_EDITS            = wxID_HIGHEST + 39;
 
     static bool IsValidWorkspaceName(const std::string& s)
     {
@@ -86,20 +84,7 @@ MainFrame::MainFrame(const AppConfig& cfg,
 {
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
 
-    {
-        wxIconBundle icons;
-        for (const auto& entry : kAppIcons) {
-            wxMemoryInputStream stream(entry.data, entry.len);
-            wxImage img(stream, wxBITMAP_TYPE_PNG);
-            if (img.IsOk()) {
-                wxBitmap bmp(img);
-                wxIcon icon;
-                icon.CopyFromBitmap(bmp);
-                icons.AddIcon(icon);
-            }
-        }
-        SetIcons(icons);
-    }
+    SetIcons(ui::AppIconBundle());
 
     // ---- Edit menu (populated by UIManager) ----------------------------------
     m_editMenu = new wxMenu;
@@ -162,15 +147,30 @@ MainFrame::MainFrame(const AppConfig& cfg,
     termMenu->AppendSeparator();
     termMenu->Append(ID_TRANSFER_FILES,          "Transfer Files...");
     termMenu->Append(ID_EDIT_REMOTE_FILE,        "Edit Remote File...");
+    termMenu->Append(ID_FILE_EXPLORER,           "File Explorer...");
+    termMenu->Append(ID_REMOTE_EDITS,            "Remote Edits...");
     Bind(wxEVT_MENU, &MainFrame::OnSaveSessionFileTerminal, this, ID_SAVE_SESSION_FILE_TERM);
     Bind(wxEVT_MENU, &MainFrame::OnTransferFiles,           this, ID_TRANSFER_FILES);
     Bind(wxEVT_MENU, &MainFrame::OnEditRemoteFile,          this, ID_EDIT_REMOTE_FILE);
+    Bind(wxEVT_MENU, &MainFrame::OnFileExplorer,            this, ID_FILE_EXPLORER);
+    Bind(wxEVT_MENU, &MainFrame::OnRemoteEdits,             this, ID_REMOTE_EDITS);
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
-        e.Enable(m_uiManager && m_uiManager->AnySessionSupportsFileTransfer());
+        // The active session's, not any session's: both items now open the
+        // explorer for *this* session, which must have a filesystem or the
+        // window would only be able to say so in a message box.
+        e.Enable(m_uiManager && m_uiManager->ActiveSessionSupportsFileTransfer());
     }, ID_TRANSFER_FILES);
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
         e.Enable(m_uiManager && m_uiManager->ActiveSessionSupportsFileTransfer());
     }, ID_EDIT_REMOTE_FILE);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
+        e.Enable(m_uiManager && m_uiManager->ActiveSessionSupportsFileTransfer());
+    }, ID_FILE_EXPLORER);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& e) {
+        // Not gated on the active session: edits are application-global, and
+        // one may well belong to a session in another tile or window.
+        e.Enable(m_uiManager && m_uiManager->HasActiveRemoteEdits());
+    }, ID_REMOTE_EDITS);
 
     termMenu->AppendSeparator();
     termMenu->Append(ID_OPEN_IN_NEW_TILE,        "Move to New Tile");
@@ -561,12 +561,22 @@ void MainFrame::OnSaveSessionFileTerminal(wxCommandEvent&)
 
 void MainFrame::OnTransferFiles(wxCommandEvent&)
 {
-    if (m_uiManager) m_uiManager->TransferFilesForActive();
+    if (m_uiManager) m_uiManager->OpenFileExplorerForActive(FileExplorerMode::Transfer);
 }
 
 void MainFrame::OnEditRemoteFile(wxCommandEvent&)
 {
     if (m_uiManager) m_uiManager->EditRemoteFileForActive();
+}
+
+void MainFrame::OnFileExplorer(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->OpenFileExplorerForActive(FileExplorerMode::Explore);
+}
+
+void MainFrame::OnRemoteEdits(wxCommandEvent&)
+{
+    if (m_uiManager) m_uiManager->ShowRemoteEdits();
 }
 
 void MainFrame::OnOpenInNewTile(wxCommandEvent&)

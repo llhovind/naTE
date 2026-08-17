@@ -5,8 +5,11 @@
 #include "db/JsonScrollbackRepository.h"
 #include "db/JsonSessionRestoreRepository.h"
 #include "db/ScrollbackPurge.h"
+#include "fs/EditWorkspace.h"
+#include "fs/RelayWorkspace.h"
 #include "transport/AppSessionDefaults.h"
 #include "session/RestoreState.h"
+#include "ui/EditorLauncher.h"
 #include "ui/MainFrame.h"
 #include "ui/TerminalTile.h"
 #include <wx/filename.h>
@@ -162,13 +165,87 @@ bool App::OnInit() {
         static_cast<size_t>(m_cfg.scrollbackSaveLines),
         m_cfg.scrollbackSaveStyles);
 
-    m_remoteEditManager = std::make_unique<ui::RemoteEditManager>(*m_sessionManager);
+    m_remoteEditManager = std::make_unique<term::fs::RemoteEditManager>(
+        [](std::function<void()> fn) { wxTheApp->CallAfter(std::move(fn)); },
+        [](const std::string& command, const std::string& path) {
+            ui::LaunchEditor(command, path);
+        });
+
+    // Routes "open in editor" from the explorer back through the same edit
+    // workflow the Terminal menu uses, so there is one implementation of
+    // "edit this file", not two.
+    m_fileExplorerManager = std::make_unique<ui::FileExplorerManager>(
+        *m_sessionManager, m_cfg,
+        [this](term::session::SessionId endpoint, std::string path) {
+            // Endpoint 0 is this computer, which no window hosts: any context
+            // can run the launch, since it needs only the config and a parent
+            // window for error reporting.
+            WindowContext* wc =
+                endpoint ? FindContextForSession(endpoint)
+                         : (m_windows.empty() ? nullptr : m_windows.front().get());
+            if (wc && wc->uiManager) wc->uiManager->OpenFileInEditor(endpoint, path);
+        },
+        [this](const FileExplorerLayout& layout) {
+            // The same appearance reported twice is not worth a write, and it
+            // is reported twice routinely: closing a window that was never
+            // touched repeats what opening it already recorded.
+            if (m_cfg.fileExplorerWidth        == layout.width  &&
+                m_cfg.fileExplorerHeight       == layout.height &&
+                m_cfg.fileExplorerX            == layout.x      &&
+                m_cfg.fileExplorerY            == layout.y      &&
+                m_cfg.fileExplorerColumnWidths == layout.columnWidths)
+                return;
+
+            m_cfg.fileExplorerWidth        = layout.width;
+            m_cfg.fileExplorerHeight       = layout.height;
+            m_cfg.fileExplorerX            = layout.x;
+            m_cfg.fileExplorerY            = layout.y;
+            m_cfg.fileExplorerColumnWidths = layout.columnWidths;
+            m_cfg.save(m_configPath);
+        });
+
+    // A save from an external editor lands a new size and timestamp on the
+    // remote, which no explorer window has any way of noticing on its own.
+    // Wired here rather than between the two managers because neither should
+    // know the other exists: one runs edits, the other shows directories.
+    m_remoteEditManager->SetOnFileSaved(
+        [this](term::transport::IRemoteFileSystem* fs, const std::string& path) {
+            if (!m_fileExplorerManager) return;
+            m_fileExplorerManager->OnFileChanged(
+                m_sessionManager->FindSessionForFileSystem(fs), path);
+        });
+
+    // A failed upload is the case the editor cannot report: it wrote the local
+    // copy cleanly, so nothing tells the user the remote file is still stale.
+    // Reported by the window hosting the session, falling back to any window —
+    // the message matters more than which frame parents it.
+    m_remoteEditManager->SetOnFileSaveFailed(
+        [this](const term::fs::SaveFailure& failure) {
+            WindowContext* wc = FindContextForSession(
+                m_sessionManager->FindSessionForFileSystem(failure.fs));
+            if (!wc && !m_windows.empty()) wc = m_windows.front().get();
+            if (wc && wc->uiManager) wc->uiManager->ReportRemoteSaveFailed(failure);
+        });
 
     const std::string restorePath = InstanceRestorePath(m_instanceId);
     m_restoreRepo = std::make_unique<term::db::JsonSessionRestoreRepository>(restorePath);
     m_namedRepo   = std::make_unique<term::db::JsonNamedWorkspaceRepository>(NateDir() + "/workspaces");
 
     PurgeOrphanedScrollback();
+
+    // Before any edit of this run can create one, so a directory carrying our
+    // own pid is provably a dead instance's rather than ours. Working copies
+    // belonging to a running naTE — another window, or a peer instance about to
+    // be restored — are left untouched, unsaved edits and all.
+    term::fs::PurgeOrphanedWorkingCopies(term::fs::DefaultOwnerIsLive);
+
+    // Likewise for staging files, and for the same reason at the same moment.
+    // These matter more per file than working copies do: a staging file holds a
+    // whole transferred file, so one left behind by a killed instance occupies
+    // real space on a volume — usually /tmp — indefinitely, and the free-space
+    // figures the explorer reports would be counting our own litter against the
+    // user.
+    term::fs::PurgeOrphanedRelayFiles(term::fs::DefaultOwnerIsLive);
 
     // Parse CLI flags.
     // --no-restore:              suppress restore even when config enables it.
@@ -268,6 +345,7 @@ MainFrame* App::CreateNewWindow()
 
     frame->SetUIManager(wc->uiManager.get());
     wc->uiManager->SetRemoteEditManager(m_remoteEditManager.get());
+    wc->uiManager->SetFileExplorerManager(m_fileExplorerManager.get());
 
     wc->uiManager->SetOnGridEmptyCallback([this, mgr = wc->uiManager.get(), frame]() {
         if (m_globalCloseInProgress)
@@ -296,7 +374,13 @@ MainFrame* App::CreateNewWindow()
     });
 
     wc->uiManager->SetOnSessionDestroyedCallback([this](term::session::SessionId id) {
-        if (m_remoteEditManager) m_remoteEditManager->OnSessionDestroyed(id);
+        // Resolved while the id still names a live record: the session is being
+        // destroyed, not yet erased, so this is the last moment the port the
+        // edits were opened against can be named at all.
+        if (m_remoteEditManager)
+            m_remoteEditManager->StopEditsForFilesystem(
+                m_sessionManager->GetRemoteFileSystem(id));
+        if (m_fileExplorerManager)  m_fileExplorerManager->OnSessionDestroyed(id);
     });
 
     wc->uiManager->SetSavePortForwardToProfileCallback(
@@ -570,6 +654,10 @@ void App::ApplyPreferences(const AppConfig& cfg)
         if (wc->uiManager) wc->uiManager->UpdateConfig(m_cfg);
         if (wc->frame)     wc->frame->UpdateConfig(m_cfg);
     }
+
+    // Explorer windows are app-global, not per-window, so they are updated
+    // once rather than inside the loop above.
+    if (m_fileExplorerManager) m_fileExplorerManager->UpdateConfig(m_cfg);
 }
 
 bool App::HasRestoreState() const

@@ -16,14 +16,45 @@ add_executable(naTE_tests
     test_url_scanner.cpp
     test_word_selector.cpp
     test_dialog_placement.cpp
+    test_pane_geometry.cpp
+    test_remote_path.cpp
+    test_dir_model.cpp
+    test_transfer_queue.cpp
+    test_transfer_preflight.cpp
+    test_space_forecast.cpp
+    test_relay_workspace.cpp
+    test_temp_area.cpp
+    test_explorer_controller.cpp
+    test_link_resolver.cpp
+    test_sftp_task_queue.cpp
+    test_remote_deleter.cpp
+    test_local_filesystem.cpp
+    test_edit_workspace.cpp
+    test_remote_edit.cpp
     ${CMAKE_SOURCE_DIR}/src/config/Config.cpp
     ${CMAKE_SOURCE_DIR}/src/config/ColorScheme.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/EnvUtils.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/UrlScanner.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/WordSelector.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/FileMode.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/RemotePath.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/DirModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/TransferQueue.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/ExplorerController.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/RemoteDeleter.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/LinkResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/OwnerLiveness.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/TempArea.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/RelayWorkspace.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/SpaceForecast.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/EditWorkspace.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/SaveAnnouncePolicy.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/RemoteEditSession.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/RemoteEditManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/LocalFileSystem.cpp
 )
 target_link_libraries(naTE_tests PRIVATE Catch2::Catch2)
-target_include_directories(naTE_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(naTE_tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
 
 # ---------------------------------------------------------------------------
 # naTE_core_tests — headless integration tests: SessionManager + mock observer
@@ -53,6 +84,18 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/transport/SshAuthenticator.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshChannelProxy.cpp
     ${CMAKE_SOURCE_DIR}/src/transport/SshTransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/FileMode.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/RemotePath.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/DirModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/TransferQueue.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/ExplorerController.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/RemoteDeleter.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/LinkResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/OwnerLiveness.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/TempArea.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/RelayWorkspace.cpp
+    ${CMAKE_SOURCE_DIR}/src/fs/SpaceForecast.cpp
+    ${CMAKE_SOURCE_DIR}/src/transport/LocalFileSystem.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/DocLayout.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/UrlScanner.cpp
     ${CMAKE_SOURCE_DIR}/src/layout/WordSelector.cpp
@@ -67,6 +110,7 @@ add_executable(naTE_core_tests
     test_x11_utils.cpp
     test_cwd.cpp
     test_scrollback_repo.cpp
+    test_remote_fs.cpp
     ${CORE_SOURCES}
 )
 target_link_libraries(naTE_core_tests PRIVATE Catch2::Catch2WithMain ${NATE_LIBSSH2_LINK} nlohmann_json::nlohmann_json)

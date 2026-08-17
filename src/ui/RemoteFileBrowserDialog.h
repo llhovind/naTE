@@ -1,62 +1,74 @@
 #pragma once
 
+#include "fs/Dispatcher.h"
+#include "fs/ExplorerController.h"
 #include "session/SessionManager.h"
-#include "transport/Transport.hpp"
+#include "ui/RemoteFileListCtrl.h"
 
+#include <wx/app.h>
+
+#include <memory>
 #include <string>
 #include <vector>
 
 #include <wx/button.h>
 #include <wx/dialog.h>
-#include <wx/listctrl.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
 
 namespace ui {
 
-enum class BrowseMode { Files, Directory };
-
-// Modal dialog that lets the user browse a remote SSH filesystem. In Files
-// mode, multi-selects individual files. In Directory mode, lets the user
-// navigate and confirm a destination directory via "Select This Directory".
-class RemoteFileBrowserDialog : public wxDialog {
+// Modal picker for a single remote file.
+//
+// A thin view over the same ExplorerController and DirModel the file explorer
+// uses, so navigation, canonicalisation, symlink handling and sorting have one
+// implementation rather than a full one and a lesser copy that drifts from it.
+// What remains here is only what makes this a *picker*: modality, a confirm
+// button, and the chosen path.
+//
+// Single-selection on purpose. Its one caller opens one file in an editor, and
+// a multi-select list that silently discarded all but the first choice would
+// be advertising something it does not do.
+class RemoteFileBrowserDialog : public wxDialog,
+                                private term::fs::IExplorerListener {
 public:
     RemoteFileBrowserDialog(wxWindow* parent,
                             term::session::SessionId sessionId,
                             term::session::SessionManager& sm,
                             const std::string& remoteDescription,
-                            const wxString& confirmLabel = "Add Selected",
-                            const std::string& initialPath = ".",
-                            BrowseMode mode = BrowseMode::Files);
+                            const wxString& confirmLabel = "Select",
+                            const std::string& initialPath = ".");
 
-    const std::vector<std::string>& GetSelectedPaths() const { return selectedPaths_; }
+    // Empty unless the dialog closed with wxID_OK.
+    const std::string& GetSelectedPath() const { return selectedPath_; }
 
 private:
-    void Navigate(const std::string& path);
-    void PopulateList(const std::vector<term::transport::RemoteDirEntry>& entries);
-    std::string FullPath(const std::string& name) const;
-    std::string ParentPath() const;
+    // --- IExplorerListener ---------------------------------------------------
+    void OnExplorerLoadingChanged(bool loading) override;
+    void OnExplorerContentsChanged() override;
+    void OnExplorerPathChanged(const std::string& path) override;
 
     void OnGo(wxCommandEvent&);
     void OnUp(wxCommandEvent&);
     void OnItemActivated(wxListEvent&);
-    void OnAdd(wxCommandEvent&);
+    void OnConfirm(wxCommandEvent&);
 
-    term::session::SessionId       sessionId_;
+    void UpdateControls();
+
     term::session::SessionManager& sm_;
 
-    wxTextCtrl* pathCtrl_  = nullptr;
-    wxListCtrl* fileList_  = nullptr;
-    wxButton*   upBtn_     = nullptr;
-    wxButton*   addBtn_    = nullptr;
-    wxStaticText* statusLabel_ = nullptr;
+    std::unique_ptr<term::fs::ExplorerController> controller_;
+    std::string                                   selectedPath_;
+    // Retires callbacks that outlive the dialog. Activating a symlink costs a
+    // stat round trip, which can land after the user has closed this.
+    term::fs::DispatchGuard                       guard_{
+        [](std::function<void()> fn) { wxTheApp->CallAfter(std::move(fn)); }};
 
-    BrowseMode  mode_;
-    std::string currentPath_;
-    std::vector<term::transport::RemoteDirEntry> currentEntries_;
-    std::vector<std::string> selectedPaths_;
-
-    bool loading_ = false;
+    wxTextCtrl*         pathCtrl_    = nullptr;
+    RemoteFileListCtrl* fileList_    = nullptr;
+    wxButton*           upBtn_       = nullptr;
+    wxButton*           confirmBtn_  = nullptr;
+    wxStaticText*       statusLabel_ = nullptr;
 };
 
 } // namespace ui

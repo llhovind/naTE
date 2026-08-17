@@ -83,7 +83,6 @@ public:
     // Callback queried at context-menu time to decide whether "Transfer Files..."
     // should be enabled. Returns true when any open session (in any tile) supports
     // file transfer. Wired once per tile by UIManager::WireTileCallbacks.
-    void SetFileTransferAvailableCallback(std::function<bool()> cb) { fileTransferAvailableCb_ = std::move(cb); }
 
     // Marks a tab as having unread output (content arrived while the tab was hidden).
     // Cleared automatically when the tab is activated.
@@ -204,7 +203,6 @@ private:
     bool                       isFocused_           = false;
     bool                       inBroadcast_         = false;
     bool                       broadcastModeActive_ = false;
-    std::function<bool()>      fileTransferAvailableCb_;
     std::function<term::session::SessionStatus(term::session::SessionId)> statusProvider_;
 
     // Set by ApplyConfig, which is called from the constructor.

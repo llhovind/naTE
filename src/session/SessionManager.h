@@ -128,6 +128,19 @@ public:
 
     SessionStatus GetSessionStatus(SessionId id) const;
 
+    // The session's remote filesystem, or nullptr when the transport has none
+    // (PTY, Serial, Loopback) or the id is unknown.
+    transport::IRemoteFileSystem* GetRemoteFileSystem(SessionId id) const;
+
+    // The session whose transport owns fs, or 0 when none does.
+    //
+    // The inverse of GetRemoteFileSystem(), for the boundary where work done in
+    // terms of the port comes back to code that thinks in sessions: fs/ carries
+    // the filesystem and deliberately not an id, so the translation has to
+    // happen somewhere, and here is where the mapping actually lives.
+    SessionId FindSessionForFileSystem(const transport::IRemoteFileSystem* fs) const;
+
+    // Convenience over GetRemoteFileSystem() for UI enable/disable checks.
     bool        SupportsFileTransfer(SessionId id)    const;
     bool        SupportsX11Forwarding(SessionId id)   const;
     bool        IsX11ForwardingActive(SessionId id)   const;
@@ -142,39 +155,12 @@ public:
     std::vector<transport::PortForwardStatus> GetPortForwardStatus(SessionId id) const;
     std::vector<transport::PortForwardDesc>   GetPortForwardDescs(SessionId id)  const;
     std::string GetRemoteDescription(SessionId id) const;
-    void        SendFile(SessionId id,
-                        const std::string& localPath,
-                        const std::string& remoteDir,
-                        std::function<void(bool, std::string)> onDone);
-    void        ReceiveFile(SessionId id,
-                            const std::string& remotePath,
-                            const std::string& localDir,
-                            std::function<void(bool, std::string)> onDone);
-
-    // Unified transfer between any two endpoints. Pass SessionId 0 for the
-    // local filesystem. Routes to SendFile / ReceiveFile for local↔remote
-    // cases; uses a temp file for remote↔remote.
-    void        TransferFileBetweenSessions(
-                    SessionId          srcId,
-                    const std::string& srcPath,
-                    SessionId          dstId,
-                    const std::string& dstDir,
-                    std::function<void(bool, std::string)> onDone);
-    void        ListRemoteDirectory(
-                    SessionId id,
-                    const std::string& remotePath,
-                    std::function<void(std::vector<transport::RemoteDirEntry>,
-                                       std::string)> onDone);
-    void        SftpDownloadFile(SessionId id,
-                                 const std::string& remotePath,
-                                 const std::string& localPath,
-                                 std::function<void(bool, std::string)> onDone);
-    void        SftpUploadFile(SessionId id,
-                               const std::string& localPath,
-                               const std::string& remotePath,
-                               std::function<void(bool, std::string)> onDone);
 
     term::input::InputTarget* GetInputTarget(SessionId id) const;
+
+    // Every live session id, ascending so callers that build a menu or a
+    // picker get a stable order rather than the hash map's.
+    std::vector<SessionId> GetSessionIds() const;
 
     // Returns a snapshot of the Connection used to create this session.
     // Returns a default-constructed Connection if the id is unknown.
