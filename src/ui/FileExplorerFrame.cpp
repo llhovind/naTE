@@ -129,6 +129,21 @@ FileExplorerFrame::FileExplorerFrame(wxWindow* parent,
     status_ = CreateStatusBar(2);
     const int widths[2] = {-1, 260};
     status_->SetStatusWidths(2, widths);
+    // Teardown hangs off the close event, not off wxEVT_DESTROY. For a
+    // top-level window wxTopLevelWindowBase::Destroy() queues the frame on
+    // wxPendingDelete and sends nothing; the destroy event that eventually
+    // arrives is emitted by ~wxFrameBase, after this class's own members have
+    // been destroyed, so a handler reading them touches freed memory. Only the
+    // parent-driven route (wxWindowBase::DestroyChildren, which deliberately
+    // calls the non-virtual wxWindowBase::Destroy) delivers that event while
+    // the object is still whole, and that route is all OnDestroy remains bound
+    // for.
+    Bind(wxEVT_CLOSE_WINDOW, [this](wxCloseEvent& evt) {
+        Teardown();
+        // Nothing is left for the post-mortem event to call into.
+        Unbind(wxEVT_DESTROY, &FileExplorerFrame::OnDestroy, this);
+        evt.Skip();
+    });
     Bind(wxEVT_DESTROY, &FileExplorerFrame::OnDestroy, this);
 
     // Sessions open and close in the main window while this one is up, so the
@@ -972,10 +987,19 @@ void FileExplorerFrame::OnDestroy(wxWindowDestroyEvent& evt)
     // only the frame's own destruction should notify the owner.
     if (evt.GetWindow() != this) { evt.Skip(); return; }
 
+    Teardown();
+    evt.Skip();
+}
+
+void FileExplorerFrame::Teardown()
+{
+    if (tornDown_) return;
+    tornDown_ = true;
+
     PersistLayout();
 
-    // The queue holds callbacks into this frame; retiring it first means
-    // nothing can fire into a half-destroyed window.
+    // The queue holds callbacks into this frame; retiring it before the owner
+    // is told means nothing can fire into a window on its way out.
     if (queue_) {
         queue_->SetListener(nullptr);
         queue_.reset();
@@ -986,7 +1010,6 @@ void FileExplorerFrame::OnDestroy(wxWindowDestroyEvent& evt)
         onClosed_ = nullptr;
         cb();
     }
-    evt.Skip();
 }
 
 } // namespace ui
