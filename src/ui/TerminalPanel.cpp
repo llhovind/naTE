@@ -29,6 +29,7 @@ static constexpr int kResizeDebounceMs  = 80;
 static constexpr int kHScrollAnimMs     = 8;  // timer interval (~60 fps)
 static constexpr int kRenderFrameMs     = 16; // render-throttle frame budget (~60 fps)
 static constexpr int kHScrollMinStep    = 3;   // minimum columns per tick (tune for speed)
+static constexpr int kHScrollMaxStep    = 12;  // velocity cap: ~1500 cols/s at kHScrollAnimMs
 static constexpr int kCursorBlinkMs     = 500; // cursor blink half-period
 static constexpr int kSelScrollMs       = 50;  // auto-scroll cadence during drag-select
 static constexpr int kReconnectBarFallbackHeight = 30; // px, used when GetBestSize().y is 0
@@ -385,10 +386,12 @@ void TerminalPanel::OnHScrollAnim(wxTimerEvent&)
         return;
     }
     const int delta = m_hScrollAnimTarget_ - cur;
-    // Geometric easing clamped to [kHScrollMinStep, |delta|] so we never overshoot.
-    const int step  = (delta > 0)
-        ? std::min(delta, std::max(kHScrollMinStep, delta / 2))
-        : std::max(delta, std::min(-kHScrollMinStep, delta / 2));
+    // Geometric ease-out, but velocity-capped: halving the remaining distance
+    // every tick covers a large jump in ~40ms, which the eye reads as a cut
+    // rather than motion.  The cap makes long jumps a constant-speed pan that
+    // eases out at the end; |delta| clamping means we never overshoot.
+    const int mag   = std::clamp(std::abs(delta) / 4, kHScrollMinStep, kHScrollMaxStep);
+    const int step  = std::clamp(delta, -mag, mag);
     docLayout_->SetLeftColRaw(cur + step);
     UpdateScrollbars();
     Refresh();

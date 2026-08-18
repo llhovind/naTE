@@ -433,7 +433,9 @@ void DocLayout::EnsureCursorVisibleHorizontally()
     if (wrapMode_) return;
     if (!leftClamped_) return;  // viewport pinned by user; skip cursor tracking in both directions
     const int marginLeft  = cols_ / 4;  // context kept left of cursor — scales with viewport width
-    const int marginRight = 3;          // context kept right of cursor
+    const int marginRight = 8;          // lookahead kept right of cursor — absolute,
+                                        // not proportional: the eye needs the same few
+                                        // cells of warning at any viewport width
 
     const CursorPos cursor  = doc_->GetCursorLocked();
     const int       docCol  = (int)cursor.col;
@@ -441,13 +443,21 @@ void DocLayout::EnsureCursorVisibleHorizontally()
     const int       lineLen = (cursor.line < lines.size())
                             ? (int)lines[cursor.line].text.size() : 0;
 
-    if (lineLen + marginRight <= cols_) {
-        leftCol_ = 0;                                                 // whole line fits — show all
-    } else if (docCol >= leftCol_ + cols_ - marginRight) {
-        leftCol_ = std::max(0, docCol - cols_ + marginRight + 1);    // cursor near right edge
+    // Content clamp: never scroll further right than the rightmost thing that
+    // must stay on screen.  Deliberately independent of marginRight — lookahead
+    // over existing text is useful, lookahead over blank space past the end of
+    // the line is just a gutter — so any line short enough to fit starts at
+    // column 0, and shortening a line walks the viewport left one column at a
+    // time.  The cursor is part of the bound because CUF/CHA can place it past
+    // the end of the line; clamping to lineLen alone would scroll it off-screen.
+    const int maxLeft = std::max(0, std::max(lineLen, docCol) - cols_ + 1);
+
+    if (docCol >= leftCol_ + cols_ - marginRight) {
+        leftCol_ = docCol - cols_ + marginRight + 1;  // cursor near right edge
     } else if (docCol < leftCol_ + marginLeft) {
-        leftCol_ = std::max(0, docCol - marginLeft);                  // cursor inside left margin
+        leftCol_ = docCol - marginLeft;               // cursor inside left margin
     }
+    leftCol_ = std::clamp(leftCol_, 0, maxLeft);
 }
 
 void DocLayout::ComputeMaxVisibleWidthLocked() const

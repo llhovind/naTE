@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 #include <atomic>
 #include <stdexcept>
 #include <thread>
@@ -629,7 +630,7 @@ TEST_CASE("given line longer than viewport when wrap mode off then horizontal sc
 TEST_CASE("given cursor moves left past left margin when leftClamped then viewport adjusts")
 {
     // 20-column viewport; feed 40 chars so cursor-driven right-scroll fires.
-    // marginRight=3 puts the right trigger at leftCol+17; leftCol_ ends at 24 (= 40-16).
+    // The content clamp rests leftCol_ at 21 (= 40 - 20 + 1), cursor on the last column.
     Connection conn{"test", LoopbackDesc{}};
     Session session(conn, 1000, 20, 5, {}, {});
     session.OnData("ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMN");
@@ -637,19 +638,141 @@ TEST_CASE("given cursor moves left past left margin when leftClamped then viewpo
     DocLayout& layout = session.GetDocLayout();
     const int cols       = layout.GetViewportCols();  // 20
     const int marginLeft = cols / 4;                  // 5  (mirrors the runtime formula)
-    const int leftBefore = layout.GetLeftCol();       // 24
+    const int leftBefore = layout.GetLeftCol();       // 21
     REQUIRE(leftBefore > 0);
 
     // marginLeft=5: trigger fires when cursor < leftCol_+5.
-    // 14 backspaces move cursor from 40 to 26; first fires at cursor=28,
-    // then tracks one column per backspace down to leftCol_=21.
-    session.OnData(std::string(14, '\x08'));
+    // 16 backspaces move cursor from 40 to 24; first fires at cursor=25,
+    // then tracks one column per backspace down to leftCol_=19.
+    session.OnData(std::string(16, '\x08'));
 
-    const int cursorCol = (int)layout.GetCursorDocPos().col;  // 26
-    const int leftAfter  = layout.GetLeftCol();               // 21
+    const int cursorCol = (int)layout.GetCursorDocPos().col;  // 24
+    const int leftAfter  = layout.GetLeftCol();               // 19
 
     REQUIRE(leftAfter < leftBefore);
     REQUIRE(leftAfter == std::max(0, cursorCol - marginLeft));
+}
+
+TEST_CASE("given trailing characters erased then viewport walks left one column per character")
+{
+    // 20-column viewport, 40-char line: leftCol_ starts at 21 (= 40 - 20 + 1).
+    // Each "\b\x1b[K" is a readline delete-at-end: cursor back one, truncate.
+    // The viewport must follow continuously — a snap to 0 the moment the line
+    // fits is what this guards against.
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 20, 5, {}, {});
+    session.OnData("ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMN");
+
+    DocLayout& layout = session.GetDocLayout();
+    const int cols = layout.GetViewportCols();  // 20
+
+    int prev = layout.GetLeftCol();
+    REQUIRE(prev == 40 - cols + 1);            // 21
+
+    for (int len = 39; len >= 10; --len) {
+        session.OnData("\b\x1b[K");
+
+        const int expected = std::max(0, len - cols + 1);
+        const int actual   = layout.GetLeftCol();
+
+        INFO("line length " << len);
+        REQUIRE((int)layout.GetCursorDocPos().col == len);  // cursor tracks the new end
+        REQUIRE(actual == expected);
+        REQUIRE(prev - actual <= 1);                        // never more than one column at a time
+        REQUIRE(actual <= prev);                            // and never backwards
+        prev = actual;
+    }
+
+    REQUIRE(layout.GetLeftCol() == 0);  // fully left once the line fits, with no jump
+}
+
+TEST_CASE("given a long line held still when cursor moves then the content clamp is inert")
+{
+    // The maxLeft clamp exists to follow a *shrinking* line.  On a line whose
+    // length is unchanged it must not alter the margin-driven tracking.
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 20, 5, {}, {});
+    session.OnData("ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMN");
+
+    DocLayout& layout = session.GetDocLayout();
+    const int cols       = layout.GetViewportCols();
+    const int marginLeft = cols / 4;
+
+    session.OnData(std::string(16, '\x08'));  // cursor 40 -> 24, line length unchanged
+
+    const int cursorCol = (int)layout.GetCursorDocPos().col;
+    REQUIRE(layout.GetLeftCol() == std::max(0, cursorCol - marginLeft));
+}
+
+TEST_CASE("given a line short enough to fit when cursor at its end then viewport starts at column 0")
+{
+    // The invariant the content clamp buys: a line that physically fits is never
+    // scrolled, so its first characters (prompt, command name) stay on screen.
+    // Coupling the clamp to marginRight used to shift such lines right by 3.
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 20, 5, {}, {});
+    const int cols = session.GetDocLayout().GetViewportCols();  // 20
+
+    SECTION("one column short of the viewport width") {
+        session.OnData(std::string(cols - 1, 'X'));
+        REQUIRE(session.GetDocLayout().GetLeftCol() == 0);
+    }
+    SECTION("exactly the viewport width — cursor sits one past the last char") {
+        session.OnData(std::string(cols, 'X'));
+        REQUIRE(session.GetDocLayout().GetLeftCol() == 1);
+    }
+    SECTION("one column over — scrolls by exactly the overflow") {
+        session.OnData(std::string(cols + 1, 'X'));
+        REQUIRE(session.GetDocLayout().GetLeftCol() == 2);
+    }
+}
+
+TEST_CASE("given the cursor near the right edge then lookahead is kept over text and dropped over blank space")
+{
+    // marginRight is lookahead, not a gutter: it is honoured while there is real
+    // text ahead of the cursor, and the content clamp absorbs it at the line end.
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 20, 5, {}, {});
+    session.OnData("ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMN");  // 40 chars
+
+    DocLayout& layout = session.GetDocLayout();
+    const int cols        = layout.GetViewportCols();  // 20
+    const int marginRight = 3;                         // mirrors the runtime constant
+
+    SECTION("cursor at the line end — no blank gutter, cursor on the last column") {
+        REQUIRE(layout.GetLeftCol() == 40 - cols + 1);
+        REQUIRE((int)layout.GetCursorDocPos().col - layout.GetLeftCol() == cols - 1);
+    }
+    SECTION("cursor mid-line — marginRight columns of real text stay visible ahead") {
+        session.OnData(std::string(35, '\x08'));  // cursor 40 -> 5, viewport follows to 0
+        REQUIRE(layout.GetLeftCol() == 0);
+
+        session.OnData("\x1b[20C");               // CUF back to column 25, text ahead to 40
+        const int cursorCol = (int)layout.GetCursorDocPos().col;
+        REQUIRE(cursorCol == 25);
+        REQUIRE(layout.GetLeftCol() == cursorCol - cols + marginRight + 1);  // 9
+        REQUIRE(layout.GetLeftCol() + cols - 1 - cursorCol == marginRight);
+    }
+}
+
+TEST_CASE("given the cursor moved past the end of a short line then it stays visible")
+{
+    // CUF/CHA do not clamp to the line length, so the content clamp must bound on
+    // max(lineLen, docCol) — clamping to lineLen alone scrolls the cursor off-screen.
+    Connection conn{"test", LoopbackDesc{}};
+    Session session(conn, 1000, 20, 5, {}, {});
+    session.OnData("ABC");
+    session.OnData("\x1b[40C");  // cursor to column 43 on a 3-character line
+
+    DocLayout& layout = session.GetDocLayout();
+    const int cols      = layout.GetViewportCols();
+    const int cursorCol = (int)layout.GetCursorDocPos().col;
+    const int left      = layout.GetLeftCol();
+
+    REQUIRE(cursorCol == 43);
+    REQUIRE(cursorCol >= left);
+    REQUIRE(cursorCol - left <= cols - 1);   // still inside the viewport
+    REQUIRE(left == cursorCol - cols + 1);   // and no further right than it needs to be
 }
 
 TEST_CASE("given user manually scrolled right then viewport ignores cursor movement in both directions")
