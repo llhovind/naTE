@@ -737,7 +737,7 @@ TEST_CASE("given the cursor near the right edge then lookahead is kept over text
 
     DocLayout& layout = session.GetDocLayout();
     const int cols        = layout.GetViewportCols();  // 20
-    const int marginRight = 3;                         // mirrors the runtime constant
+    const int marginRight = 8;                         // mirrors the runtime constant
 
     SECTION("cursor at the line end — no blank gutter, cursor on the last column") {
         REQUIRE(layout.GetLeftCol() == 40 - cols + 1);
