@@ -156,6 +156,13 @@ private:
                   const term::fs::TransferEndpoint& destination,
                   const std::string& destinationDir);
 
+    // Retires the window's collaborators and reports it closed. Idempotent:
+    // wx reaches the end of a frame's life by two routes — the user closing it
+    // and its parent being destroyed — and only one of them can be relied on
+    // to arrive while this object is still whole. See the binding in the
+    // constructor for which is which.
+    void Teardown();
+
     void OnDestroy(wxWindowDestroyEvent&);
 
     term::session::SessionId       sessionId_;
@@ -210,6 +217,9 @@ private:
     // True once a transfer has landed somewhere, so the idle notification
     // knows whether a refresh is worth the round trip.
     bool destinationDirty_ = false;
+
+    // Set by the first Teardown, so the second route to it does nothing.
+    bool tornDown_ = false;
 };
 
 } // namespace ui
